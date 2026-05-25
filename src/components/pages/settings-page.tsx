@@ -2021,7 +2021,9 @@ function UsageRing({ label, used, limit, icon }: { label: string; used: number; 
 
 function PlanTab() {
   const { planData, plan, features, usage, isLoading } = usePlan()
-  const currentPlan = (plan?.type || 'free') as AccountType
+  // Safe: strip 'suspended:' prefix if somehow present, fallback to 'free'
+  const rawPlanType = plan?.type || 'free'
+  const currentPlan = (rawPlanType.startsWith('suspended:') ? rawPlanType.replace('suspended:', '') : rawPlanType) as AccountType
 
   if (isLoading) {
     return (
@@ -2124,7 +2126,7 @@ function PlanTab() {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-zinc-400">Tipe Plan</span>
-                <span className={`text-xs font-medium ${planAccent[currentPlan].text}`}>{getPlanLabel(currentPlan)}</span>
+                <span className={`text-xs font-medium ${planAccent[currentPlan]?.text || 'text-zinc-200'}`}>{getPlanLabel(currentPlan)}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-zinc-400">Status</span>
@@ -2135,7 +2137,7 @@ function PlanTab() {
               <div className="flex items-center justify-between">
                 <span className="text-xs text-zinc-400">Harga</span>
                 <span className="text-xs font-medium text-zinc-200">
-                  {PLAN_PRICING[currentPlan].price}{PLAN_PRICING[currentPlan].period && <span className="text-zinc-500 font-normal">{PLAN_PRICING[currentPlan].period}</span>}
+                  {PLAN_PRICING[currentPlan]?.price || '-'}{PLAN_PRICING[currentPlan]?.period && <span className="text-zinc-500 font-normal">{PLAN_PRICING[currentPlan].period}</span>}
                 </span>
               </div>
             </div>
