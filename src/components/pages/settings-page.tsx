@@ -2024,6 +2024,8 @@ function PlanTab() {
   // Normalize plan type — handle 'suspended:xxx' format by stripping prefix
   const rawPlanType = plan?.type || 'free'
   const currentPlan = (rawPlanType.startsWith('suspended:') ? rawPlanType.replace('suspended:', '') : rawPlanType) as AccountType
+  // Safety: ensure currentPlan is a valid AccountType
+  const safePlan: AccountType = ['free', 'pro', 'enterprise'].includes(currentPlan) ? currentPlan : 'free'
 
   if (isLoading) {
     return (
@@ -2126,7 +2128,7 @@ function PlanTab() {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-zinc-400">Tipe Plan</span>
-                <span className={`text-xs font-medium ${planAccent[currentPlan]?.text || 'text-zinc-400'}`}>{getPlanLabel(currentPlan)}</span>
+                <span className={`text-xs font-medium ${planAccent[safePlan]?.text || 'text-zinc-400'}`}>{getPlanLabel(safePlan)}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-zinc-400">Status</span>
@@ -2137,7 +2139,7 @@ function PlanTab() {
               <div className="flex items-center justify-between">
                 <span className="text-xs text-zinc-400">Harga</span>
                 <span className="text-xs font-medium text-zinc-200">
-                  {PLAN_PRICING[currentPlan]?.price || '-'}{PLAN_PRICING[currentPlan]?.period && <span className="text-zinc-500 font-normal">{PLAN_PRICING[currentPlan].period}</span>}
+                  {PLAN_PRICING[safePlan]?.price || '-'}{PLAN_PRICING[safePlan]?.period && <span className="text-zinc-500 font-normal">{PLAN_PRICING[safePlan].period}</span>}
                 </span>
               </div>
             </div>
@@ -2198,7 +2200,7 @@ function PlanTab() {
                         Unlimited produk, export Excel, API access, foto produk, dan banyak lagi.
                       </p>
                       <p className="text-xs font-semibold text-emerald-400 mt-1">
-                        {PLAN_PRICING.pro.price}<span className="text-emerald-400/60 font-normal">{PLAN_PRICING.pro.period}</span>
+                        {PLAN_PRICING.pro?.price}<span className="text-emerald-400/60 font-normal">{PLAN_PRICING.pro?.period}</span>
                       </p>
                     </div>
                     <div className="flex gap-2">
@@ -2238,7 +2240,7 @@ function PlanTab() {
                       Multi-outlet management untuk bisnis yang berkembang dengan kontrol penuh.
                     </p>
                     <p className="text-xs font-semibold text-amber-400 mt-1">
-                      {PLAN_PRICING.enterprise.price}<span className="text-amber-400/60 font-normal">{PLAN_PRICING.enterprise.period}</span>
+                      {PLAN_PRICING.enterprise?.price}<span className="text-amber-400/60 font-normal">{PLAN_PRICING.enterprise?.period}</span>
                     </p>
                   </div>
                   <Button
@@ -2317,7 +2319,7 @@ function PlanTab() {
                     {getPlanLabel(key)}
                   </Badge>
                   <div>
-                    <p className={`text-sm font-bold ${isCurrent ? accent.text : 'text-zinc-200'}`}>
+                    <p className={`text-sm font-bold ${isCurrent ? (accent?.text || 'text-zinc-200') : 'text-zinc-200'}`}>
                       {pricing.price}
                     </p>
                     {pricing.period && (
@@ -2410,8 +2412,8 @@ function PlanTab() {
                       <span className="text-[10px] text-emerald-400 font-medium">Plan Anda</span>
                     )}
                   </div>
-                  <p className={`text-sm font-bold ${isCurrentPlan ? accent.text : 'text-zinc-200'}`}>
-                    {PLAN_PRICING[key].price}{PLAN_PRICING[key].period && <span className="text-zinc-500 font-normal text-xs">{PLAN_PRICING[key].period}</span>}
+                  <p className={`text-sm font-bold ${isCurrentPlan ? (accent?.text || 'text-zinc-200') : 'text-zinc-200'}`}>
+                    {PLAN_PRICING[key]?.price || '-'}{PLAN_PRICING[key]?.period && <span className="text-zinc-500 font-normal text-xs">{PLAN_PRICING[key].period}</span>}
                   </p>
                   <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
                     {comparisonRows.map((row) => {
