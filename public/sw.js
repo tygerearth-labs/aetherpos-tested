@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 
-const CACHE_VERSION = 'aether-pos-v1';
+const CACHE_VERSION = 'aether-pos-v2';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const DYNAMIC_CACHE = `${CACHE_VERSION}-dynamic`;
 
@@ -51,6 +51,10 @@ self.addEventListener('fetch', (event) => {
 
   // Skip cross-origin requests (opaque responses cannot be cached safely)
   if (url.origin !== self.location.origin) return;
+
+  // CRITICAL: Never intercept plan API — must always get fresh data from server.
+  // This endpoint must bypass ALL caching (SW Cache API + HTTP cache).
+  if (url.pathname === '/api/outlet/plan') return;
 
   // Strategy 1: Cache-first for static assets (images, fonts, bundled JS/CSS)
   if (isStaticAsset(url)) {

@@ -1,9 +1,9 @@
 /**
  * usePlan.ts — Client-side Plan State Management
  *
- * This module re-exports the usePlan hook from PlanProvider.
- * The hook consumes plan data from a centralized React Context
- * (PlanProvider) instead of making independent fetch calls per page.
+ * Fetches the outlet's plan from the server on mount and
+ * periodically (every 60s) to detect remote changes from
+ * the Command Center.
  *
  * Usage:
  *   const { plan, features, usage, isSuspended, isLoading, refresh } = usePlan()
@@ -17,16 +17,136 @@
  *   }
  */
 
-export {
-  usePlan,
-  PlanProvider,
-  type PlanInfo,
-  type PlanUsage,
-  type PlanData,
-} from '@/components/shared/plan-provider'
-
+import { useState, useEffect, useCallback, useRef } from 'react'
 import type { PlanFeatures } from '@/lib/plan-config'
-import { getPlanFeatures } from '@/lib/plan-config'
+import { getPlanFeatures, isUnlimited } from '@/lib/plan-config'
+
+// ============================================================
+// Types
+// ============================================================
+
+export interface PlanInfo {
+  type: string
+  label: string
+  isSuspended: boolean
+}
+
+export interface PlanUsage {
+  products: number
+  categories: number
+  customers: number
+  crew: number
+  promos: number
+  transactions: number
+}
+
+export interface PlanData {
+  outletId: string
+  outletName: string
+  plan: PlanInfo
+  features: PlanFeatures
+  usage: PlanUsage
+  lastUpdated: string
+}
+
+interface UsePlanReturn {
+  /** Full plan data from server (null while loading) */
+  planData: PlanData | null
+  /** Current plan info */
+  plan: PlanInfo | null
+  /** Feature matrix for the current plan */
+  features: PlanFeatures | null
+  /** Current usage counts */
+  usage: PlanUsage | null
+  /** Whether the outlet is suspended by Command Center */
+  isSuspended: boolean
+  /** Loading state */
+  isLoading: boolean
+  /** Error message if fetch failed */
+  error: string | null
+  /** Manually refresh plan data */
+  refresh: () => Promise<void>
+}
+
+// ============================================================
+// Hook
+// ============================================================
+
+const POLL_INTERVAL = 60_000 // 60 seconds
+const POLL_ON_FOCUS = true
+
+export function usePlan(): UsePlanReturn {
+  const [planData, setPlanData] = useState<PlanData | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const hasFetchedOnce = useRef(false)
+
+  const fetchPlan = useCallback(async () => {
+    try {
+      // cache: 'no-store' + unique query param prevents caching at ALL levels:
+      // browser HTTP cache, Service Worker Cache API, CDN/proxy edge cache.
+      // Plan changes from Command Center must always be fresh.
+      const res = await fetch(`/api/outlet/plan?_=${Date.now()}`, {
+        cache: 'no-store',
+      })
+      if (!res.ok) {
+        // 401 = not logged in yet, silently ignore (don't spam console)
+        // 500 = server/DB error (e.g. no session or DB not initialized), also ignore
+        if (res.status === 401 || res.status === 500) return
+        throw new Error(`HTTP ${res.status}`)
+      }
+      const data = (await res.json()) as PlanData
+      setPlanData(data)
+      setError(null)
+      hasFetchedOnce.current = true
+    } catch (err) {
+      // Only show error on first fetch attempt (not on polling/focus retries)
+      if (!hasFetchedOnce.current) {
+        setError(err instanceof Error ? err.message : 'Unknown error')
+      }
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  // Initial fetch
+  useEffect(() => {
+    fetchPlan()
+  }, [fetchPlan])
+
+  // Polling interval
+  useEffect(() => {
+    intervalRef.current = setInterval(fetchPlan, POLL_INTERVAL)
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current)
+    }
+  }, [fetchPlan])
+
+  // Refetch on window focus (tab switch back)
+  useEffect(() => {
+    if (!POLL_ON_FOCUS) return
+
+    const onFocus = () => {
+      fetchPlan()
+    }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [fetchPlan])
+
+  const isSuspended = planData?.plan.isSuspended ?? false
+
+  return {
+    planData,
+    plan: planData?.plan ?? null,
+    features: planData?.features ?? null,
+    usage: planData?.usage ?? null,
+    isSuspended,
+    isLoading,
+    error,
+    refresh: fetchPlan,
+  }
+}
 
 // ============================================================
 // Feature Gate Helpers
@@ -71,7 +191,7 @@ export function useLimitCheck(
   }
 
   const limit = features[limitKey] as number
-  const unlimited = limit === -1
+  const unlimited = isUnlimited(limit)
 
   return {
     isLimitReached: !unlimited && currentCount >= limit,
@@ -91,9 +211,4 @@ export function hasFeature(accountType: string, feature: keyof PlanFeatures): bo
   if (typeof value === 'boolean') return value
   if (Array.isArray(value)) return value.length > 0
   return true
-}
-
-/** Check if a numeric limit is effectively unlimited */
-export function isUnlimited(value: number): boolean {
-  return value === -1
 }

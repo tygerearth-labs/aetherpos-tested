@@ -3,7 +3,6 @@
 import { SessionProvider, useSession } from 'next-auth/react'
 import { usePageStore } from '@/hooks/use-page-store'
 import { useSidebarStore } from '@/components/layout/sidebar'
-import { PlanProvider } from '@/components/shared/plan-provider'
 import Sidebar from '@/components/layout/sidebar'
 import MobileBottomNav from '@/components/layout/mobile-bottom-nav'
 import AuthView from '@/components/auth/auth-view'
@@ -66,7 +65,6 @@ function AppContent() {
   }
 
   return (
-    <PlanProvider>
     <div className="min-h-screen bg-zinc-950 overflow-x-hidden">
       <Sidebar />
       <MobileBottomNav />
@@ -87,7 +85,6 @@ function AppContent() {
         </div>
       </main>
     </div>
-    </PlanProvider>
   )
 }
 

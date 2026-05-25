@@ -2020,19 +2020,8 @@ function UsageRing({ label, used, limit, icon }: { label: string; used: number; 
 }
 
 function PlanTab() {
-  const { planData, plan, features, usage, isLoading, refresh } = usePlan()
-  const [refreshing, setRefreshing] = useState(false)
-  // Normalize plan type — handle 'suspended:xxx' format by stripping prefix
-  const rawPlanType = plan?.type || 'free'
-  const currentPlan = (rawPlanType.startsWith('suspended:') ? rawPlanType.replace('suspended:', '') : rawPlanType) as AccountType
-  // Safety: ensure currentPlan is a valid AccountType
-  const safePlan: AccountType = ['free', 'pro', 'enterprise'].includes(currentPlan) ? currentPlan : 'free'
-
-  const handleRefresh = async () => {
-    setRefreshing(true)
-    await refresh()
-    setTimeout(() => setRefreshing(false), 1000)
-  }
+  const { planData, plan, features, usage, isLoading } = usePlan()
+  const currentPlan = (plan?.type || 'free') as AccountType
 
   if (isLoading) {
     return (
@@ -2104,16 +2093,6 @@ function PlanTab() {
               <p className="text-xs text-zinc-400 mt-0.5">Informasi paket langganan outlet Anda</p>
             </div>
             <div className="flex items-center gap-2">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={handleRefresh}
-                disabled={refreshing}
-                className="h-7 w-7 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800"
-                title="Refresh plan"
-              >
-                <Loader2 className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-              </Button>
               {plan?.isSuspended ? (
                 <Badge className="bg-red-500/10 border-red-500/20 text-red-400 text-xs font-semibold px-2.5 py-1">
                   <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-400 mr-1.5" />
@@ -2145,7 +2124,7 @@ function PlanTab() {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-zinc-400">Tipe Plan</span>
-                <span className={`text-xs font-medium ${planAccent[safePlan]?.text || 'text-zinc-400'}`}>{getPlanLabel(safePlan)}</span>
+                <span className={`text-xs font-medium ${planAccent[currentPlan].text}`}>{getPlanLabel(currentPlan)}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-zinc-400">Status</span>
@@ -2156,7 +2135,7 @@ function PlanTab() {
               <div className="flex items-center justify-between">
                 <span className="text-xs text-zinc-400">Harga</span>
                 <span className="text-xs font-medium text-zinc-200">
-                  {PLAN_PRICING[safePlan]?.price || '-'}{PLAN_PRICING[safePlan]?.period && <span className="text-zinc-500 font-normal">{PLAN_PRICING[safePlan].period}</span>}
+                  {PLAN_PRICING[currentPlan].price}{PLAN_PRICING[currentPlan].period && <span className="text-zinc-500 font-normal">{PLAN_PRICING[currentPlan].period}</span>}
                 </span>
               </div>
             </div>
@@ -2217,7 +2196,7 @@ function PlanTab() {
                         Unlimited produk, export Excel, API access, foto produk, dan banyak lagi.
                       </p>
                       <p className="text-xs font-semibold text-emerald-400 mt-1">
-                        {PLAN_PRICING.pro?.price}<span className="text-emerald-400/60 font-normal">{PLAN_PRICING.pro?.period}</span>
+                        {PLAN_PRICING.pro.price}<span className="text-emerald-400/60 font-normal">{PLAN_PRICING.pro.period}</span>
                       </p>
                     </div>
                     <div className="flex gap-2">
@@ -2257,7 +2236,7 @@ function PlanTab() {
                       Multi-outlet management untuk bisnis yang berkembang dengan kontrol penuh.
                     </p>
                     <p className="text-xs font-semibold text-amber-400 mt-1">
-                      {PLAN_PRICING.enterprise?.price}<span className="text-amber-400/60 font-normal">{PLAN_PRICING.enterprise?.period}</span>
+                      {PLAN_PRICING.enterprise.price}<span className="text-amber-400/60 font-normal">{PLAN_PRICING.enterprise.period}</span>
                     </p>
                   </div>
                   <Button
@@ -2336,7 +2315,7 @@ function PlanTab() {
                     {getPlanLabel(key)}
                   </Badge>
                   <div>
-                    <p className={`text-sm font-bold ${isCurrent ? (accent?.text || 'text-zinc-200') : 'text-zinc-200'}`}>
+                    <p className={`text-sm font-bold ${isCurrent ? accent.text : 'text-zinc-200'}`}>
                       {pricing.price}
                     </p>
                     {pricing.period && (
@@ -2429,8 +2408,8 @@ function PlanTab() {
                       <span className="text-[10px] text-emerald-400 font-medium">Plan Anda</span>
                     )}
                   </div>
-                  <p className={`text-sm font-bold ${isCurrentPlan ? (accent?.text || 'text-zinc-200') : 'text-zinc-200'}`}>
-                    {PLAN_PRICING[key]?.price || '-'}{PLAN_PRICING[key]?.period && <span className="text-zinc-500 font-normal text-xs">{PLAN_PRICING[key].period}</span>}
+                  <p className={`text-sm font-bold ${isCurrentPlan ? accent.text : 'text-zinc-200'}`}>
+                    {PLAN_PRICING[key].price}{PLAN_PRICING[key].period && <span className="text-zinc-500 font-normal text-xs">{PLAN_PRICING[key].period}</span>}
                   </p>
                   <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
                     {comparisonRows.map((row) => {

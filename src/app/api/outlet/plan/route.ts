@@ -5,7 +5,7 @@ import { db } from '@/lib/db'
 import { getPlanFeatures, getPlanLabel } from '@/lib/plan-config'
 import { safeJsonError } from '@/lib/safe-response'
 
-// Force dynamic — never cache this route (plan changes from webmaster must reflect immediately)
+// Force dynamic — never cache this route (plan changes from Command Center must reflect immediately)
 export const dynamic = 'force-dynamic'
 
 /**
