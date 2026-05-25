@@ -40,10 +40,13 @@ self.addEventListener('activate', (event) => {
 // Fetch event — route requests through appropriate caching strategy
 self.addEventListener('fetch', (event) => {
   const { request } = event;
-  const url = new URL(request.url);
 
   // Only handle GET requests
   if (request.method !== 'GET') return;
+
+  // Only handle http/https schemes — ignore chrome-extension, blob, data, etc.
+  const url = new URL(request.url);
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
 
   // Strategy 1: Cache-first for static assets (images, fonts, bundled JS/CSS)
   if (isStaticAsset(url)) {
@@ -71,7 +74,7 @@ async function cacheFirst(request, cacheName) {
 
   try {
     const response = await fetch(request);
-    if (response.ok) {
+    if (response.ok && response.type === 'basic') {
       const cache = await caches.open(cacheName);
       cache.put(request, response.clone());
     }
@@ -92,7 +95,7 @@ async function cacheFirst(request, cacheName) {
 async function networkFirst(request, cacheName) {
   try {
     const response = await fetch(request);
-    if (response.ok) {
+    if (response.ok && response.type === 'basic') {
       const cache = await caches.open(cacheName);
       cache.put(request, response.clone());
     }
@@ -122,7 +125,7 @@ async function staleWhileRevalidate(request, cacheName) {
   // Fetch in background to update cache
   const fetchPromise = fetch(request)
     .then((response) => {
-      if (response.ok) {
+      if (response.ok && response.type === 'basic') {
         cache.put(request, response.clone());
       }
       return response;
