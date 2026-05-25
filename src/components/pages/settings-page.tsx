@@ -2020,12 +2020,19 @@ function UsageRing({ label, used, limit, icon }: { label: string; used: number; 
 }
 
 function PlanTab() {
-  const { planData, plan, features, usage, isLoading } = usePlan()
+  const { planData, plan, features, usage, isLoading, refresh } = usePlan()
+  const [refreshing, setRefreshing] = useState(false)
   // Normalize plan type — handle 'suspended:xxx' format by stripping prefix
   const rawPlanType = plan?.type || 'free'
   const currentPlan = (rawPlanType.startsWith('suspended:') ? rawPlanType.replace('suspended:', '') : rawPlanType) as AccountType
   // Safety: ensure currentPlan is a valid AccountType
   const safePlan: AccountType = ['free', 'pro', 'enterprise'].includes(currentPlan) ? currentPlan : 'free'
+
+  const handleRefresh = async () => {
+    setRefreshing(true)
+    await refresh()
+    setTimeout(() => setRefreshing(false), 1000)
+  }
 
   if (isLoading) {
     return (
@@ -2097,6 +2104,16 @@ function PlanTab() {
               <p className="text-xs text-zinc-400 mt-0.5">Informasi paket langganan outlet Anda</p>
             </div>
             <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleRefresh}
+                disabled={refreshing}
+                className="h-7 w-7 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800"
+                title="Refresh plan"
+              >
+                <Loader2 className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+              </Button>
               {plan?.isSuspended ? (
                 <Badge className="bg-red-500/10 border-red-500/20 text-red-400 text-xs font-semibold px-2.5 py-1">
                   <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-400 mr-1.5" />

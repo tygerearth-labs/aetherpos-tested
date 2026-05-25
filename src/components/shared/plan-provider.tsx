@@ -80,7 +80,9 @@ export function PlanProvider({ children }: { children: ReactNode }) {
 
   const fetchPlan = useCallback(async () => {
     try {
-      const res = await fetch('/api/outlet/plan')
+      // cache: 'no-store' ensures no browser/Service-Worker caching — plan changes from
+      // webmaster must always be fresh
+      const res = await fetch('/api/outlet/plan', { cache: 'no-store' })
       if (!res.ok) {
         // 401 = not logged in yet, silently ignore
         // 500 = server/DB error, silently ignore
