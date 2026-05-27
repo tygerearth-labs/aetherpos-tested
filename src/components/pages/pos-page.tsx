@@ -1797,7 +1797,7 @@ export default function PosPage() {
       </div>
 
       {/* Desktop Layout */}
-      <div className="hidden md:grid md:grid-cols-5 gap-4 flex-1 min-h-0">
+      <div className="hidden md:grid md:grid-cols-5 gap-3 flex-1 min-h-0">
         {/* Products - Left */}
         <div className="md:col-span-3 flex flex-col min-h-0">
           {/* Search */}
@@ -1829,10 +1829,10 @@ export default function PosPage() {
 
         {/* Cart - Right */}
         <div className="md:col-span-2 flex flex-col h-full bg-zinc-900/80 border border-zinc-800 rounded-2xl overflow-hidden shadow-xl shadow-black/10">
-          <div className="py-3 px-4 border-b border-zinc-800 bg-zinc-900 shrink-0">
+          <div className="py-2.5 px-3 border-b border-zinc-800 bg-zinc-900 shrink-0">
             <h2 className="text-xs font-bold text-zinc-300 flex items-center gap-2">
-              <div className="w-6 h-6 rounded-lg bg-emerald-500/20 flex items-center justify-center">
-                <ShoppingCart className="h-3.5 w-3.5 text-emerald-400" />
+              <div className="w-5 h-5 rounded-md bg-emerald-500/20 flex items-center justify-center">
+                <ShoppingCart className="h-3 w-3 text-emerald-400" />
               </div>
               Keranjang
               {cart.length > 0 && (
@@ -1845,7 +1845,7 @@ export default function PosPage() {
           <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
             {renderCustomerSelector(false)}
 
-            <div className="px-4 py-2">
+            <div className="px-3 py-2">
             {cart.length === 0 ? (
               <div className="text-center py-12">
                 <div className="w-16 h-16 rounded-2xl bg-zinc-800 flex items-center justify-center mx-auto mb-3">
@@ -1855,22 +1855,21 @@ export default function PosPage() {
                 <p className="text-zinc-600 text-[10px] mt-0.5">Pilih produk untuk memulai</p>
               </div>
             ) : (
-              <div className="space-y-1.5">
+              <div className="space-y-1">
                 {cart.map((item) => {
                   const itemKey = getCartKey(item.product.id, item.variant?.id || null)
                   return (
-                  <div key={itemKey} className="flex items-center gap-2 p-2 rounded-xl bg-zinc-800/50 border border-zinc-800/50 min-w-0">
+                  <div key={itemKey} className="flex items-center gap-1.5 p-1.5 rounded-lg bg-zinc-800/50 border border-zinc-800/50">
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-zinc-200 truncate">{item.product.name}</p>
+                      <p className="text-[11px] font-medium text-zinc-200 truncate">{item.product.name}</p>
                       {item.variant && (
-                        <p className="text-[10px] text-violet-400 font-medium truncate">{item.variant.name}</p>
+                        <p className="text-[10px] text-violet-400 font-medium truncate leading-tight">{item.variant.name}</p>
                       )}
-                      <p className="text-[11px] text-zinc-500">{formatCurrency(getItemPrice(item))} × {item.qty}</p>
-                      <p className="text-xs text-emerald-400 font-bold mt-0.5">{formatCurrency(getItemPrice(item) * item.qty)}</p>
+                      <p className="text-[10px] text-zinc-500 leading-tight">{formatCurrency(getItemPrice(item))} × {item.qty} <span className="text-emerald-400 font-semibold">{formatCurrency(getItemPrice(item) * item.qty)}</span></p>
                     </div>
-                    <div className="flex items-center gap-0.5 shrink-0">
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-zinc-500 hover:text-zinc-100 hover:bg-zinc-700 rounded-md"
-                        onClick={() => updateQty(item.product.id, item.qty - 1, item.variant?.id)}><Minus className="h-3.5 w-3.5" /></Button>
+                    <div className="flex items-center gap-0 shrink-0">
+                      <Button variant="ghost" size="icon" className="h-6 w-6 text-zinc-500 hover:text-zinc-100 hover:bg-zinc-700 rounded"
+                        onClick={() => updateQty(item.product.id, item.qty - 1, item.variant?.id)}><Minus className="h-2.5 w-2.5" /></Button>
                       {editingQtyId === itemKey ? (
                         <input
                           ref={qtyInputRef}
@@ -1881,19 +1880,19 @@ export default function PosPage() {
                           onChange={(e) => setEditingQtyValue(e.target.value)}
                           onBlur={confirmEditQty}
                           onKeyDown={(e) => { if (e.key === 'Enter') confirmEditQty(); if (e.key === 'Escape') cancelEditQty() }}
-                          className="text-xs text-zinc-200 w-10 text-center font-bold bg-zinc-700 border border-zinc-600 rounded-md h-8 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          className="text-[11px] text-zinc-200 w-7 text-center font-bold bg-zinc-700 border border-zinc-600 rounded h-6 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                         />
                       ) : (
                         <span
-                          className="text-xs text-zinc-200 w-6 text-center font-bold cursor-pointer hover:text-emerald-400 transition-colors"
+                          className="text-[11px] text-zinc-200 w-5 text-center font-bold cursor-pointer hover:text-emerald-400 transition-colors"
                           onClick={() => startEditQty(itemKey, item.qty)}
                           title="Klik untuk edit qty"
                         >{item.qty}</span>
                       )}
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-zinc-500 hover:text-zinc-100 hover:bg-zinc-700 rounded-md"
-                        onClick={() => updateQty(item.product.id, item.qty + 1, item.variant?.id)}><Plus className="h-3.5 w-3.5" /></Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-zinc-600 hover:text-red-400 hover:bg-red-500/10 rounded-md ml-0.5"
-                        onClick={() => removeFromCart(item.product.id, item.variant?.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                      <Button variant="ghost" size="icon" className="h-6 w-6 text-zinc-500 hover:text-zinc-100 hover:bg-zinc-700 rounded"
+                        onClick={() => updateQty(item.product.id, item.qty + 1, item.variant?.id)}><Plus className="h-2.5 w-2.5" /></Button>
+                      <Button variant="ghost" size="icon" className="h-6 w-6 text-zinc-600 hover:text-red-400 hover:bg-red-500/10 rounded"
+                        onClick={() => removeFromCart(item.product.id, item.variant?.id)}><Trash2 className="h-2.5 w-2.5" /></Button>
                     </div>
                   </div>
                   )
@@ -1904,8 +1903,8 @@ export default function PosPage() {
           </div>
 
           {/* Summary & Payment — fixed bottom, scrollable if tall */}
-          <div className="shrink-0 border-t border-zinc-800 bg-zinc-900 overflow-y-auto overscroll-contain max-h-[45%]">
-            <div className="p-4 space-y-3">
+          <div className="shrink-0 border-t border-zinc-800 bg-zinc-900 overflow-y-auto overscroll-contain max-h-[40%]">
+            <div className="p-3 space-y-2">
             <div className="space-y-1 text-xs">
               <div className="flex justify-between text-zinc-400"><span>Subtotal</span><span className="text-zinc-200">{formatCurrency(subtotal)}</span></div>
               {settings.loyaltyEnabled && selectedCustomer && maxPointsToUse > 0 && (

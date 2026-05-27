@@ -44,7 +44,7 @@ export async function GET(
     const { limit, skip } = parsePagination(request.nextUrl.searchParams)
 
     // Fetch summary stats and movement logs in parallel
-    const [auditLogs, variantAuditLogs, totalLogs, totalSoldResult, lastRestockLog] =
+    const [auditLogs, variantAuditLogs, productVariantAuditLogs, totalLogs, totalSoldResult, lastRestockLog] =
       await Promise.all([
         // Audit logs for this product (restock, create, update, sale, adjustments)
         db.auditLog.findMany({
@@ -60,11 +60,27 @@ export async function GET(
           },
           orderBy: { createdAt: 'desc' },
         }),
-        // Audit logs for variants (if product has variants)
+        // Audit logs for variants (if product has variants) — VARIANT type
         variantIds.length > 0
           ? db.auditLog.findMany({
               where: {
                 entityType: 'VARIANT',
+                entityId: { in: variantIds },
+                outletId,
+              },
+              include: {
+                user: {
+                  select: { id: true, name: true, email: true, role: true },
+                },
+              },
+              orderBy: { createdAt: 'desc' },
+            })
+          : Promise.resolve([]),
+        // Audit logs for variants — PRODUCT_VARIANT type (from bulk updates)
+        variantIds.length > 0
+          ? db.auditLog.findMany({
+              where: {
+                entityType: 'PRODUCT_VARIANT',
                 entityId: { in: variantIds },
                 outletId,
               },
@@ -88,20 +104,22 @@ export async function GET(
           where: { productId: id },
           _sum: { qty: true, subtotal: true },
         }),
-        // Last RESTOCK log date for stock aging
+        // Last RESTOCK log date for stock aging (check both PRODUCT and variant types)
         db.auditLog.findFirst({
           where: {
-            entityId: id,
-            entityType: 'PRODUCT',
-            action: 'RESTOCK',
-            outletId,
+            OR: [
+              { entityId: id, entityType: 'PRODUCT', action: 'RESTOCK', outletId },
+              ...(variantIds.length > 0
+                ? [{ entityId: { in: variantIds }, entityType: 'PRODUCT_VARIANT', action: 'BULK_UPDATE', outletId }]
+                : []),
+            ],
           },
           orderBy: { createdAt: 'desc' },
           select: { createdAt: true },
         }),
       ])
 
-    // Get restock total via aggregate instead of fetching all logs
+    // Get restock total via aggregate — include both direct RESTOCK and bulk stock updates
     const restockTotalResult = await db.auditLog.aggregate({
       where: {
         entityId: id,
@@ -132,13 +150,29 @@ export async function GET(
       }
     }
 
-    // Also count variant audit logs for total
+    // Include bulk stock additions from variant audit logs (PRODUCT_VARIANT type)
+    if (productVariantAuditLogs.length > 0) {
+      for (const log of productVariantAuditLogs) {
+        try {
+          const details = JSON.parse(log.details || '{}')
+          if (details.stock && typeof details.stock === 'object' && details.stock.from !== undefined && details.stock.to !== undefined) {
+            const diff = Number(details.stock.to) - Number(details.stock.from)
+            if (diff > 0) totalRestocked += diff
+          }
+        } catch {
+          // Skip malformed details
+        }
+      }
+    }
+
+    // Also count variant audit logs for total (both VARIANT and PRODUCT_VARIANT types)
     const variantTotalLogs = variantIds.length > 0
       ? await db.auditLog.count({
           where: {
-            entityType: 'VARIANT',
-            entityId: { in: variantIds },
-            outletId,
+            OR: [
+              { entityType: 'VARIANT', entityId: { in: variantIds }, outletId },
+              { entityType: 'PRODUCT_VARIANT', entityId: { in: variantIds }, outletId },
+            ],
           },
         })
       : 0
@@ -147,10 +181,11 @@ export async function GET(
     const totalSold = totalSoldResult._sum.qty || 0
     const revenue = totalSoldResult._sum.subtotal || 0
 
-    // Merge product and variant audit logs, sort by date desc, apply pagination
+    // Merge product, variant, and product variant audit logs, sort by date desc, apply pagination
     const allLogs = [
       ...auditLogs,
       ...variantAuditLogs,
+      ...productVariantAuditLogs,
     ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
 
     // Build movement entries from merged audit logs

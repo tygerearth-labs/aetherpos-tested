@@ -207,7 +207,11 @@ function getColorDotClasses(color: string): string {
   return map[color] || 'bg-zinc-400'
 }
 
-function getActionBadge(action: string) {
+function getActionBadge(action: string, details?: Record<string, unknown>) {
+  // Show restock badge for stock-related bulk updates
+  if (action === 'BULK_UPDATE' && details?.stock) {
+    return <Badge className="bg-emerald-500/10 border-emerald-500/20 text-emerald-400 text-[10px]">Restock</Badge>
+  }
   switch (action) {
     case 'CREATE':
       return <Badge className="bg-blue-500/10 border-blue-500/20 text-blue-400 text-[10px]">Create</Badge>
@@ -231,6 +235,8 @@ function getActionBadge(action: string) {
 function getActionDescription(action: string, details: Record<string, unknown>): string {
   const variantName = details.variantName as string | undefined
   const variantLabel = variantName ? ` [${variantName}]` : ''
+  const parentName = details.parentProductName as string | undefined
+  const parentLabel = parentName ? ` (${parentName})` : ''
 
   switch (action) {
     case 'CREATE':
@@ -243,6 +249,16 @@ function getActionDescription(action: string, details: Record<string, unknown>):
       if (details.variantCount !== undefined) {
         return `Product updated — ${Number(details.variantCount)} variant(s)`
       }
+      if (details.changes && typeof details.changes === 'object') {
+        const changes = details.changes as Record<string, { from: unknown; to: unknown }>
+        const parts: string[] = []
+        if (changes.stock) {
+          const diff = Number(changes.stock.to) - Number(changes.stock.from)
+          parts.push(`Stock: ${formatNumber(Number(changes.stock.from))} → ${formatNumber(Number(changes.stock.to))} (${diff >= 0 ? '+' : ''}${formatNumber(diff)})`)
+        }
+        if (changes.price) parts.push(`Price: ${formatCurrency(Number(changes.price.from))} → ${formatCurrency(Number(changes.price.to))}`)
+        if (parts.length > 0) return parts.join(', ')
+      }
       if (variantName) {
         return `Variant "${variantName}" updated`
       }
@@ -252,13 +268,26 @@ function getActionDescription(action: string, details: Record<string, unknown>):
     case 'ADJUSTMENT':
       return `Stock adjusted${variantLabel} — ${details.reason || 'No reason'}`
     case 'BULK_UPDATE':
+      if (details.stock && typeof details.stock === 'object') {
+        const stock = details.stock as { from: number; to: number }
+        const diff = stock.to - stock.from
+        return `Bulk stock: ${formatNumber(stock.from)} → ${formatNumber(stock.to)} (${diff >= 0 ? '+' : ''}${formatNumber(diff)})${parentLabel}`
+      }
+      if (details.price && typeof details.price === 'object') {
+        const price = details.price as { from: number; to: number }
+        return `Bulk price: ${formatCurrency(price.from)} → ${formatCurrency(price.to)}${parentLabel}`
+      }
       return 'Bulk update applied'
     default:
       return 'Action performed'
   }
 }
 
-function getActionRowBg(action: string): string {
+function getActionRowBg(action: string, details?: Record<string, unknown>): string {
+  // Stock-related bulk updates get restock color
+  if (action === 'BULK_UPDATE' && details?.stock) {
+    return 'bg-emerald-500/5 rounded'
+  }
   switch (action) {
     case 'RESTOCK':
       return 'bg-emerald-500/5 rounded'
@@ -491,9 +520,7 @@ export default function ProductsPage() {
         toast.success(`Restocked ${restockProduct.name} +${restockQty}`)
         fetchProducts()
         if (detailOpen && detailProduct?.id === restockProduct.id) {
-          setDetailPage(1)
-          setMovementFilter('all')
-          fetchDetail({ ...restockProduct, stock: restockProduct.stock + Number(restockQty) }, 1)
+          fetchDetail({ ...restockProduct, stock: restockProduct.stock + Number(restockQty) }, detailPage)
         }
       } else {
         toast.error('Failed to restock')
@@ -813,14 +840,18 @@ export default function ProductsPage() {
     setDeleteCategoryProductCount(cat._count?.products || 0)
   }
 
-  // Filtered movements
+  // Filtered movements — include stock-related BULK_UPDATE in restock filter
   const filteredMovements = useMemo(() => {
     if (!detailData) return []
     return detailData.movements.filter((m) => {
       if (movementFilter === 'all') return true
-      if (movementFilter === 'restock') return m.action === 'RESTOCK'
+      if (movementFilter === 'restock') {
+        if (m.action === 'RESTOCK') return true
+        if (m.action === 'BULK_UPDATE' && m.details?.stock) return true
+        return false
+      }
       if (movementFilter === 'sale') return m.action === 'SALE'
-      if (movementFilter === 'adjustment') return m.action === 'ADJUSTMENT' || m.action === 'BULK_UPDATE'
+      if (movementFilter === 'adjustment') return m.action === 'ADJUSTMENT'
       return true
     })
   }, [detailData, movementFilter])
@@ -2571,9 +2602,9 @@ export default function ProductsPage() {
                             {filteredMovements.map((log, idx) => (
                               <div key={log.id}>
                                 {idx > 0 && <Separator className="bg-zinc-800 my-1.5" />}
-                                <div className={`flex items-start gap-2 py-2 px-2 ${getActionRowBg(log.action)}`}>
+                                <div className={`flex items-start gap-2 py-2 px-2 ${getActionRowBg(log.action, log.details)}`}>
                                   <div className="flex-shrink-0 pt-0.5">
-                                    {getActionBadge(log.action)}
+                                    {getActionBadge(log.action, log.details)}
                                   </div>
                                   <div className="flex-1 min-w-0 space-y-0.5">
                                     <p className="text-xs text-zinc-200">
@@ -2585,7 +2616,7 @@ export default function ProductsPage() {
                                         {log.user?.name || log.user?.email || 'System'}
                                       </span>
                                       <span>{formatDate(log.createdAt)}</span>
-                                      {log.entityType === 'VARIANT' && (
+                                      {(log.entityType === 'VARIANT' || log.entityType === 'PRODUCT_VARIANT') && (
                                         <span className="inline-flex items-center gap-0.5 text-[10px] px-1 py-0.5 rounded bg-violet-500/10 text-violet-400 border border-violet-500/20">
                                           <Layers className="h-2 w-2" />
                                           Variant
