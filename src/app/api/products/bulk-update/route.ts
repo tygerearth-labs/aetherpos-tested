@@ -80,12 +80,6 @@ export async function POST(request: NextRequest) {
       return safeJsonError('No valid products found', 404)
     }
 
-    // Determine the stock audit action based on adjustment type
-    const getStockAction = (type: string): string => {
-      if (type === 'add') return 'RESTOCK'
-      return 'ADJUSTMENT'
-    }
-
     // Process each product in a transaction
     let updatedCount = 0
     const auditLogs: Array<{
@@ -151,15 +145,14 @@ export async function POST(request: NextRequest) {
 
         // Propagate adjustments to variants if the product has them
         if (product.hasVariants) {
-          // Fetch variant names for proper logging
-          const allVariants = await tx.productVariant.findMany({
-            where: { productId: product.id },
-            select: { id: true, name: true, price: true, stock: true },
-          })
-
           // Price adjustment for variants
           if (priceAdjustment) {
-            for (const variant of allVariants) {
+            const variants = await tx.productVariant.findMany({
+              where: { productId: product.id },
+              select: { id: true, price: true },
+            })
+
+            for (const variant of variants) {
               const { type, value } = priceAdjustment
               let variantNewPrice: number
 
@@ -177,10 +170,9 @@ export async function POST(request: NextRequest) {
 
               auditLogs.push({
                 action: 'BULK_UPDATE',
-                entityType: 'VARIANT',
+                entityType: 'PRODUCT_VARIANT',
                 entityId: variant.id,
                 details: JSON.stringify({
-                  variantName: variant.name,
                   parentProductName: product.name,
                   parentId: product.id,
                   price: { from: variant.price, to: variantNewPrice },
@@ -194,10 +186,12 @@ export async function POST(request: NextRequest) {
 
           // Stock adjustment for variants
           if (stockAdjustment) {
-            const stockAction = getStockAction(stockAdjustment.type)
-            const isRestock = stockAction === 'RESTOCK'
+            const variants = await tx.productVariant.findMany({
+              where: { productId: product.id },
+              select: { id: true, stock: true },
+            })
 
-            for (const variant of allVariants) {
+            for (const variant of variants) {
               const { type, value } = stockAdjustment
               let variantNewStock: number
 
@@ -214,25 +208,14 @@ export async function POST(request: NextRequest) {
                 data: { stock: variantNewStock },
               })
 
-              // Use RESTOCK action for 'add' so it shows in restock history
               auditLogs.push({
-                action: stockAction,
-                entityType: 'VARIANT',
+                action: 'BULK_UPDATE',
+                entityType: 'PRODUCT_VARIANT',
                 entityId: variant.id,
                 details: JSON.stringify({
-                  variantName: variant.name,
                   parentProductName: product.name,
                   parentId: product.id,
-                  ...(isRestock
-                    ? {
-                        quantityAdded: Math.round(value),
-                        previousStock: variant.stock,
-                        newStock: variantNewStock,
-                      }
-                    : {
-                        stock: { from: variant.stock, to: variantNewStock },
-                        reason: `Bulk ${type === 'subtract' ? 'pengurangan' : 'pengaturan'} stok`,
-                      }),
+                  stock: { from: variant.stock, to: variantNewStock },
                   batchOperation: true,
                 }),
                 outletId,
@@ -242,45 +225,15 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // Create product-level audit log
-        // If only stock adjustment with 'add' type, use RESTOCK action
-        let productAction = 'BULK_UPDATE'
-        let productDetails: Record<string, unknown> = {
-          productName: product.name,
-          changes,
-          batchOperation: true,
-        }
-
-        if (stockAdjustment && !priceAdjustment && categoryId === undefined) {
-          productAction = getStockAction(stockAdjustment.type)
-          if (productAction === 'RESTOCK') {
-            productDetails = {
-              productName: product.name,
-              quantityAdded: Math.round(stockAdjustment.value),
-              previousStock: product.stock,
-              newStock: product.stock + Math.round(stockAdjustment.value),
-              batchOperation: true,
-            }
-          } else {
-            productDetails = {
-              productName: product.name,
-              stock: { from: product.stock, to: changes.stock.to },
-              reason: `Bulk ${stockAdjustment.type === 'subtract' ? 'pengurangan' : 'pengaturan'} stok`,
-              batchOperation: true,
-            }
-          }
-        } else if (priceAdjustment && !stockAdjustment && categoryId === undefined) {
-          productAction = 'BULK_UPDATE'
-        } else {
-          // Mixed adjustments
-          productAction = 'BULK_UPDATE'
-        }
-
         auditLogs.push({
-          action: productAction,
+          action: 'BULK_UPDATE',
           entityType: 'PRODUCT',
           entityId: product.id,
-          details: JSON.stringify(productDetails),
+          details: JSON.stringify({
+            productName: product.name,
+            changes,
+            batchOperation: true,
+          }),
           outletId,
           userId,
         })

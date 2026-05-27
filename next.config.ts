@@ -17,22 +17,13 @@ const nextConfig: NextConfig = {
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
           { key: 'X-XSS-Protection', value: '1; mode=block' },
-          { key: 'Service-Worker-Allowed', value: '/' },
         ],
       },
       {
-        // Service worker — allow script execution
-        source: '/sw.js',
-        headers: [
-          { key: 'Cache-Control', value: 'no-cache, no-store, must-revalidate' },
-          { key: 'Content-Type', value: 'application/javascript; charset=utf-8' },
-        ],
-      },
-      {
-        // API routes — stricter CSP with worker-src for service worker
+        // API routes — stricter CSP
         source: '/api/(.*)',
         headers: [
-          { key: 'Content-Security-Policy', value: "default-src 'self'; worker-src 'self' blob:" },
+          { key: 'Content-Security-Policy', value: "default-src 'self'" },
         ],
       },
     ];

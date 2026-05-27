@@ -9,7 +9,6 @@ export const authOptions: NextAuthOptions = {
   useSecureCookies: !!process.env.NEXTAUTH_URL?.startsWith('https'),
   providers: [
     Credentials({
-      id: 'credentials',
       name: 'Credentials',
       credentials: {
         email: { label: 'Email', type: 'email' },
@@ -44,44 +43,6 @@ export const authOptions: NextAuthOptions = {
           email: user.email,
           role: user.role,
           outletId: user.outletId,
-        };
-      },
-    }),
-    Credentials({
-      id: 'webmaster-credentials',
-      name: 'Webmaster Credentials',
-      credentials: {
-        email: { label: 'Email', type: 'email' },
-        password: { label: 'Password', type: 'password' },
-      },
-      async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) {
-          throw new Error('Email and password are required');
-        }
-
-        const webmaster = await db.webmaster.findUnique({
-          where: { email: credentials.email },
-        });
-
-        if (!webmaster) {
-          throw new Error('No webmaster found with this email');
-        }
-
-        const isPasswordValid = await bcrypt.compare(
-          credentials.password,
-          webmaster.password
-        );
-
-        if (!isPasswordValid) {
-          throw new Error('Invalid password');
-        }
-
-        return {
-          id: webmaster.id,
-          name: webmaster.name,
-          email: webmaster.email,
-          role: 'WEBMASTER',
-          outletId: '__webmaster__',
         };
       },
     }),

@@ -3,10 +3,7 @@ import { resolvePlanType } from '@/lib/api-helpers'
 import { requireAuth } from '@/lib/auth-utils'
 import { db } from '@/lib/db'
 import { getPlanFeatures, getPlanLabel } from '@/lib/plan-config'
-import { safeJsonError } from '@/lib/safe-response'
-
-// Force dynamic — never cache this route (plan changes from Command Center must reflect immediately)
-export const dynamic = 'force-dynamic'
+import { safeJson, safeJsonError } from '@/lib/safe-response'
 
 /**
  * GET /api/outlet/plan
@@ -65,7 +62,7 @@ export async function GET(request: NextRequest) {
       transactions: outlet._count.transactions,
     }
 
-    const body = JSON.stringify({
+    return safeJson({
       outletId: outlet.id,
       outletName: outlet.name,
       plan: {
@@ -76,16 +73,6 @@ export async function GET(request: NextRequest) {
       features,
       usage,
       lastUpdated: outlet.updatedAt.toISOString(),
-    })
-
-    return new Response(body, {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/json',
-        'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
-        'Pragma': 'no-cache',
-        'Expires': '0',
-      },
     })
   } catch (error) {
     if (error instanceof Error && error.message.includes('Unauthorized')) {

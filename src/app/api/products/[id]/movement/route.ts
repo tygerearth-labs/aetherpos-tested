@@ -44,7 +44,7 @@ export async function GET(
     const { limit, skip } = parsePagination(request.nextUrl.searchParams)
 
     // Fetch summary stats and movement logs in parallel
-    const [auditLogs, variantAuditLogs, totalLogs, totalSoldResult, lastRestockLog, lastVariantRestockLog] =
+    const [auditLogs, variantAuditLogs, totalLogs, totalSoldResult, lastRestockLog] =
       await Promise.all([
         // Audit logs for this product (restock, create, update, sale, adjustments)
         db.auditLog.findMany({
@@ -88,7 +88,7 @@ export async function GET(
           where: { productId: id },
           _sum: { qty: true, subtotal: true },
         }),
-        // Last RESTOCK log date for product
+        // Last RESTOCK log date for stock aging
         db.auditLog.findFirst({
           where: {
             entityId: id,
@@ -99,29 +99,7 @@ export async function GET(
           orderBy: { createdAt: 'desc' },
           select: { createdAt: true },
         }),
-        // Last RESTOCK log date for variants
-        variantIds.length > 0
-          ? db.auditLog.findFirst({
-              where: {
-                entityType: 'VARIANT',
-                entityId: { in: variantIds },
-                action: 'RESTOCK',
-                outletId,
-              },
-              orderBy: { createdAt: 'desc' },
-              select: { createdAt: true },
-            })
-          : Promise.resolve(null),
       ])
-
-    // Use the later of product or variant last restock date
-    const lastRestockDate = (() => {
-      const pDate = lastRestockLog?.createdAt?.toISOString() || null
-      const vDate = lastVariantRestockLog?.createdAt?.toISOString() || null
-      if (!pDate) return vDate
-      if (!vDate) return pDate
-      return pDate > vDate ? pDate : vDate
-    })()
 
     // Get restock total via aggregate instead of fetching all logs
     const restockTotalResult = await db.auditLog.aggregate({
@@ -134,7 +112,7 @@ export async function GET(
       _count: { id: true },
     })
 
-    // Parse restock quantities from product audit log details
+    // Parse restock quantities from audit log details (only fetch details column)
     const restockDetails = await db.auditLog.findMany({
       where: {
         entityId: id,
@@ -151,27 +129,6 @@ export async function GET(
         totalRestocked += Number(details.quantityAdded) || 0
       } catch {
         // Skip malformed details
-      }
-    }
-
-    // Also count variant restock totals
-    if (variantIds.length > 0) {
-      const variantRestockDetails = await db.auditLog.findMany({
-        where: {
-          entityType: 'VARIANT',
-          entityId: { in: variantIds },
-          action: 'RESTOCK',
-          outletId,
-        },
-        select: { details: true },
-      })
-      for (const log of variantRestockDetails) {
-        try {
-          const details = JSON.parse(log.details || '{}')
-          totalRestocked += Number(details.quantityAdded) || 0
-        } catch {
-          // Skip malformed details
-        }
       }
     }
 
@@ -237,7 +194,7 @@ export async function GET(
         totalRestocked,
         currentStock: aggStock,
         revenue,
-        lastRestockDate: lastRestockDate,
+        lastRestockDate: lastRestockLog?.createdAt?.toISOString() || null,
       },
       movements,
       totalPages: Math.ceil(combinedTotalLogs / limit),

@@ -38,7 +38,7 @@ model User {
   name          String
   email         String
   password      String
-  role          String   @default("CREW") // OWNER, CREW, or WEBMASTER
+  role          String   @default("CREW") // OWNER or CREW
   outletId      String
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -268,16 +268,6 @@ model Promo {
 
   outlet   Outlet   @relation(fields: [outletId], references: [id])
   category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-}
-
-// ==================== WEBMASTER ====================
-model Webmaster {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  password  String
-  name      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
 }
 
 // ==================== CREW PERMISSION ====================

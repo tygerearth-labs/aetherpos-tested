@@ -84,12 +84,7 @@ export function usePlan(): UsePlanReturn {
 
   const fetchPlan = useCallback(async () => {
     try {
-      // cache: 'no-store' + unique query param prevents caching at ALL levels:
-      // browser HTTP cache, Service Worker Cache API, CDN/proxy edge cache.
-      // Plan changes from Command Center must always be fresh.
-      const res = await fetch(`/api/outlet/plan?_=${Date.now()}`, {
-        cache: 'no-store',
-      })
+      const res = await fetch('/api/outlet/plan')
       if (!res.ok) {
         // 401 = not logged in yet, silently ignore (don't spam console)
         // 500 = server/DB error (e.g. no session or DB not initialized), also ignore

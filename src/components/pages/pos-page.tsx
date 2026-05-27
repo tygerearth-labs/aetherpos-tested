@@ -1859,7 +1859,7 @@ export default function PosPage() {
                 {cart.map((item) => {
                   const itemKey = getCartKey(item.product.id, item.variant?.id || null)
                   return (
-                  <div key={itemKey} className="flex items-center gap-2.5 p-2.5 rounded-xl bg-zinc-800/50 border border-zinc-800/50">
+                  <div key={itemKey} className="flex items-center gap-2 p-2 rounded-xl bg-zinc-800/50 border border-zinc-800/50 min-w-0">
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-medium text-zinc-200 truncate">{item.product.name}</p>
                       {item.variant && (

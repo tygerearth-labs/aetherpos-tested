@@ -18,7 +18,6 @@ import {
   UserCog,
   LogOut,
   Lock,
-  Globe,
 } from 'lucide-react'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -77,10 +76,6 @@ const allMoreMenuItems: MoreMenuItem[] = [
   { page: 'settings', icon: <Settings className="h-4 w-4" />, label: 'Pengaturan', section: 'Admin' },
 ]
 
-const webmasterMenuItem: MoreMenuItem[] = [
-  { page: 'webmaster', icon: <Globe className="h-4 w-4" />, label: 'Webmaster Panel', section: 'Admin' },
-]
-
 export default function MobileBottomNav() {
   const { currentPage, setCurrentPage } = usePageStore()
   const { data: session } = useSession()
@@ -88,14 +83,13 @@ export default function MobileBottomNav() {
   const router = useRouter()
   const [moreOpen, setMoreOpen] = useState(false)
   const isOwner = session?.user?.role === 'OWNER'
-  const isWebmaster = session?.user?.role === 'WEBMASTER'
 
   // ---- Crew permission-based access ----
   // null = full access (OWNER or not yet loaded), Set = restricted access
   const [allowedPages, setAllowedPages] = useState<Set<string> | null>(null)
 
   useEffect(() => {
-    if (isOwner || isWebmaster) return // allowedPages stays null = full access
+    if (isOwner) return // allowedPages stays null = full access
     let cancelled = false
     ;(async () => {
       try {
@@ -115,7 +109,7 @@ export default function MobileBottomNav() {
 
   const hasAccess = (page?: PageType): boolean => {
     if (!page) return true
-    return isOwner || isWebmaster || !allowedPages || allowedPages.has(page)
+    return isOwner || !allowedPages || allowedPages.has(page)
   }
 
   const handleNav = (page: PageType) => {
@@ -145,7 +139,7 @@ export default function MobileBottomNav() {
     window.location.href = '/'
   }
 
-  const moreItems = isWebmaster ? [...webmasterMenuItem, ...allMoreMenuItems] : allMoreMenuItems
+  const moreItems = allMoreMenuItems
   const sections = ['Main', 'Admin']
 
   const isActive = (page: PageType) => currentPage === page
@@ -265,7 +259,7 @@ export default function MobileBottomNav() {
                 )}
               </div>
               <p className="text-[11px] text-zinc-500">
-                {session?.user?.role === 'OWNER' ? 'Owner' : session?.user?.role === 'WEBMASTER' ? 'Webmaster' : 'Crew'}
+                {session?.user?.role === 'OWNER' ? 'Owner' : 'Crew'}
               </p>
             </div>
           </div>

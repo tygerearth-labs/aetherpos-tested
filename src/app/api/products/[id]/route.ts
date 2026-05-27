@@ -69,7 +69,7 @@ export async function PUT(
     const existing = await db.product.findFirst({
       where: { id, outletId },
       include: {
-        variants: { select: { id: true, name: true, stock: true, sku: true, hpp: true, price: true } },
+        variants: { select: { id: true, name: true } },
       },
     })
     if (!existing) {
@@ -105,12 +105,13 @@ export async function PUT(
     }
 
     const product = await db.$transaction(async (tx) => {
-      // Track changes for audit log (non-stock fields only)
+      // Track changes for audit log
       const changes: Record<string, { from: unknown; to: unknown }> = {}
       if (name !== undefined && name !== existing.name) changes.name = { from: existing.name, to: name }
       if (hpp !== undefined && hpp !== existing.hpp) changes.hpp = { from: existing.hpp, to: hpp }
       if (price !== undefined && price !== existing.price) changes.price = { from: existing.price, to: price }
       if (lowStockAlert !== undefined && lowStockAlert !== existing.lowStockAlert) changes.lowStockAlert = { from: existing.lowStockAlert, to: lowStockAlert }
+      if (stock !== undefined && stock !== existing.stock) changes.stock = { from: existing.stock, to: stock }
       if (image !== undefined && image !== existing.image) changes.image = { from: existing.image, to: image }
       if (unit !== undefined && unit !== existing.unit) changes.unit = { from: existing.unit, to: unit }
       if (hasVariants !== undefined && hasVariants !== existing.hasVariants) changes.hasVariants = { from: existing.hasVariants, to: hasVariants }
@@ -132,143 +133,29 @@ export async function PUT(
         data: updateData,
       })
 
-      // ── Stock change audit log (separate from UPDATE) ──
-      // When product stock is manually changed via edit form
-      if (stock !== undefined && stock !== existing.stock) {
-        const oldStock = existing.stock
-        const newStock = stock
-        const diff = newStock - oldStock
-
-        if (diff > 0) {
-          // Stock increased → log as RESTOCK
-          await tx.auditLog.create({
-            data: {
-              action: 'RESTOCK',
-              entityType: 'PRODUCT',
-              entityId: id,
-              details: JSON.stringify({
-                productName: updated.name,
-                quantityAdded: diff,
-                previousStock: oldStock,
-                newStock: newStock,
-                source: 'manual_edit',
-              }),
-              outletId,
-              userId,
-            },
-          })
-        } else if (diff < 0) {
-          // Stock decreased → log as ADJUSTMENT
-          await tx.auditLog.create({
-            data: {
-              action: 'ADJUSTMENT',
-              entityType: 'PRODUCT',
-              entityId: id,
-              details: JSON.stringify({
-                productName: updated.name,
-                stock: { from: oldStock, to: newStock },
-                reason: 'Pengurangan stok manual',
-                source: 'manual_edit',
-              }),
-              outletId,
-              userId,
-            },
-          })
-        }
-      }
-
-      // ── Handle variants — update-or-create to preserve variant IDs ──
+      // Handle variants — full-replace pattern
       if (variants !== undefined) {
-        // Build maps for efficient lookup
-        const oldVariantMap = new Map(existing.variants.map((v) => [v.name.trim().toLowerCase(), v]))
+        // Delete all existing variants (cascade handles transactionItem references)
         const oldVariantCount = existing.variants.length
-        const processedNames = new Set<string>()
-        const newVariantIds: Array<{ id: string; name: string }> = []
-
-        for (const v of parsedVariants) {
-          const vName = v.name.trim()
-          const vKey = vName.toLowerCase()
-          processedNames.add(vKey)
-
-          const old = oldVariantMap.get(vKey)
-
-          const newStock = v.stock || 0
-          const newPrice = v.price
-          const newSku = v.sku || null
-          const newHpp = v.hpp || 0
-
-          if (old) {
-            // Update existing variant (preserves ID — keeps audit log linkage)
-            await tx.productVariant.update({
-              where: { id: old.id },
-              data: { name: vName, sku: newSku, hpp: newHpp, price: newPrice, stock: newStock },
-            })
-            newVariantIds.push({ id: old.id, name: vName })
-
-            // Log stock changes for this variant
-            if (old.stock !== newStock) {
-              const diff = newStock - old.stock
-              if (diff > 0) {
-                await tx.auditLog.create({
-                  data: {
-                    action: 'RESTOCK',
-                    entityType: 'VARIANT',
-                    entityId: old.id,
-                    details: JSON.stringify({
-                      variantName: vName,
-                      parentProductName: updated.name,
-                      parentId: id,
-                      quantityAdded: diff,
-                      previousStock: old.stock,
-                      newStock: newStock,
-                      source: 'manual_edit',
-                    }),
-                    outletId,
-                    userId,
-                  },
-                })
-              } else if (diff < 0) {
-                await tx.auditLog.create({
-                  data: {
-                    action: 'ADJUSTMENT',
-                    entityType: 'VARIANT',
-                    entityId: old.id,
-                    details: JSON.stringify({
-                      variantName: vName,
-                      parentProductName: updated.name,
-                      parentId: id,
-                      stock: { from: old.stock, to: newStock },
-                      reason: 'Pengurangan stok varian manual',
-                      source: 'manual_edit',
-                    }),
-                    outletId,
-                    userId,
-                  },
-                })
-              }
-            }
-          } else {
-            // Create new variant
-            const created = await tx.productVariant.create({
-              data: {
-                productId: id,
-                name: vName,
-                sku: newSku,
-                hpp: newHpp,
-                price: newPrice,
-                stock: newStock,
-                outletId,
-              },
-            })
-            newVariantIds.push({ id: created.id, name: vName })
-          }
+        if (oldVariantCount > 0) {
+          await tx.productVariant.deleteMany({
+            where: { productId: id },
+          })
         }
 
-        // Delete variants that were removed (no longer in the payload)
-        for (const oldV of existing.variants) {
-          if (!processedNames.has(oldV.name.trim().toLowerCase())) {
-            await tx.productVariant.delete({ where: { id: oldV.id } })
-          }
+        // Create new variants
+        if (parsedVariants.length > 0) {
+          await tx.productVariant.createMany({
+            data: parsedVariants.map((v) => ({
+              productId: id,
+              name: v.name,
+              sku: v.sku || null,
+              hpp: v.hpp || 0,
+              price: v.price,
+              stock: v.stock || 0,
+              outletId,
+            })),
+          })
         }
 
         changes.variants = {
@@ -283,7 +170,7 @@ export async function PUT(
         }
       }
 
-      // Create UPDATE audit log for non-stock field changes
+      // Create audit log only if there are actual changes
       if (Object.keys(changes).length > 0) {
         await tx.auditLog.create({
           data: {
@@ -304,9 +191,7 @@ export async function PUT(
     const productWithVariants = await db.product.findUnique({
       where: { id: product.id },
       include: {
-        variants: { orderBy: { createdAt: 'asc' },
-          select: { id: true, name: true, sku: true, barcode: true, hpp: true, price: true, stock: true, outletId: true, createdAt: true, updatedAt: true },
-        },
+        variants: { orderBy: { createdAt: 'asc' } },
         _count: { select: { variants: true } },
       },
     })
@@ -333,7 +218,7 @@ export async function DELETE(
       return unauthorized()
     }
     if (user.role !== 'OWNER') {
-      return safeJsonError('Hanya pemilik yang dapat menghapus produk', 404)
+      return safeJsonError('Hanya pemilik yang dapat menghapus produk', 403)
     }
     const outletId = user.outletId
     const userId = user.id

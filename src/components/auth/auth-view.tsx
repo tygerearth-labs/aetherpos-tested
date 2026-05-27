@@ -27,7 +27,6 @@ import {
   X,
   Eye,
   EyeOff,
-  Globe,
 } from 'lucide-react'
 
 const features = [
@@ -107,7 +106,6 @@ export default function AuthView() {
   // Login form state
   const [loginEmail, setLoginEmail] = useState('')
   const [loginPassword, setLoginPassword] = useState('')
-  const [loginAsWebmaster, setLoginAsWebmaster] = useState(false)
 
   // Register form state
   const [regOutletName, setRegOutletName] = useState('')
@@ -130,8 +128,7 @@ export default function AuthView() {
     e.preventDefault()
     setLoading(true)
     try {
-      const providerId = loginAsWebmaster ? 'webmaster-credentials' : 'credentials'
-      const result = await signIn(providerId, {
+      const result = await signIn('credentials', {
         email: loginEmail,
         password: loginPassword,
         redirect: false,
@@ -468,23 +465,6 @@ export default function AuthView() {
                           className={inputClasses}
                         />
                       </div>
-
-                      {/* Webmaster toggle */}
-                      <button
-                        type="button"
-                        onClick={() => setLoginAsWebmaster(!loginAsWebmaster)}
-                        className="flex items-center gap-2 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
-                      >
-                        <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${
-                          loginAsWebmaster
-                            ? 'bg-violet-500/20 border-violet-500/40 text-violet-400'
-                            : 'border-zinc-700 hover:border-zinc-600'
-                        }`}>
-                          {loginAsWebmaster && <Check className="h-2.5 w-2.5" />}
-                        </div>
-                        <Globe className="h-3 w-3" />
-                        Login sebagai Webmaster
-                      </button>
 
                       <motion.div whileTap={{ scale: 0.98 }}>
                         <Button

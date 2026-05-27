@@ -25,7 +25,6 @@ import {
   PanelLeft,
   UserCog,
   Lock,
-  Globe,
 } from 'lucide-react'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { motion } from 'framer-motion'
@@ -72,10 +71,6 @@ const navItems: NavItem[] = [
   { label: 'Pengaturan', shortLabel: 'Set', icon: <Settings className="h-4 w-4" />, page: 'settings', section: 'admin' },
 ]
 
-const webmasterNavItem: NavItem[] = [
-  { label: 'Webmaster', shortLabel: 'Web', icon: <Globe className="h-4 w-4" />, page: 'webmaster', section: 'main' },
-]
-
 const sectionLabels: Record<string, string> = {
   main: 'Main',
   operations: 'Operations',
@@ -113,14 +108,13 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
   // ---- Crew permission-based filtering ----
   const userRole = session?.user?.role || 'CREW'
   const isOwner = userRole === 'OWNER'
-  const isWebmaster = userRole === 'WEBMASTER'
 
   const [allowedPages, setAllowedPages] = useState<string[] | null>(null)
   const [permissionsLoaded, setPermissionsLoaded] = useState(false)
 
   const fetchPermissions = useCallback(async () => {
-    if (isOwner || isWebmaster) {
-      setAllowedPages(null) // OWNER/WEBMASTER sees everything
+    if (isOwner) {
+      setAllowedPages(null) // OWNER sees everything
       setPermissionsLoaded(true)
       return
     }
@@ -156,19 +150,17 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
   // Build access map: true if user can access the page, false if locked
   const navItemAccess = useMemo(() => {
     const map = new Map<string, boolean>()
-    const allItems = isWebmaster ? [...webmasterNavItem, ...navItems] : navItems
-    for (const item of allItems) {
-      map.set(item.page, isOwner || isWebmaster || !allowedPages || allowedPages.includes(item.page))
+    for (const item of navItems) {
+      map.set(item.page, isOwner || !allowedPages || allowedPages.includes(item.page))
     }
     return map
-  }, [isOwner, isWebmaster, allowedPages])
+  }, [isOwner, allowedPages])
 
   // Group all items by section (never filter — locked items are shown disabled)
   const groupedItems = useMemo(() => {
     const groups: { key: string; label: string; items: NavItem[] }[] = []
     const seen = new Set<string>()
-    const allItems = isWebmaster ? [...webmasterNavItem, ...navItems] : navItems
-    for (const item of allItems) {
+    for (const item of navItems) {
       const sec = item.section || 'main'
       if (!seen.has(sec)) {
         seen.add(sec)
@@ -177,10 +169,10 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
       groups[groups.length - 1].items.push(item)
     }
     return groups
-  }, [isOwner, isWebmaster, navItemAccess])
+  }, [navItemAccess])
 
   const handleNav = (page: PageType) => {
-    if (isOwner || isWebmaster || !allowedPages || allowedPages.includes(page)) {
+    if (isOwner || !allowedPages || allowedPages.includes(page)) {
       setCurrentPage(page)
       onNavigate?.()
     }
@@ -379,9 +371,7 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
                     className={`text-[9px] px-1.5 py-0 leading-none border ${
                       session?.user?.role === 'OWNER'
                         ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
-                        : session?.user?.role === 'WEBMASTER'
-                          ? 'bg-violet-500/10 border-violet-500/20 text-violet-400'
-                          : 'bg-zinc-800 border-zinc-700 text-zinc-500'
+                        : 'bg-zinc-800 border-zinc-700 text-zinc-500'
                     }`}
                   >
                     {session?.user?.role || 'CREW'}

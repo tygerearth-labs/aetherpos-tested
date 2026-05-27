@@ -235,11 +235,8 @@ function getActionDescription(action: string, details: Record<string, unknown>):
   switch (action) {
     case 'CREATE':
       return `Product created — Price: ${formatCurrency(Number(details.price) || 0)}, Stock: ${formatNumber(Number(details.stock) || 0)}`
-    case 'RESTOCK': {
-      const batchLabel = details.batchOperation ? '📦 Bulk ' : ''
-      const sourceLabel = details.source === 'manual_edit' ? '✏️ Edit ' : ''
-      return `${sourceLabel}${batchLabel}+${formatNumber(Number(details.quantityAdded) || 0)} units${variantLabel} (Stock: ${formatNumber(Number(details.previousStock) || 0)} → ${formatNumber(Number(details.newStock) || 0)})`
-    }
+    case 'RESTOCK':
+      return `+${formatNumber(Number(details.quantityAdded) || 0)} units${variantLabel} (Stock: ${formatNumber(Number(details.previousStock) || 0)} → ${formatNumber(Number(details.newStock) || 0)})`
     case 'SALE':
       return `Sold ${formatNumber(Number(details.quantitySold) || Number(details.qty) || 0)} units${variantLabel} — ${formatCurrency(Number(details.subtotal) || 0)}`
     case 'UPDATE':
@@ -252,18 +249,10 @@ function getActionDescription(action: string, details: Record<string, unknown>):
       return 'Product details updated'
     case 'DELETE':
       return 'Product deleted'
-    case 'ADJUSTMENT': {
-      const batchAdjLabel = details.batchOperation ? '📦 Bulk ' : ''
-      const sourceAdjLabel = details.source === 'manual_edit' ? '✏️ Edit ' : ''
-      return `${sourceAdjLabel}${batchAdjLabel}Stock adjusted${variantLabel} — ${details.reason || 'No reason'}`
-    }
-    case 'BULK_UPDATE': {
-      const c = details.changes as Record<string, { from: number; to: number }> | undefined
-      const parts: string[] = []
-      if (c?.price) parts.push(`Price: ${formatCurrency(c.price.from)} → ${formatCurrency(c.price.to)}`)
-      if (c?.stock) parts.push(`Stock: ${formatNumber(c.stock.from)} → ${formatNumber(c.stock.to)}`)
-      return parts.length > 0 ? `Bulk: ${parts.join(', ')}` : 'Bulk update applied'
-    }
+    case 'ADJUSTMENT':
+      return `Stock adjusted${variantLabel} — ${details.reason || 'No reason'}`
+    case 'BULK_UPDATE':
+      return 'Bulk update applied'
     default:
       return 'Action performed'
   }
@@ -502,7 +491,9 @@ export default function ProductsPage() {
         toast.success(`Restocked ${restockProduct.name} +${restockQty}`)
         fetchProducts()
         if (detailOpen && detailProduct?.id === restockProduct.id) {
-          fetchDetail({ ...restockProduct, stock: restockProduct.stock + Number(restockQty) }, detailPage)
+          setDetailPage(1)
+          setMovementFilter('all')
+          fetchDetail({ ...restockProduct, stock: restockProduct.stock + Number(restockQty) }, 1)
         }
       } else {
         toast.error('Failed to restock')

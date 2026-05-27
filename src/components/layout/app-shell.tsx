@@ -14,8 +14,8 @@ import TransactionsPage from '@/components/pages/transactions-page'
 import AuditLogPage from '@/components/pages/audit-log-page'
 import CrewPage from '@/components/pages/crew-page'
 import SettingsPage from '@/components/pages/settings-page'
-import WebmasterPage from '@/components/pages/webmaster-page'
 import { Loader2 } from 'lucide-react'
+import { useEffect } from 'react'
 
 function AppContent() {
   // Reduce session polling to every 5 minutes to prevent premature session expiry detection
@@ -57,12 +57,16 @@ function AppContent() {
         return <CrewPage />
       case 'settings':
         return <SettingsPage />
-      case 'webmaster':
-        return <WebmasterPage />
       default:
         return <DashboardPage />
     }
   }
+
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {})
+    }
+  }, [])
 
   return (
     <div className="min-h-screen bg-zinc-950 overflow-x-hidden">
@@ -72,7 +76,7 @@ function AppContent() {
         className={`transition-all duration-300 ease-in-out overflow-x-hidden ${
           collapsed ? 'md:ml-[68px]' : 'md:ml-64'
         } ${
-          currentPage === 'pos' ? 'md:h-screen' : 'min-h-screen'
+          currentPage === 'pos' ? 'md:h-screen md:overflow-hidden' : 'min-h-screen overflow-y-auto'
         }`}
       >
         {/* Mobile: bottom padding for nav. Desktop POS: full screen. Others: normal padding */}
