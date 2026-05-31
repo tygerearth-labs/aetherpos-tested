@@ -119,24 +119,16 @@ export async function GET(
         }),
       ])
 
-    // Get restock total via aggregate — include both direct RESTOCK and bulk stock updates
-    const restockTotalResult = await db.auditLog.aggregate({
-      where: {
-        entityId: id,
-        entityType: 'PRODUCT',
-        action: 'RESTOCK',
-        outletId,
-      },
-      _count: { id: true },
-    })
-
-    // Parse restock quantities from audit log details (only fetch details column)
+    // Parse restock quantities — include RESTOCK logs and BULK_UPDATE stock changes
     const restockDetails = await db.auditLog.findMany({
       where: {
         entityId: id,
         entityType: 'PRODUCT',
-        action: 'RESTOCK',
         outletId,
+        OR: [
+          { action: 'RESTOCK' },
+          { action: 'BULK_UPDATE' },
+        ],
       },
       select: { details: true },
     })
@@ -144,7 +136,18 @@ export async function GET(
     for (const log of restockDetails) {
       try {
         const details = JSON.parse(log.details || '{}')
-        totalRestocked += Number(details.quantityAdded) || 0
+        // RESTOCK logs store quantityAdded at top level
+        if (details.quantityAdded) {
+          totalRestocked += Number(details.quantityAdded) || 0
+        }
+        // BULK_UPDATE logs for parent product store stock under changes.stock
+        if (details.changes && typeof details.changes === 'object') {
+          const changes = details.changes as Record<string, { from: number; to: number }>
+          if (changes.stock && changes.stock.from !== undefined && changes.stock.to !== undefined) {
+            const diff = changes.stock.to - changes.stock.from
+            if (diff > 0) totalRestocked += diff
+          }
+        }
       } catch {
         // Skip malformed details
       }
@@ -155,6 +158,7 @@ export async function GET(
       for (const log of productVariantAuditLogs) {
         try {
           const details = JSON.parse(log.details || '{}')
+          // PRODUCT_VARIANT logs store stock at top level
           if (details.stock && typeof details.stock === 'object' && details.stock.from !== undefined && details.stock.to !== undefined) {
             const diff = Number(details.stock.to) - Number(details.stock.from)
             if (diff > 0) totalRestocked += diff

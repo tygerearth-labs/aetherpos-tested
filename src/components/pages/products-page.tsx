@@ -88,6 +88,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Layers,
+  FilePenLine,
 } from 'lucide-react'
 // Collapsible removed — analytics section removed in redesign
 import { ProGate } from '@/components/shared/pro-gate'
@@ -207,9 +208,32 @@ function getColorDotClasses(color: string): string {
   return map[color] || 'bg-zinc-400'
 }
 
+function hasStockChange(details?: Record<string, unknown>): boolean {
+  if (!details) return false
+  // PRODUCT_VARIANT logs store stock at top level
+  if (details.stock && typeof details.stock === 'object') return true
+  // Parent product BULK_UPDATE logs store stock under changes.stock
+  const changes = details.changes as Record<string, unknown> | undefined
+  if (changes && typeof changes === 'object' && changes.stock) return true
+  return false
+}
+
+function getStockDiff(details: Record<string, unknown>): { from: number; to: number } | null {
+  // PRODUCT_VARIANT logs store stock at top level
+  if (details.stock && typeof details.stock === 'object') {
+    return details.stock as { from: number; to: number }
+  }
+  // Parent product BULK_UPDATE logs store stock under changes.stock
+  const changes = details.changes as Record<string, { from: number; to: number }> | undefined
+  if (changes && typeof changes === 'object' && changes.stock) {
+    return changes.stock
+  }
+  return null
+}
+
 function getActionBadge(action: string, details?: Record<string, unknown>) {
   // Show restock badge for stock-related bulk updates
-  if (action === 'BULK_UPDATE' && details?.stock) {
+  if (action === 'BULK_UPDATE' && hasStockChange(details)) {
     return <Badge className="bg-emerald-500/10 border-emerald-500/20 text-emerald-400 text-[10px]">Restock</Badge>
   }
   switch (action) {
@@ -267,17 +291,19 @@ function getActionDescription(action: string, details: Record<string, unknown>):
       return 'Product deleted'
     case 'ADJUSTMENT':
       return `Stock adjusted${variantLabel} — ${details.reason || 'No reason'}`
-    case 'BULK_UPDATE':
-      if (details.stock && typeof details.stock === 'object') {
-        const stock = details.stock as { from: number; to: number }
-        const diff = stock.to - stock.from
-        return `Bulk stock: ${formatNumber(stock.from)} → ${formatNumber(stock.to)} (${diff >= 0 ? '+' : ''}${formatNumber(diff)})${parentLabel}`
+    case 'BULK_UPDATE': {
+      const stockDiff = getStockDiff(details)
+      if (stockDiff) {
+        const diff = stockDiff.to - stockDiff.from
+        return `Bulk stock: ${formatNumber(stockDiff.from)} → ${formatNumber(stockDiff.to)} (${diff >= 0 ? '+' : ''}${formatNumber(diff)})${parentLabel}`
       }
-      if (details.price && typeof details.price === 'object') {
-        const price = details.price as { from: number; to: number }
-        return `Bulk price: ${formatCurrency(price.from)} → ${formatCurrency(price.to)}${parentLabel}`
+      // Check for price changes (top-level or under changes)
+      const priceObj = (details.price || (details.changes as Record<string, unknown>)?.price) as { from: number; to: number } | undefined
+      if (priceObj && typeof priceObj === 'object') {
+        return `Bulk price: ${formatCurrency(priceObj.from)} → ${formatCurrency(priceObj.to)}${parentLabel}`
       }
       return 'Bulk update applied'
+    }
     default:
       return 'Action performed'
   }
@@ -285,7 +311,7 @@ function getActionDescription(action: string, details: Record<string, unknown>):
 
 function getActionRowBg(action: string, details?: Record<string, unknown>): string {
   // Stock-related bulk updates get restock color
-  if (action === 'BULK_UPDATE' && details?.stock) {
+  if (action === 'BULK_UPDATE' && hasStockChange(details)) {
     return 'bg-emerald-500/5 rounded'
   }
   switch (action) {
@@ -369,6 +395,25 @@ export default function ProductsPage() {
     errors: string[]
   } | null>(null)
   const [uploadDragOver, setUploadDragOver] = useState(false)
+
+  // Export Excel state
+  const [exporting, setExporting] = useState(false)
+
+  // Edit Excel state
+  const [editExcelOpen, setEditExcelOpen] = useState(false)
+  const [editExcelFile, setEditExcelFile] = useState<File | null>(null)
+  const [editExcelUploading, setEditExcelUploading] = useState(false)
+  const [editExcelProgress, setEditExcelProgress] = useState(0)
+  const [editExcelPhase, setEditExcelPhase] = useState('')
+  const [editExcelResult, setEditExcelResult] = useState<{
+    updated: number
+    notFound: number
+    variantsUpdated: number
+    variantsNotFound: number
+    errors: string[]
+  } | null>(null)
+  const [editExcelDragOver, setEditExcelDragOver] = useState(false)
+  const editExcelProgressRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Category management state
   const [categories, setCategories] = useState<Category[]>([])
@@ -573,7 +618,7 @@ export default function ProductsPage() {
       })
       if (res.ok) {
         const data = await res.json()
-        toast.success(`Updated ${data.updatedCount} product prices`)
+        toast.success(`Updated ${data.updated} product prices`)
         setBulkPriceOpen(false)
         setBulkPriceValue('')
         setBulkPriceQuick('')
@@ -611,7 +656,7 @@ export default function ProductsPage() {
       })
       if (res.ok) {
         const data = await res.json()
-        toast.success(`Updated stock for ${data.updatedCount} products`)
+        toast.success(`Updated stock for ${data.updated} products`)
         setBulkStockOpen(false)
         setBulkStockValue('')
         setSelectedIds(new Set())
@@ -743,6 +788,96 @@ export default function ProductsPage() {
     }
   }, [uploadFile, fetchProducts])
 
+  const handleExportExcel = async () => {
+    setExporting(true)
+    try {
+      const res = await fetch('/api/products/export')
+      if (!res.ok) {
+        const data = await res.json()
+        toast.error(data.error || 'Gagal mengekspor produk')
+        return
+      }
+      const blob = await res.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `produk-export-${new Date().toISOString().slice(0, 10)}.xlsx`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      window.URL.revokeObjectURL(url)
+      toast.success('Produk berhasil diekspor')
+    } catch {
+      toast.error('Gagal mengekspor produk')
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const handleBulkUpdateExcel = useCallback(async () => {
+    if (!editExcelFile) return
+    setEditExcelUploading(true)
+    setEditExcelProgress(0)
+    setEditExcelPhase('Mempersiapkan upload...')
+
+    let progress = 0
+
+    editExcelProgressRef.current = setInterval(() => {
+      progress += Math.random() * 3 + 0.5
+      if (progress > 90) progress = 90
+      setEditExcelProgress(Math.round(progress))
+
+      if (progress < 25) {
+        setEditExcelPhase('Mengupload file...')
+      } else if (progress < 60) {
+        setEditExcelPhase('Memproses data produk...')
+      } else {
+        setEditExcelPhase('Memperbarui database...')
+      }
+    }, 200)
+
+    try {
+      const formData = new FormData()
+      formData.append('file', editExcelFile)
+      const res = await fetch('/api/products/bulk-update-excel', {
+        method: 'POST',
+        body: formData,
+      })
+
+      if (editExcelProgressRef.current) {
+        clearInterval(editExcelProgressRef.current)
+        editExcelProgressRef.current = null
+      }
+      setEditExcelProgress(95)
+      setEditExcelPhase('Menyelesaikan...')
+
+      if (res.ok) {
+        const data = await res.json()
+        setEditExcelProgress(100)
+        setEditExcelPhase('Selesai!')
+        await new Promise((r) => setTimeout(r, 400))
+        setEditExcelResult(data)
+        fetchProducts()
+        fetchCategories()
+        const total = data.updated + (data.variantsUpdated || 0)
+        toast.success(`${total} produk berhasil diperbarui`)
+      } else {
+        const data = await res.json()
+        toast.error(data.error || 'Gagal update file')
+      }
+    } catch {
+      toast.error('Gagal update file')
+    } finally {
+      if (editExcelProgressRef.current) {
+        clearInterval(editExcelProgressRef.current)
+        editExcelProgressRef.current = null
+      }
+      setEditExcelUploading(false)
+      setEditExcelProgress(0)
+      setEditExcelPhase('')
+    }
+  }, [editExcelFile, fetchProducts, fetchCategories])
+
   const handleBulkDelete = async () => {
     if (selectedIds.size === 0) return
     setBulkDeleteSubmitting(true)
@@ -847,7 +982,7 @@ export default function ProductsPage() {
       if (movementFilter === 'all') return true
       if (movementFilter === 'restock') {
         if (m.action === 'RESTOCK') return true
-        if (m.action === 'BULK_UPDATE' && m.details?.stock) return true
+        if (m.action === 'BULK_UPDATE' && hasStockChange(m.details)) return true
         return false
       }
       if (movementFilter === 'sale') return m.action === 'SALE'
@@ -895,6 +1030,17 @@ export default function ProductsPage() {
               {bulkMode ? 'Edit Massal Aktif' : 'Edit Massal'}
             </Button>
           )}
+          <ProGate feature="bulkUpload" label="Export Excel" description="Ekspor produk ke file Excel" variant="inline">
+            <Button
+              variant="outline"
+              onClick={handleExportExcel}
+              disabled={exporting}
+              className="bg-zinc-800/80 border-zinc-700/80 text-zinc-300 hover:text-zinc-100 hover:bg-zinc-700 h-9 text-xs font-medium disabled:opacity-50"
+            >
+              {exporting ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Download className="mr-1.5 h-3.5 w-3.5" />}
+              Export Excel
+            </Button>
+          </ProGate>
           <ProGate feature="bulkUpload" label="Upload Excel" description="Upload produk massal via file Excel" variant="inline">
             <Button
               variant="outline"
@@ -907,6 +1053,22 @@ export default function ProductsPage() {
             >
               <Upload className="mr-1.5 h-3.5 w-3.5" />
               Upload Excel
+            </Button>
+          </ProGate>
+          <ProGate feature="bulkUpload" label="Edit Excel" description="Update produk massal via file Excel" variant="inline">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setEditExcelOpen(true)
+                setEditExcelFile(null)
+                setEditExcelResult(null)
+                setEditExcelProgress(0)
+                setEditExcelPhase('')
+              }}
+              className="bg-zinc-800/80 border-zinc-700/80 text-zinc-300 hover:text-zinc-100 hover:bg-zinc-700 h-9 text-xs font-medium"
+            >
+              <FilePenLine className="mr-1.5 h-3.5 w-3.5" />
+              Edit Excel
             </Button>
           </ProGate>
           <Button onClick={handleAdd} className="bg-emerald-500 hover:bg-emerald-600 text-white h-9 text-xs font-medium shadow-lg shadow-emerald-500/20">
@@ -2347,6 +2509,287 @@ export default function ProductsPage() {
               <Button
                 type="button"
                 onClick={() => setUploadOpen(false)}
+                className="bg-emerald-500 hover:bg-emerald-600 text-white h-8 text-xs"
+              >
+                Selesai
+              </Button>
+            )}
+          </ResponsiveDialogFooter>
+        </ResponsiveDialogContent>
+      </ResponsiveDialog>
+
+      {/* Edit Excel Dialog */}
+      <ResponsiveDialog open={editExcelOpen} onOpenChange={(open) => {
+        if (!open) {
+          setEditExcelFile(null)
+          setEditExcelResult(null)
+          setEditExcelProgress(0)
+          setEditExcelPhase('')
+          if (editExcelProgressRef.current) {
+            clearInterval(editExcelProgressRef.current)
+            editExcelProgressRef.current = null
+          }
+        }
+        setEditExcelOpen(open)
+      }}>
+        <ResponsiveDialogContent className="bg-zinc-900 border-zinc-800" desktopClassName="max-w-md">
+          <ResponsiveDialogHeader>
+            <ResponsiveDialogTitle className="text-zinc-100 text-sm font-semibold">Edit Produk Excel</ResponsiveDialogTitle>
+            <ResponsiveDialogDescription className="text-zinc-400 text-xs">
+              Update produk massal via file Excel (maks. 500 baris)
+            </ResponsiveDialogDescription>
+          </ResponsiveDialogHeader>
+
+          {!editExcelResult ? (
+            <div className="space-y-3 py-1">
+              {editExcelUploading ? (
+                /* Progress UI during upload */
+                <div className="space-y-4 py-2">
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="relative">
+                      <div className="h-14 w-14 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
+                        <FileSpreadsheet className="h-6 w-6 text-emerald-400" />
+                      </div>
+                      {editExcelProgress < 100 && (
+                        <Loader2 className="absolute -bottom-0.5 -right-0.5 h-4 w-4 text-emerald-400 animate-spin" />
+                      )}
+                    </div>
+                    <div className="text-center">
+                      <p className="text-xs text-zinc-200 font-medium truncate max-w-[200px]">{editExcelFile?.name}</p>
+                      <p className="text-[11px] text-zinc-500 mt-0.5">
+                        {(editExcelFile?.size ? (editExcelFile.size / 1024).toFixed(1) : '0')} KB
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-zinc-400">{editExcelPhase}</span>
+                      <span className="text-zinc-300 font-medium tabular-nums">{editExcelProgress}%</span>
+                    </div>
+                    <div className="relative h-2 w-full overflow-hidden rounded-full bg-zinc-800">
+                      <div
+                        className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-300 ease-out"
+                        style={{ width: `${editExcelProgress}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-1 px-1">
+                    {[
+                      { label: 'Upload', threshold: 25 },
+                      { label: 'Proses', threshold: 60 },
+                      { label: 'Update', threshold: 90 },
+                      { label: 'Selesai', threshold: 100 },
+                    ].map((step) => (
+                      <div
+                        key={step.label}
+                        className={`flex items-center gap-1 text-[10px] transition-colors duration-200 ${
+                          editExcelProgress >= step.threshold
+                            ? 'text-emerald-400'
+                            : 'text-zinc-600'
+                        }`}
+                      >
+                        {editExcelProgress >= step.threshold ? (
+                          <CheckCircle2 className="h-3 w-3" />
+                        ) : (
+                          <div className="h-3 w-3 rounded-full border border-zinc-700" />
+                        )}
+                        <span className="hidden sm:inline">{step.label}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <p className="text-center text-[11px] text-zinc-600">
+                    Mohon tunggu, jangan tutup halaman ini
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {/* Step instructions */}
+                  <div className="rounded-lg border border-zinc-800 bg-zinc-800/30 p-3 space-y-2">
+                    <p className="text-[11px] text-zinc-400 font-medium">Langkah-langkah:</p>
+                    <div className="space-y-1.5">
+                      <div className="flex items-start gap-2 text-[11px] text-zinc-300">
+                        <span className="flex-shrink-0 h-4 w-4 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-[10px] text-emerald-400 font-bold">1</span>
+                        <span>Download template edit berisi data produk saat ini</span>
+                      </div>
+                      <div className="flex items-start gap-2 text-[11px] text-zinc-300">
+                        <span className="flex-shrink-0 h-4 w-4 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-[10px] text-emerald-400 font-bold">2</span>
+                        <span>Edit data di Excel sesuai kebutuhan</span>
+                      </div>
+                      <div className="flex items-start gap-2 text-[11px] text-zinc-300">
+                        <span className="flex-shrink-0 h-4 w-4 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-[10px] text-emerald-400 font-bold">3</span>
+                        <span>Upload file yang sudah diedit</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Step 1: Download template edit */}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleExportExcel}
+                    disabled={exporting}
+                    className="w-full bg-zinc-800 border-zinc-700 text-zinc-300 hover:text-zinc-100 hover:bg-zinc-700 h-9 text-xs disabled:opacity-50"
+                  >
+                    {exporting ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Download className="mr-1.5 h-3.5 w-3.5" />}
+                    Download Template Edit
+                  </Button>
+
+                  {/* Step 2: Drag and drop area */}
+                  <div
+                    onDragOver={(e) => {
+                      e.preventDefault()
+                      setEditExcelDragOver(true)
+                    }}
+                    onDragLeave={() => setEditExcelDragOver(false)}
+                    onDrop={(e) => {
+                      e.preventDefault()
+                      setEditExcelDragOver(false)
+                      const file = e.dataTransfer.files[0]
+                      if (file && (file.name.endsWith('.xlsx') || file.name.endsWith('.xls') || file.name.endsWith('.csv'))) {
+                        setEditExcelFile(file)
+                      } else {
+                        toast.error('Format file tidak didukung. Gunakan .xlsx, .xls, atau .csv')
+                      }
+                    }}
+                    className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
+                      editExcelDragOver
+                        ? 'border-emerald-500 bg-emerald-500/5'
+                        : editExcelFile
+                        ? 'border-emerald-500/50 bg-emerald-500/5'
+                        : 'border-zinc-700 hover:border-zinc-600'
+                    }`}
+                  >
+                    {editExcelFile ? (
+                      <div className="flex items-center justify-center gap-2">
+                        <FileSpreadsheet className="h-5 w-5 text-emerald-400" />
+                        <span className="text-xs text-zinc-200">{editExcelFile.name}</span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setEditExcelFile(null)}
+                          className="h-6 w-6 p-0 text-zinc-500 hover:text-red-400"
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <>
+                        <Upload className="h-8 w-8 mx-auto mb-2 text-zinc-600" />
+                        <p className="text-xs text-zinc-400">Drag & drop file Excel/CSV di sini</p>
+                        <p className="text-[11px] text-zinc-500 mt-1">atau</p>
+                      </>
+                    )}
+                  </div>
+
+                  {!editExcelFile && (
+                    <label className="block">
+                      <input
+                        type="file"
+                        accept=".xlsx,.xls,.csv"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0]
+                          if (file) setEditExcelFile(file)
+                        }}
+                        className="hidden"
+                      />
+                      <div className="w-full text-center py-2 rounded-md bg-zinc-800 border border-zinc-700 text-zinc-300 hover:text-zinc-100 hover:bg-zinc-700 cursor-pointer text-xs">
+                        Pilih File
+                      </div>
+                    </label>
+                  )}
+
+                  <div className="space-y-1">
+                    <p className="text-[11px] text-zinc-500 font-medium">Kolom yang diperbarui:</p>
+                    <p className="text-[11px] text-zinc-400">Hanya kolom yang diisi (tidak kosong) akan diperbarui. ID digunakan untuk pencocokan.</p>
+                  </div>
+                </>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-3 py-1">
+              {/* Result summary */}
+              <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-3 space-y-2">
+                <h3 className="text-xs font-semibold text-zinc-300">Hasil Update</h3>
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2 text-xs">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+                    <span className="text-zinc-300">
+                      <span className="font-semibold text-emerald-400">{editExcelResult.updated}</span> produk berhasil diperbarui
+                    </span>
+                  </div>
+                  {(editExcelResult.variantsUpdated || 0) > 0 && (
+                    <div className="flex items-center gap-2 text-xs">
+                      <Layers className="h-3.5 w-3.5 text-emerald-400" />
+                      <span className="text-zinc-300">
+                        <span className="font-semibold text-emerald-400">{editExcelResult.variantsUpdated}</span> varian berhasil diperbarui
+                      </span>
+                    </div>
+                  )}
+                  {(editExcelResult.notFound || 0) > 0 && (
+                    <div className="flex items-center gap-2 text-xs">
+                      <AlertCircle className="h-3.5 w-3.5 text-amber-400" />
+                      <span className="text-zinc-300">
+                        <span className="font-semibold text-amber-400">{editExcelResult.notFound}</span> produk tidak ditemukan
+                      </span>
+                    </div>
+                  )}
+                  {(editExcelResult.variantsNotFound || 0) > 0 && (
+                    <div className="flex items-center gap-2 text-xs">
+                      <AlertCircle className="h-3.5 w-3.5 text-amber-400" />
+                      <span className="text-zinc-300">
+                        <span className="font-semibold text-amber-400">{editExcelResult.variantsNotFound}</span> varian tidak ditemukan
+                      </span>
+                    </div>
+                  )}
+                  {editExcelResult.errors.length > 0 && (
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 text-xs">
+                        <AlertCircle className="h-3.5 w-3.5 text-red-400" />
+                        <span className="text-red-400 font-medium">{editExcelResult.errors.length} error</span>
+                      </div>
+                      <div className="max-h-32 overflow-y-auto space-y-0.5">
+                        {editExcelResult.errors.map((err, i) => (
+                          <p key={i} className="text-[11px] text-zinc-500 pl-5">• {err}</p>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <ResponsiveDialogFooter>
+            {!editExcelResult ? (
+              <>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setEditExcelOpen(false)}
+                  disabled={editExcelUploading}
+                  className="bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700 h-8 text-xs disabled:opacity-50"
+                >
+                  Batal
+                </Button>
+                {!editExcelUploading ? (
+                  <Button
+                    type="button"
+                    onClick={handleBulkUpdateExcel}
+                    disabled={!editExcelFile}
+                    className="bg-emerald-500 hover:bg-emerald-600 text-white h-8 text-xs"
+                  >
+                    Update Produk
+                  </Button>
+                ) : null}
+              </>
+            ) : (
+              <Button
+                type="button"
+                onClick={() => setEditExcelOpen(false)}
                 className="bg-emerald-500 hover:bg-emerald-600 text-white h-8 text-xs"
               >
                 Selesai
