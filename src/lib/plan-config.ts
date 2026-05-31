@@ -69,7 +69,7 @@ export const PLANS: Record<AccountType, PlanFeatures> = {
     loyaltyProgram: true,
 
     maxTransactionsPerMonth: 500,
-    exportExcel: false,
+    exportExcel: true,
 
     maxPromos: 2,
     promoTypes: ['PERCENTAGE'],

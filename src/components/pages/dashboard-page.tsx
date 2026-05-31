@@ -193,12 +193,12 @@ function HealthRing({ score, size = 'md' }: { score: number; size?: 'sm' | 'md' 
   const circumference = 2 * Math.PI * radius
   const offset = circumference - (score / 100) * circumference
   const color =
-    score >= 75 ? 'text-emerald-400' : score >= 50 ? 'text-amber-400' : 'text-red-400'
+    score >= 75 ? 'theme-text' : score >= 50 ? 'text-amber-400' : 'text-red-400'
   const ringColor =
-    score >= 75 ? 'stroke-emerald-400' : score >= 50 ? 'stroke-amber-400' : 'stroke-red-400'
+    score >= 75 ? 'theme-text' : score >= 50 ? 'stroke-amber-400' : 'stroke-red-400'
   const bgColor =
     score >= 75
-      ? 'border-emerald-500/20'
+      ? 'theme-border-light'
       : score >= 50
         ? 'border-amber-500/20'
         : 'border-red-500/20'
@@ -245,7 +245,7 @@ function getPriorityColor(priority: InsightItem['priority']): string {
     case 'critical': return 'text-red-400'
     case 'high': return 'text-orange-400'
     case 'medium': return 'text-amber-400'
-    case 'low': return 'text-emerald-400'
+    case 'low': return 'theme-text'
   }
 }
 
@@ -254,7 +254,7 @@ function getPriorityBg(priority: InsightItem['priority']): string {
     case 'critical': return 'bg-red-500/8 border-red-500/15'
     case 'high': return 'bg-orange-500/8 border-orange-500/15'
     case 'medium': return 'bg-amber-500/8 border-amber-500/15'
-    case 'low': return 'bg-emerald-500/8 border-emerald-500/15'
+    case 'low': return 'theme-bg-ultra-light theme-border-light'
   }
 }
 
@@ -282,13 +282,13 @@ function ProLock({ label = 'PRO' }: { label?: string }) {
 }
 
 function TrendIcon({ direction }: { direction: 'up' | 'down' | 'stable' }) {
-  if (direction === 'up') return <TrendingUp className="h-3.5 w-3.5 text-emerald-400" />
+  if (direction === 'up') return <TrendingUp className="h-3.5 w-3.5 theme-text" />
   if (direction === 'down') return <TrendingDown className="h-3.5 w-3.5 text-red-400" />
   return <Minus className="h-3.5 w-3.5 text-zinc-400" />
 }
 
 // ── Sparkline mini-chart ──
-function Sparkline({ data, color = 'text-emerald-400', height = 40 }: { data: number[]; color?: string; height?: number }) {
+function Sparkline({ data, color = 'theme-text', height = 40 }: { data: number[]; color?: string; height?: number }) {
   if (data.length < 2) return null
   const max = Math.max(...data, 1)
   const min = Math.min(...data, 0)
@@ -459,16 +459,16 @@ function DayHeatBar({ day, avgRevenue, maxRevenue, avgTx }: { day: string; avgRe
   const today = new Date().getDay()
   const dayIndex = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'].indexOf(day)
   const isToday = dayIndex === today
-  const intensity = pct > 80 ? 'from-emerald-500/40 to-emerald-400/20' : pct > 50 ? 'from-emerald-500/25 to-emerald-400/10' : 'from-zinc-600/20 to-zinc-500/10'
+  const intensity = pct > 80 ? 'theme-gradient-light' : pct > 50 ? 'theme-gradient-subtle' : 'from-zinc-600/20 to-zinc-500/10'
 
   return (
     <div className="flex items-center gap-2 py-1">
-      <span className={`text-[11px] w-8 shrink-0 font-medium ${isToday ? 'text-emerald-400' : 'text-zinc-500'}`}>
+      <span className={`text-[11px] w-8 shrink-0 font-medium ${isToday ? 'theme-text' : 'text-zinc-500'}`}>
         {day}
       </span>
-      <div className={`flex-1 h-5 rounded-md bg-gradient-to-r ${intensity} border ${isToday ? 'border-emerald-500/30' : 'border-zinc-700/30'} relative overflow-hidden`}>
+      <div className={`flex-1 h-5 rounded-md bg-gradient-to-r ${intensity} border ${isToday ? 'theme-border-medium' : 'border-zinc-700/30'} relative overflow-hidden`}>
         <motion.div
-          className={`absolute inset-y-0 left-0 rounded-md ${isToday ? 'bg-emerald-500/20' : 'bg-zinc-500/10'}`}
+          className={`absolute inset-y-0 left-0 rounded-md ${isToday ? 'theme-bg-subtle' : 'bg-zinc-500/10'}`}
           initial={{ width: 0 }}
           animate={{ width: `${pct}%` }}
           transition={{ duration: 0.6, ease: 'easeOut' }}
@@ -600,7 +600,7 @@ export default function DashboardPage() {
           <div className="flex items-center gap-2">
             <div className="text-right hidden sm:block">
               <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Health Score</p>
-              <p className={`text-xs font-semibold ${insightData.healthScore >= 75 ? 'text-emerald-400' : insightData.healthScore >= 50 ? 'text-amber-400' : 'text-red-400'}`}>
+              <p className={`text-xs font-semibold ${insightData.healthScore >= 75 ? 'theme-text' : insightData.healthScore >= 50 ? 'text-amber-400' : 'text-red-400'}`}>
                 {insightData.healthScore >= 75 ? 'Sehat' : insightData.healthScore >= 50 ? 'Perhatian' : 'Kritis'}
               </p>
             </div>
@@ -614,7 +614,7 @@ export default function DashboardPage() {
       ═══════════════════════════════════════════════════ */}
       {!planLoading && plan?.type === 'free' && (
         <motion.div variants={itemVariants}>
-          <div className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-gradient-to-r from-violet-500/[0.06] to-emerald-500/[0.06] border border-zinc-800/50">
+          <div className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-gradient-to-r from-violet-500/[0.06] theme-gradient-subtle border border-zinc-800/50">
             <div className="flex items-center gap-2.5">
               <Sparkles className="h-4 w-4 text-violet-400 shrink-0" />
               <p className="text-xs text-zinc-400">
@@ -623,7 +623,7 @@ export default function DashboardPage() {
             </div>
             <Button
               size="sm"
-              className="shrink-0 bg-emerald-500/90 hover:bg-emerald-500 text-white text-xs font-medium h-7 px-3 rounded-lg gap-1.5"
+              className="shrink-0 theme-bg hover:theme-hover-light text-white text-xs font-medium h-7 px-3 rounded-lg gap-1.5"
               onClick={() => setCurrentPage('settings')}
             >
               <Crown className="h-3 w-3" />
@@ -640,11 +640,11 @@ export default function DashboardPage() {
         {/* Revenue */}
         <motion.div variants={itemVariants}>
           <Card className="bg-zinc-900 border border-zinc-800/60 rounded-xl overflow-hidden relative">
-            <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/[0.06] to-transparent" />
+            <div className="absolute inset-0 bg-gradient-to-br theme-gradient-subtle" />
             <CardContent className="p-3.5 relative">
               <div className="flex items-center justify-between mb-1.5">
                 <p className="text-[10px] font-medium text-zinc-500 uppercase tracking-wider">Revenue</p>
-                <div className="w-7 h-7 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-400">
+                <div className="w-7 h-7 rounded-lg theme-bg-very-light flex items-center justify-center theme-text">
                   <DollarSign className="h-3.5 w-3.5" />
                 </div>
               </div>
@@ -654,7 +654,7 @@ export default function DashboardPage() {
               <div className="flex items-center gap-1.5 mt-1.5">
                 {stats && stats.yesterdayRevenue > 0 ? (
                   <span className={`inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
-                    isUp ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'
+                    isUp ? 'theme-bg-very-light theme-text' : 'bg-red-500/10 text-red-400'
                   }`}>
                     {isUp ? <ArrowUpRight className="h-2.5 w-2.5" /> : <ArrowDownRight className="h-2.5 w-2.5" />}
                     {Math.abs(changePercent).toFixed(1)}%
@@ -772,7 +772,7 @@ export default function DashboardPage() {
       <motion.div variants={itemVariants}>
         <div className="grid grid-cols-3 gap-2.5">
           {[
-            { icon: <PlusCircle className="h-4 w-4 text-emerald-400" />, label: 'Tambah Produk', page: 'products' as const },
+            { icon: <PlusCircle className="h-4 w-4 theme-text" />, label: 'Tambah Produk', page: 'products' as const },
             { icon: <ShoppingCart className="h-4 w-4 text-violet-400" />, label: 'Transaksi Baru', page: 'pos' as const },
             { icon: <FileBarChart className="h-4 w-4 text-sky-400" />, label: 'Laporan', page: 'transactions' as const },
           ].map((item) => (
@@ -817,7 +817,7 @@ export default function DashboardPage() {
               {!hasForecasting ? (
                 <Card className="bg-zinc-900 border border-zinc-800/60 rounded-2xl">
                   <CardContent className="py-10 flex flex-col items-center justify-center text-center">
-                    <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-violet-500/10 to-emerald-500/10 border border-zinc-800/60 flex items-center justify-center mb-3">
+                    <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-violet-500/10 theme-gradient-subtle border border-zinc-800/60 flex items-center justify-center mb-3">
                       <Activity className="h-6 w-6 text-violet-400/60" />
                     </div>
                     <h3 className="text-sm font-semibold text-zinc-300 mb-1">Forecasting & Prediksi</h3>
@@ -826,7 +826,7 @@ export default function DashboardPage() {
                     </p>
                     <Button
                       size="sm"
-                      className="bg-emerald-500/90 hover:bg-emerald-500 text-white text-xs font-medium h-8 px-4 rounded-lg gap-1.5"
+                      className="theme-bg hover:theme-hover-light text-white text-xs font-medium h-8 px-4 rounded-lg gap-1.5"
                       onClick={() => setCurrentPage('settings')}
                     >
                       <Crown className="h-3 w-3" />
@@ -858,7 +858,7 @@ export default function DashboardPage() {
                           <TrendIcon direction={forecastData.trendDirection} />
                         </div>
                         <p className={`text-sm font-bold ${
-                          forecastData.trendDirection === 'up' ? 'text-emerald-400' :
+                          forecastData.trendDirection === 'up' ? 'theme-text' :
                           forecastData.trendDirection === 'down' ? 'text-red-400' : 'text-zinc-200'
                         }`}>
                           {forecastData.trendDirection === 'up' ? 'Naik' :
@@ -867,7 +867,7 @@ export default function DashboardPage() {
                         <p className="text-[10px] text-zinc-500 mt-0.5">Total pendapatan harian</p>
                         <div className="mt-1.5">
                           <Sparkline data={trendValues} color={
-                            forecastData.trendDirection === 'up' ? 'text-emerald-400' :
+                            forecastData.trendDirection === 'up' ? 'theme-text' :
                             forecastData.trendDirection === 'down' ? 'text-red-400' : 'text-zinc-400'
                           } height={24} />
                         </div>
@@ -896,13 +896,13 @@ export default function DashboardPage() {
                         <div className="flex items-center justify-between mb-1">
                           <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Week vs Week</p>
                           {forecastData.summary.weekOverWeek > 0
-                            ? <ArrowUpRight className="h-3.5 w-3.5 text-emerald-400" />
+                            ? <ArrowUpRight className="h-3.5 w-3.5 theme-text" />
                             : forecastData.summary.weekOverWeek < 0
                               ? <ArrowDownRight className="h-3.5 w-3.5 text-red-400" />
                               : <Minus className="h-3.5 w-3.5 text-zinc-400" />}
                         </div>
                         <p className={`text-sm font-bold ${
-                          forecastData.summary.weekOverWeek > 0 ? 'text-emerald-400' :
+                          forecastData.summary.weekOverWeek > 0 ? 'theme-text' :
                           forecastData.summary.weekOverWeek < 0 ? 'text-red-400' : 'text-zinc-200'
                         }`}>
                           {forecastData.summary.weekOverWeek > 0 ? '+' : ''}{forecastData.summary.weekOverWeek}%
@@ -921,12 +921,12 @@ export default function DashboardPage() {
                           <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Stok Kritis</p>
                           <Warehouse className={`h-3.5 w-3.5 ${
                             forecastData.summary.criticalStock > 0 ? 'text-red-400' :
-                            forecastData.summary.warningStock > 0 ? 'text-amber-400' : 'text-emerald-400'
+                            forecastData.summary.warningStock > 0 ? 'text-amber-400' : 'theme-text'
                           }`} />
                         </div>
                         <p className={`text-sm font-bold ${
                           forecastData.summary.criticalStock > 0 ? 'text-red-400' :
-                          forecastData.summary.warningStock > 0 ? 'text-amber-400' : 'text-emerald-400'
+                          forecastData.summary.warningStock > 0 ? 'text-amber-400' : 'theme-text'
                         }`}>
                           {forecastData.summary.criticalStock > 0
                             ? `${forecastData.summary.criticalStock} kritis`
@@ -961,7 +961,7 @@ export default function DashboardPage() {
                           </div>
                           <div className="flex items-center gap-3">
                             <div className="flex items-center gap-1.5">
-                              <div className="w-6 h-[2px] rounded-full bg-emerald-400" />
+                              <div className="w-6 h-[2px] rounded-full theme-bg-light" />
                               <span className="text-[10px] text-zinc-500">Aktual 14 hari</span>
                             </div>
                             <div className="flex items-center gap-1.5">
@@ -973,7 +973,7 @@ export default function DashboardPage() {
                         {/* Chart legend — only on mobile (header has it on desktop) */}
                         <div className="sm:hidden mb-2 px-3 py-2 rounded-lg bg-zinc-800/40 border border-zinc-700/30">
                           <p className="text-[10px] text-zinc-400">
-                            📊 <span className="text-emerald-400 font-medium">Hijau</span>: aktual • <span className="text-violet-400 font-medium">Ungu</span>: prediksi
+                            📊 <span className="theme-text font-medium">Hijau</span>: aktual • <span className="text-violet-400 font-medium">Ungu</span>: prediksi
                           </p>
                         </div>
                         <RevenueLineChart trend={forecastData.trend} forecast={forecastData.forecast} />
@@ -992,7 +992,7 @@ export default function DashboardPage() {
                           <div className="text-right">
                             <p className="text-[10px] text-zinc-500">Week vs Week</p>
                             <p className={`text-xs font-semibold ${
-                              forecastData.summary.weekOverWeek > 0 ? 'text-emerald-400' :
+                              forecastData.summary.weekOverWeek > 0 ? 'theme-text' :
                               forecastData.summary.weekOverWeek < 0 ? 'text-red-400' : 'text-zinc-200'
                             }`}>
                               {forecastData.summary.weekOverWeek > 0 ? '+' : ''}{forecastData.summary.weekOverWeek}%
@@ -1095,7 +1095,7 @@ export default function DashboardPage() {
                     {[
                       { label: 'Brutto', value: stats?.todayBrutto ?? 0, color: 'text-zinc-200', barColor: 'bg-zinc-400' },
                       { label: 'Diskon', value: -(stats?.todayDiscount ?? 0), color: 'text-red-400', barColor: 'bg-red-400' },
-                      { label: 'Netto', value: stats?.todayRevenue ?? 0, color: 'text-emerald-400', barColor: 'bg-emerald-400' },
+                      { label: 'Netto', value: stats?.todayRevenue ?? 0, color: 'theme-text', barColor: 'theme-bg-light' },
                       { label: 'PPN', value: stats?.todayTax ?? 0, color: 'text-sky-400', barColor: 'bg-sky-400' },
                       { label: 'Profit', value: stats?.todayProfit ?? 0, color: 'text-amber-400', barColor: 'bg-amber-400' },
                     ].map((item) => (
@@ -1126,7 +1126,7 @@ export default function DashboardPage() {
                     </p>
                     <Button
                       size="sm"
-                      className="bg-emerald-500/90 hover:bg-emerald-500 text-white text-xs font-medium h-8 px-4 rounded-lg gap-1.5"
+                      className="theme-bg hover:theme-hover-light text-white text-xs font-medium h-8 px-4 rounded-lg gap-1.5"
                       onClick={() => setCurrentPage('settings')}
                     >
                       <Crown className="h-3 w-3" />
@@ -1154,7 +1154,7 @@ export default function DashboardPage() {
                             <span className="text-zinc-500">Total hari ini:</span>
                             <span className="font-semibold text-zinc-200">{stats.todayTransactions} trx</span>
                             <span className="text-zinc-600">•</span>
-                            <span className="font-semibold text-emerald-400">{formatCurrency(stats.todayRevenue)}</span>
+                            <span className="font-semibold theme-text">{formatCurrency(stats.todayRevenue)}</span>
                           </div>
                         )}
                       </div>
@@ -1304,8 +1304,8 @@ export default function DashboardPage() {
                     <Card className="bg-zinc-900 border border-zinc-800/60 rounded-xl">
                       <CardContent className="p-3">
                         <div className="flex items-center gap-2 mb-2">
-                          <div className="w-7 h-7 rounded-lg bg-emerald-500/10 flex items-center justify-center">
-                            <Activity className="h-3.5 w-3.5 text-emerald-400" />
+                          <div className="w-7 h-7 rounded-lg theme-bg-very-light flex items-center justify-center">
+                            <Activity className="h-3.5 w-3.5 theme-text" />
                           </div>
                           <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Rata-rata/Jam</p>
                         </div>
@@ -1315,7 +1315,7 @@ export default function DashboardPage() {
                           const avgRevenuePerHour = activeHours > 0 ? (stats?.todayRevenue ?? 0) / activeHours : 0
                           return activeHours > 0 ? (
                             <>
-                              <p className="text-lg font-bold text-emerald-400">{avgPerHour.toFixed(1)} trx</p>
+                              <p className="text-lg font-bold theme-text">{avgPerHour.toFixed(1)} trx</p>
                               <p className="text-[10px] text-zinc-500 mt-0.5">
                                 ~{formatCurrency(Math.round(avgRevenuePerHour))}/jam • {activeHours} jam aktif
                               </p>
@@ -1342,7 +1342,7 @@ export default function DashboardPage() {
                           Jam <span className="text-violet-400 font-semibold">{String(peak.hour).padStart(2, '0')}:00</span> adalah jam tersibuk hari ini dengan{' '}
                           <span className="text-zinc-200 font-medium">{peak.transactionCount} transaksi ({peakPct}%)</span>{' '}
                           menghasilkan{' '}
-                          <span className="text-emerald-400 font-medium">{formatCurrency(peak.revenue)}</span>.
+                          <span className="theme-text font-medium">{formatCurrency(peak.revenue)}</span>.
                           {activeHours > 0 && (
                             <span>
                               {' '}Outlet aktif selama <span className="text-zinc-200 font-medium">{activeHours} jam</span> dengan rata-rata{' '}
@@ -1385,11 +1385,11 @@ export default function DashboardPage() {
             </Card>
           ) : insightData ? (
             <Card className={`bg-zinc-900 border rounded-2xl overflow-hidden relative ${
-              insightData.healthScore >= 75 ? 'border-emerald-500/15' : insightData.healthScore >= 50 ? 'border-amber-500/15' : 'border-red-500/15'
+              insightData.healthScore >= 75 ? 'theme-border-light' : insightData.healthScore >= 50 ? 'border-amber-500/15' : 'border-red-500/15'
             }`}>
               <div className={`absolute inset-0 pointer-events-none ${
                 insightData.healthScore >= 75
-                  ? 'bg-gradient-to-br from-emerald-500/[0.03] to-transparent'
+                  ? 'bg-gradient-to-br theme-gradient-subtle'
                   : insightData.healthScore >= 50
                     ? 'bg-gradient-to-br from-amber-500/[0.03] to-transparent'
                     : 'bg-gradient-to-br from-red-500/[0.03] to-transparent'
@@ -1482,7 +1482,7 @@ export default function DashboardPage() {
           <Card className="bg-zinc-900 border border-zinc-800/60 rounded-2xl">
             <CardContent className="p-4">
               <div className="flex items-center gap-2 mb-3">
-                <Package className="h-4 w-4 text-emerald-400" />
+                <Package className="h-4 w-4 theme-text" />
                 <h2 className="text-sm font-semibold text-zinc-200">Produk Terlaris</h2>
               </div>
               {topSelling.length === 0 ? (
@@ -1499,7 +1499,7 @@ export default function DashboardPage() {
                         <p className="text-xs font-medium text-zinc-300 truncate">{p.name}</p>
                         <p className="text-[10px] text-zinc-500">{formatNumber(p.qty)} unit</p>
                       </div>
-                      <p className="text-xs font-semibold text-emerald-400 shrink-0">{formatCurrency(p.revenue)}</p>
+                      <p className="text-xs font-semibold theme-text shrink-0">{formatCurrency(p.revenue)}</p>
                     </div>
                   ))}
                 </div>
@@ -1562,7 +1562,7 @@ export default function DashboardPage() {
             </div>
             {(!stats?.lowStockList || stats.lowStockList.length === 0) && (!stats?.lowStockVariantList || stats.lowStockVariantList.length === 0) ? (
               <div className="flex flex-col items-center justify-center py-10 text-center">
-                <Package className="h-8 w-8 text-emerald-500/30 mb-2" />
+                <Package className="h-8 w-8 theme-text-medium/30 mb-2" />
                 <p className="text-xs text-zinc-500">Semua stok aman</p>
               </div>
             ) : (

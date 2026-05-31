@@ -82,26 +82,26 @@ function formatRp(n: number): string {
 }
 
 function getScoreColor(score: number): string {
-  if (score >= 75) return 'text-emerald-400'
+  if (score >= 75) return 'theme-text'
   if (score >= 50) return 'text-amber-400'
   return 'text-red-400'
 }
 
 function getScoreBg(score: number): string {
-  if (score >= 75) return 'from-emerald-500/20 to-emerald-500/5 border-emerald-500/20'
+  if (score >= 75) return 'theme-gradient-subtle theme-border-light'
   if (score >= 50) return 'from-amber-500/20 to-amber-500/5 border-amber-500/20'
   return 'from-red-500/20 to-red-500/5 border-red-500/20'
 }
 
 function getScoreRing(score: number): string {
-  if (score >= 75) return 'stroke-emerald-400'
+  if (score >= 75) return 'theme-text'
   if (score >= 50) return 'stroke-amber-400'
   return 'stroke-red-400'
 }
 
 function getInsightIcon(type: string) {
   switch (type) {
-    case 'positive': return <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+    case 'positive': return <CheckCircle2 className="h-4 w-4 theme-text shrink-0" />
     case 'warning': return <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
     case 'critical': return <AlertCircle className="h-4 w-4 text-red-400 shrink-0" />
     default: return <Info className="h-4 w-4 text-sky-400 shrink-0" />
@@ -110,7 +110,7 @@ function getInsightIcon(type: string) {
 
 function getInsightBorder(type: string): string {
   switch (type) {
-    case 'positive': return 'border-l-emerald-500'
+    case 'positive': return 'theme-border'
     case 'warning': return 'border-l-amber-500'
     case 'critical': return 'border-l-red-500'
     default: return 'border-l-sky-500'
@@ -192,14 +192,14 @@ function StatCard({
   sub?: string; trend?: 'up' | 'down' | 'neutral'; color?: string
 }) {
   const colorMap: Record<string, string> = {
-    emerald: 'from-emerald-500/20 to-emerald-500/5 border-emerald-500/15',
+    emerald: 'theme-gradient-subtle theme-border-light',
     violet: 'from-violet-500/20 to-violet-500/5 border-violet-500/15',
     amber: 'from-amber-500/20 to-amber-500/5 border-amber-500/15',
     sky: 'from-sky-500/20 to-sky-500/5 border-sky-500/15',
     rose: 'from-rose-500/20 to-rose-500/5 border-rose-500/15',
   }
   const iconColorMap: Record<string, string> = {
-    emerald: 'text-emerald-400',
+    emerald: 'theme-text',
     violet: 'text-violet-400',
     amber: 'text-amber-400',
     sky: 'text-sky-400',
@@ -212,7 +212,7 @@ function StatCard({
         <span className={`p-1.5 rounded-lg bg-zinc-900/60 ${iconColorMap[color]}`}>{icon}</span>
         {trend && (
           <div className={`flex items-center gap-0.5 text-[10px] font-semibold ${
-            trend === 'up' ? 'text-emerald-400' : trend === 'down' ? 'text-red-400' : 'text-zinc-500'
+            trend === 'up' ? 'theme-text' : trend === 'down' ? 'text-red-400' : 'text-zinc-500'
           }`}>
             {trend === 'up' ? <TrendingUp className="h-3 w-3" /> : trend === 'down' ? <TrendingDown className="h-3 w-3" /> : <Minus className="h-3 w-3" />}
           </div>
@@ -246,14 +246,14 @@ function PeakHoursChart({ buckets }: { buckets: HourBucket[] }) {
           const width = maxCount > 0 ? (b.count / maxCount) * 100 : 0
           return (
             <div key={b.hour} className="flex items-center gap-2">
-              <span className={`text-[10px] w-10 text-right shrink-0 ${isPeak ? 'text-emerald-400 font-semibold' : 'text-zinc-500'}`}>
+              <span className={`text-[10px] w-10 text-right shrink-0 ${isPeak ? 'theme-text font-semibold' : 'text-zinc-500'}`}>
                 {String(b.hour).padStart(2, '0')}:00
               </span>
               <div className="flex-1 h-4 bg-zinc-800/50 rounded-sm overflow-hidden">
                 <div
                   className={`h-full rounded-sm transition-all duration-500 ${
                     isPeak
-                      ? 'bg-gradient-to-r from-emerald-500 to-emerald-400'
+                      ? 'bg-gradient-to-r theme-gradient'
                       : b.count > 0
                         ? 'bg-zinc-700'
                         : 'bg-transparent'
@@ -261,7 +261,7 @@ function PeakHoursChart({ buckets }: { buckets: HourBucket[] }) {
                   style={{ width: `${Math.max(width, b.count > 0 ? 4 : 0)}%` }}
                 />
               </div>
-              <span className={`text-[10px] w-6 shrink-0 ${isPeak ? 'text-emerald-400 font-semibold' : 'text-zinc-600'}`}>
+              <span className={`text-[10px] w-6 shrink-0 ${isPeak ? 'theme-text font-semibold' : 'text-zinc-600'}`}>
                 {b.count}
               </span>
             </div>
@@ -540,7 +540,7 @@ export default function InsightsPage() {
                               </div>
                               <div className="w-16 h-1.5 bg-zinc-800 rounded-full overflow-hidden shrink-0">
                                 <div
-                                  className="h-full bg-emerald-500/60 rounded-full"
+                                  className="h-full theme-bg/60 rounded-full"
                                   style={{ width: `${d.products.topSelling[0].qty > 0 ? (p.qty / d.products.topSelling[0].qty) * 100 : 0}%` }}
                                 />
                               </div>
@@ -572,7 +572,7 @@ export default function InsightsPage() {
                                 <Badge
                                   variant="outline"
                                   className={`text-[10px] px-2 py-0 shrink-0 ${
-                                    pm.method === 'CASH' ? 'border-emerald-500/20 text-emerald-400 bg-emerald-500/5' :
+                                    pm.method === 'CASH' ? 'theme-border-light theme-text theme-bg-ultra-light' :
                                     pm.method === 'QRIS' ? 'border-violet-500/20 text-violet-400 bg-violet-500/5' :
                                     'border-sky-500/20 text-sky-400 bg-sky-500/5'
                                   }`}
@@ -634,7 +634,7 @@ export default function InsightsPage() {
                     <div className="flex gap-3 mt-2">
                       <div className="text-center">
                         <p className="text-[10px] text-zinc-500">Positif</p>
-                        <p className="text-sm font-bold text-emerald-400">{data.cmo.insights.filter(i => i.type === 'positive').length}</p>
+                        <p className="text-sm font-bold theme-text">{data.cmo.insights.filter(i => i.type === 'positive').length}</p>
                       </div>
                       <div className="text-center">
                         <p className="text-[10px] text-zinc-500">Peringatan</p>
@@ -696,7 +696,7 @@ export default function InsightsPage() {
                     <div className="flex gap-3 mt-2">
                       <div className="text-center">
                         <p className="text-[10px] text-zinc-500">Positif</p>
-                        <p className="text-sm font-bold text-emerald-400">{data.cto.insights.filter(i => i.type === 'positive').length}</p>
+                        <p className="text-sm font-bold theme-text">{data.cto.insights.filter(i => i.type === 'positive').length}</p>
                       </div>
                       <div className="text-center">
                         <p className="text-[10px] text-zinc-500">Peringatan</p>
@@ -767,13 +767,13 @@ function DataQualityRow({ label, count, total, color }: { label: string; count: 
       <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
         <div
           className={`h-full rounded-full transition-all duration-500 ${
-            color === 'rose' || isBad ? 'bg-rose-500/60' : count > 0 ? 'bg-amber-500/40' : 'bg-emerald-500/60'
+            color === 'rose' || isBad ? 'bg-rose-500/60' : count > 0 ? 'bg-amber-500/40' : 'theme-bg/60'
           }`}
           style={{ width: count > 0 ? `${Math.max(pct, 3)}%` : '0%' }}
         />
       </div>
       <span className={`text-[10px] w-6 text-right font-medium ${
-        color === 'rose' || isBad ? 'text-rose-400' : count > 0 ? 'text-amber-400' : 'text-emerald-400'
+        color === 'rose' || isBad ? 'text-rose-400' : count > 0 ? 'text-amber-400' : 'theme-text'
       }`}>
         {count}
       </span>

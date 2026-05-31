@@ -29,7 +29,7 @@ function AppContent() {
   if (status === 'loading') {
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-emerald-400" />
+        <Loader2 className="h-6 w-6 animate-spin theme-text" />
       </div>
     )
   }

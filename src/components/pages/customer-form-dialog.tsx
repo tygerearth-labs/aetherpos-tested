@@ -134,7 +134,7 @@ export default function CustomerFormDialog({ open, onOpenChange, customer, onSav
             <Button
               type="submit"
               disabled={saving}
-              className="bg-emerald-500 hover:bg-emerald-600 text-white h-8 text-xs"
+              className="theme-bg hover:theme-hover text-white h-8 text-xs"
             >
               {saving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
               {isEdit ? 'Update' : 'Create'}

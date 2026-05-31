@@ -146,14 +146,14 @@ function getEndOfDayMs(dateStr: string): number {
 }
 
 const PAYMENT_COLORS: Record<string, { bg: string; border: string; text: string; iconBg: string }> = {
-  CASH: { bg: 'bg-emerald-500/10', border: 'border-emerald-500/20', text: 'text-emerald-400', iconBg: 'bg-emerald-500/10' },
+  CASH: { bg: 'theme-bg-very-light', border: 'theme-border-light', text: 'theme-text', iconBg: 'theme-bg-very-light' },
   QRIS: { bg: 'bg-sky-500/10', border: 'border-sky-500/20', text: 'text-sky-400', iconBg: 'bg-sky-500/10' },
   DEBIT: { bg: 'bg-violet-500/10', border: 'border-violet-500/20', text: 'text-violet-400', iconBg: 'bg-violet-500/10' },
   TRANSFER: { bg: 'bg-orange-500/10', border: 'border-orange-500/20', text: 'text-orange-400', iconBg: 'bg-orange-500/10' },
 }
 
 const PAYMENT_BAR_COLORS: Record<string, string> = {
-  CASH: 'bg-emerald-500',
+  CASH: 'theme-bg',
   QRIS: 'bg-sky-500',
   DEBIT: 'bg-violet-500',
   TRANSFER: 'bg-orange-500',
@@ -509,8 +509,8 @@ export default function TransactionsPage() {
           {label}
           {isActive ? (
             sortDir === 'asc'
-              ? <ArrowUp className="h-3 w-3 text-emerald-400 shrink-0" />
-              : <ArrowDown className="h-3 w-3 text-emerald-400 shrink-0" />
+              ? <ArrowUp className="h-3 w-3 theme-text shrink-0" />
+              : <ArrowDown className="h-3 w-3 theme-text shrink-0" />
           ) : (
             <ArrowUpDown className="h-3 w-3 opacity-20 shrink-0" />
           )}
@@ -587,15 +587,15 @@ export default function TransactionsPage() {
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             {/* Total Revenue */}
             <Card className="bg-zinc-900 border-zinc-800 rounded-xl overflow-hidden relative">
-              <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-bl from-emerald-500/10 to-transparent rounded-bl-full" />
+              <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-bl theme-gradient-subtle rounded-bl-full" />
               <CardContent className="p-4">
                 <div className="flex items-center gap-2 mb-3">
-                  <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center">
-                    <TrendingUp className="h-4 w-4 text-emerald-400" />
+                  <div className="w-8 h-8 rounded-lg theme-bg-very-light flex items-center justify-center">
+                    <TrendingUp className="h-4 w-4 theme-text" />
                   </div>
                   <span className="text-[11px] text-zinc-500 font-medium">Total Pendapatan</span>
                 </div>
-                <p className="text-xl lg:text-2xl font-bold text-emerald-400 tracking-tight">
+                <p className="text-xl lg:text-2xl font-bold theme-text tracking-tight">
                   {formatCurrency(summary.totalRevenue)}
                 </p>
                 <p className="text-[10px] text-zinc-500 mt-1">
@@ -688,13 +688,13 @@ export default function TransactionsPage() {
 
             {/* Netto */}
             <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-3.5">
-              <span className="text-[10px] text-emerald-500/70 font-medium">Netto</span>
-              <p className="text-base font-bold text-emerald-400 tracking-tight mt-1">
+              <span className="text-[10px] theme-text-medium font-medium">Netto</span>
+              <p className="text-base font-bold theme-text tracking-tight mt-1">
                 {formatCurrency(summary.totalRevenue)}
               </p>
               <div className="h-1.5 w-full rounded-full bg-zinc-800 overflow-hidden mt-2.5">
                 <div
-                  className="h-full rounded-full bg-emerald-500 transition-all duration-700"
+                  className="h-full rounded-full theme-bg transition-all duration-700"
                   style={{ width: `${summary.totalBrutto > 0 ? (summary.totalRevenue / summary.totalBrutto) * 100 : 0}%` }}
                 />
               </div>
@@ -785,7 +785,7 @@ export default function TransactionsPage() {
                           )}
                           <div className="w-full flex items-end" style={{ height: '80px' }}>
                             <div
-                              className={`w-full rounded-t-sm transition-all duration-500 ${isPeak ? 'bg-emerald-500' : h.count > 0 ? 'bg-zinc-600' : 'bg-zinc-800'}`}
+                              className={`w-full rounded-t-sm transition-all duration-500 ${isPeak ? 'theme-bg' : h.count > 0 ? 'bg-zinc-600' : 'bg-zinc-800'}`}
                               style={{ height: `${Math.max(height, h.count > 0 ? 4 : 2)}%` }}
                             />
                           </div>
@@ -883,7 +883,7 @@ export default function TransactionsPage() {
 
                   {summary.voidInfo.count === 0 && (
                     <div className="text-center py-2">
-                      <CheckCircle2 className="h-8 w-8 text-emerald-500/40 mx-auto mb-2" />
+                      <CheckCircle2 className="h-8 w-8 theme-text-medium mx-auto mb-2" />
                       <p className="text-xs text-zinc-500">Tidak ada transaksi void hari ini</p>
                     </div>
                   )}
@@ -951,7 +951,7 @@ export default function TransactionsPage() {
           variant="ghost"
           size="sm"
           onClick={handleSetToday}
-          className="text-zinc-400 hover:text-emerald-400 hover:bg-emerald-500/10 text-[11px] h-8 px-2.5 rounded-lg shrink-0"
+          className="text-zinc-400 hover:theme-text hover:theme-hover-light text-[11px] h-8 px-2.5 rounded-lg shrink-0"
         >
           Hari Ini
         </Button>
@@ -964,13 +964,13 @@ export default function TransactionsPage() {
           className={cn(
             'h-8 px-2.5 text-xs rounded-lg shrink-0 transition-all',
             filterOpen || activeSecondaryFilterCount > 0
-              ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400 hover:bg-emerald-500/15'
+              ? 'theme-bg-very-light theme-border-light theme-text hover:theme-hover-light'
               : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700'
           )}
         >
           <SlidersHorizontal className="h-3.5 w-3.5" />
           {activeSecondaryFilterCount > 0 && (
-            <span className="ml-1 w-4 h-4 rounded-full bg-emerald-500 text-[9px] text-white font-bold flex items-center justify-center">{activeSecondaryFilterCount}</span>
+            <span className="ml-1 w-4 h-4 rounded-full theme-bg text-[9px] text-white font-bold flex items-center justify-center">{activeSecondaryFilterCount}</span>
           )}
         </Button>
 
@@ -1158,14 +1158,14 @@ export default function TransactionsPage() {
                   className={`rounded-xl border-l-4 p-3.5 transition-colors ${
                     isVoid
                       ? 'border-l-red-500 border border-red-500/15 bg-red-500/[0.03]'
-                      : 'border-l-emerald-500/50 border border-zinc-800/60 bg-zinc-900'
+                      : 'theme-border border border-zinc-800/60 bg-zinc-900'
                   }`}
                 >
                   <div className="flex items-center justify-between mb-2.5 gap-2">
                     <div className="flex items-center gap-2 min-w-0">
                       {getPaymentIcon(txn.paymentMethod)}
                       <div className="min-w-0">
-                        <span className="text-xs text-emerald-400 font-mono font-medium block truncate">
+                        <span className="text-xs theme-text font-mono font-medium block truncate">
                           {txn.invoiceNumber}
                         </span>
                         <span className="text-[10px] text-zinc-500">{formatDate(txn.createdAt)}</span>
@@ -1257,7 +1257,7 @@ export default function TransactionsPage() {
                           </Badge>
                         )}
                       </TableCell>
-                      <TableCell className="text-xs text-emerald-400 font-mono font-medium py-3 px-3">
+                      <TableCell className="text-xs theme-text font-mono font-medium py-3 px-3">
                         {txn.invoiceNumber}
                       </TableCell>
                       {/* Outlet column */}
@@ -1280,7 +1280,7 @@ export default function TransactionsPage() {
                       </TableCell>
                       <TableCell className="text-center py-3 px-3 hidden lg:table-cell">
                         {txn.syncStatus === 'synced' ? (
-                          <span className="inline-flex items-center justify-center text-emerald-400">
+                          <span className="inline-flex items-center justify-center theme-text">
                             <CheckCircle2 className="h-3.5 w-3.5" />
                           </span>
                         ) : (
@@ -1461,7 +1461,7 @@ export default function TransactionsPage() {
                     <Separator className="bg-zinc-800" />
                     <div className="flex justify-between text-sm">
                       <span className="font-semibold text-zinc-200">Total</span>
-                      <span className="font-bold text-emerald-400">{formatCurrency(detailTransaction.total)}</span>
+                      <span className="font-bold theme-text">{formatCurrency(detailTransaction.total)}</span>
                     </div>
                     <Separator className="bg-zinc-800" />
                     <div className="flex justify-between text-xs">
@@ -1614,7 +1614,7 @@ export default function TransactionsPage() {
           <ResponsiveDialogHeader>
             <ResponsiveDialogTitle className="text-zinc-100 text-sm font-semibold">Void Transaksi</ResponsiveDialogTitle>
             <ResponsiveDialogDescription className="text-zinc-400 text-xs">
-              Transaksi <span className="text-emerald-400 font-mono">{detailTransaction?.invoiceNumber}</span> akan ditandai sebagai void. Data tetap tersimpan untuk audit.
+              Transaksi <span className="theme-text font-mono">{detailTransaction?.invoiceNumber}</span> akan ditandai sebagai void. Data tetap tersimpan untuk audit.
             </ResponsiveDialogDescription>
           </ResponsiveDialogHeader>
           <div className="space-y-3 py-1">

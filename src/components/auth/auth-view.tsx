@@ -79,7 +79,7 @@ const formVariants = {
 }
 
 const inputClasses =
-  'bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 h-11 text-sm rounded-lg focus-visible:ring-emerald-500/30 focus-visible:border-emerald-500/50 transition-all duration-200'
+  'bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 h-11 text-sm rounded-lg focus-visible:theme-ring focus-visible:theme-border transition-all duration-200'
 
 // Password strength checker
 const getPasswordStrength = (password: string) => {
@@ -95,8 +95,8 @@ const getPasswordStrength = (password: string) => {
   if (score <= 1) return { score, label: 'Sangat Lemah', color: 'bg-red-500', textColor: 'text-red-400', checks }
   if (score === 2) return { score, label: 'Lemah', color: 'bg-orange-500', textColor: 'text-orange-400', checks }
   if (score === 3) return { score, label: 'Cukup', color: 'bg-amber-500', textColor: 'text-amber-400', checks }
-  if (score === 4) return { score, label: 'Kuat', color: 'bg-emerald-400', textColor: 'text-emerald-400', checks }
-  return { score, label: 'Sangat Kuat', color: 'bg-emerald-500', textColor: 'text-emerald-400', checks }
+  if (score === 4) return { score, label: 'Kuat', color: 'theme-bg-light', textColor: 'theme-text', checks }
+  return { score, label: 'Sangat Kuat', color: 'theme-bg', textColor: 'theme-text', checks }
 }
 
 export default function AuthView() {
@@ -185,11 +185,11 @@ export default function AuthView() {
       {/* Left Panel - Branding (hidden on mobile) */}
       <div className="hidden lg:flex lg:w-[52%] xl:w-[55%] relative overflow-hidden">
         {/* Background gradient */}
-        <div className="absolute inset-0 bg-gradient-to-br from-zinc-900 via-zinc-900 to-emerald-950/30" />
+        <div className="absolute inset-0 bg-gradient-to-br from-zinc-900 via-zinc-900 theme-gradient-subtle" />
 
         {/* Decorative elements */}
-        <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-emerald-500/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/4" />
-        <div className="absolute bottom-0 left-0 w-[400px] h-[400px] bg-emerald-500/5 rounded-full blur-3xl translate-y-1/2 -translate-x-1/4" />
+        <div className="absolute top-0 right-0 w-[600px] h-[600px] theme-bg-ultra-light rounded-full blur-3xl -translate-y-1/2 translate-x-1/4" />
+        <div className="absolute bottom-0 left-0 w-[400px] h-[400px] theme-bg-ultra-light rounded-full blur-3xl translate-y-1/2 -translate-x-1/4" />
 
         {/* Grid pattern overlay */}
         <div
@@ -231,9 +231,9 @@ export default function AuthView() {
               className="space-y-6"
             >
               <motion.div variants={fadeUp} custom={0}>
-                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 mb-6">
-                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  <span className="text-xs font-medium text-emerald-400">
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full theme-bg-very-light border theme-border-light mb-6">
+                  <div className="w-1.5 h-1.5 rounded-full theme-bg-light animate-pulse" />
+                  <span className="text-xs font-medium theme-text">
                     Dipercaya oleh 1000+ bisnis di Indonesia
                   </span>
                 </div>
@@ -245,7 +245,7 @@ export default function AuthView() {
                 className="text-4xl xl:text-5xl font-bold text-zinc-50 leading-[1.1] tracking-tight"
               >
                 Kelola bisnis Anda{' '}
-                <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-emerald-300">
+                <span className="text-transparent bg-clip-text bg-gradient-to-r theme-gradient-light">
                   dengan mudah
                 </span>
               </motion.h2>
@@ -297,10 +297,10 @@ export default function AuthView() {
                 animate="visible"
                 variants={fadeUp}
                 custom={i + 4}
-                className="group rounded-xl border border-zinc-800/80 bg-zinc-900/50 backdrop-blur-sm p-4 transition-all duration-300 hover:border-emerald-500/20 hover:bg-zinc-900/80"
+                className="group rounded-xl border border-zinc-800/80 bg-zinc-900/50 backdrop-blur-sm p-4 transition-all duration-300 hover:theme-border-light hover:bg-zinc-900/80"
               >
-                <div className="w-9 h-9 rounded-lg bg-emerald-500/10 border border-emerald-500/15 flex items-center justify-center mb-3 transition-colors duration-300 group-hover:bg-emerald-500/15">
-                  <feature.icon className="w-4.5 h-4.5 text-emerald-400" />
+                <div className="w-9 h-9 rounded-lg theme-bg-very-light border theme-border-light flex items-center justify-center mb-3 transition-colors duration-300 group-hover:theme-hover-light">
+                  <feature.icon className="w-4.5 h-4.5 theme-text" />
                 </div>
                 <h3 className="text-sm font-semibold text-zinc-200 mb-1">
                   {feature.title}
@@ -317,7 +317,7 @@ export default function AuthView() {
       {/* Right Panel - Auth Form */}
       <div className="flex-1 flex items-center justify-center p-6 sm:p-8 lg:p-12 relative">
         {/* Subtle background glow on right side */}
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-emerald-500/[0.02] rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] theme-bg-ultra-light rounded-full blur-3xl pointer-events-none" />
 
         <div className="w-full max-w-[400px] relative z-10">
           {/* Mobile-only branding */}
@@ -348,7 +348,7 @@ export default function AuthView() {
             {/* Form Card */}
             <Card className="bg-zinc-900/80 backdrop-blur-sm border-zinc-800/80 rounded-2xl overflow-hidden shadow-xl shadow-black/20">
               {/* Gradient accent bar */}
-              <div className="h-1 bg-gradient-to-r from-emerald-500 via-emerald-400 to-emerald-500" />
+              <div className="h-1 bg-gradient-to-r theme-gradient" />
 
               <CardHeader className="text-center px-8 pt-8 pb-2">
                 <CardTitle className="text-xl font-bold text-zinc-50 tracking-tight">
@@ -469,7 +469,7 @@ export default function AuthView() {
                       <motion.div whileTap={{ scale: 0.98 }}>
                         <Button
                           type="submit"
-                          className="w-full bg-emerald-500 hover:bg-emerald-600 text-white h-11 text-sm font-semibold rounded-lg shadow-lg shadow-emerald-500/20 transition-all duration-200 hover:shadow-emerald-500/30"
+                          className="w-full theme-bg hover:theme-hover text-white h-11 text-sm font-semibold rounded-lg shadow-lg theme-shadow transition-all duration-200 hover:theme-shadow"
                           disabled={loading}
                         >
                           {loading ? (
@@ -589,11 +589,11 @@ export default function AuthView() {
                               {passwordStrength.checks.map((check) => (
                                 <div key={check.label} className="flex items-center gap-1.5">
                                   {check.met ? (
-                                    <Check className="h-3 w-3 text-emerald-400 shrink-0" />
+                                    <Check className="h-3 w-3 theme-text shrink-0" />
                                   ) : (
                                     <X className="h-3 w-3 text-zinc-600 shrink-0" />
                                   )}
-                                  <span className={cn('text-[11px]', check.met ? 'text-emerald-400/80' : 'text-zinc-600')}>
+                                  <span className={cn('text-[11px]', check.met ? 'theme-text' : 'text-zinc-600')}>
                                     {check.label}
                                   </span>
                                 </div>
@@ -620,7 +620,7 @@ export default function AuthView() {
                             readOnly
                             className="bg-zinc-800/60 border-zinc-700 text-zinc-500 cursor-not-allowed pl-10 h-11 text-sm rounded-lg"
                           />
-                          <Crown className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-emerald-400" />
+                          <Crown className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 theme-text" />
                         </div>
                         <p className="text-xs text-zinc-500">
                           Mulai gratis dengan fitur dasar POS
@@ -630,7 +630,7 @@ export default function AuthView() {
                       <motion.div whileTap={{ scale: 0.98 }}>
                         <Button
                           type="submit"
-                          className="w-full bg-emerald-500 hover:bg-emerald-600 text-white h-11 text-sm font-semibold rounded-lg shadow-lg shadow-emerald-500/20 transition-all duration-200 hover:shadow-emerald-500/30"
+                          className="w-full theme-bg hover:theme-hover text-white h-11 text-sm font-semibold rounded-lg shadow-lg theme-shadow transition-all duration-200 hover:theme-shadow"
                           disabled={loading}
                         >
                           {loading ? (
@@ -656,7 +656,7 @@ export default function AuthView() {
                     <button
                       type="button"
                       onClick={toggleMode}
-                      className="ml-1.5 text-sm font-medium text-emerald-400 hover:text-emerald-300 transition-colors duration-200"
+                      className="ml-1.5 text-sm font-medium theme-text hover:theme-text transition-colors duration-200"
                     >
                       {mode === 'login' ? 'Daftar sekarang' : 'Masuk di sini'}
                     </button>

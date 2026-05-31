@@ -326,8 +326,8 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
         <div className="px-5 pt-5 pb-4 border-b border-zinc-800/60">
           <ResponsiveDialogHeader className="space-y-1">
             <div className="flex items-center gap-2.5">
-              <div className="h-8 w-8 rounded-lg bg-emerald-500/10 flex items-center justify-center">
-                <Package className="h-4 w-4 text-emerald-400" />
+              <div className="h-8 w-8 rounded-lg theme-bg-very-light flex items-center justify-center">
+                <Package className="h-4 w-4 theme-text" />
               </div>
               <div>
                 <ResponsiveDialogTitle className="text-sm font-bold text-zinc-100">
@@ -347,7 +347,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
             {/* ========== SECTION: Info Dasar ========== */}
             <div className="space-y-3">
               <div className="flex items-center gap-2">
-                <div className="h-1 w-1 rounded-full bg-emerald-400" />
+                <div className="h-1 w-1 rounded-full theme-bg-light" />
                 <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">Info Dasar</span>
               </div>
 
@@ -360,7 +360,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                   onChange={(e) => updateField('name', e.target.value)}
                   placeholder="Contoh: Kopi Susu Gula Aren"
                   required
-                  className="bg-zinc-900 border-zinc-800 text-zinc-100 placeholder:text-zinc-600 h-10 text-sm rounded-lg focus-visible:ring-emerald-500/40 focus-visible:border-emerald-500/50"
+                  className="bg-zinc-900 border-zinc-800 text-zinc-100 placeholder:text-zinc-600 h-10 text-sm rounded-lg focus-visible:theme-ring focus-visible:theme-border"
                 />
               </div>
 
@@ -370,7 +370,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                   <select
                     value={form.categoryId}
                     onChange={(e) => updateField('categoryId', e.target.value)}
-                    className="w-full h-10 text-sm bg-zinc-900 border border-zinc-800 text-zinc-100 rounded-lg px-3 focus:outline-none focus:ring-1 focus:ring-emerald-500/40 focus:border-emerald-500/50 appearance-none cursor-pointer"
+                    className="w-full h-10 text-sm bg-zinc-900 border border-zinc-800 text-zinc-100 rounded-lg px-3 focus:outline-none focus:ring-1 focus:theme-ring focus:theme-border appearance-none cursor-pointer"
                   >
                     <option value="">Tanpa Kategori</option>
                     {categories.map((cat) => (
@@ -385,7 +385,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                   <select
                     value={form.unit}
                     onChange={(e) => updateField('unit', e.target.value)}
-                    className="w-full h-10 text-sm bg-zinc-900 border border-zinc-800 text-zinc-100 rounded-lg px-3 focus:outline-none focus:ring-1 focus:ring-emerald-500/40 focus:border-emerald-500/50 appearance-none cursor-pointer"
+                    className="w-full h-10 text-sm bg-zinc-900 border border-zinc-800 text-zinc-100 rounded-lg px-3 focus:outline-none focus:ring-1 focus:theme-ring focus:theme-border appearance-none cursor-pointer"
                   >
                     {UNITS.map((u) => (
                       <option key={u.value} value={u.value}>
@@ -402,7 +402,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                   value={form.sku}
                   onChange={(e) => updateField('sku', e.target.value)}
                   placeholder="Opsional — Contoh: SKU-001"
-                  className="bg-zinc-900 border-zinc-800 text-zinc-100 placeholder:text-zinc-600 h-10 text-sm rounded-lg focus-visible:ring-emerald-500/40 focus-visible:border-emerald-500/50"
+                  className="bg-zinc-900 border-zinc-800 text-zinc-100 placeholder:text-zinc-600 h-10 text-sm rounded-lg focus-visible:theme-ring focus-visible:theme-border"
                 />
               </div>
 
@@ -412,7 +412,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                   value={form.image}
                   onChange={(e) => updateField('image', e.target.value)}
                   placeholder="Opsional — https://..."
-                  className="bg-zinc-900 border-zinc-800 text-zinc-100 placeholder:text-zinc-600 h-10 text-sm rounded-lg focus-visible:ring-emerald-500/40 focus-visible:border-emerald-500/50"
+                  className="bg-zinc-900 border-zinc-800 text-zinc-100 placeholder:text-zinc-600 h-10 text-sm rounded-lg focus-visible:theme-ring focus-visible:theme-border"
                 />
               </div>
             </div>
@@ -423,7 +423,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
             {!hasVariants && (
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
-                  <div className="h-1 w-1 rounded-full bg-emerald-400" />
+                  <div className="h-1 w-1 rounded-full theme-bg-light" />
                   <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">Harga & Stok</span>
                 </div>
 
@@ -442,7 +442,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                         onChange={(e) => updateField('price', e.target.value)}
                         placeholder="0"
                         required
-                        className="bg-zinc-900 border-zinc-800 text-zinc-100 placeholder:text-zinc-600 h-10 text-sm rounded-lg pl-8 focus-visible:ring-emerald-500/40 focus-visible:border-emerald-500/50"
+                        className="bg-zinc-900 border-zinc-800 text-zinc-100 placeholder:text-zinc-600 h-10 text-sm rounded-lg pl-8 focus-visible:theme-ring focus-visible:theme-border"
                       />
                     </div>
                   </div>
@@ -461,7 +461,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                           value={form.hpp}
                           onChange={(e) => updateField('hpp', e.target.value)}
                           placeholder="0"
-                          className="bg-zinc-900 border-zinc-800 text-zinc-100 placeholder:text-zinc-600 h-10 text-sm rounded-lg pl-8 focus-visible:ring-emerald-500/40 focus-visible:border-emerald-500/50"
+                          className="bg-zinc-900 border-zinc-800 text-zinc-100 placeholder:text-zinc-600 h-10 text-sm rounded-lg pl-8 focus-visible:theme-ring focus-visible:theme-border"
                         />
                       </div>
                     </div>
@@ -473,7 +473,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                   <div className="bg-zinc-900/80 border border-zinc-800/60 rounded-lg p-3">
                     <div className="flex items-center justify-between">
                       <span className="text-[11px] text-zinc-500">Estimasi Keuntungan</span>
-                      <span className="text-sm font-semibold text-emerald-400">
+                      <span className="text-sm font-semibold theme-text">
                         {formatCurrency(Number(form.price) - (Number(form.hpp) || 0))}
                       </span>
                     </div>
@@ -500,7 +500,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                       onChange={(e) => updateField('stock', e.target.value)}
                       placeholder="0"
                       required
-                      className="bg-zinc-900 border-zinc-800 text-zinc-100 placeholder:text-zinc-600 h-10 text-sm rounded-lg focus-visible:ring-emerald-500/40 focus-visible:border-emerald-500/50"
+                      className="bg-zinc-900 border-zinc-800 text-zinc-100 placeholder:text-zinc-600 h-10 text-sm rounded-lg focus-visible:theme-ring focus-visible:theme-border"
                     />
                   </div>
                   <div className="space-y-1.5">
@@ -513,7 +513,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                       value={form.lowStockAlert}
                       onChange={(e) => updateField('lowStockAlert', e.target.value)}
                       placeholder="10"
-                      className="bg-zinc-900 border-zinc-800 text-zinc-100 placeholder:text-zinc-600 h-10 text-sm rounded-lg focus-visible:ring-emerald-500/40 focus-visible:border-emerald-500/50"
+                      className="bg-zinc-900 border-zinc-800 text-zinc-100 placeholder:text-zinc-600 h-10 text-sm rounded-lg focus-visible:theme-ring focus-visible:theme-border"
                     />
                   </div>
                 </div>
@@ -523,14 +523,14 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
             {/* ========== SECTION: Variant Toggle ========== */}
             <div className="space-y-3">
               <div className="flex items-center gap-2">
-                <div className="h-1 w-1 rounded-full bg-emerald-400" />
+                <div className="h-1 w-1 rounded-full theme-bg-light" />
                 <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">Varian Produk</span>
               </div>
 
               <div
                 className={`rounded-xl border p-4 transition-all duration-200 cursor-pointer ${
                   hasVariants
-                    ? 'bg-emerald-500/5 border-emerald-500/30 ring-1 ring-emerald-500/10'
+                    ? 'theme-bg-ultra-light theme-border-medium ring-1 theme-ring'
                     : 'bg-zinc-900/40 border-zinc-800/60 hover:border-zinc-700'
                 }`}
                 onClick={() => {
@@ -546,9 +546,9 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <div className={`h-9 w-9 rounded-lg flex items-center justify-center transition-colors ${
-                      hasVariants ? 'bg-emerald-500/15' : 'bg-zinc-800'
+                      hasVariants ? 'theme-bg-lighter' : 'bg-zinc-800'
                     }`}>
-                      <Layers className={`h-4 w-4 transition-colors ${hasVariants ? 'text-emerald-400' : 'text-zinc-500'}`} />
+                      <Layers className={`h-4 w-4 transition-colors ${hasVariants ? 'theme-text' : 'text-zinc-500'}`} />
                     </div>
                     <div>
                       <p className="text-sm font-medium text-zinc-200">Aktifkan Varian</p>
@@ -702,7 +702,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                     value={form.lowStockAlert}
                     onChange={(e) => updateField('lowStockAlert', e.target.value)}
                     placeholder="10"
-                    className="bg-zinc-900 border-zinc-800 text-zinc-100 placeholder:text-zinc-600 h-10 text-sm rounded-lg focus-visible:ring-emerald-500/40 focus-visible:border-emerald-500/50"
+                    className="bg-zinc-900 border-zinc-800 text-zinc-100 placeholder:text-zinc-600 h-10 text-sm rounded-lg focus-visible:theme-ring focus-visible:theme-border"
                   />
                 </div>
 
@@ -731,7 +731,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                         >
                           <div className="flex items-center gap-2.5 min-w-0">
                             <div className={`h-7 w-7 rounded-md flex items-center justify-center flex-shrink-0 text-xs font-bold ${
-                              hasName ? 'bg-emerald-500/10 text-emerald-400' : 'bg-zinc-800 text-zinc-600'
+                              hasName ? 'theme-bg-very-light theme-text' : 'bg-zinc-800 text-zinc-600'
                             }`}>
                               {hasName ? variant.name.charAt(0).toUpperCase() : index + 1}
                             </div>
@@ -749,7 +749,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                           </div>
                           <div className="flex items-center gap-1 flex-shrink-0">
                             {vPrice > 0 && vHpp > 0 && (
-                              <Badge className="bg-emerald-500/10 border-emerald-500/20 text-emerald-400 text-[9px] px-1.5 py-0 mr-1">
+                              <Badge className="theme-bg-very-light theme-border-light theme-text text-[9px] px-1.5 py-0 mr-1">
                                 +{formatCurrency(vPrice - vHpp)}
                               </Badge>
                             )}
@@ -785,7 +785,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                                 value={variant.name}
                                 onChange={(e) => updateVariant(index, 'name', e.target.value)}
                                 placeholder="Contoh: Small, Medium, Large"
-                                className="bg-zinc-800/80 border-zinc-700 text-zinc-100 placeholder:text-zinc-600 h-9 text-xs rounded-lg focus-visible:ring-emerald-500/40 focus-visible:border-emerald-500/50"
+                                className="bg-zinc-800/80 border-zinc-700 text-zinc-100 placeholder:text-zinc-600 h-9 text-xs rounded-lg focus-visible:theme-ring focus-visible:theme-border"
                               />
                             </div>
 
@@ -795,7 +795,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                                 value={variant.sku}
                                 onChange={(e) => updateVariant(index, 'sku', e.target.value)}
                                 placeholder="Opsional"
-                                className="bg-zinc-800/80 border-zinc-700 text-zinc-100 placeholder:text-zinc-600 h-9 text-xs rounded-lg focus-visible:ring-emerald-500/40 focus-visible:border-emerald-500/50"
+                                className="bg-zinc-800/80 border-zinc-700 text-zinc-100 placeholder:text-zinc-600 h-9 text-xs rounded-lg focus-visible:theme-ring focus-visible:theme-border"
                               />
                             </div>
 
@@ -811,7 +811,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                                     value={variant.hpp}
                                     onChange={(e) => updateVariant(index, 'hpp', e.target.value)}
                                     placeholder="0"
-                                    className="bg-zinc-800/80 border-zinc-700 text-zinc-100 placeholder:text-zinc-600 h-9 text-xs rounded-lg pl-7 focus-visible:ring-emerald-500/40 focus-visible:border-emerald-500/50"
+                                    className="bg-zinc-800/80 border-zinc-700 text-zinc-100 placeholder:text-zinc-600 h-9 text-xs rounded-lg pl-7 focus-visible:theme-ring focus-visible:theme-border"
                                   />
                                 </div>
                               </div>
@@ -828,7 +828,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                                     value={variant.price}
                                     onChange={(e) => updateVariant(index, 'price', e.target.value)}
                                     placeholder="0"
-                                    className="bg-zinc-800/80 border-zinc-700 text-zinc-100 placeholder:text-zinc-600 h-9 text-xs rounded-lg pl-7 focus-visible:ring-emerald-500/40 focus-visible:border-emerald-500/50"
+                                    className="bg-zinc-800/80 border-zinc-700 text-zinc-100 placeholder:text-zinc-600 h-9 text-xs rounded-lg pl-7 focus-visible:theme-ring focus-visible:theme-border"
                                   />
                                 </div>
                               </div>
@@ -840,7 +840,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                                   value={variant.stock}
                                   onChange={(e) => updateVariant(index, 'stock', e.target.value)}
                                   placeholder="0"
-                                  className="bg-zinc-800/80 border-zinc-700 text-zinc-100 placeholder:text-zinc-600 h-9 text-xs rounded-lg focus-visible:ring-emerald-500/40 focus-visible:border-emerald-500/50"
+                                  className="bg-zinc-800/80 border-zinc-700 text-zinc-100 placeholder:text-zinc-600 h-9 text-xs rounded-lg focus-visible:theme-ring focus-visible:theme-border"
                                 />
                               </div>
                             </div>
@@ -850,7 +850,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                               <div className="bg-zinc-800/40 rounded-lg p-2 flex items-center justify-between">
                                 <span className="text-[10px] text-zinc-500">Keuntungan</span>
                                 <div className="flex items-center gap-2">
-                                  <span className="text-[11px] font-medium text-emerald-400">{formatCurrency(vPrice - vHpp)}</span>
+                                  <span className="text-[11px] font-medium theme-text">{formatCurrency(vPrice - vHpp)}</span>
                                   <span className="text-[10px] text-zinc-600">
                                     ({(((vPrice - vHpp) / vPrice) * 100).toFixed(1)}%)
                                   </span>
@@ -869,7 +869,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                   type="button"
                   variant="outline"
                   onClick={addVariant}
-                  className="w-full h-10 border-dashed border-zinc-700/60 text-zinc-400 hover:text-emerald-400 hover:border-emerald-500/40 hover:bg-emerald-500/5 text-xs rounded-lg"
+                  className="w-full h-10 border-dashed border-zinc-700/60 text-zinc-400 hover:theme-text hover:theme-border-light hover:theme-hover-light text-xs rounded-lg"
                 >
                   <Plus className="mr-1.5 h-3.5 w-3.5" />
                   Tambah Varian
@@ -904,7 +904,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
               type="submit"
               onClick={handleSubmit}
               disabled={saving}
-              className="bg-emerald-500 hover:bg-emerald-600 text-white h-9 text-xs font-medium rounded-lg shadow-lg shadow-emerald-500/20 min-w-[100px]"
+              className="theme-bg hover:theme-hover text-white h-9 text-xs font-medium rounded-lg shadow-lg theme-shadow min-w-[100px]"
             >
               {saving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
               {isEdit ? 'Simpan' : 'Tambah Produk'}

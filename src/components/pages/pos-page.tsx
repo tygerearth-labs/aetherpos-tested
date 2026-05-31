@@ -163,7 +163,7 @@ interface UserOutlet {
 const PRODUCTS_PER_PAGE = 24
 
 const CATEGORY_COLORS: Record<string, { bg: string; text: string; border: string; activeBg: string }> = {
-  emerald: { bg: 'bg-emerald-500/10', text: 'text-emerald-400', border: 'border-emerald-500/20', activeBg: 'bg-emerald-500/20' },
+  emerald: { bg: 'theme-bg-very-light', text: 'theme-text', border: 'theme-border-light', activeBg: 'theme-bg-subtle' },
   blue: { bg: 'bg-blue-500/10', text: 'text-blue-400', border: 'border-blue-500/20', activeBg: 'bg-blue-500/20' },
   violet: { bg: 'bg-violet-500/10', text: 'text-violet-400', border: 'border-violet-500/20', activeBg: 'bg-violet-500/20' },
   rose: { bg: 'bg-rose-500/10', text: 'text-rose-400', border: 'border-rose-500/20', activeBg: 'bg-rose-500/20' },
@@ -1378,7 +1378,7 @@ export default function PosPage() {
           )}
           {/* Qty bubble badge */}
           {hasCartItems && !outOfStock && (
-            <div className="absolute -top-1.5 -right-1.5 z-[3] flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full bg-emerald-500 text-white text-[10px] font-bold shadow-lg shadow-emerald-500/30 pointer-events-none">
+            <div className="absolute -top-1.5 -right-1.5 z-[3] flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full theme-bg text-white text-[10px] font-bold shadow-lg theme-shadow pointer-events-none">
               {totalCartQty}
             </div>
           )}
@@ -1479,7 +1479,7 @@ export default function PosPage() {
     <div className={isMobile ? 'bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-3.5 space-y-2' : 'border-b border-zinc-800 px-4 py-3'}>
       <div className="flex items-center justify-between">
         <Label className="text-[11px] text-zinc-500 font-medium tracking-wide uppercase">Customer</Label>
-        <button onClick={() => setAddCustomerOpen(true)} className="text-[10px] text-emerald-400 hover:text-emerald-300 font-semibold flex items-center gap-1 transition-colors">
+        <button onClick={() => setAddCustomerOpen(true)} className="text-[10px] theme-text hover:theme-text font-semibold flex items-center gap-1 transition-colors">
           <UserPlus className="h-3 w-3" /> Tambah Baru
         </button>
       </div>
@@ -1512,9 +1512,9 @@ export default function PosPage() {
       )}
       {selectedCustomer && (
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
-            <User className="h-3 w-3 text-emerald-400" />
-            <span className="text-[11px] text-emerald-300 font-medium">{selectedCustomer.name}</span>
+          <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl theme-bg-very-light border theme-border-light">
+            <User className="h-3 w-3 theme-text" />
+            <span className="text-[11px] theme-text font-medium">{selectedCustomer.name}</span>
           </div>
           {selectedCustomer.points > 0 && (
             <Badge className="bg-amber-500/10 border-amber-500/20 text-amber-400 text-[10px] rounded-lg">
@@ -1636,7 +1636,7 @@ export default function PosPage() {
         <div className="flex items-center gap-2 min-w-0">
           {outletInfo ? (
             <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-zinc-900 border border-zinc-800 text-[11px] font-semibold text-zinc-300 min-w-0">
-              <Store className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+              <Store className="h-3.5 w-3.5 theme-text shrink-0" />
               <span className="truncate">{outletInfo.name}</span>
             </div>
           ) : (
@@ -1646,7 +1646,7 @@ export default function PosPage() {
             </div>
           )}
           <div className={`flex items-center gap-1 px-2 py-1.5 rounded-xl text-[10px] font-medium border shrink-0 ${
-            isOnline ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-red-500/10 border-red-500/20 text-red-400'
+            isOnline ? 'theme-bg-very-light theme-border-light theme-text' : 'bg-red-500/10 border-red-500/20 text-red-400'
           }`}>
             {isOnline ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
           </div>
@@ -1716,7 +1716,7 @@ export default function PosPage() {
                       <Store className="h-3.5 w-3.5 text-zinc-500" />
                       <span>{outlet.name}</span>
                       {outlet.isPrimary && (
-                        <span className="text-[9px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded-full font-medium">
+                        <span className="text-[9px] theme-bg-very-light theme-text border theme-border-light px-1.5 py-0.5 rounded-full font-medium">
                           Primary
                         </span>
                       )}
@@ -1740,7 +1740,7 @@ export default function PosPage() {
         <div className="flex items-center gap-1.5 flex-wrap">
           {/* Connection */}
           <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium border ${
-            isOnline ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-red-500/10 border-red-500/20 text-red-400'
+            isOnline ? 'theme-bg-very-light theme-border-light theme-text' : 'bg-red-500/10 border-red-500/20 text-red-400'
           }`}>
             {isOnline ? <><Wifi className="h-3 w-3" /><span>Online</span></> : <><WifiOff className="h-3 w-3" /><span>Offline</span></>}
           </div>
@@ -1827,49 +1827,113 @@ export default function PosPage() {
           <div className="shrink-0">{renderPagination()}</div>
         </div>
 
-        {/* Cart - Right */}
-        <div className="md:col-span-2 flex flex-col h-full bg-zinc-900/80 border border-zinc-800 rounded-2xl overflow-hidden shadow-xl shadow-black/10">
-          <div className="py-2.5 px-3 border-b border-zinc-800 bg-zinc-900 shrink-0">
-            <h2 className="text-xs font-bold text-zinc-300 flex items-center gap-2">
-              <div className="w-5 h-5 rounded-md bg-emerald-500/20 flex items-center justify-center">
-                <ShoppingCart className="h-3 w-3 text-emerald-400" />
+        {/* Cart - Right — Redesigned */}
+        <div className="md:col-span-2 flex flex-col h-full bg-zinc-950 border border-zinc-800/80 rounded-2xl overflow-hidden shadow-2xl shadow-black/20">
+          {/* Cart Header */}
+          <div className="px-4 py-3 border-b border-zinc-800/60 bg-gradient-to-b from-zinc-900/50 to-transparent shrink-0">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl theme-gradient-subtle flex items-center justify-center border theme-border-light">
+                  <ShoppingCart className="h-4 w-4 theme-text" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-bold text-zinc-100 leading-tight">Keranjang</h2>
+                  {cart.length > 0 && <p className="text-[10px] text-zinc-500 leading-tight">{cart.length} produk · {cart.reduce((s, i) => s + i.qty, 0)} item</p>}
+                </div>
               </div>
-              Keranjang
               {cart.length > 0 && (
-                <span className="ml-auto bg-emerald-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{cart.reduce((s, i) => s + i.qty, 0)}</span>
+                <button onClick={clearCart} className="h-7 px-2.5 rounded-lg text-[10px] font-semibold text-zinc-500 hover:text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 transition-all">
+                  Hapus Semua
+                </button>
               )}
-            </h2>
+            </div>
+          </div>
+
+          {/* Customer Selector — embedded at top of scrollable area */}
+          <div className="shrink-0 px-4 pt-3 pb-1">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[10px] text-zinc-500 font-semibold uppercase tracking-wider">Customer</span>
+              <button onClick={() => setAddCustomerOpen(true)} className="text-[10px] theme-text hover:theme-text font-semibold flex items-center gap-0.5 transition-colors">
+                <UserPlus className="h-2.5 w-2.5" /> Baru
+              </button>
+            </div>
+            <div className="relative">
+              <User className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500" />
+              <Input
+                placeholder={selectedCustomer ? selectedCustomer.name : 'Tambah customer (opsional)'}
+                value={customerSearch}
+                onChange={(e) => { setCustomerSearch(e.target.value); setCustomerDropdownOpen(true) }}
+                onFocus={() => setCustomerDropdownOpen(true)}
+                className="pl-9 pr-8 h-9 text-xs bg-zinc-900 border-zinc-800 text-zinc-100 placeholder:text-zinc-600 rounded-xl"
+              />
+              {selectedCustomer && (
+                <button onClick={() => { setSelectedCustomer(null); setCustomerSearch(''); setPointsToUse(0) }}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 h-5 w-5 flex items-center justify-center rounded-full bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors">
+                  <X className="h-2.5 w-2.5" />
+                </button>
+              )}
+            </div>
+            {customerDropdownOpen && filteredCustomers.length > 0 && !selectedCustomer && (
+              <div className="absolute z-30 w-full mt-1 bg-zinc-900 border border-zinc-700/60 rounded-xl shadow-2xl shadow-black/50 max-h-40 overflow-y-auto">
+                {filteredCustomers.map((customer) => (
+                  <button key={customer.id} onClick={() => { setSelectedCustomer(customer); setCustomerSearch(''); setCustomerDropdownOpen(false); setPointsToUse(0) }}
+                    className="w-full text-left px-3.5 py-2 hover:bg-zinc-800/80 border-b border-zinc-800/30 last:border-0 transition-colors">
+                    <p className="text-xs text-zinc-200 font-medium">{customer.name}</p>
+                    <p className="text-[10px] text-zinc-500 mt-0.5">{customer.whatsapp} · <span className="text-amber-400">{customer.points} pts</span></p>
+                  </button>
+                ))}
+              </div>
+            )}
+            {selectedCustomer && (
+              <div className="flex items-center gap-1.5 mt-1.5">
+                <div className="flex items-center gap-1 px-2 py-1 rounded-lg theme-bg-very-light border theme-border-light">
+                  <User className="h-2.5 w-2.5 theme-text" />
+                  <span className="text-[10px] theme-text font-medium">{selectedCustomer.name}</span>
+                </div>
+                {selectedCustomer.points > 0 && (
+                  <span className="text-[10px] text-amber-400 font-medium">{selectedCustomer.points} pts</span>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Items — scrollable middle */}
-          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
-            {renderCustomerSelector(false)}
-
-            <div className="px-3 py-2">
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 py-2">
             {cart.length === 0 ? (
-              <div className="text-center py-12">
-                <div className="w-16 h-16 rounded-2xl bg-zinc-800 flex items-center justify-center mx-auto mb-3">
-                  <ShoppingCart className="h-7 w-7 text-zinc-600" />
+              <div className="flex flex-col items-center justify-center py-10">
+                <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-zinc-800/60 to-zinc-900 border border-zinc-800/40 flex items-center justify-center mb-4">
+                  <ShoppingCart className="h-8 w-8 text-zinc-700/60" />
                 </div>
-                <p className="text-zinc-500 text-xs">Keranjang kosong</p>
-                <p className="text-zinc-600 text-[10px] mt-0.5">Pilih produk untuk memulai</p>
+                <p className="text-sm font-medium text-zinc-500">Keranjang Kosong</p>
+                <p className="text-[11px] text-zinc-600 mt-1">Pilih produk dari kiri untuk memulai</p>
               </div>
             ) : (
-              <div className="space-y-1">
+              <div className="space-y-1.5">
                 {cart.map((item) => {
                   const itemKey = getCartKey(item.product.id, item.variant?.id || null)
+                  const itemTotal = getItemPrice(item) * item.qty
                   return (
-                  <div key={itemKey} className="flex items-center gap-1.5 p-1.5 rounded-lg bg-zinc-800/50 border border-zinc-800/50">
+                  <div key={itemKey} className="group flex items-center gap-2.5 p-2.5 rounded-xl bg-zinc-900/60 border border-zinc-800/40 hover:border-zinc-700/60 transition-all duration-150">
+                    {/* Product Info */}
                     <div className="flex-1 min-w-0">
-                      <p className="text-[11px] font-medium text-zinc-200 truncate">{item.product.name}</p>
+                      <p className="text-xs font-semibold text-zinc-100 truncate leading-tight">{item.product.name}</p>
                       {item.variant && (
-                        <p className="text-[10px] text-violet-400 font-medium truncate leading-tight">{item.variant.name}</p>
+                        <span className="inline-flex items-center gap-1 mt-0.5 px-1.5 py-0.5 rounded-md bg-violet-500/10 border border-violet-500/15">
+                          <span className="text-[9px] font-medium text-violet-400 leading-tight">{item.variant.name}</span>
+                        </span>
                       )}
-                      <p className="text-[10px] text-zinc-500 leading-tight">{formatCurrency(getItemPrice(item))} × {item.qty} <span className="text-emerald-400 font-semibold">{formatCurrency(getItemPrice(item) * item.qty)}</span></p>
+                      <p className="text-[10px] text-zinc-500 mt-1">
+                        {formatCurrency(getItemPrice(item))} × {item.qty}
+                      </p>
                     </div>
-                    <div className="flex items-center gap-0 shrink-0">
-                      <Button variant="ghost" size="icon" className="h-6 w-6 text-zinc-500 hover:text-zinc-100 hover:bg-zinc-700 rounded"
-                        onClick={() => updateQty(item.product.id, item.qty - 1, item.variant?.id)}><Minus className="h-2.5 w-2.5" /></Button>
+
+                    {/* Item Total */}
+                    <p className="text-xs font-bold theme-text shrink-0 tabular-nums mr-1">{formatCurrency(itemTotal)}</p>
+
+                    {/* Qty Controls */}
+                    <div className="flex items-center gap-0.5 shrink-0">
+                      <button className="h-7 w-7 flex items-center justify-center rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-all active:scale-90"
+                        onClick={() => updateQty(item.product.id, item.qty - 1, item.variant?.id)}><Minus className="h-3 w-3" /></button>
                       {editingQtyId === itemKey ? (
                         <input
                           ref={qtyInputRef}
@@ -1880,89 +1944,93 @@ export default function PosPage() {
                           onChange={(e) => setEditingQtyValue(e.target.value)}
                           onBlur={confirmEditQty}
                           onKeyDown={(e) => { if (e.key === 'Enter') confirmEditQty(); if (e.key === 'Escape') cancelEditQty() }}
-                          className="text-[11px] text-zinc-200 w-7 text-center font-bold bg-zinc-700 border border-zinc-600 rounded h-6 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          className="text-xs text-zinc-100 w-8 text-center font-bold bg-zinc-800 border border-zinc-700 rounded-lg h-7 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                         />
                       ) : (
                         <span
-                          className="text-[11px] text-zinc-200 w-5 text-center font-bold cursor-pointer hover:text-emerald-400 transition-colors"
+                          className="text-xs text-zinc-100 w-6 text-center font-bold cursor-pointer hover:theme-text transition-colors"
                           onClick={() => startEditQty(itemKey, item.qty)}
                           title="Klik untuk edit qty"
                         >{item.qty}</span>
                       )}
-                      <Button variant="ghost" size="icon" className="h-6 w-6 text-zinc-500 hover:text-zinc-100 hover:bg-zinc-700 rounded"
-                        onClick={() => updateQty(item.product.id, item.qty + 1, item.variant?.id)}><Plus className="h-2.5 w-2.5" /></Button>
-                      <Button variant="ghost" size="icon" className="h-6 w-6 text-zinc-600 hover:text-red-400 hover:bg-red-500/10 rounded"
-                        onClick={() => removeFromCart(item.product.id, item.variant?.id)}><Trash2 className="h-2.5 w-2.5" /></Button>
+                      <button className="h-7 w-7 flex items-center justify-center rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-all active:scale-90"
+                        onClick={() => updateQty(item.product.id, item.qty + 1, item.variant?.id)}><Plus className="h-3 w-3" /></button>
                     </div>
+
+                    {/* Delete — shown on hover */}
+                    <button className="h-6 w-6 flex items-center justify-center rounded-md text-zinc-700 opacity-0 group-hover:opacity-100 hover:text-red-400 hover:bg-red-500/10 transition-all shrink-0"
+                      onClick={() => removeFromCart(item.product.id, item.variant?.id)}><Trash2 className="h-3 w-3" /></button>
                   </div>
                   )
                 })}
               </div>
             )}
-            </div>
           </div>
 
-          {/* Summary & Payment — fixed bottom, scrollable if tall */}
-          <div className="shrink-0 border-t border-zinc-800 bg-zinc-900 overflow-y-auto overscroll-contain max-h-[40%]">
-            <div className="p-3 space-y-2">
-            <div className="space-y-1 text-xs">
-              <div className="flex justify-between text-zinc-400"><span>Subtotal</span><span className="text-zinc-200">{formatCurrency(subtotal)}</span></div>
+          {/* Summary & Payment — fixed bottom */}
+          <div className="shrink-0 border-t border-zinc-800/60 bg-gradient-to-t from-zinc-950 to-zinc-900/80 overflow-y-auto overscroll-contain max-h-[45%]">
+            <div className="p-4 space-y-3">
+            {/* Totals */}
+            <div className="space-y-1.5 text-xs">
+              <div className="flex justify-between text-zinc-400"><span>Subtotal</span><span className="text-zinc-200 tabular-nums">{formatCurrency(subtotal)}</span></div>
               {settings.loyaltyEnabled && selectedCustomer && maxPointsToUse > 0 && (
                 <div className="flex items-center justify-between">
-                  <span className="text-zinc-400 flex items-center gap-1"><Coins className="h-2.5 w-2.5" /> Pakai Poin</span>
+                  <span className="text-zinc-400 flex items-center gap-1.5"><Coins className="h-3 w-3" /> Pakai Poin</span>
                   <Input type="number" min="0" max={maxPointsToUse} value={pointsToUse || ''} onChange={(e) => handlePointsChange(e.target.value)}
-                    placeholder="0" className="w-20 h-7 text-right text-[11px] bg-zinc-800 border-zinc-700 text-zinc-100 rounded-md" />
+                    placeholder="0" className="w-20 h-7 text-right text-[11px] bg-zinc-800 border-zinc-700 text-zinc-100 rounded-lg" />
                 </div>
               )}
               {pointsDiscount > 0 && (
-                <div className="flex justify-between text-emerald-400"><span>Diskon Poin</span><span>-{formatCurrency(pointsDiscount)}</span></div>
+                <div className="flex justify-between theme-text"><span className="flex items-center gap-1.5"><Coins className="h-3 w-3" /> Diskon Poin</span><span className="tabular-nums">-{formatCurrency(pointsDiscount)}</span></div>
               )}
               {promoDiscount > 0 && selectedPromo && (
-                <div className="flex justify-between text-amber-400 text-xs">
-                  <span className="flex items-center gap-1">
-                    <Tag className="h-3 w-3" />
-                    Promo: {selectedPromo.name}
-                  </span>
-                  <span>-{formatCurrency(promoDiscount)}</span>
+                <div className="flex justify-between text-amber-400">
+                  <span className="flex items-center gap-1.5"><Tag className="h-3 w-3" /> {selectedPromo.name}</span>
+                  <span className="tabular-nums">-{formatCurrency(promoDiscount)}</span>
                 </div>
               )}
               {ppnAmount > 0 && (
-                <div className="flex justify-between text-zinc-400 text-xs">
-                  <span>PPN ({settings.ppnRate}%)</span>
-                  <span>+{formatCurrency(ppnAmount)}</span>
-                </div>
+                <div className="flex justify-between text-sky-300"><span>PPN ({settings.ppnRate}%)</span><span className="tabular-nums">+{formatCurrency(ppnAmount)}</span></div>
               )}
-              <Separator className="bg-zinc-800" />
-              <div className="flex justify-between text-base font-black text-zinc-100"><span>Total</span><span>{formatCurrency(total)}</span></div>
+              <Separator className="bg-zinc-800/80" />
+              <div className="flex justify-between items-baseline">
+                <span className="text-sm font-black text-zinc-100">Total</span>
+                <span className="text-lg font-black text-zinc-50 tabular-nums">{formatCurrency(total)}</span>
+              </div>
             </div>
 
+            {/* Payment Methods */}
             {renderPaymentButtons(false)}
 
+            {/* Cash Payment */}
             {paymentMethod === 'CASH' && (
-              <div className="space-y-2">
-                <Label className="text-[11px] text-zinc-400 font-medium">Jumlah Bayar</Label>
-                <Input type="number" min="0" step="any" value={paidAmount} onChange={(e) => setPaidAmount(e.target.value)}
-                  placeholder="0" className="h-10 text-base font-bold bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-600 rounded-xl text-right pr-12" />
+              <div className="space-y-2.5">
+                <div className="relative">
+                  <Label className="text-[10px] text-zinc-500 font-semibold uppercase tracking-wider">Jumlah Bayar</Label>
+                  <Input type="number" min="0" step="any" value={paidAmount} onChange={(e) => setPaidAmount(e.target.value)}
+                    placeholder="0" className="mt-1.5 h-11 text-base font-bold bg-zinc-800/80 border-zinc-700 text-zinc-100 placeholder:text-zinc-600 rounded-xl text-right pr-14 tabular-nums" />
+                  <span className="absolute right-3 top-[calc(50%+8px)] -translate-y-1/2 text-xs text-zinc-500 font-medium">Rp</span>
+                </div>
                 {Number(paidAmount) >= total && total > 0 && (
-                  <div className="flex justify-between text-xs text-emerald-400 bg-emerald-500/5 border border-emerald-500/20 rounded-lg px-3 py-1.5">
-                    <span>Kembalian</span><span className="font-bold">{formatCurrency(change)}</span>
+                  <div className="flex items-center justify-between text-xs theme-bg-very-light border theme-border-light rounded-xl px-3.5 py-2.5">
+                    <span className="theme-text font-medium">Kembalian</span>
+                    <span className="theme-text font-bold text-sm tabular-nums">{formatCurrency(change)}</span>
                   </div>
                 )}
-                {/* Quick Nominals */}
                 <div className="flex flex-wrap gap-1.5">
                   {getQuickNominals.map((nom) => (
                     <button key={nom} onClick={() => setPaidAmount(String(nom))}
-                      className={`px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-all ${
+                      className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border transition-all ${
                         Number(paidAmount) === nom
-                          ? `${themeColors.activeBg} ${themeColors.text} ${themeColors.border}`
-                          : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:border-zinc-600 hover:text-zinc-200'
+                          ? `${themeColors.activeBg} ${themeColors.text} ${themeColors.border} shadow-sm`
+                          : 'bg-zinc-800/60 border-zinc-700/60 text-zinc-400 hover:border-zinc-600 hover:text-zinc-200'
                       }`}>
                       {nom >= 1000 ? `${nom / 1000}K` : nom}
                     </button>
                   ))}
                   {total > 0 && (
                     <button onClick={() => setPaidAmount(String(Math.ceil(total / 1000) * 1000))}
-                      className="px-2.5 py-1 rounded-lg text-[11px] font-medium border bg-zinc-800 border-zinc-700 text-zinc-400 hover:border-zinc-600 hover:text-zinc-200 transition-all">
+                      className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border bg-amber-500/5 border-amber-500/20 text-amber-400 hover:bg-amber-500/10 transition-all">
                       Uang Pas
                     </button>
                   )}
@@ -1970,38 +2038,48 @@ export default function PosPage() {
               </div>
             )}
 
+            {/* QRIS Payment */}
             {paymentMethod === 'QRIS' && (
-              <div className="p-4 rounded-xl bg-zinc-800 border border-zinc-700 text-center">
-                <QrCode className="h-14 w-14 text-zinc-600 mx-auto mb-2" />
-                <p className="text-[11px] text-zinc-400">Scan QRIS untuk bayar</p>
-                <p className="text-sm font-black text-zinc-200 mt-1">{formatCurrency(total)}</p>
+              <div className="p-5 rounded-xl bg-zinc-900 border border-zinc-800/60 text-center">
+                <div className="w-16 h-16 rounded-2xl bg-zinc-800 flex items-center justify-center mx-auto mb-3">
+                  <QrCode className="h-8 w-8 text-zinc-600" />
+                </div>
+                <p className="text-xs text-zinc-400">Scan QRIS untuk bayar</p>
+                <p className="text-base font-black text-zinc-200 mt-1 tabular-nums">{formatCurrency(total)}</p>
               </div>
             )}
 
+            {/* DEBIT Payment */}
             {paymentMethod === 'DEBIT' && (
-              <div className="p-4 rounded-xl bg-zinc-800 border border-zinc-700 text-center">
-                <CreditCard className="h-14 w-14 text-zinc-600 mx-auto mb-2" />
-                <p className="text-[11px] text-zinc-400">Tap atau gesek kartu debit</p>
-                <p className="text-sm font-black text-zinc-200 mt-1">{formatCurrency(total)}</p>
+              <div className="p-5 rounded-xl bg-zinc-900 border border-zinc-800/60 text-center">
+                <div className="w-16 h-16 rounded-2xl bg-zinc-800 flex items-center justify-center mx-auto mb-3">
+                  <CreditCard className="h-8 w-8 text-zinc-600" />
+                </div>
+                <p className="text-xs text-zinc-400">Tap atau gesek kartu debit</p>
+                <p className="text-base font-black text-zinc-200 mt-1 tabular-nums">{formatCurrency(total)}</p>
               </div>
             )}
 
+            {/* TRANSFER Payment */}
             {paymentMethod === 'TRANSFER' && (
-              <div className="p-4 rounded-xl bg-zinc-800 border border-zinc-700 text-center">
-                <ArrowRightLeft className="h-14 w-14 text-orange-500/50 mx-auto mb-2" />
-                <p className="text-[11px] text-zinc-400">Mohon transfer ke rekening outlet</p>
-                <p className="text-sm font-black text-zinc-200 mt-1">{formatCurrency(total)}</p>
+              <div className="p-5 rounded-xl bg-zinc-900 border border-zinc-800/60 text-center">
+                <div className="w-16 h-16 rounded-2xl bg-zinc-800 flex items-center justify-center mx-auto mb-3">
+                  <ArrowRightLeft className="h-8 w-8 text-orange-500/40" />
+                </div>
+                <p className="text-xs text-zinc-400">Mohon transfer ke rekening outlet</p>
+                <p className="text-base font-black text-zinc-200 mt-1 tabular-nums">{formatCurrency(total)}</p>
               </div>
             )}
 
+            {/* Checkout Button */}
             <Button onClick={openCheckoutDialog} disabled={cart.length === 0 || checkingOut}
-              className={`w-full h-11 font-bold text-sm rounded-xl transition-all ${
+              className={`w-full h-12 font-bold text-sm rounded-xl transition-all ${
                 cart.length > 0
-                  ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/30'
-                  : 'bg-zinc-800 text-zinc-500'
+                  ? `theme-gradient hover:theme-hover text-white shadow-lg theme-shadow hover:theme-shadow active:scale-[0.99]`
+                  : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
               }`}>
               {checkingOut ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}
-              Proses Pembayaran
+              {checkingOut ? 'Memproses...' : 'Proses Pembayaran'}
             </Button>
             </div>
           </div>
@@ -2025,69 +2103,89 @@ export default function PosPage() {
         <div className="grid grid-cols-2 gap-2.5 pb-2">{renderProductGrid()}</div>
         <div className="pb-8">{renderPagination()}</div>
 
-        {/* Floating Cart Button */}
+        {/* Floating Cart Button — Redesigned */}
         {cart.length > 0 && (
           <button
             onClick={() => setMobileCartOpen(true)}
-            className="fixed bottom-20 right-4 z-40 flex items-center gap-2.5 h-14 pl-4 pr-5 rounded-2xl bg-emerald-500 text-white font-bold text-sm shadow-xl shadow-emerald-500/30 hover:bg-emerald-600 active:scale-95 transition-all duration-150"
+            className="fixed bottom-20 right-4 z-40 flex items-center gap-3 h-14 pl-4 pr-5 rounded-2xl theme-gradient text-white shadow-2xl theme-shadow hover:theme-shadow active:scale-95 transition-all duration-150"
           >
-            <ShoppingCart className="h-5 w-5" />
-            <span className="flex flex-col items-start leading-tight">
-              <span className="text-[10px] font-medium text-emerald-100">{cart.reduce((s, i) => s + i.qty, 0)} item{ppnAmount > 0 && <span className="text-emerald-200/70 ml-1">+PPN</span>}</span>
-              <span className="text-sm">{formatCurrency(total)}</span>
-            </span>
+            <div className="relative">
+              <ShoppingCart className="h-5 w-5" />
+              <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-white theme-bg-dark text-[9px] font-bold flex items-center justify-center shadow-sm">{cart.reduce((s, i) => s + i.qty, 0)}</span>
+            </div>
+            <div className="flex flex-col items-start leading-tight">
+              <span className="text-[10px] font-medium theme-text-light">{cart.length} produk</span>
+              <span className="text-sm font-bold">{formatCurrency(total)}</span>
+            </div>
           </button>
         )}
       </div>
 
-      {/* ── Mobile Cart Sheet ── */}
+      {/* ── Mobile Cart Sheet — Redesigned ── */}
       <Sheet open={mobileCartOpen} onOpenChange={(open) => { if (!open) setMobileCartOpen(false) }}>
-        <SheetContent side="bottom" className="bg-zinc-950 border-zinc-800 rounded-t-3xl h-[85vh] max-h-[85vh] overflow-hidden flex flex-col px-0 gap-0">
+        <SheetContent side="bottom" className="bg-zinc-950 border-zinc-800/80 rounded-t-[28px] h-[88vh] max-h-[88vh] overflow-hidden flex flex-col px-0 gap-0">
           {/* Drag handle */}
           <div className="flex justify-center pt-3 pb-1 shrink-0">
-            <div className="w-10 h-1 rounded-full bg-zinc-700" />
+            <div className="w-10 h-1 rounded-full bg-zinc-700/60" />
           </div>
-          <SheetHeader className="px-5 pb-3 shrink-0">
-            <SheetTitle className="text-zinc-100 text-base font-bold flex items-center gap-2">
-              <div className="w-7 h-7 rounded-lg bg-emerald-500/20 flex items-center justify-center">
-                <ShoppingCart className="h-4 w-4 text-emerald-400" />
-              </div>
-              Keranjang
-              {cart.length > 0 && (
-                <span className="ml-auto text-[11px] font-medium text-zinc-500 bg-zinc-800 px-2.5 py-0.5 rounded-full">{cart.reduce((s, i) => s + i.qty, 0)} item</span>
-              )}
-            </SheetTitle>
-          </SheetHeader>
 
-          {/* Customer selector */}
-          <div className="shrink-0 px-5 pb-3">{renderCustomerSelector(true)}</div>
+          {/* Header */}
+          <div className="px-5 pb-3 shrink-0">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl theme-gradient-subtle flex items-center justify-center border theme-border-light">
+                  <ShoppingCart className="h-4 w-4 theme-text" />
+                </div>
+                <div>
+                  <h2 className="text-[15px] font-bold text-zinc-100 leading-tight">Keranjang</h2>
+                  {cart.length > 0 && <p className="text-[10px] text-zinc-500">{cart.length} produk · {cart.reduce((s, i) => s + i.qty, 0)} item</p>}
+                </div>
+              </div>
+              {cart.length > 0 && (
+                <button onClick={clearCart} className="h-8 px-3 rounded-lg text-[11px] font-semibold text-zinc-500 hover:text-red-400 hover:bg-red-500/10 border border-zinc-800 hover:border-red-500/20 transition-all">
+                  Hapus Semua
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Customer selector — compact */}
+          <div className="shrink-0 px-5 pb-2">{renderCustomerSelector(true)}</div>
 
           {/* Scrollable items */}
           <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5">
             {cart.length === 0 ? (
-              <div className="text-center py-10">
-                <div className="w-16 h-16 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-center mx-auto mb-3">
-                  <ShoppingCart className="h-7 w-7 text-zinc-700" />
+              <div className="flex flex-col items-center justify-center py-12">
+                <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-zinc-800/60 to-zinc-900 border border-zinc-800/40 flex items-center justify-center mb-4">
+                  <ShoppingCart className="h-8 w-8 text-zinc-700/60" />
                 </div>
-                <p className="text-zinc-500 text-sm">Keranjang kosong</p>
-                <p className="text-zinc-600 text-xs mt-1">Pilih produk untuk memulai</p>
+                <p className="text-sm font-medium text-zinc-500">Keranjang Kosong</p>
+                <p className="text-[11px] text-zinc-600 mt-1">Pilih produk untuk memulai</p>
               </div>
             ) : (
               <div className="space-y-2 pb-2">
                 {cart.map((item) => {
                   const itemKey = getCartKey(item.product.id, item.variant?.id || null)
+                  const itemTotal = getItemPrice(item) * item.qty
                   return (
-                  <div key={itemKey} className="flex items-center gap-2.5 p-3 rounded-2xl bg-zinc-900 border border-zinc-800/60">
+                  <div key={itemKey} className="flex items-center gap-3 p-3 rounded-2xl bg-zinc-900/70 border border-zinc-800/50">
+                    {/* Product Info */}
                     <div className="flex-1 min-w-0">
-                      <p className="text-[13px] text-zinc-200 font-medium truncate">{item.product.name}</p>
+                      <p className="text-[13px] text-zinc-100 font-semibold truncate leading-tight">{item.product.name}</p>
                       {item.variant && (
-                        <p className="text-[10px] text-violet-400 font-medium truncate">{item.variant.name}</p>
+                        <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-md bg-violet-500/10 border border-violet-500/15">
+                          <span className="text-[9px] font-semibold text-violet-400 leading-tight">{item.variant.name}</span>
+                        </span>
                       )}
-                      <p className="text-[11px] text-zinc-500 mt-0.5">{formatCurrency(getItemPrice(item))}</p>
+                      <p className="text-[11px] text-zinc-500 mt-1">
+                        {formatCurrency(getItemPrice(item))} × {item.qty}
+                      </p>
                     </div>
+
+                    {/* Qty Controls */}
                     <div className="flex items-center gap-1 shrink-0">
-                      <button className="h-8 w-8 flex items-center justify-center rounded-lg bg-zinc-800 text-zinc-500 hover:text-zinc-100 hover:bg-zinc-700 transition-colors active:scale-95"
-                        onClick={() => updateQty(item.product.id, item.qty - 1, item.variant?.id)}><Minus className="h-3.5 w-3.5" /></button>
+                      <button className="h-9 w-9 flex items-center justify-center rounded-xl bg-zinc-800 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-700 transition-all active:scale-95"
+                        onClick={() => updateQty(item.product.id, item.qty - 1, item.variant?.id)}><Minus className="h-4 w-4" /></button>
                       {editingQtyId === itemKey ? (
                         <input
                           ref={qtyInputRef}
@@ -2098,22 +2196,24 @@ export default function PosPage() {
                           onChange={(e) => setEditingQtyValue(e.target.value)}
                           onBlur={confirmEditQty}
                           onKeyDown={(e) => { if (e.key === 'Enter') confirmEditQty(); if (e.key === 'Escape') cancelEditQty() }}
-                          className="text-xs text-zinc-200 w-12 text-center font-bold bg-zinc-700 border border-zinc-600 rounded-lg h-8 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          className="text-sm text-zinc-100 w-14 text-center font-bold bg-zinc-800 border border-zinc-700 rounded-xl h-9 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                         />
                       ) : (
                         <span
-                          className="text-xs w-7 text-center text-zinc-200 font-bold cursor-pointer hover:text-emerald-400 transition-colors"
+                          className="text-sm w-8 text-center text-zinc-100 font-bold cursor-pointer hover:theme-text transition-colors"
                           onClick={() => startEditQty(itemKey, item.qty)}
                         >{item.qty}</span>
                       )}
-                      <button className="h-8 w-8 flex items-center justify-center rounded-lg bg-zinc-800 text-zinc-500 hover:text-zinc-100 hover:bg-zinc-700 transition-colors active:scale-95"
-                        onClick={() => updateQty(item.product.id, item.qty + 1, item.variant?.id)}><Plus className="h-3.5 w-3.5" /></button>
+                      <button className="h-9 w-9 flex items-center justify-center rounded-xl bg-zinc-800 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-700 transition-all active:scale-95"
+                        onClick={() => updateQty(item.product.id, item.qty + 1, item.variant?.id)}><Plus className="h-4 w-4" /></button>
                     </div>
-                    <div className="text-right shrink-0 min-w-[70px]">
-                      <p className="text-[13px] text-emerald-400 font-bold">{formatCurrency(getItemPrice(item) * item.qty)}</p>
+
+                    {/* Item Total + Delete */}
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <p className="text-sm font-bold theme-text tabular-nums">{formatCurrency(itemTotal)}</p>
+                      <button className="h-6 w-6 flex items-center justify-center rounded-md text-zinc-600 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                        onClick={() => removeFromCart(item.product.id, item.variant?.id)}><Trash2 className="h-3 w-3" /></button>
                     </div>
-                    <button className="h-7 w-7 flex items-center justify-center rounded-lg text-zinc-600 hover:text-red-400 hover:bg-red-500/10 transition-colors shrink-0"
-                      onClick={() => removeFromCart(item.product.id, item.variant?.id)}><Trash2 className="h-3 w-3" /></button>
                   </div>
                   )
                 })}
@@ -2123,23 +2223,29 @@ export default function PosPage() {
 
           {/* Sticky footer: Total + Bayar */}
           {cart.length > 0 && (
-            <div className="shrink-0 border-t border-zinc-800 bg-zinc-950 px-5 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+            <div className="shrink-0 border-t border-zinc-800/60 bg-gradient-to-t from-zinc-950 to-zinc-900/50 px-5 pt-3.5 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
               {/* Discount info (compact) */}
               {(pointsDiscount > 0 || promoDiscount > 0 || ppnAmount > 0) && (
-                <div className="flex flex-wrap gap-x-3 gap-y-0.5 mb-2 text-[11px]">
-                  {pointsDiscount > 0 && <span className="text-emerald-400">💰 Poin: -{formatCurrency(pointsDiscount)}</span>}
-                  {promoDiscount > 0 && selectedPromo && <span className="text-amber-400">🏷️ {selectedPromo.name}: -{formatCurrency(promoDiscount)}</span>}
-                  {ppnAmount > 0 && <span className="text-sky-300 font-medium">🧾 PPN: +{formatCurrency(ppnAmount)}</span>}
+                <div className="flex flex-wrap gap-x-3 gap-y-1 mb-2.5">
+                  {pointsDiscount > 0 && (
+                    <span className="text-[11px] theme-text font-medium flex items-center gap-1"><Coins className="h-3 w-3" /> -{formatCurrency(pointsDiscount)}</span>
+                  )}
+                  {promoDiscount > 0 && selectedPromo && (
+                    <span className="text-[11px] text-amber-400 font-medium flex items-center gap-1"><Tag className="h-3 w-3" /> -{formatCurrency(promoDiscount)}</span>
+                  )}
+                  {ppnAmount > 0 && (
+                    <span className="text-[11px] text-sky-300 font-medium">PPN: +{formatCurrency(ppnAmount)}</span>
+                  )}
                 </div>
               )}
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-4">
                 <div className="flex-1 min-w-0">
-                  <p className="text-[11px] text-zinc-500 leading-tight">Total</p>
-                  <p className="text-xl font-black text-zinc-100 leading-tight">{formatCurrency(total)}</p>
+                  <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold leading-tight">Total</p>
+                  <p className="text-2xl font-black text-zinc-50 leading-tight tabular-nums">{formatCurrency(total)}</p>
                 </div>
                 <Button onClick={openCheckoutDialog}
-                  className="h-12 px-8 font-bold text-sm rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/20 transition-all active:scale-[0.98] shrink-0">
-                  Bayar <ChevronRight className="ml-1 h-4 w-4" />
+                  className="h-12 px-8 font-bold text-sm rounded-2xl theme-gradient hover:theme-hover text-white shadow-lg theme-shadow transition-all active:scale-[0.98] shrink-0">
+                  Bayar <ChevronRight className="ml-1.5 h-4 w-4" />
                 </Button>
               </div>
             </div>
@@ -2157,8 +2263,8 @@ export default function PosPage() {
             </div>
             <SheetHeader className="px-5 pb-3 shrink-0">
               <SheetTitle className="text-zinc-100 text-base font-bold flex items-center gap-2">
-                <div className="w-7 h-7 rounded-lg bg-emerald-500/20 flex items-center justify-center">
-                  <Banknote className="h-4 w-4 text-emerald-400" />
+                <div className="w-7 h-7 rounded-lg theme-bg-subtle flex items-center justify-center">
+                  <Banknote className="h-4 w-4 theme-text" />
                 </div>
                 Pembayaran
                 <span className="ml-auto text-[11px] font-medium text-zinc-500 bg-zinc-800 px-2.5 py-0.5 rounded-full">{cart.reduce((s, i) => s + i.qty, 0)} item</span>
@@ -2186,7 +2292,7 @@ export default function PosPage() {
                         placeholder="0" className="w-24 h-8 text-right text-xs bg-zinc-800 border-zinc-700 text-zinc-100 rounded-lg" />
                     </div>
                   )}
-                  {pointsDiscount > 0 && <div className="flex justify-between text-emerald-400"><span>Diskon Poin</span><span>-{formatCurrency(pointsDiscount)}</span></div>}
+                  {pointsDiscount > 0 && <div className="flex justify-between theme-text"><span>Diskon Poin</span><span>-{formatCurrency(pointsDiscount)}</span></div>}
                   {promoDiscount > 0 && selectedPromo && (
                     <div className="flex justify-between text-amber-400">
                       <span className="flex items-center gap-1"><Tag className="h-3 w-3" /> {selectedPromo.name}</span>
@@ -2219,9 +2325,9 @@ export default function PosPage() {
                       className="h-12 text-base bg-zinc-900 border-zinc-800 text-zinc-100 placeholder:text-zinc-600 rounded-xl text-right font-bold" />
                   </div>
                   {Number(paidAmount) >= total && total > 0 && (
-                    <div className="flex justify-between items-center text-sm bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-4 py-3">
-                      <span className="text-emerald-400 font-medium">Kembalian</span>
-                      <span className="text-emerald-400 font-black text-lg">{formatCurrency(change)}</span>
+                    <div className="flex justify-between items-center text-sm theme-bg-very-light border theme-border-light rounded-xl px-4 py-3">
+                      <span className="theme-text font-medium">Kembalian</span>
+                      <span className="theme-text font-black text-lg">{formatCurrency(change)}</span>
                     </div>
                   )}
                   <div>
@@ -2232,7 +2338,7 @@ export default function PosPage() {
                           className={cn(
                             'py-3 rounded-xl text-sm font-bold border transition-all active:scale-95',
                             Number(paidAmount) === nom
-                              ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30 shadow-sm'
+                              ? 'theme-bg-subtle theme-text theme-border-medium shadow-sm'
                               : 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:border-zinc-700 active:bg-zinc-800'
                           )}>
                           {nom >= 1000 ? `${(nom / 1000)}K` : nom}
@@ -2266,7 +2372,7 @@ export default function PosPage() {
               </Button>
               <Button onClick={handleCheckout}
                 disabled={checkingOut || (paymentMethod === 'CASH' && Number(paidAmount) < total)}
-                className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-bold h-12 rounded-2xl shadow-lg shadow-emerald-500/20 transition-all active:scale-[0.98]">
+                className="flex-1 theme-bg theme-hover text-white text-sm font-bold h-12 rounded-2xl shadow-lg theme-shadow transition-all active:scale-[0.98]">
                 {checkingOut && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {checkingOut ? 'Memproses...' : `Konfirmasi ${formatCurrency(total)}`}
               </Button>
@@ -2289,7 +2395,7 @@ export default function PosPage() {
                 ))}
                 <Separator className="bg-zinc-800 my-1.5" />
                 <div className="flex justify-between text-zinc-400"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
-                {pointsDiscount > 0 && <div className="flex justify-between text-emerald-400"><span>Diskon Poin</span><span>-{formatCurrency(pointsDiscount)}</span></div>}
+                {pointsDiscount > 0 && <div className="flex justify-between theme-text"><span>Diskon Poin</span><span>-{formatCurrency(pointsDiscount)}</span></div>}
                 {promoDiscount > 0 && selectedPromo && (
                   <div className="flex justify-between text-amber-400 text-xs">
                     <span className="flex items-center gap-1"><Tag className="h-3 w-3" /> Promo: {selectedPromo.name}</span>
@@ -2307,7 +2413,7 @@ export default function PosPage() {
                 {paymentMethod === 'CASH' && (
                   <>
                     <div className="flex justify-between text-zinc-400"><span>Dibayar</span><span className="text-zinc-200">{formatCurrency(Number(paidAmount))}</span></div>
-                    <div className="flex justify-between text-emerald-400 font-bold"><span>Kembalian</span><span>{formatCurrency(change)}</span></div>
+                    <div className="flex justify-between theme-text font-bold"><span>Kembalian</span><span>{formatCurrency(change)}</span></div>
                   </>
                 )}
                 {(paymentMethod === 'QRIS' || paymentMethod === 'DEBIT' || paymentMethod === 'TRANSFER') && (
@@ -2320,7 +2426,7 @@ export default function PosPage() {
             <DialogFooter className="gap-2 pt-1">
               <Button variant="ghost" onClick={() => setCheckoutOpen(false)} className="bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700 text-xs rounded-xl">Batal</Button>
               <Button onClick={handleCheckout} disabled={checkingOut || (paymentMethod === 'CASH' && Number(paidAmount) < total)}
-                className="bg-emerald-500 hover:bg-emerald-600 text-white text-xs rounded-xl font-bold">
+                className="theme-bg theme-hover text-white text-xs rounded-xl font-bold">
                 {checkingOut && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />} Konfirmasi
               </Button>
             </DialogFooter>
@@ -2338,11 +2444,11 @@ export default function PosPage() {
                 <div className="p-5">
                   {/* Status badge */}
                   <div className="flex items-center justify-center gap-2 mb-4">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center ${isOfflineReceipt ? 'bg-amber-100' : 'bg-emerald-100'}`}>
-                      {isOfflineReceipt ? <CloudOff className="h-4 w-4 text-amber-600" /> : <Check className="h-4 w-4 text-emerald-600" />}
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center ${isOfflineReceipt ? 'bg-amber-100' : 'theme-bg-very-light'}`}>
+                      {isOfflineReceipt ? <CloudOff className="h-4 w-4 text-amber-600" /> : <Check className="h-4 w-4 theme-text-medium" />}
                     </div>
                     <div className="text-left">
-                      <p className={`text-xs font-bold ${isOfflineReceipt ? 'text-amber-700' : 'text-emerald-700'}`}>
+                      <p className={`text-xs font-bold ${isOfflineReceipt ? 'text-amber-700' : 'theme-text-medium'}`}>
                         {isOfflineReceipt ? 'Tersimpan Offline' : 'Pembayaran Berhasil'}
                       </p>
                       <p className="text-[10px] text-zinc-500">{checkoutResult.invoiceNumber}</p>
@@ -2367,7 +2473,7 @@ export default function PosPage() {
                 </div>
               </ScrollArea>
               <DialogFooter className="flex gap-2 p-3 border-t border-zinc-200 bg-zinc-50 rounded-b-2xl">
-                <Button onClick={handleReceiptPrint} className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-medium rounded-xl h-10">
+                <Button onClick={handleReceiptPrint} className="flex-1 theme-bg theme-hover text-white text-sm font-medium rounded-xl h-10">
                   <ReceiptText className="mr-1.5 h-4 w-4" /> Cetak Struk
                 </Button>
                 <Button variant="outline" onClick={handleReceiptSkip} className="flex-1 border-zinc-300 text-zinc-600 hover:bg-zinc-100 text-sm rounded-xl h-10">
@@ -2446,7 +2552,7 @@ export default function PosPage() {
                             Stok: {variant.stock}
                           </span>
                           {existingItem && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded-md font-medium bg-emerald-500/10 text-emerald-400">
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-md font-medium theme-bg-very-light theme-text">
                               ×{existingItem.qty}
                             </span>
                           )}
@@ -2493,7 +2599,7 @@ export default function PosPage() {
         <ResponsiveDialogContent desktopClassName="max-w-sm rounded-2xl">
           <ResponsiveDialogHeader>
             <ResponsiveDialogTitle className="text-sm font-bold text-zinc-100 flex items-center gap-2">
-              <UserPlus className="h-4 w-4 text-emerald-400" /> Tambah Customer Baru
+              <UserPlus className="h-4 w-4 theme-text" /> Tambah Customer Baru
             </ResponsiveDialogTitle>
           </ResponsiveDialogHeader>
           <div className="space-y-3 py-2">
@@ -2515,7 +2621,7 @@ export default function PosPage() {
           <ResponsiveDialogFooter className="gap-2">
             <Button variant="ghost" onClick={() => setAddCustomerOpen(false)} className="bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700 text-xs rounded-xl">Batal</Button>
             <Button onClick={handleAddCustomer} disabled={addingCustomer || !newCustomer.name.trim() || !newCustomer.whatsapp.trim()}
-              className="bg-emerald-500 hover:bg-emerald-600 text-white text-xs rounded-xl font-medium">
+              className="theme-bg theme-hover text-white text-xs rounded-xl font-medium">
               {addingCustomer && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />} Simpan
             </Button>
           </ResponsiveDialogFooter>

@@ -44,9 +44,22 @@
 }
 
 :root {
+  /* Theme shade variables — set dynamically by useThemeColor() */
+  --theme-50: #ecfdf5;
+  --theme-100: #d1fae5;
+  --theme-200: #a7f3d0;
+  --theme-300: #6ee7b7;
+  --theme-400: #34d399;
+  --theme-500: #10b981;
+  --theme-600: #059669;
+  --theme-700: #047857;
+  --theme-800: #065f46;
+  --theme-900: #064e3b;
+  /* Backward-compat aliases */
   --theme-primary: #34d399;
   --theme-bg: #059669;
   --theme-css: #10b981;
+
   --radius: 0.5rem;
   --background: oklch(0.09 0 0);
   --foreground: oklch(0.985 0 0);
@@ -121,7 +134,7 @@
 
 /* Smooth focus ring */
 *:focus-visible {
-  outline: 1.5px solid oklch(0.707 0.165 163.223);
+  outline: 1.5px solid var(--theme-500);
   outline-offset: 1px;
   border-radius: 4px;
 }
@@ -198,6 +211,82 @@ table { border-collapse: separate; border-spacing: 0; }
   to { opacity: 0; transform: scale(0.96) translateY(4px); }
 }
 
+/* ================================================================
+   THEME-AWARE UTILITY CLASSES
+   Use these instead of hardcoded emerald-* Tailwind classes.
+   The CSS variables are set dynamically by useThemeColor() hook.
+   ================================================================ */
+
+/* ── Primary button ── */
+.theme-btn-primary {
+  background-color: var(--theme-600);
+  color: white;
+}
+.theme-btn-primary:hover {
+  background-color: var(--theme-500);
+}
+
+/* ── Backgrounds ── */
+.theme-bg { background-color: var(--theme-500); }
+.theme-bg-light { background-color: var(--theme-400); }
+.theme-bg-dark { background-color: var(--theme-600); }
+.theme-bg-darker { background-color: var(--theme-700); }
+.theme-bg-ultra-light { background-color: color-mix(in srgb, var(--theme-500) 3%, transparent); }
+.theme-bg-very-light { background-color: color-mix(in srgb, var(--theme-500) 5%, transparent); }
+.theme-bg-lighter { background-color: color-mix(in srgb, var(--theme-500) 8%, transparent); }
+.theme-bg-subtle { background-color: color-mix(in srgb, var(--theme-500) 10%, transparent); }
+.theme-bg-medium { background-color: color-mix(in srgb, var(--theme-500) 15%, transparent); }
+.theme-bg-strong { background-color: color-mix(in srgb, var(--theme-500) 20%, transparent); }
+.theme-bg-bright { background-color: color-mix(in srgb, var(--theme-500) 25%, transparent); }
+.theme-bg-intense { background-color: color-mix(in srgb, var(--theme-500) 30%, transparent); }
+
+/* ── Text colors ── */
+.theme-text { color: var(--theme-400); }
+.theme-text-medium { color: var(--theme-500); }
+.theme-text-dark { color: var(--theme-600); }
+.theme-text-dim { color: color-mix(in srgb, var(--theme-400) 70%, white); }
+
+/* ── Border colors ── */
+.theme-border { border-color: var(--theme-500); }
+.theme-border-light { border-color: color-mix(in srgb, var(--theme-500) 15%, transparent); }
+.theme-border-medium { border-color: color-mix(in srgb, var(--theme-500) 25%, transparent); }
+.theme-border-strong { border-color: color-mix(in srgb, var(--theme-500) 35%, transparent); }
+
+/* ── Ring / outline ── */
+.theme-ring { box-shadow: 0 0 0 2px var(--theme-500); }
+.theme-ring-offset { box-shadow: 0 0 0 2px var(--theme-500), 0 0 0 4px var(--theme-900); }
+
+/* ── Shadows ── */
+.theme-shadow { box-shadow: 0 1px 3px 0 color-mix(in srgb, var(--theme-500) 15%, transparent); }
+.theme-shadow-lg { box-shadow: 0 4px 14px 0 color-mix(in srgb, var(--theme-500) 20%, transparent); }
+.theme-shadow-glow { box-shadow: 0 0 20px 2px color-mix(in srgb, var(--theme-500) 15%, transparent); }
+
+/* ── Gradient helpers ── */
+.theme-gradient {
+  background: linear-gradient(135deg, var(--theme-500), var(--theme-600));
+}
+.theme-gradient-light {
+  background: linear-gradient(135deg, var(--theme-400), var(--theme-500));
+}
+.theme-gradient-subtle {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--theme-500) 15%, transparent), color-mix(in srgb, var(--theme-600) 15%, transparent));
+}
+
+/* ── Hover variants (pair with non-hover class) ── */
+.theme-hover:hover { background-color: var(--theme-600); }
+.theme-hover-light:hover { background-color: var(--theme-500); }
+.theme-hover-subtle:hover { background-color: color-mix(in srgb, var(--theme-500) 15%, transparent); }
+.theme-hover-strong:hover { background-color: color-mix(in srgb, var(--theme-500) 25%, transparent); }
+
+/* ── Backward-compat aliases ── */
+.theme-accent-bg { background: color-mix(in srgb, var(--theme-primary) 10%, transparent); }
+.theme-accent-bg-strong { background: color-mix(in srgb, var(--theme-primary) 20%, transparent); }
+.theme-accent-border { border-color: color-mix(in srgb, var(--theme-primary) 20%, transparent); }
+.theme-accent-border-strong { border-color: color-mix(in srgb, var(--theme-primary) 30%, transparent); }
+.theme-accent-text { color: var(--theme-primary); }
+.theme-accent-text-dim { color: color-mix(in srgb, var(--theme-primary) 60%, transparent); }
+.theme-accent-shadow { box-shadow: 0 1px 2px 0 color-mix(in srgb, var(--theme-primary) 10%, transparent); }
+
 /* ── Theme-aware tab trigger active state ── */
 button[data-state="active"].theme-tab-trigger {
   background: color-mix(in srgb, var(--theme-primary) 15%, transparent);
@@ -205,41 +294,9 @@ button[data-state="active"].theme-tab-trigger {
   border-color: color-mix(in srgb, var(--theme-primary) 20%, transparent);
 }
 
-/* ── Theme-aware primary button ── */
-.theme-btn-primary {
-  background-color: var(--theme-bg);
-  color: white;
-}
-.theme-btn-primary:hover {
-  background-color: var(--theme-css);
-}
-
-/* ── Theme-aware accent elements ── */
-.theme-accent-bg {
-  background: color-mix(in srgb, var(--theme-primary) 10%, transparent);
-}
-.theme-accent-bg-strong {
-  background: color-mix(in srgb, var(--theme-primary) 20%, transparent);
-}
-.theme-accent-border {
-  border-color: color-mix(in srgb, var(--theme-primary) 20%, transparent);
-}
-.theme-accent-border-strong {
-  border-color: color-mix(in srgb, var(--theme-primary) 30%, transparent);
-}
-.theme-accent-text {
-  color: var(--theme-primary);
-}
-.theme-accent-text-dim {
-  color: color-mix(in srgb, var(--theme-primary) 60%, transparent);
-}
-.theme-accent-shadow {
-  box-shadow: 0 1px 2px 0 color-mix(in srgb, var(--theme-primary) 10%, transparent);
-}
-
 /* ── Theme-aware switch ── */
 [data-state="checked"].theme-switch {
-  background-color: var(--theme-bg);
+  background-color: var(--theme-600);
 }
 
 /* ── Theme-aware dialog accent line (top glow) ── */
@@ -256,4 +313,12 @@ button[data-state="active"].theme-tab-trigger {
   border-radius: 0 0 4px 4px;
   z-index: 1;
   pointer-events: none;
+}
+
+/* ── Theme-aware scrollbar thumb (subtle) ── */
+.theme-scrollbar::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--theme-500) 30%, transparent);
+}
+.theme-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--theme-500) 50%, transparent);
 }

@@ -182,7 +182,7 @@ type CategoryColor = (typeof CATEGORY_COLORS)[number]
 function getColorClasses(color: string) {
   const map: Record<string, { bg: string; text: string; border: string; dot: string; chipBg: string }> = {
     zinc: { bg: 'bg-zinc-500/10', text: 'text-zinc-300', border: 'border-zinc-500/20', dot: 'bg-zinc-400', chipBg: 'bg-zinc-500/5 border-zinc-500/20 hover:bg-zinc-500/10' },
-    emerald: { bg: 'bg-emerald-500/10', text: 'text-emerald-400', border: 'border-emerald-500/20', dot: 'bg-emerald-400', chipBg: 'bg-emerald-500/5 border-emerald-500/20 hover:bg-emerald-500/10' },
+    emerald: { bg: 'theme-bg-very-light', text: 'theme-text', border: 'theme-border-light', dot: 'theme-bg-light', chipBg: 'theme-bg-ultra-light theme-border-light hover:theme-bg-very-light' },
     amber: { bg: 'bg-amber-500/10', text: 'text-amber-400', border: 'border-amber-500/20', dot: 'bg-amber-400', chipBg: 'bg-amber-500/5 border-amber-500/20 hover:bg-amber-500/10' },
     rose: { bg: 'bg-rose-500/10', text: 'text-rose-400', border: 'border-rose-500/20', dot: 'bg-rose-400', chipBg: 'bg-rose-500/5 border-rose-500/20 hover:bg-rose-500/10' },
     violet: { bg: 'bg-violet-500/10', text: 'text-violet-400', border: 'border-violet-500/20', dot: 'bg-violet-400', chipBg: 'bg-violet-500/5 border-violet-500/20 hover:bg-violet-500/10' },
@@ -200,7 +200,7 @@ function getColorClasses(color: string) {
 
 function getColorDotClasses(color: string): string {
   const map: Record<string, string> = {
-    zinc: 'bg-zinc-400', emerald: 'bg-emerald-400', amber: 'bg-amber-400', rose: 'bg-rose-400',
+    zinc: 'bg-zinc-400', emerald: 'theme-bg-light', amber: 'bg-amber-400', rose: 'bg-rose-400',
     violet: 'bg-violet-400', sky: 'bg-sky-400', cyan: 'bg-cyan-400', orange: 'bg-orange-400',
     lime: 'bg-lime-400', teal: 'bg-teal-400', fuchsia: 'bg-fuchsia-400', pink: 'bg-pink-400',
     indigo: 'bg-indigo-400',
@@ -234,13 +234,13 @@ function getStockDiff(details: Record<string, unknown>): { from: number; to: num
 function getActionBadge(action: string, details?: Record<string, unknown>) {
   // Show restock badge for stock-related bulk updates
   if (action === 'BULK_UPDATE' && hasStockChange(details)) {
-    return <Badge className="bg-emerald-500/10 border-emerald-500/20 text-emerald-400 text-[10px]">Restock</Badge>
+    return <Badge className="theme-bg-very-light theme-border-light theme-text text-[10px]">Restock</Badge>
   }
   switch (action) {
     case 'CREATE':
       return <Badge className="bg-blue-500/10 border-blue-500/20 text-blue-400 text-[10px]">Create</Badge>
     case 'RESTOCK':
-      return <Badge className="bg-emerald-500/10 border-emerald-500/20 text-emerald-400 text-[10px]">Restock</Badge>
+      return <Badge className="theme-bg-very-light theme-border-light theme-text text-[10px]">Restock</Badge>
     case 'SALE':
       return <Badge className="bg-amber-500/10 border-amber-500/20 text-amber-400 text-[10px]">Sale</Badge>
     case 'UPDATE':
@@ -289,8 +289,15 @@ function getActionDescription(action: string, details: Record<string, unknown>):
       return 'Product details updated'
     case 'DELETE':
       return 'Product deleted'
-    case 'ADJUSTMENT':
+    case 'ADJUSTMENT': {
+      const prev = Number(details.previousStock)
+      const next = Number(details.newStock)
+      const diff = next - prev
+      if (!isNaN(prev) && !isNaN(next)) {
+        return `Penyesuaian stok: ${formatNumber(prev)} → ${formatNumber(next)} (${diff >= 0 ? '+' : ''}${formatNumber(diff)})${details.reason ? ` — ${details.reason}` : ''}`
+      }
       return `Stock adjusted${variantLabel} — ${details.reason || 'No reason'}`
+    }
     case 'BULK_UPDATE': {
       const stockDiff = getStockDiff(details)
       if (stockDiff) {
@@ -312,11 +319,11 @@ function getActionDescription(action: string, details: Record<string, unknown>):
 function getActionRowBg(action: string, details?: Record<string, unknown>): string {
   // Stock-related bulk updates get restock color
   if (action === 'BULK_UPDATE' && hasStockChange(details)) {
-    return 'bg-emerald-500/5 rounded'
+    return 'theme-bg-ultra-light rounded'
   }
   switch (action) {
     case 'RESTOCK':
-      return 'bg-emerald-500/5 rounded'
+      return 'theme-bg-ultra-light rounded'
     case 'SALE':
       return 'bg-amber-500/5 rounded'
     case 'ADJUSTMENT':
@@ -346,6 +353,13 @@ export default function ProductsPage() {
   const [restockProduct, setRestockProduct] = useState<Product | null>(null)
   const [restockQty, setRestockQty] = useState('')
   const [restocking, setRestocking] = useState(false)
+
+  // Stock adjustment state
+  const [adjustOpen, setAdjustOpen] = useState(false)
+  const [adjustProduct, setAdjustProduct] = useState<Product | null>(null)
+  const [adjustNewStock, setAdjustNewStock] = useState('')
+  const [adjustReason, setAdjustReason] = useState('')
+  const [adjusting, setAdjusting] = useState(false)
 
   // Detail sheet state
   const [detailOpen, setDetailOpen] = useState(false)
@@ -577,6 +591,44 @@ export default function ProductsPage() {
       setRestockOpen(false)
       setRestockQty('')
       setRestockProduct(null)
+    }
+  }
+
+  const handleAdjust = async () => {
+    if (!adjustProduct || adjustNewStock === '' || Number(adjustNewStock) < 0) return
+    if (adjustProduct.hasVariants) {
+      toast.error('Produk dengan varian tidak bisa di-penyesuaian langsung. Gunakan edit produk.')
+      setAdjustOpen(false)
+      return
+    }
+    const newStock = Number(adjustNewStock)
+    const oldStock = adjustProduct.stock
+    setAdjusting(true)
+    try {
+      const res = await fetch(`/api/products/${adjustProduct.id}/adjust`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ newStock, reason: adjustReason || undefined }),
+      })
+      if (res.ok) {
+        const diff = newStock - oldStock
+        const diffStr = diff >= 0 ? `+${diff}` : `${diff}`
+        toast.success(`Stok disesuaikan: ${oldStock} → ${newStock} (${diffStr})`)
+        fetchProducts()
+        if (detailOpen && detailProduct?.id === adjustProduct.id) {
+          fetchDetail({ ...adjustProduct, stock: newStock }, detailPage)
+        }
+      } else {
+        toast.error('Gagal menyesuaikan stok')
+      }
+    } catch {
+      toast.error('Gagal menyesuaikan stok')
+    } finally {
+      setAdjusting(false)
+      setAdjustOpen(false)
+      setAdjustNewStock('')
+      setAdjustReason('')
+      setAdjustProduct(null)
     }
   }
 
@@ -1030,17 +1082,12 @@ export default function ProductsPage() {
               {bulkMode ? 'Edit Massal Aktif' : 'Edit Massal'}
             </Button>
           )}
-          <ProGate feature="bulkUpload" label="Export Excel" description="Ekspor produk ke file Excel" variant="inline">
-            <Button
-              variant="outline"
-              onClick={handleExportExcel}
-              disabled={exporting}
+          <Button onClick={handleExportExcel} disabled={exporting}
               className="bg-zinc-800/80 border-zinc-700/80 text-zinc-300 hover:text-zinc-100 hover:bg-zinc-700 h-9 text-xs font-medium disabled:opacity-50"
             >
               {exporting ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Download className="mr-1.5 h-3.5 w-3.5" />}
               Export Excel
             </Button>
-          </ProGate>
           <ProGate feature="bulkUpload" label="Upload Excel" description="Upload produk massal via file Excel" variant="inline">
             <Button
               variant="outline"
@@ -1071,7 +1118,7 @@ export default function ProductsPage() {
               Edit Excel
             </Button>
           </ProGate>
-          <Button onClick={handleAdd} className="bg-emerald-500 hover:bg-emerald-600 text-white h-9 text-xs font-medium shadow-lg shadow-emerald-500/20">
+          <Button onClick={handleAdd} className="theme-bg theme-hover text-white h-9 text-xs font-medium shadow-lg theme-shadow">
             <Plus className="mr-1.5 h-3.5 w-3.5" />
             Tambah Produk
           </Button>
@@ -1083,11 +1130,11 @@ export default function ProductsPage() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {/* Total Products */}
           <div className="relative rounded-xl border border-zinc-800 bg-zinc-900 p-4 space-y-3 overflow-hidden group">
-            <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-emerald-500 to-emerald-500/40" />
+            <div className="absolute top-0 left-0 right-0 h-0.5 theme-gradient" />
             <div className="flex items-center justify-between">
               <span className="text-xs font-medium text-zinc-400">Total Produk</span>
-              <div className="h-8 w-8 rounded-lg bg-emerald-500/10 flex items-center justify-center">
-                <Package className="h-4 w-4 text-emerald-400" />
+              <div className="h-8 w-8 rounded-lg theme-bg-very-light flex items-center justify-center">
+                <Package className="h-4 w-4 theme-text" />
               </div>
             </div>
             <p className="text-2xl font-bold text-zinc-100 tracking-tight">{formatNumber(stats.total)}</p>
@@ -1107,11 +1154,11 @@ export default function ProductsPage() {
 
           {/* Low Stock Items */}
           <div className="relative rounded-xl border border-zinc-800 bg-zinc-900 p-4 space-y-3 overflow-hidden group">
-            <div className={`absolute top-0 left-0 right-0 h-0.5 ${stats.lowStock > 0 ? 'bg-gradient-to-r from-amber-500 to-amber-500/40' : 'bg-gradient-to-r from-emerald-500 to-emerald-500/40'}`} />
+            <div className={`absolute top-0 left-0 right-0 h-0.5 ${stats.lowStock > 0 ? 'bg-gradient-to-r from-amber-500 to-amber-500/40' : 'theme-gradient'}`} />
             <div className="flex items-center justify-between">
               <span className="text-xs font-medium text-zinc-400">Stok Rendah</span>
-              <div className={`h-8 w-8 rounded-lg flex items-center justify-center ${stats.lowStock > 0 ? 'bg-amber-500/10' : 'bg-emerald-500/10'}`}>
-                <AlertTriangle className={`h-4 w-4 ${stats.lowStock > 0 ? 'text-amber-400' : 'text-emerald-400'}`} />
+              <div className={`h-8 w-8 rounded-lg flex items-center justify-center ${stats.lowStock > 0 ? 'bg-amber-500/10' : 'theme-bg-very-light'}`}>
+                <AlertTriangle className={`h-4 w-4 ${stats.lowStock > 0 ? 'text-amber-400' : 'theme-text'}`} />
               </div>
             </div>
             <p className={`text-2xl font-bold tracking-tight ${stats.lowStock > 0 ? 'text-amber-400' : 'text-zinc-100'}`}>
@@ -1148,11 +1195,11 @@ export default function ProductsPage() {
               <span className="text-[11px] text-zinc-500">({categories.length})</span>
             )}
             {activeCategoryId && (
-              <Badge className="bg-emerald-500/10 border-emerald-500/20 text-emerald-400 text-[10px] px-1.5 py-0 ml-1">
+              <Badge className="theme-bg-very-light theme-border-light theme-text text-[10px] px-1.5 py-0 ml-1">
                 Filter aktif
                 <button
                   onClick={(e) => { e.stopPropagation(); setActiveCategoryId(null) }}
-                  className="ml-1 hover:text-emerald-300"
+                  className="ml-1 hover:theme-text"
                 >
                   <X className="h-2.5 w-2.5 inline" />
                 </button>
@@ -1163,7 +1210,7 @@ export default function ProductsPage() {
             <Button
               size="sm"
               onClick={(e) => { e.stopPropagation(); openCategoryDialog(null) }}
-              className="bg-emerald-500 hover:bg-emerald-600 text-white h-7 text-[11px] px-2.5 rounded-lg"
+              className="theme-bg theme-hover text-white h-7 text-[11px] px-2.5 rounded-lg"
             >
               <Plus className="mr-1 h-3 w-3" />
               Tambah
@@ -1207,7 +1254,7 @@ export default function ProductsPage() {
                       <div className="flex items-center gap-0.5 ml-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
                         <button
                           onClick={(e) => { e.stopPropagation(); openCategoryDialog(cat) }}
-                          className="hover:text-emerald-400 text-zinc-500 hover:bg-zinc-700/80 rounded p-0.5"
+                          className="hover:theme-text text-zinc-500 hover:bg-zinc-700/80 rounded p-0.5"
                           title="Edit"
                         >
                           <Edit className="h-2.5 w-2.5" />
@@ -1282,7 +1329,7 @@ export default function ProductsPage() {
                       <Checkbox
                         checked={selectedIds.size === products.length && products.length > 0}
                         onCheckedChange={toggleSelectAll}
-                        className="border-zinc-600 data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500"
+                        className="border-zinc-600 data-[state=checked]:theme-bg data-[state=checked]:theme-border"
                       />
                     </TableHead>
                   )}
@@ -1310,7 +1357,7 @@ export default function ProductsPage() {
                   >
                     <span className="inline-flex items-center gap-1">
                       Stok
-                      {sort === 'low-stock' && <span className="text-emerald-400">↑</span>}
+                      {sort === 'low-stock' && <span className="theme-text">↑</span>}
                       {sort === 'most-stock' && <span className="text-amber-400">↓</span>}
                     </span>
                   </TableHead>
@@ -1320,7 +1367,7 @@ export default function ProductsPage() {
                   >
                     <span className="inline-flex items-center gap-1">
                       Aksi
-                      {sort === 'best-selling' && <span className="text-emerald-400">🔥</span>}
+                      {sort === 'best-selling' && <span className="theme-text">🔥</span>}
                     </span>
                   </TableHead>
                 </TableRow>
@@ -1347,7 +1394,7 @@ export default function ProductsPage() {
                           <Checkbox
                             checked={isSelected}
                             onCheckedChange={() => toggleSelect(product.id)}
-                            className="border-zinc-600 data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500"
+                            className="border-zinc-600 data-[state=checked]:theme-bg data-[state=checked]:theme-border"
                           />
                         </TableCell>
                       )}
@@ -1451,7 +1498,7 @@ export default function ProductsPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            className={`h-7 w-7 rounded-lg ${product.hasVariants ? 'text-zinc-700 cursor-not-allowed' : 'text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10'}`}
+                            className={`h-7 w-7 rounded-lg ${product.hasVariants ? 'text-zinc-700 cursor-not-allowed' : 'text-zinc-500 hover:theme-text hover:theme-bg-very-light'}`}
                             onClick={() => {
                               if (product.hasVariants) {
                                 toast.info('Produk varian tidak bisa di-restock langsung. Gunakan edit produk.')
@@ -1500,20 +1547,20 @@ export default function ProductsPage() {
             <Checkbox
               checked={selectAllMode || (selectedIds.size === products.length && products.length > 0)}
               onCheckedChange={selectAllMode ? () => { setSelectAllMode(false); setSelectedIds(new Set()) } : toggleSelectAll}
-              className="border-zinc-600 data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500"
+              className="border-zinc-600 data-[state=checked]:theme-bg data-[state=checked]:theme-border"
             />
             <span className="text-[11px] text-zinc-400">
               {selectAllMode
-                ? <><span className="text-emerald-400 font-medium">Semua {stats.total}</span> produk dipilih</>
+                ? <><span className="theme-text font-medium">Semua {stats.total}</span> produk dipilih</>
                 : selectedIds.size === products.length
-                  ? <><span className="text-emerald-400 font-medium">Semua di halaman</span> dipilih</>
+                  ? <><span className="theme-text font-medium">Semua di halaman</span> dipilih</>
                   : <>{selectedIds.size}/{products.length} dipilih</>
               }
             </span>
             {!selectAllMode && stats.total > products.length && (
               <button
                 onClick={handleSelectAll}
-                className="text-[10px] text-emerald-400 hover:text-emerald-300 ml-auto"
+                className="text-[10px] theme-text hover:theme-text ml-auto"
               >
                 Pilih semua ({stats.total})
               </button>
@@ -1575,7 +1622,7 @@ export default function ProductsPage() {
                           <Checkbox
                             checked={selectedIds.has(product.id)}
                             onCheckedChange={() => toggleSelect(product.id)}
-                            className="border-zinc-600 data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500"
+                            className="border-zinc-600 data-[state=checked]:theme-bg data-[state=checked]:theme-border"
                           />
                           {product.image ? (
                             <div className="h-10 w-10 rounded-lg bg-zinc-800 overflow-hidden">
@@ -1698,7 +1745,7 @@ export default function ProductsPage() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className={`h-7 w-7 rounded-md ${product.hasVariants ? 'text-zinc-700 cursor-not-allowed' : 'text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10'}`}
+                          className={`h-7 w-7 rounded-md ${product.hasVariants ? 'text-zinc-700 cursor-not-allowed' : 'text-zinc-500 hover:theme-text hover:theme-bg-very-light'}`}
                           onClick={() => {
                             if (product.hasVariants) {
                               toast.info('Produk varian tidak bisa di-restock langsung. Gunakan edit produk.')
@@ -1746,9 +1793,9 @@ export default function ProductsPage() {
           <div className="max-w-4xl mx-auto flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">
               <div className="flex items-center gap-1.5">
-                <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
+                <div className="h-1.5 w-1.5 rounded-full theme-bg shrink-0" />
                 <span className="text-xs text-zinc-300 whitespace-nowrap">
-                  <span className="font-semibold text-emerald-400">{selectedIds.size}</span> dipilih
+                  <span className="font-semibold theme-text">{selectedIds.size}</span> dipilih
                 </span>
               </div>
               <Button
@@ -1871,7 +1918,7 @@ export default function ProductsPage() {
             <Button
               onClick={handleCategorySave}
               disabled={categorySaving || !categoryName.trim()}
-              className="bg-emerald-500 hover:bg-emerald-600 text-white h-8 text-xs"
+              className="theme-bg theme-hover text-white h-8 text-xs"
             >
               {categorySaving && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
               {editCategory ? 'Simpan' : 'Tambah'}
@@ -1976,10 +2023,75 @@ export default function ProductsPage() {
             <Button
               onClick={handleRestock}
               disabled={restocking || !restockQty || Number(restockQty) <= 0}
-              className="bg-emerald-500 hover:bg-emerald-600 text-white h-8 text-xs"
+              className="theme-bg theme-hover text-white h-8 text-xs"
             >
               {restocking && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
               Restock
+            </Button>
+          </ResponsiveDialogFooter>
+        </ResponsiveDialogContent>
+      </ResponsiveDialog>
+
+      {/* Stock Adjustment Dialog */}
+      <ResponsiveDialog open={adjustOpen} onOpenChange={setAdjustOpen}>
+        <ResponsiveDialogContent className="bg-zinc-900 border-zinc-800" desktopClassName="max-w-sm">
+          <ResponsiveDialogHeader>
+            <ResponsiveDialogTitle className="text-zinc-100 text-sm font-semibold">
+              Penyesuaian Stok: {adjustProduct?.name}
+            </ResponsiveDialogTitle>
+          </ResponsiveDialogHeader>
+          <div className="space-y-3 py-1">
+            <div className="text-xs text-zinc-400">
+              Stok saat ini: <span className="text-zinc-200 font-medium">{adjustProduct?.stock}</span>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-zinc-300 text-xs">Stok baru</Label>
+              <Input
+                type="number"
+                min="0"
+                placeholder="Masukkan stok baru"
+                value={adjustNewStock}
+                onChange={(e) => setAdjustNewStock(e.target.value)}
+                className="h-8 text-xs bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500"
+              />
+              {adjustNewStock !== '' && adjustProduct && (
+                <div className="text-[11px] text-zinc-500">
+                  {(() => {
+                    const diff = Number(adjustNewStock) - adjustProduct.stock
+                    return diff > 0
+                      ? <span className="theme-text">+{diff} (bertambah)</span>
+                      : diff < 0
+                      ? <span className="text-red-400">{diff} (berkurang)</span>
+                      : <span className="text-zinc-500">Tidak berubah</span>
+                  })()}
+                </div>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-zinc-300 text-xs">Alasan <span className="text-zinc-600">(opsional)</span></Label>
+              <Input
+                placeholder="Misal: stok hilang, salah hitung, dll"
+                value={adjustReason}
+                onChange={(e) => setAdjustReason(e.target.value)}
+                className="h-8 text-xs bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500"
+              />
+            </div>
+          </div>
+          <ResponsiveDialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setAdjustOpen(false)}
+              className="bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700 h-8 text-xs"
+            >
+              Batal
+            </Button>
+            <Button
+              onClick={handleAdjust}
+              disabled={adjusting || adjustNewStock === '' || Number(adjustNewStock) < 0}
+              className="bg-orange-500 hover:bg-orange-600 text-white h-8 text-xs"
+            >
+              {adjusting && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
+              Sesuaikan
             </Button>
           </ResponsiveDialogFooter>
         </ResponsiveDialogContent>
@@ -2030,7 +2142,7 @@ export default function ProductsPage() {
                 onClick={() => setBulkPriceType('percent')}
                 className={
                   bulkPriceType === 'percent'
-                    ? 'bg-emerald-500 hover:bg-emerald-600 text-white border-emerald-500 h-7 text-xs'
+                    ? 'theme-bg theme-hover text-white theme-border h-7 text-xs'
                     : 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:text-zinc-100 h-7 text-xs'
                 }
               >
@@ -2042,7 +2154,7 @@ export default function ProductsPage() {
                 onClick={() => setBulkPriceType('fixed')}
                 className={
                   bulkPriceType === 'fixed'
-                    ? 'bg-emerald-500 hover:bg-emerald-600 text-white border-emerald-500 h-7 text-xs'
+                    ? 'theme-bg theme-hover text-white theme-border h-7 text-xs'
                     : 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:text-zinc-100 h-7 text-xs'
                 }
               >
@@ -2064,7 +2176,7 @@ export default function ProductsPage() {
                     }}
                     className={
                       bulkPriceQuick === q
-                        ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 h-7 text-xs'
+                        ? 'theme-bg-very-light theme-border-light theme-text hover:theme-bg-subtle h-7 text-xs'
                         : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-zinc-200 h-7 text-xs'
                     }
                   >
@@ -2101,7 +2213,7 @@ export default function ProductsPage() {
             <Button
               onClick={handleBulkPrice}
               disabled={bulkPriceSubmitting || !bulkPriceValue}
-              className="bg-emerald-500 hover:bg-emerald-600 text-white h-8 text-xs"
+              className="theme-bg theme-hover text-white h-8 text-xs"
             >
               {bulkPriceSubmitting && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
               Terapkan
@@ -2127,7 +2239,7 @@ export default function ProductsPage() {
                 onClick={() => setBulkStockType('add')}
                 className={
                   bulkStockType === 'add'
-                    ? 'bg-emerald-500 hover:bg-emerald-600 text-white border-emerald-500 h-7 text-xs'
+                    ? 'theme-bg theme-hover text-white theme-border h-7 text-xs'
                     : 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:text-zinc-100 h-7 text-xs'
                 }
               >
@@ -2183,7 +2295,7 @@ export default function ProductsPage() {
             <Button
               onClick={handleBulkStock}
               disabled={bulkStockSubmitting || !bulkStockValue || Number(bulkStockValue) < 0}
-              className="bg-emerald-500 hover:bg-emerald-600 text-white h-8 text-xs"
+              className="theme-bg theme-hover text-white h-8 text-xs"
             >
               {bulkStockSubmitting && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
               Terapkan
@@ -2241,7 +2353,7 @@ export default function ProductsPage() {
             <Button
               onClick={handleBulkCategory}
               disabled={bulkCategorySubmitting || !bulkCategoryId}
-              className="bg-emerald-500 hover:bg-emerald-600 text-white h-8 text-xs"
+              className="theme-bg theme-hover text-white h-8 text-xs"
             >
               {bulkCategorySubmitting && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
               Terapkan
@@ -2281,11 +2393,11 @@ export default function ProductsPage() {
                   {/* Animated icon + file name */}
                   <div className="flex flex-col items-center gap-3">
                     <div className="relative">
-                      <div className="h-14 w-14 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
-                        <FileSpreadsheet className="h-6 w-6 text-emerald-400" />
+                      <div className="h-14 w-14 rounded-full theme-bg-very-light border theme-border-light flex items-center justify-center">
+                        <FileSpreadsheet className="h-6 w-6 theme-text" />
                       </div>
                       {uploadProgress < 100 && (
-                        <Loader2 className="absolute -bottom-0.5 -right-0.5 h-4 w-4 text-emerald-400 animate-spin" />
+                        <Loader2 className="absolute -bottom-0.5 -right-0.5 h-4 w-4 theme-text animate-spin" />
                       )}
                     </div>
                     <div className="text-center">
@@ -2304,7 +2416,7 @@ export default function ProductsPage() {
                     </div>
                     <div className="relative h-2 w-full overflow-hidden rounded-full bg-zinc-800">
                       <div
-                        className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-300 ease-out"
+                        className="absolute inset-y-0 left-0 rounded-full theme-gradient-light transition-all duration-300 ease-out"
                         style={{ width: `${uploadProgress}%` }}
                       />
                     </div>
@@ -2322,7 +2434,7 @@ export default function ProductsPage() {
                         key={step.label}
                         className={`flex items-center gap-1 text-[10px] transition-colors duration-200 ${
                           uploadProgress >= step.threshold
-                            ? 'text-emerald-400'
+                            ? 'theme-text'
                             : 'text-zinc-600'
                         }`}
                       >
@@ -2375,15 +2487,15 @@ export default function ProductsPage() {
                     }}
                     className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
                       uploadDragOver
-                        ? 'border-emerald-500 bg-emerald-500/5'
+                        ? 'theme-border theme-bg-ultra-light'
                         : uploadFile
-                        ? 'border-emerald-500/50 bg-emerald-500/5'
+                        ? 'theme-border-medium theme-bg-ultra-light'
                         : 'border-zinc-700 hover:border-zinc-600'
                     }`}
                   >
                     {uploadFile ? (
                       <div className="flex items-center justify-center gap-2">
-                        <FileSpreadsheet className="h-5 w-5 text-emerald-400" />
+                        <FileSpreadsheet className="h-5 w-5 theme-text" />
                         <span className="text-xs text-zinc-200">{uploadFile.name}</span>
                         <Button
                           type="button"
@@ -2435,16 +2547,16 @@ export default function ProductsPage() {
                 <h3 className="text-xs font-semibold text-zinc-300">Hasil Upload</h3>
                 <div className="space-y-1.5">
                   <div className="flex items-center gap-2 text-xs">
-                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+                    <CheckCircle2 className="h-3.5 w-3.5 theme-text" />
                     <span className="text-zinc-300">
-                      <span className="font-semibold text-emerald-400">{uploadResult.created}</span> produk berhasil ditambahkan
+                      <span className="font-semibold theme-text">{uploadResult.created}</span> produk berhasil ditambahkan
                     </span>
                   </div>
                   {(uploadResult.variantsCreated || 0) > 0 && (
                     <div className="flex items-center gap-2 text-xs">
-                      <Layers className="h-3.5 w-3.5 text-emerald-400" />
+                      <Layers className="h-3.5 w-3.5 theme-text" />
                       <span className="text-zinc-300">
-                        <span className="font-semibold text-emerald-400">{uploadResult.variantsCreated}</span> varian berhasil ditambahkan
+                        <span className="font-semibold theme-text">{uploadResult.variantsCreated}</span> varian berhasil ditambahkan
                       </span>
                     </div>
                   )}
@@ -2499,7 +2611,7 @@ export default function ProductsPage() {
                     type="button"
                     onClick={handleBulkUpload}
                     disabled={!uploadFile}
-                    className="bg-emerald-500 hover:bg-emerald-600 text-white h-8 text-xs"
+                    className="theme-bg theme-hover text-white h-8 text-xs"
                   >
                     Upload
                   </Button>
@@ -2509,7 +2621,7 @@ export default function ProductsPage() {
               <Button
                 type="button"
                 onClick={() => setUploadOpen(false)}
-                className="bg-emerald-500 hover:bg-emerald-600 text-white h-8 text-xs"
+                className="theme-bg theme-hover text-white h-8 text-xs"
               >
                 Selesai
               </Button>
@@ -2547,11 +2659,11 @@ export default function ProductsPage() {
                 <div className="space-y-4 py-2">
                   <div className="flex flex-col items-center gap-3">
                     <div className="relative">
-                      <div className="h-14 w-14 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
-                        <FileSpreadsheet className="h-6 w-6 text-emerald-400" />
+                      <div className="h-14 w-14 rounded-full theme-bg-very-light border theme-border-light flex items-center justify-center">
+                        <FileSpreadsheet className="h-6 w-6 theme-text" />
                       </div>
                       {editExcelProgress < 100 && (
-                        <Loader2 className="absolute -bottom-0.5 -right-0.5 h-4 w-4 text-emerald-400 animate-spin" />
+                        <Loader2 className="absolute -bottom-0.5 -right-0.5 h-4 w-4 theme-text animate-spin" />
                       )}
                     </div>
                     <div className="text-center">
@@ -2569,7 +2681,7 @@ export default function ProductsPage() {
                     </div>
                     <div className="relative h-2 w-full overflow-hidden rounded-full bg-zinc-800">
                       <div
-                        className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-300 ease-out"
+                        className="absolute inset-y-0 left-0 rounded-full theme-gradient-light transition-all duration-300 ease-out"
                         style={{ width: `${editExcelProgress}%` }}
                       />
                     </div>
@@ -2586,7 +2698,7 @@ export default function ProductsPage() {
                         key={step.label}
                         className={`flex items-center gap-1 text-[10px] transition-colors duration-200 ${
                           editExcelProgress >= step.threshold
-                            ? 'text-emerald-400'
+                            ? 'theme-text'
                             : 'text-zinc-600'
                         }`}
                       >
@@ -2611,15 +2723,15 @@ export default function ProductsPage() {
                     <p className="text-[11px] text-zinc-400 font-medium">Langkah-langkah:</p>
                     <div className="space-y-1.5">
                       <div className="flex items-start gap-2 text-[11px] text-zinc-300">
-                        <span className="flex-shrink-0 h-4 w-4 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-[10px] text-emerald-400 font-bold">1</span>
+                        <span className="flex-shrink-0 h-4 w-4 rounded-full theme-bg-very-light border theme-border-light flex items-center justify-center text-[10px] theme-text font-bold">1</span>
                         <span>Download template edit berisi data produk saat ini</span>
                       </div>
                       <div className="flex items-start gap-2 text-[11px] text-zinc-300">
-                        <span className="flex-shrink-0 h-4 w-4 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-[10px] text-emerald-400 font-bold">2</span>
+                        <span className="flex-shrink-0 h-4 w-4 rounded-full theme-bg-very-light border theme-border-light flex items-center justify-center text-[10px] theme-text font-bold">2</span>
                         <span>Edit data di Excel sesuai kebutuhan</span>
                       </div>
                       <div className="flex items-start gap-2 text-[11px] text-zinc-300">
-                        <span className="flex-shrink-0 h-4 w-4 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-[10px] text-emerald-400 font-bold">3</span>
+                        <span className="flex-shrink-0 h-4 w-4 rounded-full theme-bg-very-light border theme-border-light flex items-center justify-center text-[10px] theme-text font-bold">3</span>
                         <span>Upload file yang sudah diedit</span>
                       </div>
                     </div>
@@ -2656,15 +2768,15 @@ export default function ProductsPage() {
                     }}
                     className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
                       editExcelDragOver
-                        ? 'border-emerald-500 bg-emerald-500/5'
+                        ? 'theme-border theme-bg-ultra-light'
                         : editExcelFile
-                        ? 'border-emerald-500/50 bg-emerald-500/5'
+                        ? 'theme-border-medium theme-bg-ultra-light'
                         : 'border-zinc-700 hover:border-zinc-600'
                     }`}
                   >
                     {editExcelFile ? (
                       <div className="flex items-center justify-center gap-2">
-                        <FileSpreadsheet className="h-5 w-5 text-emerald-400" />
+                        <FileSpreadsheet className="h-5 w-5 theme-text" />
                         <span className="text-xs text-zinc-200">{editExcelFile.name}</span>
                         <Button
                           type="button"
@@ -2716,16 +2828,16 @@ export default function ProductsPage() {
                 <h3 className="text-xs font-semibold text-zinc-300">Hasil Update</h3>
                 <div className="space-y-1.5">
                   <div className="flex items-center gap-2 text-xs">
-                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+                    <CheckCircle2 className="h-3.5 w-3.5 theme-text" />
                     <span className="text-zinc-300">
-                      <span className="font-semibold text-emerald-400">{editExcelResult.updated}</span> produk berhasil diperbarui
+                      <span className="font-semibold theme-text">{editExcelResult.updated}</span> produk berhasil diperbarui
                     </span>
                   </div>
                   {(editExcelResult.variantsUpdated || 0) > 0 && (
                     <div className="flex items-center gap-2 text-xs">
-                      <Layers className="h-3.5 w-3.5 text-emerald-400" />
+                      <Layers className="h-3.5 w-3.5 theme-text" />
                       <span className="text-zinc-300">
-                        <span className="font-semibold text-emerald-400">{editExcelResult.variantsUpdated}</span> varian berhasil diperbarui
+                        <span className="font-semibold theme-text">{editExcelResult.variantsUpdated}</span> varian berhasil diperbarui
                       </span>
                     </div>
                   )}
@@ -2780,7 +2892,7 @@ export default function ProductsPage() {
                     type="button"
                     onClick={handleBulkUpdateExcel}
                     disabled={!editExcelFile}
-                    className="bg-emerald-500 hover:bg-emerald-600 text-white h-8 text-xs"
+                    className="theme-bg theme-hover text-white h-8 text-xs"
                   >
                     Update Produk
                   </Button>
@@ -2790,7 +2902,7 @@ export default function ProductsPage() {
               <Button
                 type="button"
                 onClick={() => setEditExcelOpen(false)}
-                className="bg-emerald-500 hover:bg-emerald-600 text-white h-8 text-xs"
+                className="theme-bg theme-hover text-white h-8 text-xs"
               >
                 Selesai
               </Button>
@@ -2835,7 +2947,7 @@ export default function ProductsPage() {
                       {/* Product Info Card */}
                       <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-3 space-y-2">
                         <h3 className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5">
-                          <Package className="h-3.5 w-3.5 text-emerald-400" />
+                          <Package className="h-3.5 w-3.5 theme-text" />
                           Product Info
                         </h3>
                         <div className="grid grid-cols-2 gap-2 text-xs">
@@ -2853,6 +2965,35 @@ export default function ProductsPage() {
                               {formatNumber(detailData.product.stock)}
                             </p>
                           </div>
+                          {!detailData.product.hasVariants && (
+                            <div className="col-span-2 flex gap-1.5 mt-0.5">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-6 text-[10px] px-2 theme-bg-very-light theme-text border theme-border-light hover:theme-bg-subtle"
+                                onClick={() => {
+                                  setRestockProduct(detailProduct!)
+                                  setRestockQty('')
+                                  setRestockOpen(true)
+                                }}
+                              >
+                                <RefreshCw className="h-2.5 w-2.5 mr-0.5" /> Restock
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-6 text-[10px] px-2 bg-orange-500/10 text-orange-400 border border-orange-500/20 hover:bg-orange-500/20"
+                                onClick={() => {
+                                  setAdjustProduct(detailProduct!)
+                                  setAdjustNewStock('')
+                                  setAdjustReason('')
+                                  setAdjustOpen(true)
+                                }}
+                              >
+                                <FilePenLine className="h-2.5 w-2.5 mr-0.5" /> Penyesuaian
+                              </Button>
+                            </div>
+                          )}
                           {isOwner && (
                             <div>
                               <span className="text-zinc-500 text-[11px]">HPP</span>
@@ -2956,9 +3097,9 @@ export default function ProductsPage() {
                                   <span className="text-xs text-amber-400 font-medium">Perlu evaluasi stok</span>
                                 </div>
                               ) : (
-                                <div className="flex items-center gap-1.5 p-2 rounded bg-emerald-500/10 border border-emerald-500/20">
-                                  <Package className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-                                  <span className="text-xs text-emerald-400 font-medium">Stok masih segar</span>
+                                <div className="flex items-center gap-1.5 p-2 rounded theme-bg-very-light border theme-border-light">
+                                  <Package className="h-3.5 w-3.5 theme-text shrink-0" />
+                                  <span className="text-xs theme-text font-medium">Stok masih segar</span>
                                 </div>
                               )}
                             </div>
@@ -2969,7 +3110,7 @@ export default function ProductsPage() {
                       {/* Summary Stats Card */}
                       <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-3 space-y-2">
                         <h3 className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5">
-                          <BarChart3 className="h-3.5 w-3.5 text-emerald-400" />
+                          <BarChart3 className="h-3.5 w-3.5 theme-text" />
                           Summary
                         </h3>
                         <div className="grid grid-cols-2 gap-2">
@@ -2987,7 +3128,7 @@ export default function ProductsPage() {
                               <TrendingUp className="h-3 w-3" />
                               <span className="text-[11px]">Total Restock</span>
                             </div>
-                            <p className="text-sm font-semibold text-emerald-400">
+                            <p className="text-sm font-semibold theme-text">
                               +{formatNumber(detailData.summary.totalRestocked)}
                             </p>
                           </div>
@@ -3015,7 +3156,7 @@ export default function ProductsPage() {
                       {/* Movement History with Filter Tabs */}
                       <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-3 space-y-2">
                         <h3 className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5">
-                          <Clock className="h-3.5 w-3.5 text-emerald-400" />
+                          <Clock className="h-3.5 w-3.5 theme-text" />
                           Movement History
                         </h3>
 
@@ -3024,7 +3165,7 @@ export default function ProductsPage() {
                             <TabsTrigger value="all" className="text-[11px] h-5 px-2.5 data-[state=active]:bg-zinc-700 data-[state=active]:text-zinc-100 text-zinc-400">
                               Semua
                             </TabsTrigger>
-                            <TabsTrigger value="restock" className="text-[11px] h-5 px-2.5 data-[state=active]:bg-emerald-500/20 data-[state=active]:text-emerald-400 text-zinc-400">
+                            <TabsTrigger value="restock" className="text-[11px] h-5 px-2.5 data-[state=active]:theme-bg-subtle data-[state=active]:theme-text text-zinc-400">
                               Restock
                             </TabsTrigger>
                             <TabsTrigger value="sale" className="text-[11px] h-5 px-2.5 data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-400 text-zinc-400">

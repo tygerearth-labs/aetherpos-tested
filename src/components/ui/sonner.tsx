@@ -17,7 +17,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
           toast: "bg-zinc-900 border-zinc-800 text-zinc-100 shadow-2xl shadow-black/30",
           title: "text-zinc-100 text-sm font-medium",
           description: "text-zinc-400 text-xs",
-          actionButton: "bg-emerald-500 hover:bg-emerald-600 text-white",
+          actionButton: "theme-bg theme-hover text-white",
           cancelButton: "bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border-zinc-700",
         },
       }}

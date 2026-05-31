@@ -164,7 +164,7 @@ export default function MobileBottomNav() {
                     active
                       ? isPOS
                         ? 'text-violet-400'
-                        : 'text-emerald-400'
+                        : 'theme-text'
                       : 'text-zinc-500 hover:text-zinc-300'
                   }`}
                 >
@@ -173,7 +173,7 @@ export default function MobileBottomNav() {
                     <motion.div
                       layoutId="activeTabPill"
                       className={`absolute -top-1.5 left-1/2 -translate-x-1/2 h-[3px] rounded-full ${
-                        isPOS ? 'bg-violet-400 w-6' : 'bg-emerald-400 w-6'
+                        isPOS ? 'bg-violet-400 w-6' : 'theme-bg-light w-6'
                       }`}
                       transition={{ type: 'spring', stiffness: 380, damping: 30 }}
                     />
@@ -195,14 +195,14 @@ export default function MobileBottomNav() {
               onClick={() => setMoreOpen(true)}
               className={`relative flex flex-col items-center gap-0.5 min-w-[56px] py-1 px-2 rounded-xl transition-all duration-200 active:scale-95 ${
                 isMoreActive
-                  ? 'text-emerald-400'
+                  ? 'theme-text'
                   : 'text-zinc-500 hover:text-zinc-300'
               }`}
             >
               {isMoreActive && (
                 <motion.div
                   layoutId="activeTabPill"
-                  className="absolute -top-1.5 left-1/2 -translate-x-1/2 h-[3px] rounded-full bg-emerald-400 w-6"
+                  className="absolute -top-1.5 left-1/2 -translate-x-1/2 h-[3px] rounded-full theme-bg-light w-6"
                   transition={{ type: 'spring', stiffness: 380, damping: 30 }}
                 />
               )}
@@ -235,7 +235,7 @@ export default function MobileBottomNav() {
 
           {/* User Info Card */}
           <div className="flex items-center gap-3 p-3 rounded-xl bg-zinc-900/80 border border-zinc-800/60 mb-4">
-            <div className="w-9 h-9 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-400 text-xs font-bold shrink-0">
+            <div className="w-9 h-9 rounded-full theme-bg-very-light flex items-center justify-center theme-text text-xs font-bold shrink-0">
               {session?.user?.name
                 ? session.user.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)
                 : 'U'}
@@ -285,7 +285,7 @@ export default function MobileBottomNav() {
                             locked
                               ? 'opacity-40 cursor-not-allowed pointer-events-none'
                               : item.page && isActive(item.page)
-                                ? 'bg-emerald-500/10 text-emerald-400'
+                                ? 'theme-bg-very-light theme-text'
                                 : item.danger
                                   ? 'text-red-400 hover:bg-red-500/[0.06]'
                                   : 'text-zinc-300 hover:bg-zinc-800/60'
@@ -295,7 +295,7 @@ export default function MobileBottomNav() {
                             locked
                               ? 'text-zinc-600'
                               : item.page && isActive(item.page)
-                                ? 'text-emerald-400'
+                                ? 'theme-text'
                                 : item.danger
                                   ? 'text-red-400'
                                   : 'text-zinc-500'
@@ -307,7 +307,7 @@ export default function MobileBottomNav() {
                             <Lock className="h-3.5 w-3.5 shrink-0 text-zinc-600" />
                           )}
                           {!locked && item.page && isActive(item.page) && (
-                            <div className="ml-auto w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                            <div className="ml-auto w-1.5 h-1.5 rounded-full theme-bg-light" />
                           )}
                         </button>
                       )

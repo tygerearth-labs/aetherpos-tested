@@ -60,7 +60,7 @@ export function Pagination({ currentPage, totalPages, onPageChange }: Pagination
             size="icon"
             className={
               page === currentPage
-                ? 'h-8 w-8 bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 hover:text-emerald-400'
+                ? 'h-8 w-8 theme-bg-subtle theme-text theme-hover-light hover:theme-text'
                 : 'h-8 w-8 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800'
             }
             onClick={() => onPageChange(page)}

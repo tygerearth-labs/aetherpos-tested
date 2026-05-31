@@ -44,13 +44,27 @@ export async function GET(
     const { limit, skip } = parsePagination(request.nextUrl.searchParams)
 
     // Fetch summary stats and movement logs in parallel
-    const [auditLogs, variantAuditLogs, productVariantAuditLogs, totalLogs, totalSoldResult, lastRestockLog] =
+    const [auditLogs, stockAuditLogs, variantAuditLogs, productVariantAuditLogs, totalLogs, stockTotalLogs, totalSoldResult, lastRestockLog] =
       await Promise.all([
-        // Audit logs for this product (restock, create, update, sale, adjustments)
+        // Audit logs for this product (restock, create, update, sale)
         db.auditLog.findMany({
           where: {
             entityId: id,
             entityType: 'PRODUCT',
+            outletId,
+          },
+          include: {
+            user: {
+              select: { id: true, name: true, email: true, role: true },
+            },
+          },
+          orderBy: { createdAt: 'desc' },
+        }),
+        // Audit logs for stock adjustments — STOCK type (from adjustStock action)
+        db.auditLog.findMany({
+          where: {
+            entityId: id,
+            entityType: 'STOCK',
             outletId,
           },
           include: {
@@ -96,6 +110,13 @@ export async function GET(
           where: {
             entityId: id,
             entityType: 'PRODUCT',
+            outletId,
+          },
+        }),
+        db.auditLog.count({
+          where: {
+            entityId: id,
+            entityType: 'STOCK',
             outletId,
           },
         }),
@@ -180,14 +201,15 @@ export async function GET(
           },
         })
       : 0
-    const combinedTotalLogs = totalLogs + variantTotalLogs
+    const combinedTotalLogs = totalLogs + stockTotalLogs + variantTotalLogs
 
     const totalSold = totalSoldResult._sum.qty || 0
     const revenue = totalSoldResult._sum.subtotal || 0
 
-    // Merge product, variant, and product variant audit logs, sort by date desc, apply pagination
+    // Merge product, stock, variant, and product variant audit logs, sort by date desc, apply pagination
     const allLogs = [
       ...auditLogs,
+      ...stockAuditLogs,
       ...variantAuditLogs,
       ...productVariantAuditLogs,
     ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())

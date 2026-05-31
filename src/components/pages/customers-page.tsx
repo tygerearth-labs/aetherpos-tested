@@ -390,8 +390,8 @@ export default function CustomersPage() {
           {/* Total Customers */}
           <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
             <div className="flex items-center gap-3">
-              <div className="h-9 w-9 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0">
-                <Users className="h-4 w-4 text-emerald-400" />
+              <div className="h-9 w-9 rounded-lg theme-bg-very-light border theme-border-light flex items-center justify-center shrink-0">
+                <Users className="h-4 w-4 theme-text" />
               </div>
               <div className="min-w-0">
                 <p className="text-[11px] font-medium text-zinc-500 truncate">Total Customers</p>
@@ -447,9 +447,9 @@ export default function CustomersPage() {
           <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 overflow-hidden">
             <CollapsibleTrigger className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-zinc-800/50 transition-colors">
               <div className="flex items-center gap-2">
-                <BarChart3 className="h-3.5 w-3.5 text-emerald-400" />
+                <BarChart3 className="h-3.5 w-3.5 theme-text" />
                 <span className="text-xs font-semibold text-zinc-200">Analitik</span>
-                <Badge className="bg-emerald-500/10 border-emerald-500/20 text-emerald-400 text-[10px] px-1.5 py-0">
+                <Badge className="theme-bg-very-light theme-border-light theme-text text-[10px] px-1.5 py-0">
                   {analytics.totalCustomers} customer
                 </Badge>
               </div>
@@ -513,7 +513,7 @@ export default function CustomersPage() {
                   {/* Tier Distribution */}
                   <div className="rounded-lg border border-zinc-800 bg-zinc-800/30 p-3 space-y-2">
                     <h3 className="text-[11px] font-semibold text-zinc-400 flex items-center gap-1.5">
-                      <Users className="h-3 w-3 text-emerald-400" />
+                      <Users className="h-3 w-3 theme-text" />
                       Distribusi Tier
                     </h3>
                     <div className="flex flex-wrap gap-1.5">
@@ -554,7 +554,7 @@ export default function CustomersPage() {
           <h1 className="text-lg font-semibold text-zinc-100">Customers</h1>
           <p className="text-xs text-zinc-500 mt-0.5">Manage your customer database & CRM</p>
         </div>
-        <Button onClick={handleAdd} className="bg-emerald-500 hover:bg-emerald-600 text-white h-8 text-xs">
+        <Button onClick={handleAdd} className="theme-bg hover:theme-hover text-white h-8 text-xs">
           <Plus className="mr-1.5 h-3.5 w-3.5" />
           Add Customer
         </Button>
@@ -885,7 +885,7 @@ export default function CustomersPage() {
                           <Badge
                             className={`text-[10px] ${
                               log.type === 'EARN'
-                                ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                                ? 'theme-bg-very-light theme-border-light theme-text'
                                 : log.type === 'ADJUST'
                                 ? 'bg-violet-500/10 border-violet-500/20 text-violet-400'
                                 : 'bg-red-500/10 border-red-500/20 text-red-400'
@@ -893,7 +893,7 @@ export default function CustomersPage() {
                           >
                             {log.type}
                           </Badge>
-                          <span className={`text-xs font-semibold ${log.points > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                          <span className={`text-xs font-semibold ${log.points > 0 ? 'theme-text' : 'text-red-400'}`}>
                             {log.points > 0 ? '+' : ''}{log.points} pts
                           </span>
                         </div>
@@ -1073,7 +1073,7 @@ export default function CustomersPage() {
                 <SelectContent className="bg-zinc-800 border-zinc-700">
                   <SelectItem value="ADD" className="text-zinc-100 focus:bg-zinc-700 focus:text-zinc-100 text-xs">
                     <div className="flex items-center gap-2">
-                      <PlusCircle className="h-3.5 w-3.5 text-emerald-400" />
+                      <PlusCircle className="h-3.5 w-3.5 theme-text" />
                       Tambah Poin (ADD)
                     </div>
                   </SelectItem>
@@ -1119,10 +1119,10 @@ export default function CustomersPage() {
             {adjustPoints && parseInt(adjustPoints) > 0 && (
               <div className={`p-2.5 rounded-lg border ${
                 adjustType === 'ADD'
-                  ? 'bg-emerald-500/10 border-emerald-500/20'
+                  ? 'theme-bg-very-light theme-border-light'
                   : 'bg-red-500/10 border-red-500/20'
               }`}>
-                <p className={`text-xs font-medium ${adjustType === 'ADD' ? 'text-emerald-400' : 'text-red-400'}`}>
+                <p className={`text-xs font-medium ${adjustType === 'ADD' ? 'theme-text' : 'text-red-400'}`}>
                   {adjustType === 'ADD' ? '+' : '-'}{formatNumber(parseInt(adjustPoints))} poin
                 </p>
                 {adjustCustomer && (
@@ -1152,7 +1152,7 @@ export default function CustomersPage() {
               disabled={adjusting || !adjustPoints || !adjustReason.trim()}
               className={`${
                 adjustType === 'ADD'
-                  ? 'bg-emerald-500 hover:bg-emerald-600'
+                  ? 'theme-bg hover:theme-hover'
                   : 'bg-red-500 hover:bg-red-600'
               } text-white h-8 text-xs`}
             >

@@ -154,7 +154,7 @@ const DEFAULT_PROMO_FORM: PromoFormData = {
 }
 
 const THEME_COLORS = [
-  { name: 'emerald', label: 'Emerald', classes: 'bg-emerald-500' },
+  { name: 'emerald', label: 'Emerald', classes: 'theme-bg' },
   { name: 'blue', label: 'Biru', classes: 'bg-blue-500' },
   { name: 'violet', label: 'Violet', classes: 'bg-violet-500' },
   { name: 'rose', label: 'Rose', classes: 'bg-rose-500' },
@@ -403,17 +403,17 @@ function PaymentMethodsTab() {
                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleToggle(method.key) } }}
                 className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer ${
                   isActive
-                    ? 'border-emerald-500/30 bg-emerald-500/5 hover:bg-emerald-500/10'
+                    ? 'theme-border-medium theme-bg-ultra-light hover:theme-hover-light'
                     : 'border-zinc-800 bg-zinc-800/50 hover:bg-zinc-800'
                 }`}
               >
                 <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                  isActive ? 'bg-emerald-500/20 text-emerald-400' : 'bg-zinc-800 text-zinc-500'
+                  isActive ? 'theme-bg-subtle theme-text' : 'bg-zinc-800 text-zinc-500'
                 }`}>
                   {method.icon}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className={`text-sm font-semibold ${isActive ? 'text-emerald-400' : 'text-zinc-300'}`}>
+                  <p className={`text-sm font-semibold ${isActive ? 'theme-text' : 'text-zinc-300'}`}>
                     {method.label}
                   </p>
                   <p className="text-xs text-zinc-500 mt-0.5">{method.desc}</p>
@@ -499,8 +499,8 @@ function TaxTab() {
         {/* Enable toggle */}
         <div className="flex items-center justify-between p-3 rounded-lg border border-zinc-800 bg-zinc-800/50">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center">
-              <ReceiptText className="h-4 w-4 text-emerald-400" />
+            <div className="w-8 h-8 rounded-lg theme-bg-very-light flex items-center justify-center">
+              <ReceiptText className="h-4 w-4 theme-text" />
             </div>
             <div>
               <p className="text-sm font-semibold text-zinc-200">Aktifkan PPN</p>
@@ -540,8 +540,8 @@ function TaxTab() {
             </div>
 
             {/* Example formula */}
-            <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
-              <p className="text-[11px] font-medium text-emerald-400 uppercase tracking-wider mb-1.5">Contoh Perhitungan</p>
+            <div className="rounded-lg border theme-border-light theme-bg-ultra-light p-3">
+              <p className="text-[11px] font-medium theme-text uppercase tracking-wider mb-1.5">Contoh Perhitungan</p>
               <div className="space-y-1 text-xs text-zinc-300">
                 <div className="flex justify-between">
                   <span>Subtotal</span>
@@ -549,11 +549,11 @@ function TaxTab() {
                 </div>
                 <div className="flex justify-between">
                   <span>PPN ({rate}%)</span>
-                  <span className="font-medium text-emerald-400">+{formatCurrency(exampleTax)}</span>
+                  <span className="font-medium theme-text">+{formatCurrency(exampleTax)}</span>
                 </div>
-                <div className="flex justify-between border-t border-emerald-500/20 pt-1 mt-1">
+                <div className="flex justify-between border-t theme-border-light pt-1 mt-1">
                   <span className="font-semibold text-zinc-200">Total</span>
-                  <span className="font-bold text-emerald-300">{formatCurrency(exampleTotal)}</span>
+                  <span className="font-bold theme-text">{formatCurrency(exampleTotal)}</span>
                 </div>
               </div>
             </div>
@@ -1424,7 +1424,7 @@ function ThemeReceiptTab() {
                         onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
                       />
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium text-emerald-400">Logo berhasil dimuat</p>
+                        <p className="text-xs font-medium theme-text">Logo berhasil dimuat</p>
                         <p className="text-[10px] text-zinc-500 truncate mt-0.5">{receiptLogo}</p>
                       </div>
                     </div>
@@ -1771,7 +1771,7 @@ function TelegramTab() {
               <div className="min-w-0">
                 <p className="text-xs font-medium text-zinc-200">Masukkan & Test Koneksi</p>
                 <p className="text-[11px] text-zinc-400 mt-0.5">
-                  Paste <span className="text-zinc-300">Bot Token</span> dan <span className="text-zinc-300">Chat ID</span> di form bawah, lalu klik <span className="text-emerald-400 font-medium">Test Koneksi</span>. Jika berhasil, klik <span className="text-emerald-400 font-medium">Simpan</span>.
+                  Paste <span className="text-zinc-300">Bot Token</span> dan <span className="text-zinc-300">Chat ID</span> di form bawah, lalu klik <span className="theme-text font-medium">Test Koneksi</span>. Jika berhasil, klik <span className="theme-text font-medium">Simpan</span>.
                 </p>
               </div>
             </div>
@@ -1800,7 +1800,7 @@ function TelegramTab() {
             <Badge
               className={`text-[11px] ${
                 isConnected
-                  ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                  ? 'theme-bg-very-light theme-border-light theme-text'
                   : 'bg-zinc-800 border-zinc-700 text-zinc-500'
               }`}
             >
@@ -1866,16 +1866,16 @@ function TelegramTab() {
             {testResult && (
               <div className={`rounded-lg border p-3 ${
                 testResult.ok
-                  ? 'bg-emerald-500/5 border-emerald-500/20'
+                  ? 'theme-bg-ultra-light theme-border-light'
                   : 'bg-red-500/5 border-red-500/20'
               }`}>
                 <div className="flex items-center gap-1.5">
                   {testResult.ok ? (
-                    <Check className="h-4 w-4 text-emerald-400" />
+                    <Check className="h-4 w-4 theme-text" />
                   ) : (
                     <Unlink2 className="h-4 w-4 text-red-400" />
                   )}
-                  <p className={`text-xs font-medium ${testResult.ok ? 'text-emerald-400' : 'text-red-400'}`}>
+                  <p className={`text-xs font-medium ${testResult.ok ? 'theme-text' : 'text-red-400'}`}>
                     {testResult.message}
                   </p>
                 </div>
@@ -2054,12 +2054,12 @@ function PlanTab() {
     { label: 'Loyalti', key: 'loyaltyProgram' as const, format: (v: boolean) => v ? 'Ya' : 'Tidak' },
     { label: 'Transaksi/Bulan', key: 'maxTransactionsPerMonth' as const, format: (v: number) => formatLimit(v) },
     { label: 'Export Excel', key: 'exportExcel' as const, format: (v: boolean) => v ? 'Ya' : 'Tidak' },
+    { label: 'Upload & Edit Excel', key: 'bulkUpload' as const, format: (v: boolean) => v ? 'Ya' : 'Tidak' },
     { label: 'Promo', key: 'maxPromos' as const, format: (v: number) => formatLimit(v) },
     { label: 'Audit Log', key: 'auditLog' as const, format: (v: boolean) => v ? 'Ya' : 'Tidak' },
     { label: 'Stock Movement', key: 'stockMovement' as const, format: (v: boolean) => v ? 'Ya' : 'Tidak' },
     { label: 'Offline Mode', key: 'offlineMode' as const, format: (v: boolean) => v ? 'Ya' : 'Tidak' },
     { label: 'Multi-Outlet', key: 'multiOutlet' as const, format: (v: boolean) => v ? 'Ya' : 'Tidak' },
-    { label: 'Bulk Upload', key: 'bulkUpload' as const, format: (v: boolean) => v ? 'Ya' : 'Tidak' },
     { label: 'Ringkasan Transaksi', key: 'transactionSummary' as const, format: (v: boolean) => v ? 'Ya' : 'Tidak' },
     { label: 'API Access', key: 'apiAccess' as const, format: (v: boolean) => v ? 'Ya' : 'Tidak' },
     { label: 'Support Prioritas', key: 'prioritySupport' as const, format: (v: boolean) => v ? 'Ya' : 'Tidak' },
@@ -2078,7 +2078,7 @@ function PlanTab() {
   // Plan accent colors
   const planAccent: Record<AccountType, { border: string; bg: string; text: string; icon: string }> = {
     free: { border: 'border-zinc-500/20', bg: 'bg-zinc-500/5', text: 'text-zinc-400', icon: 'bg-zinc-500/10 text-zinc-400' },
-    pro: { border: 'border-emerald-500/20', bg: 'bg-emerald-500/5', text: 'text-emerald-400', icon: 'bg-emerald-500/10 text-emerald-400' },
+    pro: { border: 'theme-border-light', bg: 'theme-bg-ultra-light', text: 'theme-text', icon: 'theme-bg-very-light theme-text' },
     enterprise: { border: 'border-amber-500/20', bg: 'bg-amber-500/5', text: 'text-amber-400', icon: 'bg-amber-500/10 text-amber-400' },
   }
 
@@ -2128,7 +2128,7 @@ function PlanTab() {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-zinc-400">Status</span>
-                <Badge className={`text-[10px] px-1.5 py-0 ${plan?.isSuspended ? 'bg-red-500/10 border-red-500/20 text-red-400' : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'}`}>
+                <Badge className={`text-[10px] px-1.5 py-0 ${plan?.isSuspended ? 'bg-red-500/10 border-red-500/20 text-red-400' : 'theme-bg-very-light theme-border-light theme-text'}`}>
                   {plan?.isSuspended ? 'Ditangguhkan' : 'Aktif'}
                 </Badge>
               </div>
@@ -2184,19 +2184,19 @@ function PlanTab() {
           {currentPlan === 'free' && !plan?.isSuspended && (
             <div className="space-y-3">
               {/* Upgrade to Pro */}
-              <div className={`rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3`}>
+              <div className={`rounded-lg border theme-border-light theme-bg-ultra-light p-3`}>
                 <div className="flex items-start gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0 mt-0.5">
-                    <Zap className="h-4 w-4 text-emerald-400" />
+                  <div className="w-8 h-8 rounded-lg theme-bg-very-light flex items-center justify-center shrink-0 mt-0.5">
+                    <Zap className="h-4 w-4 theme-text" />
                   </div>
                   <div className="flex-1 min-w-0 space-y-2">
                     <div>
-                      <p className="text-xs font-semibold text-emerald-300">Upgrade ke Pro</p>
+                      <p className="text-xs font-semibold theme-text">Upgrade ke Pro</p>
                       <p className="text-[11px] text-zinc-400 mt-0.5">
                         Unlimited produk, export Excel, API access, foto produk, dan banyak lagi.
                       </p>
-                      <p className="text-xs font-semibold text-emerald-400 mt-1">
-                        {PLAN_PRICING.pro.price}<span className="text-emerald-400/60 font-normal">{PLAN_PRICING.pro.period}</span>
+                      <p className="text-xs font-semibold theme-text mt-1">
+                        {PLAN_PRICING.pro.price}<span className="theme-text/60 font-normal">{PLAN_PRICING.pro.period}</span>
                       </p>
                     </div>
                     <div className="flex gap-2">
@@ -2323,7 +2323,7 @@ function PlanTab() {
                     )}
                   </div>
                   {isCurrent && (
-                    <span className="text-[9px] text-emerald-400 font-medium">Plan Anda</span>
+                    <span className="text-[9px] theme-text font-medium">Plan Anda</span>
                   )}
                 </div>
               )
@@ -2343,7 +2343,7 @@ function PlanTab() {
                           {getPlanLabel(key)}
                         </Badge>
                         {key === currentPlan && (
-                          <span className="text-[9px] text-emerald-400 font-medium">Plan Anda</span>
+                          <span className="text-[9px] theme-text font-medium">Plan Anda</span>
                         )}
                       </div>
                     </TableHead>
@@ -2363,15 +2363,15 @@ function PlanTab() {
                       const isUnlimitedValue = typeof value === 'number' && value === -1
 
                       return (
-                        <TableCell key={key} className={`text-center py-2 ${isCurrentPlan ? 'bg-emerald-500/[0.03]' : ''}`}>
+                        <TableCell key={key} className={`text-center py-2 ${isCurrentPlan ? 'theme-bg-ultra-light' : ''}`}>
                           {isBoolean ? (
                             value ? (
-                              <Check className="h-4 w-4 text-emerald-400 mx-auto" />
+                              <Check className="h-4 w-4 theme-text mx-auto" />
                             ) : (
                               <X className="h-3.5 w-3.5 text-zinc-600 mx-auto" />
                             )
                           ) : (
-                            <span className={`text-xs font-medium ${isUnlimitedValue ? 'text-emerald-400' : isCurrentPlan ? 'text-zinc-200' : 'text-zinc-400'}`}>
+                            <span className={`text-xs font-medium ${isUnlimitedValue ? 'theme-text' : isCurrentPlan ? 'text-zinc-200' : 'text-zinc-400'}`}>
                               {display}
                             </span>
                           )}
@@ -2405,7 +2405,7 @@ function PlanTab() {
                       {getPlanLabel(key)}
                     </Badge>
                     {isCurrentPlan && (
-                      <span className="text-[10px] text-emerald-400 font-medium">Plan Anda</span>
+                      <span className="text-[10px] theme-text font-medium">Plan Anda</span>
                     )}
                   </div>
                   <p className={`text-sm font-bold ${isCurrentPlan ? accent.text : 'text-zinc-200'}`}>
@@ -2423,12 +2423,12 @@ function PlanTab() {
                           <span className="text-[11px] text-zinc-500">{row.label}</span>
                           {isBoolean ? (
                             value ? (
-                              <Check className="h-3.5 w-3.5 text-emerald-400" />
+                              <Check className="h-3.5 w-3.5 theme-text" />
                             ) : (
                               <X className="h-3 w-3 text-zinc-600" />
                             )
                           ) : (
-                            <span className={`text-[11px] font-medium ${isUnlimitedValue ? 'text-emerald-400' : 'text-zinc-300'}`}>
+                            <span className={`text-[11px] font-medium ${isUnlimitedValue ? 'theme-text' : 'text-zinc-300'}`}>
                               {display}
                             </span>
                           )}
@@ -2449,7 +2449,7 @@ function PlanTab() {
                   )}
                   {isCurrentPlan && (
                     <div className="text-center pt-0.5">
-                      <span className="text-[11px] text-emerald-400 font-medium">✓ Plan aktif</span>
+                      <span className="text-[11px] theme-text font-medium">✓ Plan aktif</span>
                     </div>
                   )}
                 </div>
@@ -2802,11 +2802,11 @@ function MultiOutletTab() {
             <p className="text-xs text-zinc-400 mt-0.5">Kelola beberapa outlet dalam satu akun</p>
           </div>
 
-          <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 space-y-2">
+          <div className="rounded-lg border theme-border-light theme-bg-ultra-light p-3 space-y-2">
             <div className="flex items-center gap-2">
-              <Building2 className="h-4 w-4 text-emerald-400" />
+              <Building2 className="h-4 w-4 theme-text" />
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-emerald-400">Outlet Utama (Aktif)</p>
+                <p className="text-xs font-semibold theme-text">Outlet Utama (Aktif)</p>
                 <p className="text-[11px] text-zinc-400">{settings?.outlet?.name || '-'}</p>
               </div>
             </div>
@@ -2847,17 +2847,17 @@ function MultiOutletTab() {
               <div key={outlet.id}
                 className={`rounded-lg border p-3 space-y-1.5 transition-colors ${
                   outlet.isPrimary
-                    ? 'border-emerald-500/20 bg-emerald-500/5'
+                    ? 'theme-border-light theme-bg-ultra-light'
                     : 'border-zinc-800 bg-zinc-800/30 hover:border-zinc-700'
                 }`}
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 min-w-0">
-                    <Building2 className={`h-4 w-4 shrink-0 ${outlet.isPrimary ? 'text-emerald-400' : 'text-zinc-500'}`} />
+                    <Building2 className={`h-4 w-4 shrink-0 ${outlet.isPrimary ? 'theme-text' : 'text-zinc-500'}`} />
                     <div className="min-w-0">
-                      <p className={`text-xs font-semibold truncate ${outlet.isPrimary ? 'text-emerald-400' : 'text-zinc-200'}`}>
+                      <p className={`text-xs font-semibold truncate ${outlet.isPrimary ? 'theme-text' : 'text-zinc-200'}`}>
                         {outlet.name}
-                        {outlet.isPrimary && <span className="ml-1.5 text-[10px] font-normal text-emerald-300">(Utama)</span>}
+                        {outlet.isPrimary && <span className="ml-1.5 text-[10px] font-normal theme-text">(Utama)</span>}
                       </p>
                       {outlet.address && <p className="text-[11px] text-zinc-500 truncate">{outlet.address}</p>}
                     </div>

@@ -98,7 +98,7 @@ export function DataTable<T extends { id?: string }>({
                       onClick={() => handleSort(col.key)}
                     >
                       {col.header}
-                      <ArrowUpDown className={`h-3 w-3 ${sortKey === col.key ? 'text-emerald-400' : ''}`} />
+                      <ArrowUpDown className={`h-3 w-3 ${sortKey === col.key ? 'theme-text' : ''}`} />
                     </button>
                   ) : (
                     col.header

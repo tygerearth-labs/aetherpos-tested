@@ -305,7 +305,7 @@ function CrewManagement() {
               setFormData(DEFAULT_FORM)
               setAddOpen(true)
             }}
-            className="bg-emerald-500 hover:bg-emerald-600 text-white h-8 text-xs"
+            className="theme-bg hover:theme-hover text-white h-8 text-xs"
           >
             <Plus className="mr-1.5 h-3.5 w-3.5" />
             Tambah Crew
@@ -319,14 +319,14 @@ function CrewManagement() {
           <TabsList className="inline-flex h-auto w-max gap-1 bg-transparent p-0">
             <TabsTrigger
               value="crew-list"
-              className="flex items-center gap-2 px-3 py-2.5 sm:py-2 rounded-lg text-xs font-medium whitespace-nowrap data-[state=active]:bg-emerald-500/15 data-[state=active]:text-emerald-400 data-[state=active]:shadow-sm data-[state=active]:shadow-emerald-500/10 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/80 transition-all duration-150 border border-transparent data-[state=active]:border-emerald-500/20 data-[state=active]:shadow-none"
+              className="flex items-center gap-2 px-3 py-2.5 sm:py-2 rounded-lg text-xs font-medium whitespace-nowrap data-[state=active]:theme-bg-lighter data-[state=active]:theme-text data-[state=active]:shadow-sm data-[state=active]:theme-shadow text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/80 transition-all duration-150 border border-transparent data-[state=active]:theme-border-light data-[state=active]:shadow-none"
             >
               <Users className="h-4 w-4" />
               Daftar Crew
             </TabsTrigger>
             <TabsTrigger
               value="crew-permissions"
-              className="flex items-center gap-2 px-3 py-2.5 sm:py-2 rounded-lg text-xs font-medium whitespace-nowrap data-[state=active]:bg-emerald-500/15 data-[state=active]:text-emerald-400 data-[state=active]:shadow-sm data-[state=active]:shadow-emerald-500/10 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/80 transition-all duration-150 border border-transparent data-[state=active]:border-emerald-500/20 data-[state=active]:shadow-none"
+              className="flex items-center gap-2 px-3 py-2.5 sm:py-2 rounded-lg text-xs font-medium whitespace-nowrap data-[state=active]:theme-bg-lighter data-[state=active]:theme-text data-[state=active]:shadow-sm data-[state=active]:theme-shadow text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/80 transition-all duration-150 border border-transparent data-[state=active]:theme-border-light data-[state=active]:shadow-none"
             >
               <Shield className="h-4 w-4" />
               Hak Akses
@@ -421,7 +421,7 @@ function CrewManagement() {
                                   pages.map((p) => (
                                     <Badge
                                       key={p}
-                                      className="text-[10px] bg-emerald-500/10 border-emerald-500/20 text-emerald-400 px-1.5 py-0"
+                                      className="text-[10px] theme-bg-very-light theme-border-light theme-text px-1.5 py-0"
                                     >
                                       {p}
                                     </Badge>
@@ -563,7 +563,7 @@ function CrewManagement() {
             <Button
               onClick={handleAdd}
               disabled={saving || !formData.name.trim() || !formData.email.trim() || formData.password.length < 8}
-              className="bg-emerald-500 hover:bg-emerald-600 text-white h-8 text-xs"
+              className="theme-bg hover:theme-hover text-white h-8 text-xs"
             >
               {saving && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
               Tambah Crew
@@ -654,7 +654,7 @@ function CrewManagement() {
             <Button
               onClick={handleEdit}
               disabled={saving || !formData.name.trim() || !formData.email.trim() || (formData.password.length > 0 && formData.password.length < 8)}
-              className="bg-emerald-500 hover:bg-emerald-600 text-white h-8 text-xs"
+              className="theme-bg hover:theme-hover text-white h-8 text-xs"
             >
               {saving && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
               Simpan Perubahan
@@ -820,7 +820,7 @@ function CrewAccessTab() {
                       <p className="text-[11px] text-zinc-500">{crew.userEmail}</p>
                     </div>
                     {savingId === crew.userId && (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-400" />
+                      <Loader2 className="h-3.5 w-3.5 animate-spin theme-text" />
                     )}
                   </div>
                   <div className="flex flex-wrap gap-2.5">
@@ -834,7 +834,7 @@ function CrewAccessTab() {
                           <Checkbox
                             checked={isChecked}
                             onCheckedChange={() => handleTogglePage(crew.userId, page.key, isChecked)}
-                            className="data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500"
+                            className="data-[state=checked]:theme-bg data-[state=checked]:theme-border"
                           />
                           {page.label}
                         </label>

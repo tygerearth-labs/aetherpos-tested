@@ -69,12 +69,12 @@ const ACTION_CONFIG: Record<string, {
   CREATE: {
     label: 'Dibuat',
     icon: Plus,
-    color: 'text-emerald-400',
-    bgColor: 'bg-emerald-500/10',
-    borderColor: 'border-emerald-500/20',
-    iconBg: 'bg-emerald-500/10',
-    leftBorder: 'border-l-emerald-500',
-    dotColor: 'bg-emerald-500',
+    color: 'theme-text',
+    bgColor: 'theme-bg-very-light',
+    borderColor: 'theme-border-light',
+    iconBg: 'theme-bg-very-light',
+    leftBorder: 'theme-border',
+    dotColor: 'theme-bg',
   },
   SALE: {
     label: 'Penjualan',

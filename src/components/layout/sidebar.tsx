@@ -219,18 +219,18 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
           isLocked
             ? 'opacity-40 cursor-not-allowed pointer-events-none'
             : isActive
-              ? 'bg-emerald-500/10 text-emerald-400 shadow-[inset_0_0_0_1px_rgba(16,185,129,0.15)]'
+              ? 'theme-bg-very-light theme-text shadow-[inset_0_0_0_1px_rgba(16,185,129,0.15)]'
               : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200'
         }`}
       >
         {isActive && !isCompact && !isLocked && (
-          <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-4 rounded-r-full bg-emerald-500" />
+          <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-4 rounded-r-full theme-bg" />
         )}
         <span className={`shrink-0 transition-colors duration-150 ${
           isLocked
             ? 'text-zinc-600'
             : isActive
-              ? 'text-emerald-400'
+              ? 'theme-text'
               : 'text-zinc-500 group-hover:text-zinc-300'
         }`}>
           {item.icon}
@@ -272,7 +272,7 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
   return (
     <div className="flex flex-col h-full bg-zinc-950">
       {/* Gradient accent line at top */}
-      <div className="h-[2px] shrink-0 bg-gradient-to-r from-emerald-500 via-emerald-400/50 to-transparent" />
+      <div className="h-[2px] shrink-0 theme-gradient" />
 
       {/* Logo Header */}
       <div className={`flex items-center shrink-0 h-14 border-b border-zinc-800/40 ${
@@ -357,7 +357,7 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
             {/* User Card */}
             <div className="flex items-center gap-3 p-2.5 mb-2.5 rounded-xl bg-zinc-900/50 border border-zinc-800/30">
               <Avatar className="h-8 w-8 shrink-0 ring-1 ring-white/[0.06]">
-                <AvatarFallback className="bg-emerald-500/10 text-emerald-400 text-[11px] font-bold">
+                <AvatarFallback className="theme-bg-very-light theme-text text-[11px] font-bold">
                   {userInitials}
                 </AvatarFallback>
               </Avatar>
@@ -403,7 +403,7 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Avatar className="h-8 w-8 cursor-default ring-1 ring-white/[0.06]">
-                    <AvatarFallback className="bg-emerald-500/10 text-emerald-400 text-[11px] font-bold">
+                    <AvatarFallback className="theme-bg-very-light theme-text text-[11px] font-bold">
                       {userInitials}
                     </AvatarFallback>
                   </Avatar>
