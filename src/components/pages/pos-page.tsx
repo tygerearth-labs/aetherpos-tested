@@ -1816,9 +1816,9 @@ export default function PosPage() {
           {/* Category Chips */}
           <div className="shrink-0">{renderCategoryChips()}</div>
 
-          {/* Product Grid — scrollable middle */}
-          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
-            <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2 pb-2">
+          {/* Product Grid — scrollable middle (pt-2 for badge clearance) */}
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pt-2">
+            <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 pb-2">
               {renderProductGrid()}
             </div>
           </div>
@@ -2100,7 +2100,7 @@ export default function PosPage() {
           />
         </div>
         {renderCategoryChips()}
-        <div className="grid grid-cols-2 gap-2.5 pb-2">{renderProductGrid()}</div>
+        <div className="grid grid-cols-2 gap-2.5 pt-2 pb-2">{renderProductGrid()}</div>
         <div className="pb-8">{renderPagination()}</div>
       </div>
 
