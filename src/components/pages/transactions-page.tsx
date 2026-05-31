@@ -40,6 +40,7 @@ import {
 } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Pagination } from '@/components/shared/pagination'
+import { DateFilter } from '@/components/shared/date-filter'
 import { cn } from '@/lib/utils'
 import {
   Search,
@@ -521,6 +522,7 @@ export default function TransactionsPage() {
 
   const hasActiveFilters = search || dateFrom || dateTo || cashierId || paymentMethod || voidFilter || outletId
   const activeSecondaryFilterCount = [outletId, cashierId, paymentMethod, voidFilter].filter(Boolean).length
+  const handleDateChange = (from: string, to: string) => { setDateFrom(from); setDateTo(to); setPage(1) }
 
   // --- Payment badge helpers ---
   const getPaymentBadge = (method: string) => {
@@ -928,33 +930,12 @@ export default function TransactionsPage() {
           />
         </div>
 
-        {/* Date range */}
-        <div className="hidden sm:flex items-center gap-1 bg-zinc-800 border border-zinc-700 rounded-md px-1 h-8">
-          <CalendarDays className="h-3 w-3 text-zinc-500 shrink-0 ml-1" />
-          <Input
-            type="date"
-            value={dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
-            className="h-6 text-[11px] bg-transparent border-0 text-zinc-200 w-[120px] px-1 [color-scheme:dark] focus-visible:ring-0"
-          />
-          <span className="text-zinc-600 text-[10px]">—</span>
-          <Input
-            type="date"
-            value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
-            className="h-6 text-[11px] bg-transparent border-0 text-zinc-200 w-[120px] px-1 [color-scheme:dark] focus-visible:ring-0"
-          />
-        </div>
-
-        {/* Hari Ini */}
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={handleSetToday}
-          className="text-zinc-400 hover:theme-text hover:theme-hover-light text-[11px] h-8 px-2.5 rounded-lg shrink-0"
-        >
-          Hari Ini
-        </Button>
+        {/* Date filter */}
+        <DateFilter
+          dateFrom={dateFrom}
+          dateTo={dateTo}
+          onChange={handleDateChange}
+        />
 
         {/* Filter toggle */}
         <Button
@@ -988,31 +969,12 @@ export default function TransactionsPage() {
 
       {/* ── Mobile Date Bar (shown only on mobile) ── */}
       <div className="flex sm:hidden items-center gap-1.5">
-        <div className="flex items-center gap-1 flex-1 min-w-0 bg-zinc-800 border border-zinc-700 rounded-lg px-2 h-9">
-          <CalendarDays className="h-3 w-3 text-zinc-500 shrink-0" />
-          <Input
-            type="date"
-            value={dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
-            className="h-7 text-[11px] bg-transparent border-0 text-zinc-200 w-full px-0 [color-scheme:dark] focus-visible:ring-0"
-          />
-          <span className="text-zinc-600 text-[10px]">—</span>
-          <Input
-            type="date"
-            value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
-            className="h-7 text-[11px] bg-transparent border-0 text-zinc-200 w-full px-0 [color-scheme:dark] focus-visible:ring-0"
-          />
-        </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-9 w-9 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 shrink-0"
-          onClick={handleClearAllFilters}
-          title="Reset filter"
-        >
-          <RotateCcw className="h-3.5 w-3.5" />
-        </Button>
+        <DateFilter
+          dateFrom={dateFrom}
+          dateTo={dateTo}
+          onChange={handleDateChange}
+          className="flex-1 min-w-0"
+        />
       </div>
 
       {/* ── Collapsible Secondary Filters ── */}
@@ -1085,23 +1047,10 @@ export default function TransactionsPage() {
               🔍 {search} <span className="ml-1 text-zinc-500">×</span>
             </Badge>
           )}
-          {dateFrom && dateTo && dateFrom === dateTo ? (
-            <Badge variant="outline" className="bg-zinc-800 border-zinc-700 text-zinc-300 text-[11px] cursor-pointer hover:bg-zinc-700" onClick={handleSetToday}>
-              📅 {dateFrom} <span className="ml-1 text-zinc-500">×</span>
+          {dateFrom && (
+            <Badge variant="outline" className="bg-zinc-800 border-zinc-700 text-zinc-300 text-[11px] cursor-pointer hover:bg-zinc-700" onClick={handleClearDates}>
+              📅 {dateFrom}{dateTo && dateTo !== dateFrom ? ` – ${dateTo}` : ''} <span className="ml-1 text-zinc-500">×</span>
             </Badge>
-          ) : (
-            <>
-              {dateFrom && (
-                <Badge variant="outline" className="bg-zinc-800 border-zinc-700 text-zinc-300 text-[11px] cursor-pointer hover:bg-zinc-700" onClick={() => setDateFrom('')}>
-                  Dari: {dateFrom} <span className="ml-1 text-zinc-500">×</span>
-                </Badge>
-              )}
-              {dateTo && (
-                <Badge variant="outline" className="bg-zinc-800 border-zinc-700 text-zinc-300 text-[11px] cursor-pointer hover:bg-zinc-700" onClick={() => setDateTo('')}>
-                  Sampai: {dateTo} <span className="ml-1 text-zinc-500">×</span>
-                </Badge>
-              )}
-            </>
           )}
           {cashierId && (
             <Badge variant="outline" className="bg-zinc-800 border-zinc-700 text-zinc-300 text-[11px] cursor-pointer hover:bg-zinc-700" onClick={() => setCashierId('')}>

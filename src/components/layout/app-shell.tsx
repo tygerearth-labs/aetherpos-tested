@@ -62,7 +62,7 @@ function AppContent() {
   }
 
   return (
-    <div className={`bg-zinc-950 overflow-x-clip ${currentPage === 'pos' ? 'md:h-screen md:overflow-y-hidden' : 'min-h-screen'}`}>
+    <div className={`bg-zinc-950 ${currentPage === 'pos' ? 'md:h-screen md:overflow-y-hidden' : 'min-h-screen'}`}>
       <Sidebar />
       <MobileBottomNav />
       <main

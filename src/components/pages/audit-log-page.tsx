@@ -23,6 +23,7 @@ import {
 } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Pagination } from '@/components/shared/pagination'
+import { DateFilter } from '@/components/shared/date-filter'
 import {
   Search,
   Download,
@@ -503,20 +504,11 @@ export default function AuditLogPage() {
         </Select>
 
         {/* Date range */}
-        <div className="flex items-center gap-1.5">
-          <Input
-            type="date"
-            value={dateFrom}
-            onChange={(e) => { setDateFrom(e.target.value); setPage(1) }}
-            className="bg-zinc-800 border-zinc-700 text-zinc-100 h-8 text-xs [color-scheme:dark]"
-          />
-          <Input
-            type="date"
-            value={dateTo}
-            onChange={(e) => { setDateTo(e.target.value); setPage(1) }}
-            className="bg-zinc-800 border-zinc-700 text-zinc-100 h-8 text-xs [color-scheme:dark]"
-          />
-        </div>
+        <DateFilter
+          dateFrom={dateFrom}
+          dateTo={dateTo}
+          onChange={(from, to) => { setDateFrom(from); setDateTo(to); setPage(1) }}
+        />
 
         {/* Clear all */}
         {hasActiveFilters && (
@@ -560,16 +552,8 @@ export default function AuditLogPage() {
           )}
           {dateFrom && (
             <Badge variant="outline" className="bg-zinc-800 border-zinc-700 text-zinc-300 text-[11px] gap-1 px-2 py-0.5 cursor-pointer">
-              Dari: {dateFrom}
-              <button onClick={() => { setDateFrom(''); setPage(1) }}>
-                <X className="h-2.5 w-2.5 ml-0.5" />
-              </button>
-            </Badge>
-          )}
-          {dateTo && (
-            <Badge variant="outline" className="bg-zinc-800 border-zinc-700 text-zinc-300 text-[11px] gap-1 px-2 py-0.5 cursor-pointer">
-              Sampai: {dateTo}
-              <button onClick={() => { setDateTo(''); setPage(1) }}>
+              📅 {dateFrom}{dateTo && dateTo !== dateFrom ? ` – ${dateTo}` : ''}
+              <button onClick={() => { setDateFrom(''); setDateTo(''); setPage(1) }}>
                 <X className="h-2.5 w-2.5 ml-0.5" />
               </button>
             </Badge>
