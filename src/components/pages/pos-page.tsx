@@ -1651,9 +1651,9 @@ export default function PosPage() {
             {isOnline ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
           </div>
           {unsyncedCount > 0 && (
-            <button onClick={handleSync} disabled={syncing || !isOnline}
-              className="flex items-center gap-1 px-2 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] font-medium shrink-0 disabled:opacity-50">
-              {syncing ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+            <button onClick={handleSync} disabled={isOnline}
+              className="flex items-center gap-1 px-2 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] font-medium shrink-0 disabled:opacity-40">
+              {isOnline ? <RefreshCw className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
               {unsyncedCount}
             </button>
           )}
@@ -1787,9 +1787,9 @@ export default function PosPage() {
           </Button>
 
           {unsyncedCount > 0 && (
-            <Button onClick={handleSync} disabled={syncing || !isOnline} variant="outline" size="sm"
-              className="bg-amber-600/20 border-amber-500/30 text-amber-400 hover:bg-amber-600/30 disabled:opacity-50 h-7 text-xs gap-1.5">
-              {syncing ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+            <Button onClick={handleSync} disabled={isOnline} variant="outline" size="sm"
+              className="bg-amber-600/20 border-amber-500/30 text-amber-400 hover:bg-amber-600/30 disabled:opacity-40 h-7 text-xs gap-1.5">
+              {isOnline ? <RefreshCw className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
               Sync {unsyncedCount}
             </Button>
           )}
