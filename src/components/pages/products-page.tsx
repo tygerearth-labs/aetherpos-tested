@@ -1080,7 +1080,7 @@ export default function ProductsPage() {
           <h1 className="text-xl font-bold text-zinc-100 tracking-tight">Produk</h1>
           <p className="text-sm text-zinc-500 mt-0.5">Kelola inventori produk kamu</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide -mx-1 px-1 sm:overflow-visible sm:mx-0 sm:px-0 sm:flex-wrap">
           {isPro && isOwner && (
             <Button
               variant={bulkMode ? 'default' : 'outline'}
@@ -1091,8 +1091,8 @@ export default function ProductsPage() {
               }}
               className={
                 bulkMode
-                  ? 'bg-amber-500 hover:bg-amber-600 text-white border-amber-500 h-9 text-xs font-medium'
-                  : 'bg-zinc-800/80 border-zinc-700/80 text-zinc-300 hover:text-zinc-100 hover:bg-zinc-700 h-9 text-xs font-medium'
+                  ? 'bg-amber-500 hover:bg-amber-600 text-white border-amber-500 h-9 text-xs font-medium shrink-0'
+                  : 'bg-zinc-800/80 border-zinc-700/80 text-zinc-300 hover:text-zinc-100 hover:bg-zinc-700 h-9 text-xs font-medium shrink-0'
               }
             >
               <ListChecks className="mr-1.5 h-3.5 w-3.5" />
@@ -1100,7 +1100,7 @@ export default function ProductsPage() {
             </Button>
           )}
           <Button onClick={handleExportExcel} disabled={exporting}
-              className="bg-zinc-800/80 border-zinc-700/80 text-zinc-300 hover:text-zinc-100 hover:bg-zinc-700 h-9 text-xs font-medium disabled:opacity-50"
+              className="bg-zinc-800/80 border-zinc-700/80 text-zinc-300 hover:text-zinc-100 hover:bg-zinc-700 h-9 text-xs font-medium disabled:opacity-50 shrink-0"
             >
               {exporting ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Download className="mr-1.5 h-3.5 w-3.5" />}
               Export Excel
@@ -1108,7 +1108,7 @@ export default function ProductsPage() {
             <Button
               variant="outline"
               onClick={() => setBatchBarcodeOpen(true)}
-              className="bg-zinc-800/80 border-zinc-700/80 text-zinc-300 hover:text-zinc-100 hover:bg-zinc-700 h-9 text-xs font-medium"
+              className="bg-zinc-800/80 border-zinc-700/80 text-zinc-300 hover:text-zinc-100 hover:bg-zinc-700 h-9 text-xs font-medium shrink-0"
             >
               <Printer className="mr-1.5 h-3.5 w-3.5" />
               Cetak Barcode
@@ -1121,7 +1121,7 @@ export default function ProductsPage() {
                 setUploadFile(null)
                 setUploadResult(null)
               }}
-              className="bg-zinc-800/80 border-zinc-700/80 text-zinc-300 hover:text-zinc-100 hover:bg-zinc-700 h-9 text-xs font-medium"
+              className="bg-zinc-800/80 border-zinc-700/80 text-zinc-300 hover:text-zinc-100 hover:bg-zinc-700 h-9 text-xs font-medium shrink-0"
             >
               <Upload className="mr-1.5 h-3.5 w-3.5" />
               Upload Excel
@@ -1137,13 +1137,13 @@ export default function ProductsPage() {
                 setEditExcelProgress(0)
                 setEditExcelPhase('')
               }}
-              className="bg-zinc-800/80 border-zinc-700/80 text-zinc-300 hover:text-zinc-100 hover:bg-zinc-700 h-9 text-xs font-medium"
+              className="bg-zinc-800/80 border-zinc-700/80 text-zinc-300 hover:text-zinc-100 hover:bg-zinc-700 h-9 text-xs font-medium shrink-0"
             >
               <FilePenLine className="mr-1.5 h-3.5 w-3.5" />
               Edit Excel
             </Button>
           </ProGate>
-          <Button onClick={handleAdd} className="theme-bg theme-hover text-white h-9 text-xs font-medium shadow-lg theme-shadow">
+          <Button onClick={handleAdd} className="theme-bg theme-hover text-white h-9 text-xs font-medium shadow-lg theme-shadow shrink-0">
             <Plus className="mr-1.5 h-3.5 w-3.5" />
             Tambah Produk
           </Button>
