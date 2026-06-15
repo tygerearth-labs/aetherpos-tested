@@ -21,7 +21,7 @@ export async function GET(
     const product = await db.product.findFirst({
       where: { id, outletId },
       include: {
-        variants: { select: { id: true, name: true, sku: true, price: true, hpp: true, stock: true } },
+        variants: { select: { id: true, name: true, sku: true, barcode: true, price: true, hpp: true, stock: true } },
         _count: { select: { variants: true } },
       },
     })
@@ -238,6 +238,7 @@ export async function GET(
         id: product.id,
         name: product.name,
         sku: product.sku,
+        barcode: product.barcode,
         hpp: product.hpp,
         price: aggPrice,
         stock: aggStock,

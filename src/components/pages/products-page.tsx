@@ -90,6 +90,7 @@ import {
   Layers,
   FilePenLine,
   ScanBarcode,
+  Printer,
 } from 'lucide-react'
 // Collapsible removed — analytics section removed in redesign
 import { ProGate } from '@/components/shared/pro-gate'
@@ -109,6 +110,7 @@ interface Product {
   id: string
   name: string
   sku: string | null
+  barcode: string | null
   hpp: number
   price: number
   bruto: number
@@ -122,6 +124,15 @@ interface Product {
   hasVariants?: boolean
   _variantCount?: number
   _maxPrice?: number
+  variants?: Array<{
+    id: string
+    name: string
+    sku: string | null
+    barcode: string | null
+    price: number
+    hpp: number
+    stock: number
+  }>
 }
 
 interface ProductStats {
@@ -3046,9 +3057,18 @@ export default function ProductsPage() {
                               height={50}
                               fontSize={11}
                               margin={2}
+                              showPrint
+                              label={detailData.product.name}
+                              priceLabel={(() => {
+                                const p = detailData.product
+                                const price = p.price || 0
+                                const maxP = p._maxPrice || 0
+                                return maxP && maxP !== price
+                                  ? `${formatCurrency(price)} ~ ${formatCurrency(maxP)}`
+                                  : formatCurrency(price)
+                              })()}
                             />
                           </div>
-                          <p className="text-[10px] text-zinc-500 text-center font-mono">{detailData.product.barcode}</p>
                         </div>
                       )}
 
@@ -3092,14 +3112,19 @@ export default function ProductsPage() {
                                     </div>
                                   </div>
                                   {v.barcode && (
-                                    <div className="mt-1.5 pt-1.5 border-t border-zinc-700/50 flex justify-center">
-                                      <BarcodeDisplay
-                                        value={v.barcode}
-                                        width={1.5}
-                                        height={35}
-                                        fontSize={9}
-                                        margin={1}
-                                      />
+                                    <div className="mt-1.5 pt-1.5 border-t border-zinc-700/50 flex flex-col items-center">
+                                      <div className="bg-white rounded p-1.5">
+                                        <BarcodeDisplay
+                                          value={v.barcode}
+                                          width={1.5}
+                                          height={35}
+                                          fontSize={9}
+                                          margin={1}
+                                          showPrint
+                                          label={`${detailData.product.name} - ${v.name}`}
+                                          priceLabel={formatCurrency(v.price)}
+                                        />
+                                      </div>
                                     </div>
                                   )}
                                 </div>
