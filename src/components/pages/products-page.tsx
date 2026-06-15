@@ -98,6 +98,7 @@ import ProductFormDialog from './product-form-dialog'
 import dynamic from 'next/dynamic'
 
 const BarcodeDisplay = dynamic(() => import('@/components/shared/barcode-display'), { ssr: false })
+const BatchBarcodeDialog = dynamic(() => import('@/components/shared/batch-barcode-dialog'), { ssr: false })
 
 interface Category {
   id: string
@@ -434,6 +435,7 @@ export default function ProductsPage() {
   const [editExcelUploading, setEditExcelUploading] = useState(false)
   const [editExcelProgress, setEditExcelProgress] = useState(0)
   const [editExcelPhase, setEditExcelPhase] = useState('')
+  const [batchBarcodeOpen, setBatchBarcodeOpen] = useState(false)
   const [editExcelResult, setEditExcelResult] = useState<{
     updated: number
     notFound: number
@@ -1102,6 +1104,14 @@ export default function ProductsPage() {
             >
               {exporting ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Download className="mr-1.5 h-3.5 w-3.5" />}
               Export Excel
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setBatchBarcodeOpen(true)}
+              className="bg-zinc-800/80 border-zinc-700/80 text-zinc-300 hover:text-zinc-100 hover:bg-zinc-700 h-9 text-xs font-medium"
+            >
+              <Printer className="mr-1.5 h-3.5 w-3.5" />
+              Cetak Barcode
             </Button>
           <ProGate feature="bulkUpload" label="Upload Excel" description="Upload produk massal via file Excel" variant="inline">
             <Button
@@ -3294,6 +3304,13 @@ export default function ProductsPage() {
           )}
         </SheetContent>
       </Sheet>
+
+      {/* Batch Barcode Print Dialog */}
+      <BatchBarcodeDialog
+        open={batchBarcodeOpen}
+        onOpenChange={setBatchBarcodeOpen}
+        categories={categories}
+      />
     </div>
   )
 }

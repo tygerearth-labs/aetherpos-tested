@@ -233,12 +233,19 @@ export async function GET(
       }
     })
 
+    // Fallback: barcode = sku for old products that don't have barcode yet
+    const finalBarcode = product.barcode || product.sku || null
+    const finalVariants = product.variants.map((v) => ({
+      ...v,
+      barcode: v.barcode || v.sku || null,
+    }))
+
     return safeJson({
       product: {
         id: product.id,
         name: product.name,
         sku: product.sku,
-        barcode: product.barcode,
+        barcode: finalBarcode,
         hpp: product.hpp,
         price: aggPrice,
         stock: aggStock,
@@ -246,7 +253,7 @@ export async function GET(
         image: product.image,
         hasVariants: !!product.hasVariants,
         _variantCount: product._count.variants,
-        variants: product.variants,
+        variants: finalVariants,
         _maxPrice: maxPrice,
         bruto: product.bruto || 0,
         netto: product.netto || 0,
