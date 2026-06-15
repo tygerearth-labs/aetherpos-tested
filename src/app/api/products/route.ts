@@ -4,6 +4,7 @@ import { getAuthUser, unauthorized } from '@/lib/get-auth'
 import { parsePagination, resolvePlanType } from '@/lib/api-helpers'
 import { getPlanFeatures, isUnlimited } from '@/lib/plan-config'
 import { safeJson, safeJsonCreated, safeJsonError } from '@/lib/safe-response'
+import { generateUniqueSKU, generateVariantSKU } from '@/lib/sku-generator'
 
 type SortOption = 'newest' | 'best-selling' | 'low-stock' | 'most-stock'
 
@@ -249,7 +250,7 @@ export async function POST(request: NextRequest) {
     const outletId = user.outletId
 
     const body = await request.json()
-    const { name, sku, hpp, price, stock, lowStockAlert, image, categoryId, unit, hasVariants, variants } = body
+    const { name, sku, barcode, hpp, price, stock, lowStockAlert, image, categoryId, unit, hasVariants, variants } = body
 
     if (!name || price === undefined || price === null) {
       return safeJsonError('Product name and price are required', 400)
@@ -303,11 +304,29 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Auto-generate SKU if not provided
+    const finalSku = sku?.trim() ? sku.trim() : await generateUniqueSKU(name, outletId)
+    // Auto-generate barcode from SKU if not provided
+    const finalBarcode = barcode?.trim() || finalSku
+
+    // Auto-generate SKUs for variants that don't have one
+    const variantsWithSku = await Promise.all(
+      parsedVariants.map(async (v) => {
+        const vSku = v.sku?.trim() || await generateVariantSKU(name, v.name, outletId)
+        return {
+          ...v,
+          sku: vSku,
+          barcode: vSku, // barcode = sku for variants
+        }
+      })
+    )
+
     const product = await db.$transaction(async (tx) => {
       const newProduct = await tx.product.create({
         data: {
           name,
-          sku: sku || null,
+          sku: finalSku,
+          barcode: finalBarcode,
           hpp: hpp || 0,
           price,
           stock: stock || 0,
@@ -321,12 +340,13 @@ export async function POST(request: NextRequest) {
       })
 
       // Create variants if provided
-      if (parsedVariants.length > 0) {
+      if (variantsWithSku.length > 0) {
         await tx.productVariant.createMany({
-          data: parsedVariants.map((v) => ({
+          data: variantsWithSku.map((v) => ({
             productId: newProduct.id,
             name: v.name,
-            sku: v.sku || null,
+            sku: v.sku,
+            barcode: v.barcode,
             hpp: v.hpp || 0,
             price: v.price,
             stock: v.stock || 0,

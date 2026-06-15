@@ -397,13 +397,15 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-xs text-zinc-400">SKU / Barcode</Label>
+                <Label className="text-xs text-zinc-400">SKU</Label>
                 <Input
                   value={form.sku}
                   onChange={(e) => updateField('sku', e.target.value)}
-                  placeholder="Opsional — Contoh: SKU-001"
+                  placeholder="Opsional — Auto-generate jika kosong"
+                  maxLength={22}
                   className="bg-zinc-900 border-zinc-800 text-zinc-100 placeholder:text-zinc-600 h-10 text-sm rounded-lg focus-visible:theme-ring focus-visible:theme-border"
                 />
+                <p className="text-[10px] text-zinc-600">Kosongkan untuk auto-generate (max 22 karakter). Barcode akan otomatis dibuat dari SKU.</p>
               </div>
 
               <div className="space-y-1.5">

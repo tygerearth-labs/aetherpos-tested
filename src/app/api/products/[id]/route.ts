@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/get-auth'
 import { safeAuditLog } from '@/lib/safe-audit'
 import { safeJson, safeJsonError } from '@/lib/safe-response'
+import { generateUniqueSKU, generateVariantSKU } from '@/lib/sku-generator'
 
 interface VariantPayload {
   name: string
@@ -77,7 +78,7 @@ export async function PUT(
     }
 
     const body = await request.json()
-    const { name, sku, hpp, price, stock, lowStockAlert, image, unit, categoryId, hasVariants, variants } = body
+    const { name, sku, barcode, hpp, price, stock, lowStockAlert, image, unit, categoryId, hasVariants, variants } = body
 
     // Check unique name if changed
     if (name && name !== existing.name) {
@@ -104,6 +105,34 @@ export async function PUT(
       }
     }
 
+    // Auto-generate SKU if empty string provided (user cleared it) or not set
+    let finalSku = sku
+    let finalBarcode = barcode
+    if (sku !== undefined) {
+      if (!sku?.trim()) {
+        // SKU was cleared or empty — auto-generate
+        finalSku = await generateUniqueSKU(name || existing.name, outletId)
+      } else {
+        finalSku = sku.trim()
+      }
+    }
+    // Auto-generate barcode from SKU if barcode not provided or empty
+    if (finalSku) {
+      finalBarcode = finalBarcode?.trim() || finalSku
+    }
+
+    // Auto-generate variant SKUs
+    const variantsWithSku = await Promise.all(
+      parsedVariants.map(async (v) => {
+        const vSku = v.sku?.trim() || await generateVariantSKU(name || existing.name, v.name, outletId)
+        return {
+          ...v,
+          sku: vSku,
+          barcode: vSku,
+        }
+      })
+    )
+
     const product = await db.$transaction(async (tx) => {
       // Track changes for audit log
       const changes: Record<string, { from: unknown; to: unknown }> = {}
@@ -118,7 +147,8 @@ export async function PUT(
 
       const updateData: Record<string, unknown> = {}
       if (name !== undefined) updateData.name = name
-      if (sku !== undefined) updateData.sku = sku || null
+      if (finalSku !== undefined) updateData.sku = finalSku || null
+      if (finalBarcode !== undefined) updateData.barcode = finalBarcode || null
       if (hpp !== undefined) updateData.hpp = hpp
       if (price !== undefined) updateData.price = price
       if (stock !== undefined) updateData.stock = stock
@@ -144,12 +174,13 @@ export async function PUT(
         }
 
         // Create new variants
-        if (parsedVariants.length > 0) {
+        if (variantsWithSku.length > 0) {
           await tx.productVariant.createMany({
-            data: parsedVariants.map((v) => ({
+            data: variantsWithSku.map((v) => ({
               productId: id,
               name: v.name,
-              sku: v.sku || null,
+              sku: v.sku,
+              barcode: v.barcode,
               hpp: v.hpp || 0,
               price: v.price,
               stock: v.stock || 0,

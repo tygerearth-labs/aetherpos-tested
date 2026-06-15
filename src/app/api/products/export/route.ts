@@ -40,6 +40,7 @@ export async function GET(request: NextRequest) {
             id: true,
             name: true,
             sku: true,
+            barcode: true,
             hpp: true,
             price: true,
             stock: true,
@@ -55,12 +56,13 @@ export async function GET(request: NextRequest) {
 
     // === Sheet 1: Produk ===
     const productHeader = [
-      'ID', 'Nama Produk', 'SKU', 'HPP', 'Harga Jual', 'Stok', 'Satuan', 'Kategori', 'Punya Varian', 'Low Stock Alert',
+      'ID', 'Nama Produk', 'SKU', 'BARCODE', 'HPP', 'Harga Jual', 'Stok', 'Satuan', 'Kategori', 'Punya Varian', 'Low Stock Alert',
     ]
     const productRows = products.map((p) => [
       p.id,
       p.name,
       p.sku || '',
+      p.barcode || '',
       p.hpp,
       p.price,
       p.stock,
@@ -75,6 +77,7 @@ export async function GET(request: NextRequest) {
       { wch: 28 }, // ID
       { wch: 30 }, // Nama Produk
       { wch: 15 }, // SKU
+      { wch: 18 }, // BARCODE
       { wch: 15 }, // HPP
       { wch: 15 }, // Harga Jual
       { wch: 10 }, // Stok
@@ -87,7 +90,7 @@ export async function GET(request: NextRequest) {
 
     // === Sheet 2: Varian Produk ===
     const variantHeader = [
-      'ID Produk', 'Nama Produk', 'ID Varian', 'Nama Varian', 'SKU', 'HPP', 'Harga Jual', 'Stok',
+      'ID Produk', 'Nama Produk', 'ID Varian', 'Nama Varian', 'SKU', 'BARCODE', 'HPP', 'Harga Jual', 'Stok',
     ]
     const variantRows: (string | number)[][] = []
     for (const p of products) {
@@ -99,6 +102,7 @@ export async function GET(request: NextRequest) {
             v.id,
             v.name,
             v.sku || '',
+            v.barcode || '',
             v.hpp,
             v.price,
             v.stock,
@@ -117,6 +121,7 @@ export async function GET(request: NextRequest) {
       { wch: 28 }, // ID Varian
       { wch: 20 }, // Nama Varian
       { wch: 15 }, // SKU
+      { wch: 18 }, // BARCODE
       { wch: 15 }, // HPP
       { wch: 15 }, // Harga Jual
       { wch: 10 }, // Stok

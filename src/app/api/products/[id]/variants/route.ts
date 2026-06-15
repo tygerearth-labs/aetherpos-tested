@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/get-auth'
 import { safeJson, safeJsonCreated, safeJsonError } from '@/lib/safe-response'
 import { safeAuditLog } from '@/lib/safe-audit'
+import { generateVariantSKU } from '@/lib/sku-generator'
 
 // ─── GET ─── List all variants for a product ─────────────────────────────────
 export async function GET(
@@ -81,13 +82,18 @@ export async function POST(
     }
 
     const variant = await db.$transaction(async (tx) => {
+      // Auto-generate variant SKU if not provided
+      const finalVariantSku = sku?.trim() || await generateVariantSKU(product.name, name.trim(), outletId)
+      // Auto-generate barcode from SKU if not provided
+      const finalVariantBarcode = barcode?.trim() || finalVariantSku
+
       // Create the variant
       const created = await tx.productVariant.create({
         data: {
           productId: id,
           name: name.trim(),
-          sku: sku?.trim() || null,
-          barcode: barcode?.trim() || null,
+          sku: finalVariantSku,
+          barcode: finalVariantBarcode,
           hpp: typeof hpp === 'number' ? hpp : 0,
           price,
           stock: typeof stock === 'number' ? stock : 0,

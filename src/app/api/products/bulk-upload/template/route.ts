@@ -15,12 +15,12 @@ export async function GET(request: NextRequest) {
 
     // === Sheet 1: Data Produk ===
     const productData = [
-      ['NAMA PRODUK*', 'SKU', 'HPP (Rp)', 'HARGA JUAL* (Rp)', 'QTY / STOK', 'SATUAN', 'KATEGORI', 'PUNYA VARIAN'],
-      ['Nasi Goreng Spesial', 'SKU-001', 10000, 25000, 50, 'porsi', 'Makanan', 'tidak'],
-      ['Es Teh Manis', 'SKU-002', 3000, 8000, 100, 'gelas', 'Minuman', 'tidak'],
-      ['Ayam Geprek', 'SKU-003', 12000, 20000, 30, 'porsi', 'Makanan', 'tidak'],
-      ['Kopi Susu Gula Aren', 'SKU-004', 5000, 15000, 80, 'gelas', 'Minuman', 'ya'],
-      ['Mie Goreng', 'SKU-005', 8000, 18000, 40, 'porsi', 'Makanan', 'tidak'],
+      ['NAMA PRODUK*', 'SKU', 'BARCODE', 'HPP (Rp)', 'HARGA JUAL* (Rp)', 'QTY / STOK', 'SATUAN', 'KATEGORI', 'PUNYA VARIAN'],
+      ['Nasi Goreng Spesial', 'SKU-001', 'SKU-001', 10000, 25000, 50, 'porsi', 'Makanan', 'tidak'],
+      ['Es Teh Manis', 'SKU-002', 'SKU-002', 3000, 8000, 100, 'gelas', 'Minuman', 'tidak'],
+      ['Ayam Geprek', 'SKU-003', 'SKU-003', 12000, 20000, 30, 'porsi', 'Makanan', 'tidak'],
+      ['Kopi Susu Gula Aren', 'SKU-004', 'SKU-004', 5000, 15000, 80, 'gelas', 'Minuman', 'ya'],
+      ['Mie Goreng', 'SKU-005', 'SKU-005', 8000, 18000, 40, 'porsi', 'Makanan', 'tidak'],
     ]
 
     const ws = XLSX.utils.aoa_to_sheet(productData)
@@ -29,6 +29,7 @@ export async function GET(request: NextRequest) {
     ws['!cols'] = [
       { wch: 30 }, // Nama Produk
       { wch: 15 }, // SKU
+      { wch: 18 }, // Barcode
       { wch: 15 }, // HPP
       { wch: 20 }, // Harga Jual
       { wch: 14 }, // Qty / Stok
@@ -37,18 +38,18 @@ export async function GET(request: NextRequest) {
       { wch: 15 }, // Punya Varian
     ]
 
-    // Add data validation (dropdown) for SATUAN column (F2:F1000)
+    // Add data validation (dropdown) for SATUAN column (G2:G1000)
     const dvSatuan = {
       type: 'list',
       allowBlank: true,
-      sqref: 'F2:F1000',
+      sqref: 'G2:G1000',
       formulas: ['"pcs,ml,lt,gr,kg,box,pack,botol,gelas,mangkuk,porsi,bungkus,sachet,dus,rim,lembar,meter,cm,ons"'],
     }
-    // Add data validation (dropdown) for Punya Varian column (H2:H1000)
+    // Add data validation (dropdown) for Punya Varian column (I2:I1000)
     const dvVariant = {
       type: 'list',
       allowBlank: true,
-      sqref: 'H2:H1000',
+      sqref: 'I2:I1000',
       formulas: ['"ya,tidak"'],
     }
     ws['!dataValidation'] = [dvSatuan, dvVariant]
@@ -61,7 +62,8 @@ export async function GET(request: NextRequest) {
       [''],
       ['KOLOM', 'DESKRIPSI', 'CONTOH', 'WAJIB?'],
       ['NAMA PRODUK', 'Nama produk yang akan ditambahkan', 'Nasi Goreng Spesial', 'Ya *'],
-      ['SKU', 'Kode unik produk (opsional)', 'SKU-001', 'Tidak'],
+      ['SKU', 'Kode unik produk (opsional, auto-generate jika kosong)', 'SKU-001', 'Tidak'],
+      ['BARCODE', 'Kode barcode produk (opsional, auto-generate dari SKU jika kosong)', 'SKU-001', 'Tidak'],
       ['HPP (Rp)', 'Harga Pokok Penjualan / Modal', '10000', 'Tidak'],
       ['HARGA JUAL (Rp)', 'Harga jual ke customer', '25000', 'Ya *'],
       ['QTY / STOK', 'Jumlah stok awal', '50', 'Tidak'],
@@ -84,6 +86,9 @@ export async function GET(request: NextRequest) {
       ['• Jika Nama Produk sudah ada, baris tersebut akan dilewati (skip)'],
       ['• Kategori baru akan otomatis dibuat jika belum ada di sistem'],
       ['• Harga harus dalam format angka tanpa titik/koma (contoh: 25000, bukan 25.000)'],
+      ['• SKU & BARCODE akan otomatis di-generate jika dikosongkan (max 22 karakter)'],
+      ['• Jika BARCODE dikosongkan, maka nilai BARCODE = SKU'],
+      ['• Barcode yang di-generate dapat di-scan di halaman POS'],
       ['• Untuk produk dengan varian, isi kolom "Punya Varian" = "ya", lalu isi varian di sheet "Varian Produk"'],
       ['• Produk yang ditandai "Punya Varian" = ya wajib memiliki minimal 1 baris varian di sheet "Varian Produk"'],
       ['• Nama Produk di sheet "Varian Produk" harus SAMA PERSIS dengan Nama Produk di sheet "Produk" (case-sensitive)'],
@@ -102,16 +107,17 @@ export async function GET(request: NextRequest) {
 
     // === Sheet 3: Varian Produk ===
     const variantData = [
-      ['NAMA PRODUK*', 'NAMA VARIAN*', 'SKU VARIAN', 'HPP (Rp)', 'HARGA JUAL* (Rp)', 'STOK'],
-      ['Kopi Susu Gula Aren', 'Small', 'SKU-004-S', 4000, 12000, 30],
-      ['Kopi Susu Gula Aren', 'Medium', 'SKU-004-M', 5000, 15000, 50],
-      ['Kopi Susu Gula Aren', 'Large', 'SKU-004-L', 6000, 18000, 20],
+      ['NAMA PRODUK*', 'NAMA VARIAN*', 'SKU VARIAN', 'BARCODE VARIAN', 'HPP (Rp)', 'HARGA JUAL* (Rp)', 'STOK'],
+      ['Kopi Susu Gula Aren', 'Small', 'SKU-004-S', 'SKU-004-S', 4000, 12000, 30],
+      ['Kopi Susu Gula Aren', 'Medium', 'SKU-004-M', 'SKU-004-M', 5000, 15000, 50],
+      ['Kopi Susu Gula Aren', 'Large', 'SKU-004-L', 'SKU-004-L', 6000, 18000, 20],
     ]
     const wsVariants = XLSX.utils.aoa_to_sheet(variantData)
     wsVariants['!cols'] = [
       { wch: 25 }, // Nama Produk
       { wch: 20 }, // Nama Varian
       { wch: 18 }, // SKU Varian
+      { wch: 18 }, // Barcode Varian
       { wch: 15 }, // HPP (Rp)
       { wch: 22 }, // Harga Jual* (Rp)
       { wch: 10 }, // Stok

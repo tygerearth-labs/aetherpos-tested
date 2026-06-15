@@ -5,6 +5,7 @@ import { getOutletPlan, isUnlimited } from '@/lib/plan-config'
 import * as XLSX from 'xlsx'
 import { safeAuditLog } from '@/lib/safe-audit'
 import { safeJson, safeJsonError } from '@/lib/safe-response'
+import { generateUniqueSKU, generateVariantSKU } from '@/lib/sku-generator'
 
 // Vercel serverless function timeout: 60s (default is 10s on Hobby plan)
 export const maxDuration = 60
@@ -195,6 +196,7 @@ export async function POST(request: NextRequest) {
       // Map column names using flexible header matching (supports any format)
       const name = String(findColumn(row, ['NAMA PRODUK*', 'NAMA PRODUK', 'Nama Produk', 'Nama', 'NAME', 'name', 'Product Name', 'Produk']) || '').trim()
       const sku = String(findColumn(row, ['SKU', 'sku', 'Kode']) || '').trim() || null
+      const barcode = String(findColumn(row, ['BARCODE', 'Barcode', 'barcode', 'BAR CODE', 'Bar Code']) || '').trim() || null
       const hpp = sanitizeNumber(findColumn(row, ['HPP (Rp)', 'HPP', 'Harga Pokok', 'harga_pokok', 'Cost', 'Modal']))
       const price = sanitizeNumber(findColumn(row, ['HARGA JUAL* (Rp)', 'HARGA JUAL (Rp)', 'HARGA JUAL', 'Harga Jual', 'Harga', 'Price', 'harga_jual', 'harga', 'price', 'Sell Price', 'Jual']))
       const stock = sanitizeNumber(findColumn(row, ['QTY / STOK', 'QTY', 'qty', 'Stok', 'stok', 'Stock', 'stock', 'Quantity', 'Jumlah']))
@@ -260,11 +262,17 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      // Auto-generate SKU if not provided
+      const finalSku = sku || await generateUniqueSKU(name, outletId)
+      // Auto-generate barcode from SKU if barcode not provided
+      const finalBarcode = barcode || finalSku
+
       // Create product
       await db.product.create({
         data: {
           name,
-          sku,
+          sku: finalSku,
+          barcode: finalBarcode,
           hpp,
           price,
           stock,
@@ -303,6 +311,7 @@ export async function POST(request: NextRequest) {
           const parentName = String(findColumn(vRow, ['NAMA PRODUK*', 'NAMA PRODUK', 'Nama Produk', 'Nama', 'NAME', 'name', 'Product Name', 'Produk']) || '').trim()
           const variantName = String(findColumn(vRow, ['NAMA VARIAN*', 'NAMA VARIAN', 'Nama Varian', 'Variant Name', 'Varian']) || '').trim()
           const variantSku = String(findColumn(vRow, ['SKU VARIAN', 'SKU Varian', 'SKU', 'sku']) || '').trim() || null
+          const variantBarcode = String(findColumn(vRow, ['BARCODE VARIAN', 'Barcode Varian', 'BARCODE', 'Barcode', 'barcode']) || '').trim() || null
           const variantHpp = sanitizeNumber(findColumn(vRow, ['HPP (Rp)', 'HPP', 'Harga Pokok', 'harga_pokok', 'Cost', 'Modal']))
           const variantPrice = sanitizeNumber(findColumn(vRow, ['HARGA JUAL* (Rp)', 'HARGA JUAL (Rp)', 'HARGA JUAL', 'Harga Jual', 'Harga', 'Price', 'harga_jual', 'harga', 'price', 'Sell Price', 'Jual']))
           const variantStock = sanitizeNumber(findColumn(vRow, ['STOK', 'Stok', 'stok', 'Stock', 'stock', 'QTY', 'qty', 'Quantity', 'Jumlah']))
@@ -338,11 +347,17 @@ export async function POST(request: NextRequest) {
             productCache.set(parentName, parentProduct)
           }
 
+          // Auto-generate variant SKU if not provided
+          const finalVariantSku = variantSku || await generateVariantSKU(parentName, variantName, outletId)
+          // Auto-generate variant barcode from SKU if not provided
+          const finalVariantBarcode = variantBarcode || finalVariantSku
+
           // Create variant
           await db.productVariant.create({
             data: {
               name: variantName,
-              sku: variantSku,
+              sku: finalVariantSku,
+              barcode: finalVariantBarcode,
               hpp: variantHpp,
               price: variantPrice,
               stock: variantStock,

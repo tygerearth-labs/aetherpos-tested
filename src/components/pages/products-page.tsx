@@ -89,10 +89,14 @@ import {
   AlertCircle,
   Layers,
   FilePenLine,
+  ScanBarcode,
 } from 'lucide-react'
 // Collapsible removed — analytics section removed in redesign
 import { ProGate } from '@/components/shared/pro-gate'
 import ProductFormDialog from './product-form-dialog'
+import dynamic from 'next/dynamic'
+
+const BarcodeDisplay = dynamic(() => import('@/components/shared/barcode-display'), { ssr: false })
 
 interface Category {
   id: string
@@ -2953,7 +2957,7 @@ export default function ProductsPage() {
                         <div className="grid grid-cols-2 gap-2 text-xs">
                           <div>
                             <span className="text-zinc-500 text-[11px]">SKU</span>
-                            <p className="text-zinc-200">{detailData.product.sku || '-'}</p>
+                            <p className="text-zinc-200 font-mono">{detailData.product.sku || '-'}</p>
                           </div>
                           <div>
                             <span className="text-zinc-500 text-[11px]">Stock</span>
@@ -3028,6 +3032,26 @@ export default function ProductsPage() {
                         </div>
                       </div>
 
+                      {/* Barcode Card */}
+                      {detailData.product.barcode && (
+                        <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-3 space-y-2">
+                          <h3 className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5">
+                            <ScanBarcode className="h-3.5 w-3.5 theme-text" />
+                            Barcode
+                          </h3>
+                          <div className="flex justify-center bg-white rounded-lg p-3">
+                            <BarcodeDisplay
+                              value={detailData.product.barcode}
+                              width={2}
+                              height={50}
+                              fontSize={11}
+                              margin={2}
+                            />
+                          </div>
+                          <p className="text-[10px] text-zinc-500 text-center font-mono">{detailData.product.barcode}</p>
+                        </div>
+                      )}
+
                       {/* Variant List Card */}
                       {detailData.product.hasVariants && detailData.product.variants && detailData.product.variants.length > 0 && (
                         <div className="rounded-lg border border-violet-500/20 bg-violet-500/[0.03] p-3 space-y-2">
@@ -3047,24 +3071,37 @@ export default function ProductsPage() {
                               const isOutOfStock = v.stock <= 0
                               const isLowStock = v.stock > 0 && v.stock <= (detailData.product.lowStockAlert || 10)
                               return (
-                                <div key={v.id} className="grid grid-cols-4 gap-1 bg-zinc-800/40 rounded-lg px-2.5 py-2 items-center">
-                                  <div className="min-w-0 col-span-1">
-                                    <p className="text-xs font-medium text-zinc-200 truncate">{v.name}</p>
-                                    {v.sku && <p className="text-[10px] text-zinc-600 font-mono truncate">{v.sku}</p>}
+                                <div key={v.id} className="bg-zinc-800/40 rounded-lg px-2.5 py-2">
+                                  <div className="grid grid-cols-4 gap-1 items-center">
+                                    <div className="min-w-0 col-span-1">
+                                      <p className="text-xs font-medium text-zinc-200 truncate">{v.name}</p>
+                                      {v.sku && <p className="text-[10px] text-zinc-600 font-mono truncate">{v.sku}</p>}
+                                    </div>
+                                    <div className="text-right col-span-1">
+                                      {isOwner && (
+                                        <p className="text-[11px] text-zinc-500">{formatCurrency(v.hpp)}</p>
+                                      )}
+                                    </div>
+                                    <div className="text-right col-span-1">
+                                      <p className="text-xs font-medium text-zinc-200">{formatCurrency(v.price)}</p>
+                                    </div>
+                                    <div className="text-right col-span-1">
+                                      <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-medium ${isOutOfStock ? 'bg-red-500/10 text-red-400' : isLowStock ? 'bg-amber-500/10 text-amber-400' : 'bg-zinc-800 text-zinc-500'}`}>
+                                        {formatNumber(v.stock)}
+                                      </span>
+                                    </div>
                                   </div>
-                                  <div className="text-right col-span-1">
-                                    {isOwner && (
-                                      <p className="text-[11px] text-zinc-500">{formatCurrency(v.hpp)}</p>
-                                    )}
-                                  </div>
-                                  <div className="text-right col-span-1">
-                                    <p className="text-xs font-medium text-zinc-200">{formatCurrency(v.price)}</p>
-                                  </div>
-                                  <div className="text-right col-span-1">
-                                    <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-medium ${isOutOfStock ? 'bg-red-500/10 text-red-400' : isLowStock ? 'bg-amber-500/10 text-amber-400' : 'bg-zinc-800 text-zinc-500'}`}>
-                                      {formatNumber(v.stock)}
-                                    </span>
-                                  </div>
+                                  {v.barcode && (
+                                    <div className="mt-1.5 pt-1.5 border-t border-zinc-700/50 flex justify-center">
+                                      <BarcodeDisplay
+                                        value={v.barcode}
+                                        width={1.5}
+                                        height={35}
+                                        fontSize={9}
+                                        margin={1}
+                                      />
+                                    </div>
+                                  )}
                                 </div>
                               )
                             })}
