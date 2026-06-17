@@ -2228,6 +2228,20 @@ export default function PosPage() {
         <div className="pb-8">{renderPagination()}</div>
       </div>
 
+      {/* Floating Pending Button — Mobile only, visible when there are pending tx and cart is empty */}
+      {isMobile && pendingCount > 0 && cart.length === 0 && (
+        <button
+          onClick={() => setPendingListOpen(true)}
+          className="md:hidden fixed bottom-20 right-4 z-50 flex items-center gap-2.5 h-12 pl-3.5 pr-4 rounded-2xl bg-zinc-800 border border-zinc-700/80 text-zinc-100 shadow-2xl shadow-black/30 hover:bg-zinc-700 active:scale-95 transition-all duration-150"
+        >
+          <div className="relative">
+            <Clock className="h-5 w-5 text-amber-400" />
+            <span className="absolute -top-1.5 -right-1.5 min-w-4 h-4 rounded-full bg-amber-500 text-white text-[9px] font-bold flex items-center justify-center shadow-sm px-1">{pendingCount}</span>
+          </div>
+          <span className="text-xs font-semibold">Pending</span>
+        </button>
+      )}
+
       {/* Floating Cart Button — Mobile only, outside scroll area to prevent clipping */}
       {cart.length > 0 && (
         <button
