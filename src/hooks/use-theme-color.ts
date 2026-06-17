@@ -36,6 +36,7 @@ export function getThemeColorMap() {
 
 export function useThemeColor() {
   const [theme, setTheme] = useState<string>('emerald')
+  const [loaded, setLoaded] = useState(false)
 
   useEffect(() => {
     const loadTheme = async () => {
@@ -45,12 +46,16 @@ export function useThemeColor() {
           const data = await res.json()
           setTheme(data.themePrimaryColor || 'emerald')
         }
-      } catch { /* silent */ }
+      } catch { /* silent — fallback to emerald */ }
+      setLoaded(true)
     }
     loadTheme()
   }, [])
 
   useEffect(() => {
+    // Only apply CSS variables once the theme has been resolved
+    if (!loaded) return
+
     const colors = THEME_COLORS[theme] || THEME_COLORS.emerald
     const root = document.documentElement
 
@@ -81,7 +86,7 @@ export function useThemeColor() {
       s.textContent = `*:focus-visible{outline-color:${colors[500]};}`
       document.head.appendChild(s)
     }
-  }, [theme])
+  }, [theme, loaded])
 
-  return { theme, themeColors: THEME_COLORS[theme] || THEME_COLORS.emerald }
+  return { theme, themeColors: THEME_COLORS[theme] || THEME_COLORS.emerald, loaded }
 }

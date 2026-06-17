@@ -57,6 +57,9 @@ import {
   Store,
   Tag,
   Layers,
+  Pause,
+  Play,
+  Clock,
 } from 'lucide-react'
 import {
   Select,
@@ -66,7 +69,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { localDB, type CachedProduct, type CachedCategory, type CachedCustomer } from '@/lib/local-db'
+import { localDB, type CachedProduct, type CachedCategory, type CachedCustomer, type PendingTransaction } from '@/lib/local-db'
 import { syncAllData, getAllSyncTimes, syncSettingsFromServer, getCachedSettings } from '@/lib/sync-service'
 import { cn } from '@/lib/utils'
 import { useSession } from 'next-auth/react'
@@ -466,6 +469,13 @@ export default function PosPage() {
   const [editingQtyId, setEditingQtyId] = useState<string | null>(null)
   const [editingQtyValue, setEditingQtyValue] = useState('')
   const qtyInputRef = useRef<HTMLInputElement>(null)
+
+  // Pending Transactions
+  const [pendingListOpen, setPendingListOpen] = useState(false)
+  const pendingCount = useLiveQuery(
+    () => localDB.pendingTransactions.count(),
+    []
+  ) ?? 0
 
   // ── Inline QTY Edit Handlers ──
   const startEditQty = (productId: string, currentQty: number) => {
@@ -909,6 +919,99 @@ export default function PosPage() {
 
   const handlePointsChange = (value: string) => {
     setPointsToUse(Math.min(Number(value) || 0, maxPointsToUse))
+  }
+
+  // ==================== PENDING TRANSACTIONS ====================
+
+  const handleHoldTransaction = async () => {
+    if (cart.length === 0) return
+    try {
+      const userName = session?.user?.name || 'Unknown'
+      const userId = (session?.user as any)?.id || ''
+      await localDB.pendingTransactions.add({
+        items: cart.map(item => ({
+          product: item.product,
+          variant: item.variant,
+          qty: item.qty,
+        })),
+        customerId: selectedCustomer?.id || null,
+        customerName: selectedCustomer?.name || null,
+        note: '',
+        subtotal,
+        createdAt: Date.now(),
+        userId,
+        userName,
+      })
+      clearCart()
+      setMobileCartOpen(false)
+      toast.success('Transaksi ditunda')
+    } catch {
+      toast.error('Gagal menunda transaksi')
+    }
+  }
+
+  const handleResumePending = async (pending: PendingTransaction) => {
+    if (cart.length > 0) {
+      // If current cart has items, hold it first
+      try {
+        const userName = session?.user?.name || 'Unknown'
+        const userId = (session?.user as any)?.id || ''
+        await localDB.pendingTransactions.add({
+          items: cart.map(item => ({
+            product: item.product,
+            variant: item.variant,
+            qty: item.qty,
+          })),
+          customerId: selectedCustomer?.id || null,
+          customerName: selectedCustomer?.name || null,
+          note: '',
+          subtotal,
+          createdAt: Date.now(),
+          userId,
+          userName,
+        })
+      } catch { /* silent */ }
+    }
+
+    // Load pending items into cart
+    try {
+      const items = pending.items as Array<{ product: Product; variant: ProductVariant | null; qty: number }>
+      setCart(items)
+      if (pending.customerId && pending.customerName) {
+        const customer = customers.find(c => c.id === pending.customerId)
+        if (customer) {
+          setSelectedCustomer(customer)
+        } else {
+          setSelectedCustomer({ id: pending.customerId, name: pending.customerName, whatsapp: '', points: 0 })
+        }
+      } else {
+        setSelectedCustomer(null)
+      }
+      setPointsToUse(0)
+      setPaidAmount('')
+      setSelectedPromo(null)
+      setPromoDiscount(0)
+
+      // Delete the pending transaction
+      if (pending.id) {
+        await localDB.pendingTransactions.delete(pending.id)
+      }
+
+      setPendingListOpen(false)
+      setMobileCartOpen(true)
+      toast.success('Transaksi dilanjutkan')
+    } catch {
+      toast.error('Gagal melanjutkan transaksi')
+    }
+  }
+
+  const handleDeletePending = async (id: number) => {
+    try {
+      await localDB.pendingTransactions.delete(id)
+      toast.success('Transaksi pending dihapus')
+    } catch {
+      toast.error('Gagal menghapus transaksi pending')
+    }
   }
 
   // ==================== VARIANT PICKER ====================
@@ -1842,8 +1945,20 @@ export default function PosPage() {
                 </div>
               </div>
               {cart.length > 0 && (
-                <button onClick={clearCart} className="h-7 px-2.5 rounded-lg text-[10px] font-semibold text-zinc-500 hover:text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 transition-all">
-                  Hapus Semua
+                <div className="flex items-center gap-1.5">
+                  <button onClick={() => setPendingListOpen(true)} className="relative h-7 px-2.5 rounded-lg text-[10px] font-semibold text-zinc-500 hover:text-amber-400 hover:bg-amber-500/10 border border-transparent hover:border-amber-500/20 transition-all">
+                    <Clock className="h-3 w-3" />
+                    {pendingCount > 0 && <span className="ml-1">{pendingCount}</span>}
+                  </button>
+                  <button onClick={clearCart} className="h-7 px-2.5 rounded-lg text-[10px] font-semibold text-zinc-500 hover:text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 transition-all">
+                    Hapus Semua
+                  </button>
+                </div>
+              )}
+              {cart.length === 0 && pendingCount > 0 && (
+                <button onClick={() => setPendingListOpen(true)} className="relative h-7 px-2.5 rounded-lg text-[10px] font-semibold text-zinc-500 hover:text-amber-400 hover:bg-amber-500/10 border border-transparent hover:border-amber-500/20 transition-all">
+                  <Clock className="h-3 w-3" />
+                  <span className="ml-1">{pendingCount} pending</span>
                 </button>
               )}
             </div>
@@ -2072,15 +2187,24 @@ export default function PosPage() {
             )}
 
             {/* Checkout Button */}
-            <Button onClick={openCheckoutDialog} disabled={cart.length === 0 || checkingOut}
-              className={`w-full h-12 font-bold text-sm rounded-xl transition-all ${
-                cart.length > 0
-                  ? `theme-gradient hover:theme-hover text-white shadow-lg theme-shadow hover:theme-shadow active:scale-[0.99]`
-                  : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
-              }`}>
-              {checkingOut ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}
-              {checkingOut ? 'Memproses...' : 'Proses Pembayaran'}
-            </Button>
+            <div className="flex gap-2">
+              {cart.length > 0 && (
+                <Button onClick={handleHoldTransaction} variant="outline"
+                  className="h-12 px-4 font-semibold text-sm rounded-xl border-zinc-700 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 transition-all shrink-0">
+                  <Pause className="mr-1.5 h-4 w-4" />
+                  Tunda
+                </Button>
+              )}
+              <Button onClick={openCheckoutDialog} disabled={cart.length === 0 || checkingOut}
+                className={`flex-1 h-12 font-bold text-sm rounded-xl transition-all ${
+                  cart.length > 0
+                    ? `theme-gradient hover:theme-hover text-white shadow-lg theme-shadow hover:theme-shadow active:scale-[0.99]`
+                    : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
+                }`}>
+                {checkingOut ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}
+                {checkingOut ? 'Memproses...' : 'Proses Pembayaran'}
+              </Button>
+            </div>
             </div>
           </div>
         </div>
@@ -2142,8 +2266,20 @@ export default function PosPage() {
                 </div>
               </div>
               {cart.length > 0 && (
-                <button onClick={clearCart} className="h-8 px-3 rounded-lg text-[11px] font-semibold text-zinc-500 hover:text-red-400 hover:bg-red-500/10 border border-zinc-800 hover:border-red-500/20 transition-all">
-                  Hapus Semua
+                <div className="flex items-center gap-1.5">
+                  <button onClick={() => setPendingListOpen(true)} className="relative h-8 px-2.5 rounded-lg text-[11px] font-semibold text-zinc-500 hover:text-amber-400 hover:bg-amber-500/10 border border-zinc-800 hover:border-amber-500/20 transition-all">
+                    <Clock className="h-3.5 w-3.5" />
+                    {pendingCount > 0 && <span className="ml-1">{pendingCount}</span>}
+                  </button>
+                  <button onClick={clearCart} className="h-8 px-3 rounded-lg text-[11px] font-semibold text-zinc-500 hover:text-red-400 hover:bg-red-500/10 border border-zinc-800 hover:border-red-500/20 transition-all">
+                    Hapus Semua
+                  </button>
+                </div>
+              )}
+              {cart.length === 0 && pendingCount > 0 && (
+                <button onClick={() => setPendingListOpen(true)} className="h-8 px-3 rounded-lg text-[11px] font-semibold text-zinc-500 hover:text-amber-400 hover:bg-amber-500/10 border border-zinc-800 hover:border-amber-500/20 transition-all">
+                  <Clock className="h-3.5 w-3.5 mr-1" />
+                  {pendingCount} pending
                 </button>
               )}
             </div>
@@ -2238,11 +2374,15 @@ export default function PosPage() {
                   )}
                 </div>
               )}
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-3">
                 <div className="flex-1 min-w-0">
                   <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold leading-tight">Total</p>
                   <p className="text-2xl font-black text-zinc-50 leading-tight tabular-nums">{formatCurrency(total)}</p>
                 </div>
+                <Button onClick={handleHoldTransaction} variant="outline"
+                  className="h-12 px-3 font-semibold text-xs rounded-2xl border-zinc-700 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 transition-all shrink-0">
+                  <Pause className="h-4 w-4" />
+                </Button>
                 <Button onClick={openCheckoutDialog}
                   className="h-12 px-8 font-bold text-sm rounded-2xl theme-gradient hover:theme-hover text-white shadow-lg theme-shadow transition-all active:scale-[0.98] shrink-0">
                   Bayar <ChevronRight className="ml-1.5 h-4 w-4" />
@@ -2627,6 +2767,122 @@ export default function PosPage() {
           </ResponsiveDialogFooter>
         </ResponsiveDialogContent>
       </ResponsiveDialog>
+
+      {/* Pending Transactions List Dialog */}
+      <ResponsiveDialog open={pendingListOpen} onOpenChange={setPendingListOpen}>
+        <ResponsiveDialogContent desktopClassName="max-w-md rounded-2xl">
+          <ResponsiveDialogHeader>
+            <ResponsiveDialogTitle className="text-sm font-bold text-zinc-100 flex items-center gap-2">
+              <Clock className="h-4 w-4 text-amber-400" /> Transaksi Pending
+              {pendingCount > 0 && (
+                <Badge variant="secondary" className="ml-1 bg-amber-500/10 text-amber-400 border-amber-500/20 text-[10px] px-1.5">{pendingCount}</Badge>
+              )}
+            </ResponsiveDialogTitle>
+          </ResponsiveDialogHeader>
+          <PendingListContent
+            onResume={handleResumePending}
+            onDelete={handleDeletePending}
+          />
+        </ResponsiveDialogContent>
+      </ResponsiveDialog>
+    </div>
+  )
+}
+
+// ==================== PENDING LIST SUB-COMPONENT ====================
+
+function PendingListContent({
+  onResume,
+  onDelete,
+}: {
+  onResume: (pending: PendingTransaction) => void
+  onDelete: (id: number) => void
+}) {
+  const pendingList = useLiveQuery(
+    () => localDB.pendingTransactions.orderBy('createdAt').reverse().toArray(),
+    []
+  )
+
+  if (!pendingList) {
+    return (
+      <div className="flex items-center justify-center py-10">
+        <Loader2 className="h-5 w-5 text-zinc-500 animate-spin" />
+      </div>
+    )
+  }
+
+  if (pendingList.length === 0) {
+    return (
+      <div className="text-center py-10">
+        <div className="w-12 h-12 rounded-2xl bg-zinc-800/60 flex items-center justify-center mx-auto mb-3">
+          <Clock className="h-5 w-5 text-zinc-600" />
+        </div>
+        <p className="text-sm text-zinc-400 font-medium">Belum ada transaksi pending</p>
+        <p className="text-[11px] text-zinc-600 mt-1">Tunda transaksi untuk melayani customer lain</p>
+      </div>
+    )
+  }
+
+  const formatTime = (ts: number) => {
+    const d = new Date(ts)
+    return d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+  }
+
+  return (
+    <div className="space-y-2 py-2 max-h-[60vh] overflow-y-auto">
+      {pendingList.map((pending) => {
+        const items = pending.items as Array<{ product: { name: string; image: string | null }; variant: { name: string } | null; qty: number }>
+        const totalItems = items.reduce((s, i) => s + i.qty, 0)
+
+        return (
+          <div key={pending.id} className="bg-zinc-900 border border-zinc-800/60 rounded-xl p-3.5 space-y-2.5">
+            {/* Header */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-amber-500/10 flex items-center justify-center">
+                  <Pause className="h-3.5 w-3.5 text-amber-400" />
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-zinc-200">{totalItems} item</p>
+                  <p className="text-[10px] text-zinc-500">{formatTime(pending.createdAt)} · {pending.userName}</p>
+                </div>
+              </div>
+              <p className="text-sm font-bold text-zinc-100 tabular-nums">{formatCurrency(pending.subtotal)}</p>
+            </div>
+
+            {/* Items preview */}
+            <div className="flex flex-wrap gap-1">
+              {items.slice(0, 4).map((item, idx) => (
+                <span key={idx} className="text-[10px] bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded-md truncate max-w-[140px]">
+                  {item.variant ? `${item.product.name} (${item.variant.name})` : item.product.name} ×{item.qty}
+                </span>
+              ))}
+              {items.length > 4 && (
+                <span className="text-[10px] bg-zinc-800 text-zinc-500 px-2 py-0.5 rounded-md">
+                  +{items.length - 4} lainnya
+                </span>
+              )}
+            </div>
+
+            {/* Customer */}
+            {pending.customerName && (
+              <p className="text-[10px] text-zinc-500">👤 {pending.customerName}</p>
+            )}
+
+            {/* Actions */}
+            <div className="flex gap-2 pt-1">
+              <Button size="sm" onClick={() => onResume(pending)}
+                className="flex-1 h-8 text-[11px] font-medium rounded-lg theme-bg hover:theme-hover text-white transition-colors">
+                <Play className="mr-1.5 h-3 w-3" /> Lanjutkan
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => onDelete(pending.id!)}
+                className="h-8 px-3 text-[11px] text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors">
+                <Trash2 className="h-3 w-3" />
+              </Button>
+            </div>
+          </div>
+        )
+      })}
     </div>
   )
 }

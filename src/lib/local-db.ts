@@ -92,6 +92,18 @@ export interface CachedSettings {
   updatedAt: string
 }
 
+export interface PendingTransaction {
+  id?: number // auto-incremented
+  items: Record<string, unknown>[] // serialized CartItem[]
+  customerId: string | null
+  customerName: string | null
+  note: string
+  subtotal: number
+  createdAt: number
+  userId: string
+  userName: string
+}
+
 // ============================================================
 // Database
 // ============================================================
@@ -104,11 +116,12 @@ class AetherDB extends Dexie {
   transactions!: EntityTable<OfflineTransaction, 'id'>
   syncMeta!: EntityTable<SyncMeta, 'key'>
   settings!: EntityTable<CachedSettings, 'key'>
+  pendingTransactions!: EntityTable<PendingTransaction, 'id'>
 
   constructor() {
     super('aether-pos-local')
 
-    this.version(3).stores({
+    this.version(4).stores({
       products: 'id, name, sku, barcode, categoryId, updatedAt',
       categories: 'id, name, updatedAt',
       customers: 'id, name, whatsapp, updatedAt',
@@ -116,6 +129,7 @@ class AetherDB extends Dexie {
       transactions: '++id, isSynced, createdAt',
       syncMeta: 'key',
       settings: 'key',
+      pendingTransactions: '++id, createdAt',
     })
   }
 }
