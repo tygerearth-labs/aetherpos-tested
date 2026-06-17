@@ -998,7 +998,7 @@ export default function PosPage() {
       }
 
       setPendingListOpen(false)
-      setMobileCartOpen(true)
+      setMobileCartOpen(false)
       toast.success('Transaksi dilanjutkan')
     } catch {
       toast.error('Gagal melanjutkan transaksi')
