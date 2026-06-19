@@ -403,6 +403,7 @@ export default function TransactionsPage() {
       return
     }
     const params = new URLSearchParams()
+    params.set('tzOffset', String(new Date().getTimezoneOffset()))
     if (dateFrom) params.set('dateFromMs', String(getStartOfDayMs(dateFrom)))
     if (dateTo) params.set('dateToMs', String(getEndOfDayMs(dateTo)))
     if (cashierId) params.set('cashierId', cashierId)

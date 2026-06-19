@@ -7,8 +7,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   if (!loaded) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950">
-        <Loader2 className="h-8 w-8 animate-spin text-zinc-400" />
+      <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-zinc-950">
+        <Loader2 className="h-6 w-6 text-zinc-600 animate-spin" />
       </div>
     )
   }

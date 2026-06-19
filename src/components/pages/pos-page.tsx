@@ -57,7 +57,7 @@ import {
   Store,
   Tag,
   Layers,
-  Pause,
+  ClockArrowDown,
   Play,
   Clock,
 } from 'lucide-react'
@@ -472,6 +472,8 @@ export default function PosPage() {
 
   // Pending Transactions
   const [pendingListOpen, setPendingListOpen] = useState(false)
+  const [holdNoteDialog, setHoldNoteDialog] = useState(false)
+  const [pendingNote, setPendingNote] = useState('')
   const pendingCount = useLiveQuery(
     () => localDB.pendingTransactions.count(),
     []
@@ -925,6 +927,11 @@ export default function PosPage() {
 
   const handleHoldTransaction = async () => {
     if (cart.length === 0) return
+    setPendingNote('')
+    setHoldNoteDialog(true)
+  }
+
+  const confirmHoldTransaction = async () => {
     try {
       const userName = session?.user?.name || 'Unknown'
       const userId = (session?.user as any)?.id || ''
@@ -936,7 +943,8 @@ export default function PosPage() {
         })),
         customerId: selectedCustomer?.id || null,
         customerName: selectedCustomer?.name || null,
-        note: '',
+        customerPhone: selectedCustomer?.whatsapp || null,
+        note: pendingNote.trim(),
         subtotal,
         createdAt: Date.now(),
         userId,
@@ -944,6 +952,8 @@ export default function PosPage() {
       })
       clearCart()
       setMobileCartOpen(false)
+      setHoldNoteDialog(false)
+      setPendingNote('')
       toast.success('Transaksi ditunda')
     } catch {
       toast.error('Gagal menunda transaksi')
@@ -964,6 +974,7 @@ export default function PosPage() {
           })),
           customerId: selectedCustomer?.id || null,
           customerName: selectedCustomer?.name || null,
+          customerPhone: selectedCustomer?.whatsapp || null,
           note: '',
           subtotal,
           createdAt: Date.now(),
@@ -2191,7 +2202,7 @@ export default function PosPage() {
               {cart.length > 0 && (
                 <Button onClick={handleHoldTransaction} variant="outline"
                   className="h-12 px-4 font-semibold text-sm rounded-xl border-zinc-700 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 transition-all shrink-0">
-                  <Pause className="mr-1.5 h-4 w-4" />
+                  <ClockArrowDown className="mr-1.5 h-4 w-4" />
                   Tunda
                 </Button>
               )}
@@ -2395,7 +2406,7 @@ export default function PosPage() {
                 </div>
                 <Button onClick={handleHoldTransaction} variant="outline"
                   className="h-12 px-3 font-semibold text-xs rounded-2xl border-zinc-700 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 transition-all shrink-0">
-                  <Pause className="h-4 w-4" />
+                  <ClockArrowDown className="h-4 w-4" />
                 </Button>
                 <Button onClick={openCheckoutDialog}
                   className="h-12 px-8 font-bold text-sm rounded-2xl theme-gradient hover:theme-hover text-white shadow-lg theme-shadow transition-all active:scale-[0.98] shrink-0">
@@ -2782,6 +2793,41 @@ export default function PosPage() {
         </ResponsiveDialogContent>
       </ResponsiveDialog>
 
+      {/* Hold Note Dialog */}
+      <ResponsiveDialog open={holdNoteDialog} onOpenChange={setHoldNoteDialog}>
+        <ResponsiveDialogContent desktopClassName="max-w-sm rounded-2xl">
+          <ResponsiveDialogHeader>
+            <ResponsiveDialogTitle className="text-sm font-bold text-zinc-100 flex items-center gap-2">
+              <ClockArrowDown className="h-4 w-4 text-amber-400" /> Tunda Transaksi
+            </ResponsiveDialogTitle>
+            <ResponsiveDialogDescription className="text-xs text-zinc-500">
+              Tambahkan catatan untuk memudahkan identifikasi transaksi ini
+            </ResponsiveDialogDescription>
+          </ResponsiveDialogHeader>
+          <div className="py-2">
+            <Label className="text-[11px] text-zinc-400 font-medium">Catatan (opsional)</Label>
+            <Input
+              value={pendingNote}
+              onChange={(e) => setPendingNote(e.target.value)}
+              placeholder="cth: Bapak baju merah, nanti sore"
+              className="mt-1.5 h-10 text-sm bg-zinc-900 border-zinc-800 text-zinc-100 placeholder:text-zinc-600 rounded-xl"
+              onKeyDown={(e) => { if (e.key === 'Enter') confirmHoldTransaction() }}
+              autoFocus
+            />
+          </div>
+          <ResponsiveDialogFooter>
+            <Button variant="ghost" onClick={() => setHoldNoteDialog(false)}
+              className="h-9 text-xs rounded-xl text-zinc-400 hover:text-zinc-200">
+              Batal
+            </Button>
+            <Button onClick={confirmHoldTransaction}
+              className="h-9 text-xs font-semibold rounded-xl theme-bg hover:theme-hover text-white">
+              Tunda
+            </Button>
+          </ResponsiveDialogFooter>
+        </ResponsiveDialogContent>
+      </ResponsiveDialog>
+
       {/* Pending Transactions List Dialog */}
       <ResponsiveDialog open={pendingListOpen} onOpenChange={setPendingListOpen}>
         <ResponsiveDialogContent desktopClassName="max-w-md rounded-2xl">
@@ -2854,7 +2900,7 @@ function PendingListContent({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="w-7 h-7 rounded-lg bg-amber-500/10 flex items-center justify-center">
-                  <Pause className="h-3.5 w-3.5 text-amber-400" />
+                  <ClockArrowDown className="h-3.5 w-3.5 text-amber-400" />
                 </div>
                 <div>
                   <p className="text-xs font-semibold text-zinc-200">{totalItems} item</p>
@@ -2864,24 +2910,37 @@ function PendingListContent({
               <p className="text-sm font-bold text-zinc-100 tabular-nums">{formatCurrency(pending.subtotal)}</p>
             </div>
 
+            {/* Note */}
+            {pending.note && (
+              <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+                <p className="text-[11px] text-amber-300 font-medium leading-relaxed">{pending.note}</p>
+              </div>
+            )}
+
+            {/* Customer info */}
+            {(pending.customerName || pending.customerPhone) && (
+              <div className="flex items-center gap-1.5 text-[10px] text-zinc-400">
+                <User className="h-3 w-3 text-zinc-500" />
+                <span>{pending.customerName || '-'}</span>
+                {pending.customerPhone && (
+                  <span className="text-zinc-500 ml-1">· {pending.customerPhone}</span>
+                )}
+              </div>
+            )}
+
             {/* Items preview */}
             <div className="flex flex-wrap gap-1">
-              {items.slice(0, 4).map((item, idx) => (
+              {items.slice(0, 3).map((item, idx) => (
                 <span key={idx} className="text-[10px] bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded-md truncate max-w-[140px]">
                   {item.variant ? `${item.product.name} (${item.variant.name})` : item.product.name} ×{item.qty}
                 </span>
               ))}
-              {items.length > 4 && (
+              {items.length > 3 && (
                 <span className="text-[10px] bg-zinc-800 text-zinc-500 px-2 py-0.5 rounded-md">
-                  +{items.length - 4} lainnya
+                  +{items.length - 3} lainnya
                 </span>
               )}
             </div>
-
-            {/* Customer */}
-            {pending.customerName && (
-              <p className="text-[10px] text-zinc-500">👤 {pending.customerName}</p>
-            )}
 
             {/* Actions */}
             <div className="flex gap-2 pt-1">
