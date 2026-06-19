@@ -60,7 +60,7 @@ function AlertDialogContent({
         <AlertDialogPrimitive.Content
           data-slot="alert-dialog-content"
           className={cn(
-            "bg-zinc-900 data-[state=open]:animate-in data-[state=open]:slide-in-from-bottom data-[state=closed]:animate-out data-[state=closed]:slide-out-to-bottom data-[state=closed]:duration-200 data-[state=open]:duration-300 fixed inset-x-0 bottom-0 z-[60] w-full rounded-t-2xl border border-zinc-800 p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl shadow-black/50",
+            "bg-nebula data-[state=open]:animate-in data-[state=open]:slide-in-from-bottom data-[state=closed]:animate-out data-[state=closed]:slide-out-to-bottom data-[state=closed]:duration-200 data-[state=open]:duration-300 fixed inset-x-0 bottom-0 z-[60] w-full rounded-t-2xl border border-white/[0.06] p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl shadow-black/50",
             className
           )}
           {...props}
@@ -75,7 +75,7 @@ function AlertDialogContent({
       <AlertDialogPrimitive.Content
         data-slot="alert-dialog-content"
         className={cn(
-          "bg-background data-[state=open]:animate-[dialog-content-show_200ms_ease-out] data-[state=closed]:animate-[dialog-content-hide_150ms_ease-in] fixed top-[50%] left-[50%] z-[60] grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-xl border border-zinc-800/80 p-6 shadow-2xl shadow-black/50 sm:max-w-lg",
+          "bg-background data-[state=open]:animate-[dialog-content-show_200ms_ease-out] data-[state=closed]:animate-[dialog-content-hide_150ms_ease-in] fixed top-[50%] left-[50%] z-[60] grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-xl border border-white/[0.06] p-6 shadow-2xl shadow-black/50 sm:max-w-lg",
           className
         )}
         {...props}

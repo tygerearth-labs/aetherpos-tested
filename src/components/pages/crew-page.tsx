@@ -107,14 +107,14 @@ export default function CrewPage() {
     return (
       <div className="space-y-4">
         <div>
-          <h1 className="text-lg font-semibold text-zinc-100">Kelola Crew</h1>
-          <p className="text-xs text-zinc-400 mt-0.5">Manage cashier accounts and access</p>
+          <h1 className="text-lg font-semibold text-white">Kelola Crew</h1>
+          <p className="text-xs text-slate-400 mt-0.5">Manage cashier accounts and access</p>
         </div>
-        <Card className="bg-zinc-900 border-zinc-800">
+        <Card className="bg-nebula border-white/[0.06]">
           <CardContent className="p-6 text-center">
             <Shield className="h-10 w-10 text-zinc-700 mx-auto mb-2" />
-            <p className="text-sm text-zinc-400">Akses Terbatas</p>
-            <p className="text-xs text-zinc-500 mt-1">Hanya pemilik (OWNER) yang dapat mengelola crew</p>
+            <p className="text-sm text-slate-400">Akses Terbatas</p>
+            <p className="text-xs text-slate-500 mt-1">Hanya pemilik (OWNER) yang dapat mengelola crew</p>
           </CardContent>
         </Card>
       </div>
@@ -296,8 +296,8 @@ function CrewManagement() {
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-lg font-semibold text-zinc-100">Kelola Crew</h1>
-          <p className="text-xs text-zinc-400 mt-0.5">Tambah dan kelola akun kasir untuk outlet Anda</p>
+          <h1 className="text-lg font-semibold text-white">Kelola Crew</h1>
+          <p className="text-xs text-slate-400 mt-0.5">Tambah dan kelola akun kasir untuk outlet Anda</p>
         </div>
         {activeTab === 'crew-list' && (
           <Button
@@ -319,14 +319,14 @@ function CrewManagement() {
           <TabsList className="inline-flex h-auto w-max gap-1 bg-transparent p-0">
             <TabsTrigger
               value="crew-list"
-              className="flex items-center gap-2 px-3 py-2.5 sm:py-2 rounded-lg text-xs font-medium whitespace-nowrap data-[state=active]:theme-bg-lighter data-[state=active]:theme-text data-[state=active]:shadow-sm data-[state=active]:theme-shadow text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/80 transition-all duration-150 border border-transparent data-[state=active]:theme-border-light data-[state=active]:shadow-none"
+              className="flex items-center gap-2 px-3 py-2.5 sm:py-2 rounded-lg text-xs font-medium whitespace-nowrap data-[state=active]:theme-bg-lighter data-[state=active]:theme-text data-[state=active]:shadow-sm data-[state=active]:theme-shadow text-slate-500 hover:text-slate-300 hover:bg-white/[0.04]/80 transition-all duration-150 border border-transparent data-[state=active]:theme-border-light data-[state=active]:shadow-none"
             >
               <Users className="h-4 w-4" />
               Daftar Crew
             </TabsTrigger>
             <TabsTrigger
               value="crew-permissions"
-              className="flex items-center gap-2 px-3 py-2.5 sm:py-2 rounded-lg text-xs font-medium whitespace-nowrap data-[state=active]:theme-bg-lighter data-[state=active]:theme-text data-[state=active]:shadow-sm data-[state=active]:theme-shadow text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/80 transition-all duration-150 border border-transparent data-[state=active]:theme-border-light data-[state=active]:shadow-none"
+              className="flex items-center gap-2 px-3 py-2.5 sm:py-2 rounded-lg text-xs font-medium whitespace-nowrap data-[state=active]:theme-bg-lighter data-[state=active]:theme-text data-[state=active]:shadow-sm data-[state=active]:theme-shadow text-slate-500 hover:text-slate-300 hover:bg-white/[0.04]/80 transition-all duration-150 border border-transparent data-[state=active]:theme-border-light data-[state=active]:shadow-none"
             >
               <Shield className="h-4 w-4" />
               Hak Akses
@@ -338,32 +338,32 @@ function CrewManagement() {
         <TabsContent value="crew-list" className="space-y-3">
           {/* Search */}
           <div className="relative w-full sm:max-w-xs">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
             <Input
               placeholder="Cari nama atau email crew..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-9 h-9 sm:h-10 text-xs bg-zinc-900 border-zinc-800 text-zinc-100 placeholder:text-zinc-500 w-full"
+              className="pl-9 h-9 sm:h-10 text-xs bg-nebula border-white/[0.06] text-white placeholder:text-slate-500 w-full"
             />
           </div>
 
           {/* Content */}
           {loading ? (
-            <Card className="bg-zinc-900 border-zinc-800">
+            <Card className="bg-nebula border-white/[0.06]">
               <CardContent className="p-4 space-y-2">
                 {Array.from({ length: 3 }).map((_, i) => (
-                  <Skeleton key={i} className="h-14 bg-zinc-800 rounded-lg" />
+                  <Skeleton key={i} className="h-14 bg-white/[0.04] rounded-lg" />
                 ))}
               </CardContent>
             </Card>
           ) : filteredCrew.length === 0 ? (
-            <Card className="bg-zinc-900 border-zinc-800">
+            <Card className="bg-nebula border-white/[0.06]">
               <CardContent className="p-8 text-center">
                 <Users className="h-10 w-10 text-zinc-700 mx-auto mb-2" />
-                <p className="text-sm text-zinc-400">
+                <p className="text-sm text-slate-400">
                   {search ? 'Tidak ada crew yang cocok dengan pencarian' : 'Belum ada crew'}
                 </p>
-                <p className="text-[11px] text-zinc-600 mt-0.5">
+                <p className="text-[11px] text-slate-600 mt-0.5">
                   {search
                     ? 'Coba kata kunci lain'
                     : 'Tambahkan crew untuk membantu mengelola kasir outlet'
@@ -372,45 +372,45 @@ function CrewManagement() {
               </CardContent>
             </Card>
           ) : (
-            <Card className="bg-zinc-900 border-zinc-800">
+            <Card className="bg-nebula border-white/[0.06]">
               <CardContent className="p-4">
-                <div className="rounded-lg border border-zinc-800 overflow-x-auto">
+                <div className="rounded-lg border border-white/[0.06] overflow-x-auto">
                   <Table>
                     <TableHeader>
-                      <TableRow className="border-zinc-800 hover:bg-transparent">
-                        <TableHead className="text-zinc-500 text-[11px] font-medium">Crew</TableHead>
-                        <TableHead className="text-zinc-500 text-[11px] font-medium hidden sm:table-cell">Email</TableHead>
-                        <TableHead className="text-zinc-500 text-[11px] font-medium text-center">Role</TableHead>
-                        <TableHead className="text-zinc-500 text-[11px] font-medium text-center">Halaman Akses</TableHead>
-                        <TableHead className="text-zinc-500 text-[11px] font-medium hidden lg:table-cell">Bergabung</TableHead>
-                        <TableHead className="text-zinc-500 text-[11px] font-medium text-right">Aksi</TableHead>
+                      <TableRow className="border-white/[0.06] hover:bg-transparent">
+                        <TableHead className="text-slate-500 text-[11px] font-medium">Crew</TableHead>
+                        <TableHead className="text-slate-500 text-[11px] font-medium hidden sm:table-cell">Email</TableHead>
+                        <TableHead className="text-slate-500 text-[11px] font-medium text-center">Role</TableHead>
+                        <TableHead className="text-slate-500 text-[11px] font-medium text-center">Halaman Akses</TableHead>
+                        <TableHead className="text-slate-500 text-[11px] font-medium hidden lg:table-cell">Bergabung</TableHead>
+                        <TableHead className="text-slate-500 text-[11px] font-medium text-right">Aksi</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {filteredCrew.map((member) => {
                         const pages = member.crewPermission?.pages?.split(',').filter(Boolean) || []
                         return (
-                          <TableRow key={member.id} className="border-zinc-800 hover:bg-zinc-800/50">
+                          <TableRow key={member.id} className="border-white/[0.06] hover:bg-white/[0.03]">
                             <TableCell className="py-2.5 px-3">
                               <div className="flex items-center gap-2.5">
-                                <div className="w-8 h-8 rounded-lg bg-zinc-800 flex items-center justify-center shrink-0">
-                                  <UserCog className="h-4 w-4 text-zinc-400" />
+                                <div className="w-8 h-8 rounded-lg bg-white/[0.04] flex items-center justify-center shrink-0">
+                                  <UserCog className="h-4 w-4 text-slate-400" />
                                 </div>
                                 <div className="min-w-0">
-                                  <p className="text-sm font-medium text-zinc-200 truncate">{member.name}</p>
+                                  <p className="text-sm font-medium text-slate-200 truncate">{member.name}</p>
                                 </div>
                               </div>
                             </TableCell>
                             <TableCell className="py-2.5 px-3 hidden sm:table-cell">
                               <div className="flex items-center gap-1.5">
-                                <Mail className="h-3 w-3 text-zinc-500 shrink-0" />
-                                <span className="text-xs text-zinc-400 truncate">{member.email}</span>
+                                <Mail className="h-3 w-3 text-slate-500 shrink-0" />
+                                <span className="text-xs text-slate-400 truncate">{member.email}</span>
                               </div>
                             </TableCell>
                             <TableCell className="text-center py-2.5 px-3">
                               <Badge
                                 variant="outline"
-                                className="text-[10px] bg-zinc-800 border-zinc-700 text-zinc-400"
+                                className="text-[10px] bg-white/[0.04] border-white/[0.08] text-slate-400"
                               >
                                 {member.role}
                               </Badge>
@@ -427,14 +427,14 @@ function CrewManagement() {
                                     </Badge>
                                   ))
                                 ) : (
-                                  <span className="text-[10px] text-zinc-600">Default (POS)</span>
+                                  <span className="text-[10px] text-slate-600">Default (POS)</span>
                                 )}
                               </div>
                             </TableCell>
                             <TableCell className="py-2.5 px-3 hidden lg:table-cell">
                               <div className="flex items-center gap-1.5">
-                                <Calendar className="h-3 w-3 text-zinc-500" />
-                                <span className="text-xs text-zinc-400">{formatDate(member.createdAt)}</span>
+                                <Calendar className="h-3 w-3 text-slate-500" />
+                                <span className="text-xs text-slate-400">{formatDate(member.createdAt)}</span>
                               </div>
                             </TableCell>
                             <TableCell className="text-right py-2.5 px-3">
@@ -442,7 +442,7 @@ function CrewManagement() {
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  className="h-7 w-7 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800"
+                                  className="h-7 w-7 text-slate-400 hover:text-white hover:bg-white/[0.04]"
                                   onClick={() => openEdit(member)}
                                 >
                                   <Pencil className="h-3.5 w-3.5" />
@@ -450,7 +450,7 @@ function CrewManagement() {
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  className="h-7 w-7 text-zinc-400 hover:text-red-400 hover:bg-red-500/10"
+                                  className="h-7 w-7 text-slate-400 hover:text-red-400 hover:bg-red-500/10"
                                   onClick={() => setDeleteId(member.id)}
                                 >
                                   <Trash2 className="h-3.5 w-3.5" />
@@ -466,7 +466,7 @@ function CrewManagement() {
 
                 {/* Crew count */}
                 <div className="mt-3 flex items-center justify-between">
-                  <p className="text-[11px] text-zinc-500">
+                  <p className="text-[11px] text-slate-500">
                     {filteredCrew.length} crew ditampilkan
                     {search && ` dari ${crew.length} total`}
                   </p>
@@ -488,16 +488,16 @@ function CrewManagement() {
       <ResponsiveDialog open={addOpen} onOpenChange={setAddOpen}>
         <ResponsiveDialogContent className="p-4 max-w-md">
           <ResponsiveDialogHeader>
-            <ResponsiveDialogTitle className="text-sm font-semibold text-zinc-100">
+            <ResponsiveDialogTitle className="text-sm font-semibold text-white">
               Tambah Crew Baru
             </ResponsiveDialogTitle>
-            <ResponsiveDialogDescription className="text-zinc-400 text-xs">
+            <ResponsiveDialogDescription className="text-slate-400 text-xs">
               Tambahkan akun kasir baru untuk outlet Anda. Crew dapat login dan menggunakan POS sesuai hak akses.
             </ResponsiveDialogDescription>
           </ResponsiveDialogHeader>
           <div className="space-y-3 py-1">
             <div className="space-y-1.5">
-              <Label htmlFor="add-name" className="text-xs text-zinc-300">
+              <Label htmlFor="add-name" className="text-xs text-slate-300">
                 Nama Lengkap <span className="text-red-400">*</span>
               </Label>
               <Input
@@ -505,11 +505,11 @@ function CrewManagement() {
                 value={formData.name}
                 onChange={(e) => setFormData((p) => ({ ...p, name: e.target.value }))}
                 placeholder="Nama crew"
-                className="bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 h-9 text-sm"
+                className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="add-email" className="text-xs text-zinc-300">
+              <Label htmlFor="add-email" className="text-xs text-slate-300">
                 Email <span className="text-red-400">*</span>
               </Label>
               <Input
@@ -518,11 +518,11 @@ function CrewManagement() {
                 value={formData.email}
                 onChange={(e) => setFormData((p) => ({ ...p, email: e.target.value }))}
                 placeholder="crew@email.com"
-                className="bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 h-9 text-sm"
+                className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="add-password" className="text-xs text-zinc-300">
+              <Label htmlFor="add-password" className="text-xs text-slate-300">
                 Password <span className="text-red-400">*</span>
               </Label>
               <div className="relative">
@@ -532,12 +532,12 @@ function CrewManagement() {
                   value={formData.password}
                   onChange={(e) => setFormData((p) => ({ ...p, password: e.target.value }))}
                   placeholder="Minimal 8 karakter"
-                  className="bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 h-9 text-sm pr-9"
+                  className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm pr-9"
                 />
                 <button
                   type="button"
                   onClick={() => setFormData((p) => ({ ...p, showPassword: !p.showPassword }))}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
                 >
                   {formData.showPassword ? (
                     <EyeOff className="h-4 w-4" />
@@ -556,7 +556,7 @@ function CrewManagement() {
               variant="ghost"
               onClick={() => setAddOpen(false)}
               disabled={saving}
-              className="bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700 h-8 text-xs"
+              className="bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.06] h-8 text-xs"
             >
               Batal
             </Button>
@@ -576,16 +576,16 @@ function CrewManagement() {
       <ResponsiveDialog open={editOpen} onOpenChange={setEditOpen}>
         <ResponsiveDialogContent className="p-4 max-w-md">
           <ResponsiveDialogHeader>
-            <ResponsiveDialogTitle className="text-sm font-semibold text-zinc-100">
+            <ResponsiveDialogTitle className="text-sm font-semibold text-white">
               Edit Data Crew
             </ResponsiveDialogTitle>
-            <ResponsiveDialogDescription className="text-zinc-400 text-xs">
+            <ResponsiveDialogDescription className="text-slate-400 text-xs">
               Ubah data crew. Biarkan password kosong jika tidak ingin mengubah.
             </ResponsiveDialogDescription>
           </ResponsiveDialogHeader>
           <div className="space-y-3 py-1">
             <div className="space-y-1.5">
-              <Label htmlFor="edit-name" className="text-xs text-zinc-300">
+              <Label htmlFor="edit-name" className="text-xs text-slate-300">
                 Nama Lengkap <span className="text-red-400">*</span>
               </Label>
               <Input
@@ -593,11 +593,11 @@ function CrewManagement() {
                 value={formData.name}
                 onChange={(e) => setFormData((p) => ({ ...p, name: e.target.value }))}
                 placeholder="Nama crew"
-                className="bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 h-9 text-sm"
+                className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="edit-email" className="text-xs text-zinc-300">
+              <Label htmlFor="edit-email" className="text-xs text-slate-300">
                 Email <span className="text-red-400">*</span>
               </Label>
               <Input
@@ -606,12 +606,12 @@ function CrewManagement() {
                 value={formData.email}
                 onChange={(e) => setFormData((p) => ({ ...p, email: e.target.value }))}
                 placeholder="crew@email.com"
-                className="bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 h-9 text-sm"
+                className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="edit-password" className="text-xs text-zinc-300">
-                Password Baru <span className="text-zinc-500">(opsional)</span>
+              <Label htmlFor="edit-password" className="text-xs text-slate-300">
+                Password Baru <span className="text-slate-500">(opsional)</span>
               </Label>
               <div className="relative">
                 <Input
@@ -620,12 +620,12 @@ function CrewManagement() {
                   value={formData.password}
                   onChange={(e) => setFormData((p) => ({ ...p, password: e.target.value }))}
                   placeholder="Kosongkan jika tidak ingin ubah"
-                  className="bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 h-9 text-sm pr-9"
+                  className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm pr-9"
                 />
                 <button
                   type="button"
                   onClick={() => setFormData((p) => ({ ...p, showPassword: !p.showPassword }))}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
                 >
                   {formData.showPassword ? (
                     <EyeOff className="h-4 w-4" />
@@ -647,7 +647,7 @@ function CrewManagement() {
                 setEditCrew(null)
               }}
               disabled={saving}
-              className="bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700 h-8 text-xs"
+              className="bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.06] h-8 text-xs"
             >
               Batal
             </Button>
@@ -665,19 +665,19 @@ function CrewManagement() {
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
-        <AlertDialogContent className="bg-zinc-900 border-zinc-800 max-w-sm p-4">
+        <AlertDialogContent className="bg-nebula border-white/[0.06] max-w-sm p-4">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-zinc-100 text-sm font-semibold">
+            <AlertDialogTitle className="text-white text-sm font-semibold">
               Hapus Crew
             </AlertDialogTitle>
-            <AlertDialogDescription className="text-zinc-400 text-xs">
+            <AlertDialogDescription className="text-slate-400 text-xs">
               Apakah Anda yakin ingin menghapus crew ini? Semua data hak akses crew akan dihapus. Tindakan ini tidak dapat dibatalkan.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel
               disabled={deleting}
-              className="bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700 h-8 text-xs"
+              className="bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.06] h-8 text-xs"
             >
               Batal
             </AlertDialogCancel>
@@ -777,11 +777,11 @@ function CrewAccessTab() {
 
   if (loading) {
     return (
-      <Card className="bg-zinc-900 border-zinc-800">
+      <Card className="bg-nebula border-white/[0.06]">
         <CardContent className="p-4 space-y-3">
-          <Skeleton className="h-5 w-36 bg-zinc-800" />
+          <Skeleton className="h-5 w-36 bg-white/[0.04]" />
           {Array.from({ length: 2 }).map((_, i) => (
-            <Skeleton key={i} className="h-12 bg-zinc-800 rounded-lg" />
+            <Skeleton key={i} className="h-12 bg-white/[0.04] rounded-lg" />
           ))}
         </CardContent>
       </Card>
@@ -789,18 +789,18 @@ function CrewAccessTab() {
   }
 
   return (
-    <Card className="bg-zinc-900 border-zinc-800">
+    <Card className="bg-nebula border-white/[0.06]">
       <CardContent className="p-4 space-y-4">
         <div>
-          <h2 className="text-sm font-semibold text-zinc-100">Hak Akses Crew</h2>
-          <p className="text-xs text-zinc-400 mt-0.5">Kelola halaman yang dapat diakses oleh setiap crew</p>
+          <h2 className="text-sm font-semibold text-white">Hak Akses Crew</h2>
+          <p className="text-xs text-slate-400 mt-0.5">Kelola halaman yang dapat diakses oleh setiap crew</p>
         </div>
 
         {permissions.length === 0 ? (
           <div className="py-8 text-center">
             <Users className="h-10 w-10 text-zinc-700 mx-auto mb-2" />
-            <p className="text-sm text-zinc-500">Belum ada crew</p>
-            <p className="text-[11px] text-zinc-600 mt-0.5">Crew akan muncul setelah terdaftar di outlet</p>
+            <p className="text-sm text-slate-500">Belum ada crew</p>
+            <p className="text-[11px] text-slate-600 mt-0.5">Crew akan muncul setelah terdaftar di outlet</p>
           </div>
         ) : (
           <div className="space-y-3 max-h-[500px] overflow-y-auto">
@@ -809,15 +809,15 @@ function CrewAccessTab() {
               return (
                 <div
                   key={crew.userId}
-                  className="rounded-lg border border-zinc-800 bg-zinc-800/50 p-3 space-y-2"
+                  className="rounded-lg border border-white/[0.06] bg-white/[0.03] p-3 space-y-2"
                 >
                   <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-lg bg-zinc-800 flex items-center justify-center">
-                      <Users className="h-4 w-4 text-zinc-400" />
+                    <div className="w-8 h-8 rounded-lg bg-white/[0.04] flex items-center justify-center">
+                      <Users className="h-4 w-4 text-slate-400" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-zinc-200">{crew.userName}</p>
-                      <p className="text-[11px] text-zinc-500">{crew.userEmail}</p>
+                      <p className="text-sm font-semibold text-slate-200">{crew.userName}</p>
+                      <p className="text-[11px] text-slate-500">{crew.userEmail}</p>
                     </div>
                     {savingId === crew.userId && (
                       <Loader2 className="h-3.5 w-3.5 animate-spin theme-text" />
@@ -829,7 +829,7 @@ function CrewAccessTab() {
                       return (
                         <label
                           key={page.key}
-                          className="flex items-center gap-1.5 text-xs text-zinc-400 cursor-pointer hover:text-zinc-200 transition-colors"
+                          className="flex items-center gap-1.5 text-xs text-slate-400 cursor-pointer hover:text-slate-200 transition-colors"
                         >
                           <Checkbox
                             checked={isChecked}

@@ -55,16 +55,16 @@ export function DataTable<T extends { id?: string }>({
   if (loading) {
     return (
       <div className="space-y-3">
-        <div className="rounded-lg border border-zinc-800 overflow-hidden">
-          <div className="bg-zinc-900 p-4 flex gap-4">
+        <div className="rounded-lg border border-white/[0.06] overflow-hidden">
+          <div className="bg-nebula p-4 flex gap-4">
             {columns.map((col, i) => (
-              <Skeleton key={i} className="h-4 w-24 bg-zinc-800" />
+              <Skeleton key={i} className="h-4 w-24 bg-white/[0.04]" />
             ))}
           </div>
           {Array.from({ length: 5 }).map((_, rowIdx) => (
-            <div key={rowIdx} className="p-4 flex gap-4 border-t border-zinc-800/50">
+            <div key={rowIdx} className="p-4 flex gap-4 border-t border-white/[0.06]">
               {columns.map((col, i) => (
-                <Skeleton key={i} className="h-4 w-24 bg-zinc-800/50" />
+                <Skeleton key={i} className="h-4 w-24 bg-white/[0.03]" />
               ))}
             </div>
           ))}
@@ -75,26 +75,26 @@ export function DataTable<T extends { id?: string }>({
 
   if (data.length === 0) {
     return (
-      <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-8 text-center">
-        <p className="text-zinc-400">{emptyMessage}</p>
+      <div className="rounded-lg border border-white/[0.06] bg-nebula p-8 text-center">
+        <p className="text-slate-400">{emptyMessage}</p>
       </div>
     )
   }
 
   return (
     <div className="space-y-4">
-      <div className="rounded-lg border border-zinc-800 overflow-x-auto">
+      <div className="rounded-lg border border-white/[0.06] overflow-x-auto">
         <Table>
           <TableHeader>
-            <TableRow className="border-zinc-800 hover:bg-zinc-800/50">
+            <TableRow className="border-white/[0.06] hover:bg-white/[0.03]">
               {columns.map((col) => (
                 <TableHead
                   key={col.key}
-                  className={`text-zinc-400 font-medium text-xs uppercase tracking-wider ${col.className || ''}`}
+                  className={`text-slate-400 font-medium text-xs uppercase tracking-wider ${col.className || ''}`}
                 >
                   {col.sortable ? (
                     <button
-                      className="flex items-center gap-1 hover:text-zinc-100 transition-colors"
+                      className="flex items-center gap-1 hover:text-white transition-colors"
                       onClick={() => handleSort(col.key)}
                     >
                       {col.header}
@@ -111,7 +111,7 @@ export function DataTable<T extends { id?: string }>({
             {data.map((item, idx) => (
               <TableRow
                 key={item.id || idx}
-                className="border-zinc-800 hover:bg-zinc-800/50 transition-colors"
+                className="border-white/[0.06] hover:bg-white/[0.03] transition-colors"
               >
                 {columns.map((col) => (
                   <TableCell key={col.key} className={col.className || ''}>

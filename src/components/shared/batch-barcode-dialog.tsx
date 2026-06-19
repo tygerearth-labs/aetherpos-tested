@@ -238,18 +238,18 @@ body{font-family:'Courier New',monospace;background:#fff;color:#000;display:flex
         {/* ── Search ── */}
         <div className="px-5 pb-3 shrink-0">
           <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500" />
+            <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
             <Input
               placeholder="Cari produk atau SKU..."
               value={rawSearch}
               onChange={(e) => setRawSearch(e.target.value)}
-              className="pl-9 h-9 text-sm bg-zinc-900 border-zinc-800 text-zinc-100 placeholder:text-zinc-600 focus-visible:ring-zinc-700"
+              className="pl-9 h-9 text-sm bg-nebula border-white/[0.06] text-white placeholder:text-zinc-600 focus-visible:ring-zinc-700"
             />
           </div>
         </div>
 
         {/* ── Category Pills + Select All (sticky sub-header) ── */}
-        <div className="px-5 pb-2.5 shrink-0 border-b border-zinc-800 space-y-2.5">
+        <div className="px-5 pb-2.5 shrink-0 border-b border-white/[0.06] space-y-2.5">
           {categories.length > 0 && (
             <div className="flex gap-1.5 flex-wrap">
               <button
@@ -258,7 +258,7 @@ body{font-family:'Courier New',monospace;background:#fff;color:#000;display:flex
                 className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors ${
                   !filterCategory
                     ? 'bg-zinc-100 text-zinc-900 border-zinc-300 font-medium'
-                    : 'bg-zinc-800/60 text-zinc-400 border-zinc-700/60 hover:text-zinc-200 hover:border-zinc-600'
+                    : 'bg-white/[0.04] text-slate-400 border-zinc-700/60 hover:text-slate-200 hover:border-zinc-600'
                 }`}
               >
                 Semua
@@ -271,7 +271,7 @@ body{font-family:'Courier New',monospace;background:#fff;color:#000;display:flex
                   className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors ${
                     filterCategory === c.id
                       ? 'bg-zinc-100 text-zinc-900 border-zinc-300 font-medium'
-                      : 'bg-zinc-800/60 text-zinc-400 border-zinc-700/60 hover:text-zinc-200 hover:border-zinc-600'
+                      : 'bg-white/[0.04] text-slate-400 border-zinc-700/60 hover:text-slate-200 hover:border-zinc-600'
                   }`}
                 >
                   {c.name}
@@ -285,7 +285,7 @@ body{font-family:'Courier New',monospace;background:#fff;color:#000;display:flex
             <button
               type="button"
               onClick={toggleAll}
-              className="flex items-center gap-2 text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
+              className="flex items-center gap-2 text-xs text-slate-400 hover:text-slate-200 transition-colors"
             >
               {allSelected ? (
                 <CheckSquare className="h-4 w-4 text-emerald-400" />
@@ -294,8 +294,8 @@ body{font-family:'Courier New',monospace;background:#fff;color:#000;display:flex
               )}
               {allSelected ? 'Batal Semua' : 'Pilih Semua'}
             </button>
-            <span className="text-[11px] tabular-nums text-zinc-500">
-              <span className={selectedCount > 0 ? 'text-zinc-200 font-medium' : ''}>{selectedCount}</span>
+            <span className="text-[11px] tabular-nums text-slate-500">
+              <span className={selectedCount > 0 ? 'text-slate-200 font-medium' : ''}>{selectedCount}</span>
               <span className="text-zinc-600"> / {printableItems.length}</span>
               <span className="ml-1">label</span>
             </span>
@@ -306,14 +306,14 @@ body{font-family:'Courier New',monospace;background:#fff;color:#000;display:flex
         <div className="flex-1 min-h-0 overflow-y-auto">
           {loading ? (
             <div className="flex flex-col items-center justify-center py-20 gap-2">
-              <Loader2 className="h-5 w-5 animate-spin text-zinc-500" />
-              <span className="text-xs text-zinc-500">Memuat produk…</span>
+              <Loader2 className="h-5 w-5 animate-spin text-slate-500" />
+              <span className="text-xs text-slate-500">Memuat produk…</span>
             </div>
           ) : !loading && visibleItems.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 gap-3 text-zinc-500">
+            <div className="flex flex-col items-center justify-center py-20 gap-3 text-slate-500">
               <PackageOpen className="h-8 w-8 text-zinc-700" />
               <div className="text-center">
-                <p className="text-sm font-medium text-zinc-400">Tidak ada produk dengan barcode</p>
+                <p className="text-sm font-medium text-slate-400">Tidak ada produk dengan barcode</p>
                 <p className="text-[11px] text-zinc-600 mt-1">
                   {items.length > 0
                     ? `${items.length} produk ditemukan tapi tidak memiliki barcode.`
@@ -322,7 +322,7 @@ body{font-family:'Courier New',monospace;background:#fff;color:#000;display:flex
               </div>
             </div>
           ) : (
-            <div className="divide-y divide-zinc-800/40">
+            <div className="divide-y divide-white/[0.04]">
               {visibleItems.map((product) => {
                 const isVariant = product.hasVariants && product.variants.length > 0
                 return (
@@ -330,20 +330,20 @@ body{font-family:'Courier New',monospace;background:#fff;color:#000;display:flex
                     {isVariant ? (
                       /* ─── Variant group ─── */
                       <>
-                        <div className="flex items-center gap-2 px-5 py-2 bg-zinc-800/20">
+                        <div className="flex items-center gap-2 px-5 py-2 bg-white/[0.02]">
                           <div className="w-[18px] shrink-0" />
-                          <p className="text-xs font-semibold text-zinc-400 truncate">{product.name}</p>
+                          <p className="text-xs font-semibold text-slate-400 truncate">{product.name}</p>
                           {product.category && (
-                            <span className="text-[9px] text-zinc-600 bg-zinc-800 px-1.5 py-0.5 rounded">
+                            <span className="text-[9px] text-zinc-600 bg-white/[0.04] px-1.5 py-0.5 rounded">
                               {product.category.name}
                             </span>
                           )}
                         </div>
-                        <div className="divide-y divide-zinc-800/20">
+                        <div className="divide-y divide-white/[0.02]">
                           {product.variants.filter((v) => v.barcode).map((v) => (
                             <label
                               key={v.id}
-                              className="flex items-center gap-3 px-5 py-2.5 pl-10 hover:bg-zinc-800/30 cursor-pointer transition-colors"
+                              className="flex items-center gap-3 px-5 py-2.5 pl-10 hover:bg-white/[0.02] cursor-pointer transition-colors"
                             >
                               <Checkbox
                                 checked={selectedIds.has(v.id)}
@@ -351,14 +351,14 @@ body{font-family:'Courier New',monospace;background:#fff;color:#000;display:flex
                                 className="data-[state=checked]:bg-zinc-200 data-[state=checked]:border-zinc-200 data-[state=checked]:text-zinc-900"
                               />
                               <div className="flex-1 min-w-0">
-                                <p className="text-[13px] font-medium text-zinc-200 truncate">{v.name}</p>
+                                <p className="text-[13px] font-medium text-slate-200 truncate">{v.name}</p>
                                 <div className="flex items-center gap-2 mt-0.5">
                                   {v.sku && <span className="text-[10px] font-mono text-zinc-600">{v.sku}</span>}
-                                  <span className="text-[11px] text-zinc-400 font-medium">{formatCurrency(v.price)}</span>
+                                  <span className="text-[11px] text-slate-400 font-medium">{formatCurrency(v.price)}</span>
                                   <span className="text-[10px] text-zinc-600">· Stok {v.stock}</span>
                                 </div>
                               </div>
-                              <code className="text-[10px] font-mono text-zinc-600 max-w-[110px] truncate bg-zinc-800/50 px-1.5 py-0.5 rounded">
+                              <code className="text-[10px] font-mono text-zinc-600 max-w-[110px] truncate bg-white/[0.03] px-1.5 py-0.5 rounded">
                                 {v.barcode}
                               </code>
                             </label>
@@ -367,25 +367,25 @@ body{font-family:'Courier New',monospace;background:#fff;color:#000;display:flex
                       </>
                     ) : (
                       /* ─── Single product ─── */
-                      <label className="flex items-center gap-3 px-5 py-2.5 hover:bg-zinc-800/30 cursor-pointer transition-colors">
+                      <label className="flex items-center gap-3 px-5 py-2.5 hover:bg-white/[0.02] cursor-pointer transition-colors">
                         <Checkbox
                           checked={selectedIds.has(product.id)}
                           onCheckedChange={() => toggleItem(product.id)}
                           className="data-[state=checked]:bg-zinc-200 data-[state=checked]:border-zinc-200 data-[state=checked]:text-zinc-900"
                         />
                         <div className="flex-1 min-w-0">
-                          <p className="text-[13px] font-medium text-zinc-200 truncate">{product.name}</p>
+                          <p className="text-[13px] font-medium text-slate-200 truncate">{product.name}</p>
                           <div className="flex items-center gap-2 mt-0.5">
                             {product.sku && <span className="text-[10px] font-mono text-zinc-600">{product.sku}</span>}
-                            <span className="text-[11px] text-zinc-400 font-medium">{formatCurrency(product.price)}</span>
+                            <span className="text-[11px] text-slate-400 font-medium">{formatCurrency(product.price)}</span>
                             {product.category && (
-                              <span className="text-[9px] text-zinc-600 bg-zinc-800 px-1.5 py-0.5 rounded">
+                              <span className="text-[9px] text-zinc-600 bg-white/[0.04] px-1.5 py-0.5 rounded">
                                 {product.category.name}
                               </span>
                             )}
                           </div>
                         </div>
-                        <code className="text-[10px] font-mono text-zinc-600 max-w-[110px] truncate bg-zinc-800/50 px-1.5 py-0.5 rounded">
+                        <code className="text-[10px] font-mono text-zinc-600 max-w-[110px] truncate bg-white/[0.03] px-1.5 py-0.5 rounded">
                           {product.barcode}
                         </code>
                       </label>
@@ -398,12 +398,12 @@ body{font-family:'Courier New',monospace;background:#fff;color:#000;display:flex
         </div>
 
         {/* ── Footer ── */}
-        <div className="shrink-0 px-5 py-3.5 border-t border-zinc-800 bg-zinc-900 flex items-center justify-between gap-3">
+        <div className="shrink-0 px-5 py-3.5 border-t border-white/[0.06] bg-nebula flex items-center justify-between gap-3">
           <div className="min-w-0">
             {selectedCount > 0 ? (
-              <p className="text-xs text-zinc-300">
+              <p className="text-xs text-slate-300">
                 <span className="font-semibold tabular-nums">{selectedCount}</span>
-                <span className="text-zinc-500 ml-1">label siap cetak</span>
+                <span className="text-slate-500 ml-1">label siap cetak</span>
               </p>
             ) : (
               <p className="text-xs text-zinc-600">Belum ada yang dipilih</p>
@@ -414,7 +414,7 @@ body{font-family:'Courier New',monospace;background:#fff;color:#000;display:flex
               variant="outline"
               size="sm"
               onClick={() => onOpenChange(false)}
-              className="h-8 text-xs border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800"
+              className="h-8 text-xs border-zinc-700 text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]"
             >
               Tutup
             </Button>

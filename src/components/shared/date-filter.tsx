@@ -94,7 +94,7 @@ export function DateFilter({ dateFrom, dateTo, onChange, className }: DateFilter
             'inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-[11px] font-medium transition-all shrink-0',
             hasFilter
               ? 'theme-bg-very-light theme-border-light border theme-text hover:theme-hover-light'
-              : 'bg-zinc-800 border border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700 border',
+              : 'bg-white/[0.04] border border-zinc-700 text-slate-400 hover:text-slate-200 hover:bg-zinc-700 border',
             className
           )}
         >
@@ -102,7 +102,7 @@ export function DateFilter({ dateFrom, dateTo, onChange, className }: DateFilter
           <span className="max-w-[130px] truncate">{triggerText}</span>
           {hasFilter && (
             <X
-              className="h-2.5 w-2.5 text-zinc-500 hover:text-zinc-300 ml-0.5 shrink-0"
+              className="h-2.5 w-2.5 text-slate-500 hover:text-slate-300 ml-0.5 shrink-0"
               onClick={(e) => { e.stopPropagation(); handleClear() }}
             />
           )}
@@ -112,7 +112,7 @@ export function DateFilter({ dateFrom, dateTo, onChange, className }: DateFilter
       <PopoverContent
         side="bottom"
         align="start"
-        className="w-auto p-3 bg-zinc-900 border border-zinc-800 rounded-xl shadow-xl"
+        className="w-auto p-3 bg-nebula border border-white/[0.06] rounded-xl shadow-xl"
       >
         {/* Quick range buttons */}
         <div className="flex flex-wrap gap-1.5 mb-3">
@@ -127,7 +127,7 @@ export function DateFilter({ dateFrom, dateTo, onChange, className }: DateFilter
                   'px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all border',
                   isActive
                     ? 'theme-bg-very-light theme-border-light theme-text border'
-                    : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700'
+                    : 'bg-white/[0.04] border-zinc-700 text-slate-400 hover:text-slate-200 hover:bg-zinc-700'
                 )}
               >
                 {label}
@@ -137,28 +137,28 @@ export function DateFilter({ dateFrom, dateTo, onChange, className }: DateFilter
         </div>
 
         {/* Custom date range */}
-        <div className="border-t border-zinc-800 pt-3">
-          <p className="text-[10px] text-zinc-500 font-medium mb-2 uppercase tracking-wider">Custom Range</p>
+        <div className="border-t border-white/[0.06] pt-3">
+          <p className="text-[10px] text-slate-500 font-medium mb-2 uppercase tracking-wider">Custom Range</p>
           <div className="flex items-center gap-2">
             <div className="flex-1">
-              <label className="text-[10px] text-zinc-500 mb-0.5 block">Dari</label>
+              <label className="text-[10px] text-slate-500 mb-0.5 block">Dari</label>
               <input
                 type="date"
                 value={dateFrom}
                 onChange={(e) => onChange(e.target.value, dateTo)}
-                className="w-full h-8 text-[11px] bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-200 px-2 [color-scheme:dark] focus:outline-none focus:ring-1 focus:ring-zinc-600"
+                className="w-full h-8 text-[11px] bg-white/[0.04] border border-zinc-700 rounded-lg text-slate-200 px-2 [color-scheme:dark] focus:outline-none focus:ring-1 focus:ring-zinc-600"
               />
             </div>
             <div className="pt-4">
               <span className="text-zinc-600 text-[10px]">–</span>
             </div>
             <div className="flex-1">
-              <label className="text-[10px] text-zinc-500 mb-0.5 block">Sampai</label>
+              <label className="text-[10px] text-slate-500 mb-0.5 block">Sampai</label>
               <input
                 type="date"
                 value={dateTo}
                 onChange={(e) => onChange(dateFrom, e.target.value)}
-                className="w-full h-8 text-[11px] bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-200 px-2 [color-scheme:dark] focus:outline-none focus:ring-1 focus:ring-zinc-600"
+                className="w-full h-8 text-[11px] bg-white/[0.04] border border-zinc-700 rounded-lg text-slate-200 px-2 [color-scheme:dark] focus:outline-none focus:ring-1 focus:ring-zinc-600"
               />
             </div>
           </div>
@@ -166,11 +166,11 @@ export function DateFilter({ dateFrom, dateTo, onChange, className }: DateFilter
 
         {/* Clear button */}
         {hasFilter && (
-          <div className="border-t border-zinc-800 mt-3 pt-2">
+          <div className="border-t border-white/[0.06] mt-3 pt-2">
             <button
               type="button"
               onClick={handleClear}
-              className="w-full text-[11px] text-zinc-500 hover:text-zinc-300 py-1.5 rounded-lg hover:bg-zinc-800 transition-all"
+              className="w-full text-[11px] text-slate-500 hover:text-slate-300 py-1.5 rounded-lg hover:bg-white/[0.04] transition-all"
             >
               Reset filter tanggal
             </button>

@@ -3,17 +3,9 @@ import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/get-auth'
 import { buildDateFilter, resolvePlanType } from '@/lib/api-helpers'
 import { getPlanFeatures } from '@/lib/plan-config'
+import { formatCurrency, formatDate } from '@/lib/format'
 import * as XLSX from 'xlsx'
 import { safeJsonError } from '@/lib/safe-response'
-
-function formatInTz(date: Date, tzOffset: number | null, options: Intl.DateTimeFormatOptions): string {
-  if (tzOffset === null) {
-    return date.toLocaleString('id-ID', options)
-  }
-  const utc = date.getTime() + date.getTimezoneOffset() * 60000
-  const clientTime = new Date(utc - tzOffset * 60000)
-  return clientTime.toLocaleString('id-ID', options)
-}
 
 export async function GET(request: NextRequest) {
   try {
@@ -23,6 +15,7 @@ export async function GET(request: NextRequest) {
     }
     const outletId = user.outletId
 
+    // K1: Plan gating — only Pro/Enterprise can export Excel
     const outlet = await db.outlet.findUnique({
       where: { id: outletId },
       select: { accountType: true },
@@ -40,8 +33,6 @@ export async function GET(request: NextRequest) {
     const dateToMs = searchParams.get('dateToMs') || ''
     const cashierId = searchParams.get('cashierId') || ''
     const paymentMethod = searchParams.get('paymentMethod') || ''
-    const tzOffsetRaw = searchParams.get('tzOffset')
-    const tzOffset = tzOffsetRaw !== null ? parseInt(tzOffsetRaw, 10) : null
 
     const where: Record<string, unknown> = { outletId }
 
@@ -50,8 +41,12 @@ export async function GET(request: NextRequest) {
       where.createdAt = dateFilter
     }
 
-    if (cashierId) where.userId = cashierId
-    if (paymentMethod) where.paymentMethod = paymentMethod
+    if (cashierId) {
+      where.userId = cashierId
+    }
+    if (paymentMethod) {
+      where.paymentMethod = paymentMethod
+    }
 
     const transactions = await db.transaction.findMany({
       where,
@@ -66,8 +61,12 @@ export async function GET(request: NextRequest) {
         paymentMethod: true,
         paidAmount: true,
         change: true,
-        customer: { select: { name: true } },
-        user: { select: { name: true } },
+        customer: {
+          select: { name: true },
+        },
+        user: {
+          select: { name: true },
+        },
         items: {
           select: {
             productName: true,
@@ -75,81 +74,101 @@ export async function GET(request: NextRequest) {
             price: true,
             qty: true,
             subtotal: true,
-            product: { select: { sku: true } },
-            variant: { select: { sku: true } },
+            product: {
+              select: { sku: true },
+            },
+            variant: {
+              select: { sku: true },
+            },
           },
         },
         createdAt: true,
       },
     })
 
+    // Check void status for each transaction
     const transactionIds = transactions.map((t) => t.id)
     const voidLogs = transactionIds.length > 0
       ? await db.auditLog.findMany({
-          where: { entityType: 'TRANSACTION', entityId: { in: transactionIds }, action: 'VOID', outletId },
+          where: {
+            entityType: 'TRANSACTION',
+            entityId: { in: transactionIds },
+            action: 'VOID',
+            outletId,
+          },
           select: { entityId: true },
         })
       : []
+
     const voidSet = new Set(voidLogs.map((l) => l.entityId))
 
-    // Sheet 1: Detail Transaksi
+    // === Sheet 1: Detail Transaksi (one row per item) ===
     const detailRows: Record<string, unknown>[] = []
     for (const t of transactions) {
       for (const item of t.items) {
         detailRows.push({
           'No': detailRows.length + 1,
           'Invoice #': t.invoiceNumber,
-          'Tanggal': formatInTz(t.createdAt, tzOffset, { day: '2-digit', month: '2-digit', year: 'numeric' }),
-          'Jam': formatInTz(t.createdAt, tzOffset, { hour: '2-digit', minute: '2-digit' }),
+          'Tanggal': formatDate(t.createdAt),
+          'Jam': t.createdAt.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
           'Kasir': t.user?.name || '-',
           'Customer': t.customer?.name || 'Walk-in',
           'Nama Produk': item.variantName ? `${item.productName} - ${item.variantName}` : item.productName,
           'SKU': item.variant?.sku || item.product?.sku || '-',
           'QTY': item.qty,
-          'Harga Satuan': item.price,
-          'Subtotal Item': item.subtotal,
+          'Harga Satuan': formatCurrency(item.price),
+          'Subtotal Item': formatCurrency(item.subtotal),
           'Metode Pembayaran': t.paymentMethod,
-          'PPN': t.taxAmount,
-          'Total Transaksi': t.total,
+          'PPN': formatCurrency(t.taxAmount),
+          'Total Transaksi': formatCurrency(t.total),
           'Status': voidSet.has(t.id) ? 'VOID' : 'Aktif',
         })
       }
     }
 
     const detailSheet = XLSX.utils.json_to_sheet(detailRows)
-    detailSheet['!cols'] = Object.keys(detailRows[0] || {}).map((key) => ({
-      wch: Math.max(key.length + 2, ...detailRows.map((r) => String(r[key as keyof typeof r] || '').length)),
+    const detailColWidths = Object.keys(detailRows[0] || {}).map((key) => ({
+      wch: Math.max(
+        key.length + 2,
+        ...detailRows.map((r) => String(r[key as keyof typeof r] || '').length)
+      ),
     }))
+    detailSheet['!cols'] = detailColWidths
 
-    // Sheet 2: Ringkasan
+    // === Sheet 2: Ringkasan (one row per transaction, summary only) ===
     const rows = transactions.map((t) => ({
       'No': transactions.indexOf(t) + 1,
       'Invoice #': t.invoiceNumber,
-      'Tanggal': formatInTz(t.createdAt, tzOffset, { day: '2-digit', month: '2-digit', year: 'numeric' }),
-      'Jam': formatInTz(t.createdAt, tzOffset, { hour: '2-digit', minute: '2-digit' }),
+      'Tanggal': formatDate(t.createdAt),
+      'Jam': t.createdAt.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
       'Kasir': t.user?.name || '-',
       'Customer': t.customer?.name || 'Walk-in',
       'Jumlah Item': t.items.reduce((s, i) => s + i.qty, 0),
       'Metode Pembayaran': t.paymentMethod,
-      'Subtotal': t.subtotal,
-      'Diskon': t.discount,
-      'PPN': t.taxAmount,
-      'Total': t.total,
-      'Dibayar': t.paidAmount,
-      'Kembalian': t.change,
+      'Subtotal': formatCurrency(t.subtotal),
+      'Diskon': formatCurrency(t.discount),
+      'PPN': formatCurrency(t.taxAmount),
+      'Total': formatCurrency(t.total),
+      'Dibayar': formatCurrency(t.paidAmount),
+      'Kembalian': formatCurrency(t.change),
       'Status': voidSet.has(t.id) ? 'VOID' : 'Aktif',
     }))
 
     const summarySheet = XLSX.utils.json_to_sheet(rows)
-    summarySheet['!cols'] = Object.keys(rows[0] || {}).map((key) => ({
-      wch: Math.max(key.length + 2, ...rows.map((r) => String(r[key as keyof typeof r] || '').length)),
+    const colWidths = Object.keys(rows[0] || {}).map((key) => ({
+      wch: Math.max(
+        key.length + 2,
+        ...rows.map((r) => String(r[key as keyof typeof r] || '').length)
+      ),
     }))
+    summarySheet['!cols'] = colWidths
 
     const workbook = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(workbook, detailSheet, 'Detail Transaksi')
     XLSX.utils.book_append_sheet(workbook, summarySheet, 'Ringkasan')
 
     const dateRange = dateFrom && dateTo ? `${dateFrom}_to_${dateTo}` : 'all'
+    // Sanitize filename to prevent header injection
     const sanitizedRange = dateRange.replace(/[^\w.-]/g, '_')
     const filename = `transactions_${sanitizedRange}.xlsx`
 

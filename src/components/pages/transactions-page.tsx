@@ -403,7 +403,6 @@ export default function TransactionsPage() {
       return
     }
     const params = new URLSearchParams()
-    params.set('tzOffset', String(new Date().getTimezoneOffset()))
     if (dateFrom) params.set('dateFromMs', String(getStartOfDayMs(dateFrom)))
     if (dateTo) params.set('dateToMs', String(getEndOfDayMs(dateTo)))
     if (cashierId) params.set('cashierId', cashierId)
@@ -504,7 +503,7 @@ export default function TransactionsPage() {
     const isActive = sortField === field
     return (
       <TableHead
-        className={`text-zinc-500 text-[11px] font-medium cursor-pointer select-none hover:text-zinc-300 transition-colors ${headClass}`}
+        className={`text-slate-500 text-[11px] font-medium cursor-pointer select-none hover:text-slate-300 transition-colors ${headClass}`}
         onClick={() => handleSort(field)}
       >
         <span className="inline-flex items-center gap-1">
@@ -578,83 +577,83 @@ export default function TransactionsPage() {
         <div className="space-y-4">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-28 bg-zinc-900 rounded-xl" />
+              <Skeleton key={i} className="h-28 bg-nebula rounded-xl" />
             ))}
           </div>
-          <Skeleton className="h-40 bg-zinc-900 rounded-xl" />
-          <Skeleton className="h-48 bg-zinc-900 rounded-xl" />
+          <Skeleton className="h-40 bg-nebula rounded-xl" />
+          <Skeleton className="h-48 bg-nebula rounded-xl" />
         </div>
       ) : summary ? (
         <div className="space-y-4">
           {/* Today's Summary Cards */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             {/* Total Revenue */}
-            <Card className="bg-zinc-900 border-zinc-800 rounded-xl overflow-hidden relative">
+            <Card className="bg-nebula border-white/[0.06] rounded-xl overflow-hidden relative">
               <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-bl theme-gradient-subtle rounded-bl-full" />
               <CardContent className="p-4">
                 <div className="flex items-center gap-2 mb-3">
                   <div className="w-8 h-8 rounded-lg theme-bg-very-light flex items-center justify-center">
                     <TrendingUp className="h-4 w-4 theme-text" />
                   </div>
-                  <span className="text-[11px] text-zinc-500 font-medium">Total Pendapatan</span>
+                  <span className="text-[11px] text-slate-500 font-medium">Total Pendapatan</span>
                 </div>
                 <p className="text-xl lg:text-2xl font-bold theme-text tracking-tight">
                   {formatCurrency(summary.totalRevenue)}
                 </p>
-                <p className="text-[10px] text-zinc-500 mt-1">
+                <p className="text-[10px] text-slate-500 mt-1">
                   {dateFrom && dateTo && dateFrom === dateTo ? 'Hari ini' : `${dateFrom || '...'} — ${dateTo || '...'}`}
                 </p>
               </CardContent>
             </Card>
 
             {/* Total Transactions */}
-            <Card className="bg-zinc-900 border-zinc-800 rounded-xl overflow-hidden relative">
+            <Card className="bg-nebula border-white/[0.06] rounded-xl overflow-hidden relative">
               <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-bl from-sky-500/10 to-transparent rounded-bl-full" />
               <CardContent className="p-4">
                 <div className="flex items-center gap-2 mb-3">
                   <div className="w-8 h-8 rounded-lg bg-sky-500/10 flex items-center justify-center">
                     <Receipt className="h-4 w-4 text-sky-400" />
                   </div>
-                  <span className="text-[11px] text-zinc-500 font-medium">Transaksi</span>
+                  <span className="text-[11px] text-slate-500 font-medium">Transaksi</span>
                 </div>
-                <p className="text-xl lg:text-2xl font-bold text-zinc-100 tracking-tight">
+                <p className="text-xl lg:text-2xl font-bold text-white tracking-tight">
                   {summary.totalTransactions}
                 </p>
-                <p className="text-[10px] text-zinc-500 mt-1">Non-void</p>
+                <p className="text-[10px] text-slate-500 mt-1">Non-void</p>
               </CardContent>
             </Card>
 
             {/* Average Transaction */}
-            <Card className="bg-zinc-900 border-zinc-800 rounded-xl overflow-hidden relative">
+            <Card className="bg-nebula border-white/[0.06] rounded-xl overflow-hidden relative">
               <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-bl from-violet-500/10 to-transparent rounded-bl-full" />
               <CardContent className="p-4">
                 <div className="flex items-center gap-2 mb-3">
                   <div className="w-8 h-8 rounded-lg bg-violet-500/10 flex items-center justify-center">
                     <BarChart3 className="h-4 w-4 text-violet-400" />
                   </div>
-                  <span className="text-[11px] text-zinc-500 font-medium">Rata-rata</span>
+                  <span className="text-[11px] text-slate-500 font-medium">Rata-rata</span>
                 </div>
-                <p className="text-xl lg:text-2xl font-bold text-zinc-100 tracking-tight">
+                <p className="text-xl lg:text-2xl font-bold text-white tracking-tight">
                   {formatCurrency(summary.avgTransaction)}
                 </p>
-                <p className="text-[10px] text-zinc-500 mt-1">Per transaksi</p>
+                <p className="text-[10px] text-slate-500 mt-1">Per transaksi</p>
               </CardContent>
             </Card>
 
             {/* Total Items Sold */}
-            <Card className="bg-zinc-900 border-zinc-800 rounded-xl overflow-hidden relative">
+            <Card className="bg-nebula border-white/[0.06] rounded-xl overflow-hidden relative">
               <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-bl from-amber-500/10 to-transparent rounded-bl-full" />
               <CardContent className="p-4">
                 <div className="flex items-center gap-2 mb-3">
                   <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center">
                     <ShoppingBag className="h-4 w-4 text-amber-400" />
                   </div>
-                  <span className="text-[11px] text-zinc-500 font-medium">Item Terjual</span>
+                  <span className="text-[11px] text-slate-500 font-medium">Item Terjual</span>
                 </div>
-                <p className="text-xl lg:text-2xl font-bold text-zinc-100 tracking-tight">
+                <p className="text-xl lg:text-2xl font-bold text-white tracking-tight">
                   {summary.totalItemsSold}
                 </p>
-                <p className="text-[10px] text-zinc-500 mt-1">Total unit</p>
+                <p className="text-[10px] text-slate-500 mt-1">Total unit</p>
               </CardContent>
             </Card>
           </div>
@@ -662,12 +661,12 @@ export default function TransactionsPage() {
           {/* Brutto / Netto / Diskon Summary */}
           <div className="grid grid-cols-3 gap-3">
             {/* Brutto */}
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-3.5">
-              <span className="text-[10px] text-zinc-500 font-medium">Brutto</span>
-              <p className="text-base font-bold text-zinc-100 tracking-tight mt-1">
+            <div className="bg-nebula border border-white/[0.06] rounded-xl p-3.5">
+              <span className="text-[10px] text-slate-500 font-medium">Brutto</span>
+              <p className="text-base font-bold text-white tracking-tight mt-1">
                 {formatCurrency(summary.totalBrutto)}
               </p>
-              <div className="h-1.5 w-full rounded-full bg-zinc-800 overflow-hidden mt-2.5">
+              <div className="h-1.5 w-full rounded-full bg-white/[0.04] overflow-hidden mt-2.5">
                 <div
                   className="h-full rounded-full bg-sky-500 transition-all duration-700"
                   style={{ width: `${summary.totalBrutto > 0 ? 100 : 0}%` }}
@@ -676,12 +675,12 @@ export default function TransactionsPage() {
             </div>
 
             {/* Diskon */}
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-3.5">
+            <div className="bg-nebula border border-white/[0.06] rounded-xl p-3.5">
               <span className="text-[10px] text-red-400/70 font-medium">Diskon</span>
               <p className="text-base font-bold text-red-400 tracking-tight mt-1">
                 - {formatCurrency(summary.totalDiscount)}
               </p>
-              <div className="h-1.5 w-full rounded-full bg-zinc-800 overflow-hidden mt-2.5">
+              <div className="h-1.5 w-full rounded-full bg-white/[0.04] overflow-hidden mt-2.5">
                 <div
                   className="h-full rounded-full bg-red-400 transition-all duration-700"
                   style={{ width: `${summary.totalBrutto > 0 ? (summary.totalDiscount / summary.totalBrutto) * 100 : 0}%` }}
@@ -690,12 +689,12 @@ export default function TransactionsPage() {
             </div>
 
             {/* Netto */}
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-3.5">
+            <div className="bg-nebula border border-white/[0.06] rounded-xl p-3.5">
               <span className="text-[10px] theme-text-medium font-medium">Netto</span>
               <p className="text-base font-bold theme-text tracking-tight mt-1">
                 {formatCurrency(summary.totalRevenue)}
               </p>
-              <div className="h-1.5 w-full rounded-full bg-zinc-800 overflow-hidden mt-2.5">
+              <div className="h-1.5 w-full rounded-full bg-white/[0.04] overflow-hidden mt-2.5">
                 <div
                   className="h-full rounded-full theme-bg transition-all duration-700"
                   style={{ width: `${summary.totalBrutto > 0 ? (summary.totalRevenue / summary.totalBrutto) * 100 : 0}%` }}
@@ -704,12 +703,12 @@ export default function TransactionsPage() {
             </div>
 
             {/* PPN */}
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-3.5">
+            <div className="bg-nebula border border-white/[0.06] rounded-xl p-3.5">
               <span className="text-[10px] text-sky-400/70 font-medium">PPN</span>
               <p className="text-base font-bold text-sky-400 tracking-tight mt-1">
                 {summary.totalTax > 0 ? `+ ${formatCurrency(summary.totalTax)}` : 'Rp 0'}
               </p>
-              <div className="h-1.5 w-full rounded-full bg-zinc-800 overflow-hidden mt-2.5">
+              <div className="h-1.5 w-full rounded-full bg-white/[0.04] overflow-hidden mt-2.5">
                 <div
                   className="h-full rounded-full bg-sky-400 transition-all duration-700"
                   style={{ width: `${summary.totalBrutto > 0 ? (summary.totalTax / summary.totalBrutto) * 100 : 0}%` }}
@@ -721,10 +720,10 @@ export default function TransactionsPage() {
           {/* Two-column: Payment Breakdown + Hourly Breakdown */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
             {/* Revenue by Payment Method — with Brutto/Netto per method */}
-            <Card className="bg-zinc-900 border-zinc-800 rounded-xl">
+            <Card className="bg-nebula border-white/[0.06] rounded-xl">
               <CardHeader className="p-4 pb-2">
-                <CardTitle className="text-xs font-semibold text-zinc-300 flex items-center gap-2">
-                  <CreditCard className="h-3.5 w-3.5 text-zinc-500" />
+                <CardTitle className="text-xs font-semibold text-slate-300 flex items-center gap-2">
+                  <CreditCard className="h-3.5 w-3.5 text-slate-500" />
                   Pendapatan per Metode Pembayaran
                 </CardTitle>
               </CardHeader>
@@ -732,7 +731,7 @@ export default function TransactionsPage() {
                 {summary.paymentBreakdown.length > 0 ? (
                   summary.paymentBreakdown.map((pb) => {
                     const pct = paymentMax > 0 ? (pb.total / paymentMax) * 100 : 0
-                    const barColor = PAYMENT_BAR_COLORS[pb.method] || 'bg-zinc-500'
+                    const barColor = PAYMENT_BAR_COLORS[pb.method] || 'bg-slate-500'
                     const hasBruttoData = pb.brutto !== undefined && pb.discount !== undefined
                     return (
                       <div key={pb.method} className="space-y-1.5">
@@ -740,37 +739,37 @@ export default function TransactionsPage() {
                           <div className="flex items-center gap-2">
                             {getPaymentIcon(pb.method)}
                             <div>
-                              <span className="text-xs font-medium text-zinc-200">{pb.method}</span>
-                              <span className="text-[10px] text-zinc-500 ml-1.5">{pb.count} transaksi</span>
+                              <span className="text-xs font-medium text-slate-200">{pb.method}</span>
+                              <span className="text-[10px] text-slate-500 ml-1.5">{pb.count} transaksi</span>
                             </div>
                           </div>
-                          <span className="text-xs font-semibold text-zinc-200">{formatCurrency(pb.total)}</span>
+                          <span className="text-xs font-semibold text-slate-200">{formatCurrency(pb.total)}</span>
                         </div>
                         {hasBruttoData && (
                           <div className="flex items-center gap-3 ml-7 text-[10px]">
-                            <span className="text-zinc-500">Brutto: <span className="text-zinc-400 font-medium">{formatCurrency(pb.brutto)}</span></span>
+                            <span className="text-slate-500">Brutto: <span className="text-slate-400 font-medium">{formatCurrency(pb.brutto)}</span></span>
                             {pb.discount > 0 && (
                               <span className="text-red-400/70">Diskon: <span className="text-red-400 font-medium">-{formatCurrency(pb.discount)}</span></span>
                             )}
                           </div>
                         )}
-                        <div className="h-2 bg-zinc-800 rounded-full overflow-hidden">
+                        <div className="h-2 bg-white/[0.04] rounded-full overflow-hidden">
                           <div className={`h-full ${barColor} rounded-full transition-all duration-700`} style={{ width: `${pct}%` }} />
                         </div>
                       </div>
                     )
                   })
                 ) : (
-                  <p className="text-xs text-zinc-500 text-center py-4">Belum ada data</p>
+                  <p className="text-xs text-slate-500 text-center py-4">Belum ada data</p>
                 )}
               </CardContent>
             </Card>
 
             {/* Hourly Breakdown */}
-            <Card className="bg-zinc-900 border-zinc-800 rounded-xl">
+            <Card className="bg-nebula border-white/[0.06] rounded-xl">
               <CardHeader className="p-4 pb-2">
-                <CardTitle className="text-xs font-semibold text-zinc-300 flex items-center gap-2">
-                  <Clock className="h-3.5 w-3.5 text-zinc-500" />
+                <CardTitle className="text-xs font-semibold text-slate-300 flex items-center gap-2">
+                  <Clock className="h-3.5 w-3.5 text-slate-500" />
                   Transaksi per Jam
                 </CardTitle>
               </CardHeader>
@@ -784,15 +783,15 @@ export default function TransactionsPage() {
                       return (
                         <div key={h.hour} className="flex-1 flex flex-col items-center gap-1">
                           {h.count > 0 && (
-                            <span className="text-[9px] text-zinc-400 font-medium">{h.count}</span>
+                            <span className="text-[9px] text-slate-400 font-medium">{h.count}</span>
                           )}
                           <div className="w-full flex items-end" style={{ height: '80px' }}>
                             <div
-                              className={`w-full rounded-t-sm transition-all duration-500 ${isPeak ? 'theme-bg' : h.count > 0 ? 'bg-zinc-600' : 'bg-zinc-800'}`}
+                              className={`w-full rounded-t-sm transition-all duration-500 ${isPeak ? 'theme-bg' : h.count > 0 ? 'bg-slate-600' : 'bg-white/[0.04]'}`}
                               style={{ height: `${Math.max(height, h.count > 0 ? 4 : 2)}%` }}
                             />
                           </div>
-                          <span className="text-[8px] text-zinc-600">{h.hour}</span>
+                          <span className="text-[8px] text-slate-600">{h.hour}</span>
                         </div>
                       )
                     })}
@@ -804,9 +803,9 @@ export default function TransactionsPage() {
           {/* Two-column: Top Products + Void Transactions */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
             {/* Top 5 Products Today */}
-            <Card className="bg-zinc-900 border-zinc-800 rounded-xl">
+            <Card className="bg-nebula border-white/[0.06] rounded-xl">
               <CardHeader className="p-4 pb-2">
-                <CardTitle className="text-xs font-semibold text-zinc-300 flex items-center gap-2">
+                <CardTitle className="text-xs font-semibold text-slate-300 flex items-center gap-2">
                   <Trophy className="h-3.5 w-3.5 text-amber-400" />
                   Top 5 Produk Hari Ini
                 </CardTitle>
@@ -820,31 +819,31 @@ export default function TransactionsPage() {
                           p.rank === 1
                             ? 'bg-amber-500/15 text-amber-400 border border-amber-500/25'
                             : p.rank === 2
-                              ? 'bg-zinc-400/10 text-zinc-400 border border-zinc-400/20'
+                              ? 'bg-slate-400/10 text-slate-400 border border-slate-400/20'
                               : p.rank === 3
                                 ? 'bg-orange-500/10 text-orange-400 border border-orange-500/20'
-                                : 'bg-zinc-800 text-zinc-500 border border-zinc-700'
+                                : 'bg-white/[0.04] text-slate-500 border border-white/[0.08]'
                         }`}>
                           {p.rank}
                         </span>
                         <div className="flex-1 min-w-0">
-                          <p className="text-xs text-zinc-200 truncate">{p.name}</p>
-                          <p className="text-[10px] text-zinc-500">{p.quantity} terjual</p>
+                          <p className="text-xs text-slate-200 truncate">{p.name}</p>
+                          <p className="text-[10px] text-slate-500">{p.quantity} terjual</p>
                         </div>
-                        <span className="text-xs font-semibold text-zinc-200 shrink-0">{formatCurrency(p.revenue)}</span>
+                        <span className="text-xs font-semibold text-slate-200 shrink-0">{formatCurrency(p.revenue)}</span>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <p className="text-xs text-zinc-500 text-center py-4">Belum ada data</p>
+                  <p className="text-xs text-slate-500 text-center py-4">Belum ada data</p>
                 )}
               </CardContent>
             </Card>
 
             {/* Void Transactions */}
-            <Card className="bg-zinc-900 border-zinc-800 rounded-xl">
+            <Card className="bg-nebula border-white/[0.06] rounded-xl">
               <CardHeader className="p-4 pb-2">
-                <CardTitle className="text-xs font-semibold text-zinc-300 flex items-center gap-2">
+                <CardTitle className="text-xs font-semibold text-slate-300 flex items-center gap-2">
                   <AlertTriangle className="h-3.5 w-3.5 text-red-400" />
                   Transaksi Void
                 </CardTitle>
@@ -856,11 +855,11 @@ export default function TransactionsPage() {
                       <Ban className="h-5 w-5 text-red-400" />
                     </div>
                     <div>
-                      <p className="text-xs font-medium text-zinc-300">Total Void</p>
+                      <p className="text-xs font-medium text-slate-300">Total Void</p>
                       <p className="text-lg font-bold text-red-400">{summary.voidInfo.count} transaksi</p>
                     </div>
                     <div className="ml-auto text-right">
-                      <p className="text-[10px] text-zinc-500">Nilai Void</p>
+                      <p className="text-[10px] text-slate-500">Nilai Void</p>
                       <p className="text-sm font-semibold text-red-300/70">{formatCurrency(summary.voidInfo.total)}</p>
                     </div>
                   </div>
@@ -868,12 +867,12 @@ export default function TransactionsPage() {
                   {summary.totalRevenue > 0 && summary.voidInfo.count > 0 && (
                     <div className="space-y-1.5">
                       <div className="flex items-center justify-between text-[10px]">
-                        <span className="text-zinc-500">Void Ratio</span>
-                        <span className="text-zinc-400 font-medium">
+                        <span className="text-slate-500">Void Ratio</span>
+                        <span className="text-slate-400 font-medium">
                           {((summary.voidInfo.count / (summary.totalTransactions + summary.voidInfo.count)) * 100).toFixed(1)}%
                         </span>
                       </div>
-                      <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                      <div className="h-1.5 bg-white/[0.04] rounded-full overflow-hidden">
                         <div
                           className="h-full bg-red-500/60 rounded-full"
                           style={{
@@ -887,7 +886,7 @@ export default function TransactionsPage() {
                   {summary.voidInfo.count === 0 && (
                     <div className="text-center py-2">
                       <CheckCircle2 className="h-8 w-8 theme-text-medium mx-auto mb-2" />
-                      <p className="text-xs text-zinc-500">Tidak ada transaksi void hari ini</p>
+                      <p className="text-xs text-slate-500">Tidak ada transaksi void hari ini</p>
                     </div>
                   )}
                 </div>
@@ -898,15 +897,15 @@ export default function TransactionsPage() {
       ) : (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {Array.from({ length: 4 }).map((_, i) => (
-            <Card key={i} className="bg-zinc-900 border-zinc-800 rounded-xl">
+            <Card key={i} className="bg-nebula border-white/[0.06] rounded-xl">
               <CardContent className="p-4">
                 <div className="flex items-center gap-2 mb-2">
-                  <div className="w-8 h-8 rounded-lg bg-zinc-800 flex items-center justify-center">
-                    <BarChart3 className="h-4 w-4 text-zinc-600" />
+                  <div className="w-8 h-8 rounded-lg bg-white/[0.04] flex items-center justify-center">
+                    <BarChart3 className="h-4 w-4 text-slate-600" />
                   </div>
-                  <span className="text-[11px] text-zinc-600 font-medium">—</span>
+                  <span className="text-[11px] text-slate-600 font-medium">—</span>
                 </div>
-                <p className="text-lg font-bold text-zinc-700">Rp 0</p>
+                <p className="text-lg font-bold text-slate-700">Rp 0</p>
               </CardContent>
             </Card>
           ))}
@@ -922,12 +921,12 @@ export default function TransactionsPage() {
       <div className="flex items-center gap-2">
         {/* Search */}
         <div className="relative flex-1 min-w-0 max-w-xs">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500" />
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
           <Input
             placeholder="Cari invoice..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-8 h-8 text-xs bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500"
+            className="pl-8 h-8 text-xs bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500"
           />
         </div>
 
@@ -947,7 +946,7 @@ export default function TransactionsPage() {
             'h-8 px-2.5 text-xs rounded-lg shrink-0 transition-all',
             filterOpen || activeSecondaryFilterCount > 0
               ? 'theme-bg-very-light theme-border-light theme-text hover:theme-hover-light'
-              : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700'
+              : 'bg-white/[0.04] border-white/[0.08] text-slate-400 hover:text-slate-200 hover:bg-white/[0.06]'
           )}
         >
           <SlidersHorizontal className="h-3.5 w-3.5" />
@@ -962,7 +961,7 @@ export default function TransactionsPage() {
           size="sm"
           onClick={handleExport}
           disabled={!isPro}
-          className="bg-zinc-800 border-zinc-700 text-zinc-300 hover:text-zinc-100 hover:bg-zinc-700 h-8 text-xs rounded-lg shrink-0"
+          className="bg-white/[0.04] border-white/[0.08] text-slate-300 hover:text-white hover:bg-white/[0.06] h-8 text-xs rounded-lg shrink-0"
         >
           {isPro ? <Download className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
         </Button>
@@ -980,30 +979,30 @@ export default function TransactionsPage() {
 
       {/* ── Collapsible Secondary Filters ── */}
       {filterOpen && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-3 bg-zinc-900/50 border border-zinc-800 rounded-xl animate-in slide-in-from-top-2 duration-200">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-3 bg-nebula/50 border border-white/[0.06] rounded-xl animate-in slide-in-from-top-2 duration-200">
           {/* Outlet filter */}
           <Select value={outletId || '__all__'} onValueChange={(v) => setOutletId(v === '__all__' ? '' : v)}>
-            <SelectTrigger className="h-9 text-xs bg-zinc-800 border-zinc-700 text-zinc-100 rounded-lg">
-              <Store className="mr-1.5 h-3 w-3 text-zinc-500" />
+            <SelectTrigger className="h-9 text-xs bg-white/[0.04] border-white/[0.08] text-white rounded-lg">
+              <Store className="mr-1.5 h-3 w-3 text-slate-500" />
               <SelectValue placeholder="Outlet" />
             </SelectTrigger>
-            <SelectContent className="bg-zinc-800 border-zinc-700">
-              <SelectItem value="__all__" className="text-zinc-200 focus:bg-zinc-700 text-xs">Semua Outlet</SelectItem>
-              <SelectItem value="current" className="text-zinc-200 focus:bg-zinc-700 text-xs">Outlet Saat Ini</SelectItem>
+            <SelectContent className="bg-white/[0.04] border-white/[0.08]">
+              <SelectItem value="__all__" className="text-slate-200 focus:bg-white/[0.06] text-xs">Semua Outlet</SelectItem>
+              <SelectItem value="current" className="text-slate-200 focus:bg-white/[0.06] text-xs">Outlet Saat Ini</SelectItem>
             </SelectContent>
           </Select>
 
           {/* Cashier filter */}
           {isPro && cashiers.length > 0 && (
             <Select value={cashierId || '__all__'} onValueChange={(v) => setCashierId(v === '__all__' ? '' : v)}>
-              <SelectTrigger className="h-9 text-xs bg-zinc-800 border-zinc-700 text-zinc-100 rounded-lg">
-                <Filter className="mr-1.5 h-3 w-3 text-zinc-500" />
+              <SelectTrigger className="h-9 text-xs bg-white/[0.04] border-white/[0.08] text-white rounded-lg">
+                <Filter className="mr-1.5 h-3 w-3 text-slate-500" />
                 <SelectValue placeholder="Kasir" />
               </SelectTrigger>
-              <SelectContent className="bg-zinc-800 border-zinc-700">
-                <SelectItem value="__all__" className="text-zinc-200 focus:bg-zinc-700 text-xs">Semua Kasir</SelectItem>
+              <SelectContent className="bg-white/[0.04] border-white/[0.08]">
+                <SelectItem value="__all__" className="text-slate-200 focus:bg-white/[0.06] text-xs">Semua Kasir</SelectItem>
                 {cashiers.filter((c) => c.id).map((c) => (
-                  <SelectItem key={c.id} value={c.id} className="text-zinc-200 focus:bg-zinc-700 text-xs">{c.name}</SelectItem>
+                  <SelectItem key={c.id} value={c.id} className="text-slate-200 focus:bg-white/[0.06] text-xs">{c.name}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -1012,29 +1011,29 @@ export default function TransactionsPage() {
           {/* Payment method filter */}
           {isPro && (
             <Select value={paymentMethod || '__all__'} onValueChange={(v) => setPaymentMethod(v === '__all__' ? '' : v)}>
-              <SelectTrigger className="h-9 text-xs bg-zinc-800 border-zinc-700 text-zinc-100 rounded-lg">
-                <CreditCard className="mr-1.5 h-3 w-3 text-zinc-500" />
+              <SelectTrigger className="h-9 text-xs bg-white/[0.04] border-white/[0.08] text-white rounded-lg">
+                <CreditCard className="mr-1.5 h-3 w-3 text-slate-500" />
                 <SelectValue placeholder="Pembayaran" />
               </SelectTrigger>
-              <SelectContent className="bg-zinc-800 border-zinc-700">
-                <SelectItem value="__all__" className="text-zinc-200 focus:bg-zinc-700 text-xs">Semua Metode</SelectItem>
-                <SelectItem value="CASH" className="text-zinc-200 focus:bg-zinc-700 text-xs">💵 CASH</SelectItem>
-                <SelectItem value="QRIS" className="text-zinc-200 focus:bg-zinc-700 text-xs">📱 QRIS</SelectItem>
-                <SelectItem value="DEBIT" className="text-zinc-200 focus:bg-zinc-700 text-xs">💳 DEBIT</SelectItem>
+              <SelectContent className="bg-white/[0.04] border-white/[0.08]">
+                <SelectItem value="__all__" className="text-slate-200 focus:bg-white/[0.06] text-xs">Semua Metode</SelectItem>
+                <SelectItem value="CASH" className="text-slate-200 focus:bg-white/[0.06] text-xs">💵 CASH</SelectItem>
+                <SelectItem value="QRIS" className="text-slate-200 focus:bg-white/[0.06] text-xs">📱 QRIS</SelectItem>
+                <SelectItem value="DEBIT" className="text-slate-200 focus:bg-white/[0.06] text-xs">💳 DEBIT</SelectItem>
               </SelectContent>
             </Select>
           )}
 
           {/* Void status filter */}
           <Select value={voidFilter || '__all__'} onValueChange={(v) => setVoidFilter(v === '__all__' ? '' : v)}>
-            <SelectTrigger className="h-9 text-xs bg-zinc-800 border-zinc-700 text-zinc-100 rounded-lg">
-              <Ban className="mr-1.5 h-3 w-3 text-zinc-500" />
+            <SelectTrigger className="h-9 text-xs bg-white/[0.04] border-white/[0.08] text-white rounded-lg">
+              <Ban className="mr-1.5 h-3 w-3 text-slate-500" />
               <SelectValue placeholder="Status" />
             </SelectTrigger>
-            <SelectContent className="bg-zinc-800 border-zinc-700">
-              <SelectItem value="__all__" className="text-zinc-200 focus:bg-zinc-700 text-xs">Semua</SelectItem>
-              <SelectItem value="active" className="text-zinc-200 focus:bg-zinc-700 text-xs">✅ Aktif</SelectItem>
-              <SelectItem value="void" className="text-zinc-200 focus:bg-zinc-700 text-xs">❌ Void</SelectItem>
+            <SelectContent className="bg-white/[0.04] border-white/[0.08]">
+              <SelectItem value="__all__" className="text-slate-200 focus:bg-white/[0.06] text-xs">Semua</SelectItem>
+              <SelectItem value="active" className="text-slate-200 focus:bg-white/[0.06] text-xs">✅ Aktif</SelectItem>
+              <SelectItem value="void" className="text-slate-200 focus:bg-white/[0.06] text-xs">❌ Void</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -1044,31 +1043,31 @@ export default function TransactionsPage() {
       {hasActiveFilters && (
         <div className="flex flex-wrap gap-1.5">
           {search && (
-            <Badge variant="outline" className="bg-zinc-800 border-zinc-700 text-zinc-300 text-[11px] cursor-pointer hover:bg-zinc-700" onClick={() => setSearch('')}>
-              🔍 {search} <span className="ml-1 text-zinc-500">×</span>
+            <Badge variant="outline" className="bg-white/[0.04] border-white/[0.08] text-slate-300 text-[11px] cursor-pointer hover:bg-white/[0.06]" onClick={() => setSearch('')}>
+              🔍 {search} <span className="ml-1 text-slate-500">×</span>
             </Badge>
           )}
           {dateFrom && (
-            <Badge variant="outline" className="bg-zinc-800 border-zinc-700 text-zinc-300 text-[11px] cursor-pointer hover:bg-zinc-700" onClick={handleClearDates}>
-              📅 {dateFrom}{dateTo && dateTo !== dateFrom ? ` – ${dateTo}` : ''} <span className="ml-1 text-zinc-500">×</span>
+            <Badge variant="outline" className="bg-white/[0.04] border-white/[0.08] text-slate-300 text-[11px] cursor-pointer hover:bg-white/[0.06]" onClick={handleClearDates}>
+              📅 {dateFrom}{dateTo && dateTo !== dateFrom ? ` – ${dateTo}` : ''} <span className="ml-1 text-slate-500">×</span>
             </Badge>
           )}
           {cashierId && (
-            <Badge variant="outline" className="bg-zinc-800 border-zinc-700 text-zinc-300 text-[11px] cursor-pointer hover:bg-zinc-700" onClick={() => setCashierId('')}>
-              👤 {cashiers.find(c => c.id === cashierId)?.name || 'Kasir'} <span className="ml-1 text-zinc-500">×</span>
+            <Badge variant="outline" className="bg-white/[0.04] border-white/[0.08] text-slate-300 text-[11px] cursor-pointer hover:bg-white/[0.06]" onClick={() => setCashierId('')}>
+              👤 {cashiers.find(c => c.id === cashierId)?.name || 'Kasir'} <span className="ml-1 text-slate-500">×</span>
             </Badge>
           )}
           {paymentMethod && (
-            <Badge variant="outline" className="bg-zinc-800 border-zinc-700 text-zinc-300 text-[11px] cursor-pointer hover:bg-zinc-700" onClick={() => setPaymentMethod('')}>
-              {paymentMethod === 'CASH' ? '💵' : paymentMethod === 'QRIS' ? '📱' : '💳'} {paymentMethod} <span className="ml-1 text-zinc-500">×</span>
+            <Badge variant="outline" className="bg-white/[0.04] border-white/[0.08] text-slate-300 text-[11px] cursor-pointer hover:bg-white/[0.06]" onClick={() => setPaymentMethod('')}>
+              {paymentMethod === 'CASH' ? '💵' : paymentMethod === 'QRIS' ? '📱' : '💳'} {paymentMethod} <span className="ml-1 text-slate-500">×</span>
             </Badge>
           )}
           {voidFilter && (
-            <Badge variant="outline" className="bg-zinc-800 border-zinc-700 text-zinc-300 text-[11px] cursor-pointer hover:bg-zinc-700" onClick={() => setVoidFilter('')}>
-              {voidFilter === 'active' ? '✅ Aktif' : '❌ Void'} <span className="ml-1 text-zinc-500">×</span>
+            <Badge variant="outline" className="bg-white/[0.04] border-white/[0.08] text-slate-300 text-[11px] cursor-pointer hover:bg-white/[0.06]" onClick={() => setVoidFilter('')}>
+              {voidFilter === 'active' ? '✅ Aktif' : '❌ Void'} <span className="ml-1 text-slate-500">×</span>
             </Badge>
           )}
-          <Button variant="ghost" size="sm" onClick={handleClearAllFilters} className="text-[10px] text-zinc-500 hover:text-zinc-300 h-5 px-1.5">
+          <Button variant="ghost" size="sm" onClick={handleClearAllFilters} className="text-[10px] text-slate-500 hover:text-slate-300 h-5 px-1.5">
             Reset semua
           </Button>
         </div>
@@ -1078,19 +1077,19 @@ export default function TransactionsPage() {
       {loading ? (
         <div className="space-y-2">
           {Array.from({ length: 5 }).map((_, i) => (
-            <Skeleton key={i} className="h-14 bg-zinc-900 rounded-xl" />
+            <Skeleton key={i} className="h-14 bg-nebula rounded-xl" />
           ))}
         </div>
       ) : transactions.length === 0 ? (
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-8 text-center">
-          <Receipt className="h-8 w-8 text-zinc-700 mx-auto mb-3" />
-          <p className="text-xs text-zinc-500">Tidak ada transaksi ditemukan</p>
+        <div className="rounded-xl border border-white/[0.06] bg-nebula p-8 text-center">
+          <Receipt className="h-8 w-8 text-slate-700 mx-auto mb-3" />
+          <p className="text-xs text-slate-500">Tidak ada transaksi ditemukan</p>
           {hasActiveFilters && (
             <Button
               variant="ghost"
               size="sm"
               onClick={handleClearAllFilters}
-              className="mt-3 text-zinc-500 hover:text-zinc-300 text-xs h-7"
+              className="mt-3 text-slate-500 hover:text-slate-300 text-xs h-7"
             >
               Reset semua filter
             </Button>
@@ -1108,7 +1107,7 @@ export default function TransactionsPage() {
                   className={`rounded-xl border-l-4 p-3.5 transition-colors ${
                     isVoid
                       ? 'border-l-red-500 border border-red-500/15 bg-red-500/[0.03]'
-                      : 'theme-border border border-zinc-800/60 bg-zinc-900'
+                      : 'theme-border border border-white/[0.06] bg-nebula'
                   }`}
                 >
                   <div className="flex items-center justify-between mb-2.5 gap-2">
@@ -1118,7 +1117,7 @@ export default function TransactionsPage() {
                         <span className="text-xs theme-text font-mono font-medium block truncate">
                           {txn.invoiceNumber}
                         </span>
-                        <span className="text-[10px] text-zinc-500">{formatDate(txn.createdAt)}</span>
+                        <span className="text-[10px] text-slate-500">{formatDate(txn.createdAt)}</span>
                       </div>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
@@ -1133,13 +1132,13 @@ export default function TransactionsPage() {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <div>
-                        <span className={`text-sm font-semibold block ${isVoid ? 'text-zinc-500 line-through' : 'text-zinc-100'}`}>
+                        <span className={`text-sm font-semibold block ${isVoid ? 'text-slate-500 line-through' : 'text-white'}`}>
                           {formatCurrency(txn.total)}
                         </span>
                         <div className="flex items-center gap-1.5 mt-0.5">
-                          <span className="text-[10px] text-zinc-500">{txn._count?.items || 0} item</span>
-                          <span className="text-[10px] text-zinc-600">·</span>
-                          <span className="text-[10px] text-zinc-500 truncate max-w-[100px]">{txn.customerName || 'Walk-in'}</span>
+                          <span className="text-[10px] text-slate-500">{txn._count?.items || 0} item</span>
+                          <span className="text-[10px] text-slate-600">·</span>
+                          <span className="text-[10px] text-slate-500 truncate max-w-[100px]">{txn.customerName || 'Walk-in'}</span>
                         </div>
                       </div>
                     </div>
@@ -1147,7 +1146,7 @@ export default function TransactionsPage() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800"
+                        className="h-8 w-8 text-slate-400 hover:text-white hover:bg-white/[0.04]"
                         onClick={() => handleViewDetail(txn)}
                       >
                         <Eye className="h-3.5 w-3.5" />
@@ -1156,7 +1155,7 @@ export default function TransactionsPage() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-8 w-8 text-zinc-500 hover:text-red-400 hover:bg-red-500/10"
+                          className="h-8 w-8 text-slate-500 hover:text-red-400 hover:bg-red-500/10"
                           onClick={() => { setDetailTransaction(txn); setVoidOpen(true) }}
                         >
                           <Ban className="h-3.5 w-3.5" />
@@ -1170,20 +1169,20 @@ export default function TransactionsPage() {
           </div>
 
           {/* Desktop table view */}
-          <div className="hidden md:block rounded-xl border border-zinc-800 overflow-hidden">
+          <div className="hidden md:block rounded-xl border border-white/[0.06] overflow-hidden">
             <Table>
               <TableHeader>
-                <TableRow className="border-zinc-800 hover:bg-transparent bg-zinc-900/50">
-                  <TableHead className="text-zinc-500 text-[11px] font-medium w-10"></TableHead>
+                <TableRow className="border-white/[0.06] hover:bg-transparent bg-nebula/50">
+                  <TableHead className="text-slate-500 text-[11px] font-medium w-10"></TableHead>
                   {renderSortHeader('invoiceNumber', 'Invoice #')}
                   {renderSortHeader('outletName', 'Outlet', 'hidden lg:table-cell')}
                   {renderSortHeader('createdAt', 'Tanggal')}
                   {renderSortHeader('customerName', 'Customer', 'hidden md:table-cell')}
                   {renderSortHeader('paymentMethod', 'Pembayaran', 'text-center')}
                   {renderSortHeader('total', 'Total', 'text-right')}
-                  <TableHead className="text-zinc-500 text-[11px] font-medium text-center hidden md:table-cell">Item</TableHead>
-                  <TableHead className="text-zinc-500 text-[11px] font-medium text-center w-10 hidden lg:table-cell">Sync</TableHead>
-                  <TableHead className="text-zinc-500 text-[11px] font-medium text-right w-20">Aksi</TableHead>
+                  <TableHead className="text-slate-500 text-[11px] font-medium text-center hidden md:table-cell">Item</TableHead>
+                  <TableHead className="text-slate-500 text-[11px] font-medium text-center w-10 hidden lg:table-cell">Sync</TableHead>
+                  <TableHead className="text-slate-500 text-[11px] font-medium text-right w-20">Aksi</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1192,10 +1191,10 @@ export default function TransactionsPage() {
                   return (
                     <TableRow
                       key={txn.id}
-                      className={`border-zinc-800/60 transition-colors ${
+                      className={`border-white/[0.06] transition-colors ${
                         isVoid
                           ? 'border-l-2 border-l-red-500 bg-red-500/[0.02] hover:bg-red-500/5'
-                          : 'hover:bg-zinc-800/40'
+                          : 'hover:bg-white/[0.03]'
                       }`}
                     >
                       {/* Void indicator */}
@@ -1211,21 +1210,21 @@ export default function TransactionsPage() {
                         {txn.invoiceNumber}
                       </TableCell>
                       {/* Outlet column */}
-                      <TableCell className="text-xs text-zinc-400 py-3 px-3 hidden lg:table-cell">
+                      <TableCell className="text-xs text-slate-400 py-3 px-3 hidden lg:table-cell">
                         <div className="flex items-center gap-1.5">
-                          <Store className="h-3 w-3 text-zinc-500 shrink-0" />
+                          <Store className="h-3 w-3 text-slate-500 shrink-0" />
                           <span className="truncate max-w-[120px]">{txn.outletName || 'Outlet Saat Ini'}</span>
                         </div>
                       </TableCell>
-                      <TableCell className="text-xs text-zinc-400 py-3 px-3">{formatDate(txn.createdAt)}</TableCell>
-                      <TableCell className="text-xs text-zinc-300 py-3 px-3 hidden md:table-cell">{txn.customerName || 'Walk-in'}</TableCell>
+                      <TableCell className="text-xs text-slate-400 py-3 px-3">{formatDate(txn.createdAt)}</TableCell>
+                      <TableCell className="text-xs text-slate-300 py-3 px-3 hidden md:table-cell">{txn.customerName || 'Walk-in'}</TableCell>
                       <TableCell className="text-center py-3 px-3">
                         {getPaymentBadge(txn.paymentMethod)}
                       </TableCell>
-                      <TableCell className={`text-xs font-semibold text-right py-3 px-3 ${isVoid ? 'text-zinc-500 line-through' : 'text-zinc-100'}`}>
+                      <TableCell className={`text-xs font-semibold text-right py-3 px-3 ${isVoid ? 'text-slate-500 line-through' : 'text-white'}`}>
                         {formatCurrency(txn.total)}
                       </TableCell>
-                      <TableCell className="text-xs text-zinc-400 text-center py-3 px-3 hidden md:table-cell">
+                      <TableCell className="text-xs text-slate-400 text-center py-3 px-3 hidden md:table-cell">
                         {txn._count?.items || 0}
                       </TableCell>
                       <TableCell className="text-center py-3 px-3 hidden lg:table-cell">
@@ -1244,7 +1243,7 @@ export default function TransactionsPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-7 w-7 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800"
+                            className="h-7 w-7 text-slate-400 hover:text-white hover:bg-white/[0.04]"
                             onClick={() => handleViewDetail(txn)}
                           >
                             <Eye className="h-3.5 w-3.5" />
@@ -1253,7 +1252,7 @@ export default function TransactionsPage() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="h-7 w-7 text-zinc-500 hover:text-red-400 hover:bg-red-500/10"
+                              className="h-7 w-7 text-slate-500 hover:text-red-400 hover:bg-red-500/10"
                               onClick={() => { setDetailTransaction(txn); setVoidOpen(true) }}
                             >
                               <Ban className="h-3 w-3" />
@@ -1277,23 +1276,23 @@ export default function TransactionsPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-lg font-semibold text-zinc-100">Transaksi</h1>
-        <p className="text-xs text-zinc-500 mt-0.5">Lihat semua transaksi dan ringkasan harian</p>
+        <h1 className="text-lg font-semibold text-white">Transaksi</h1>
+        <p className="text-xs text-slate-500 mt-0.5">Lihat semua transaksi dan ringkasan harian</p>
       </div>
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="bg-zinc-900 border border-zinc-800 rounded-lg h-9 p-0.5">
+        <TabsList className="bg-nebula border border-white/[0.06] rounded-lg h-9 p-0.5">
           <TabsTrigger
             value="transactions"
-            className="text-xs px-3 h-8 rounded-md data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100 text-zinc-400 data-[state=active]:shadow-sm"
+            className="text-xs px-3 h-8 rounded-md data-[state=active]:bg-white/[0.04] data-[state=active]:text-white text-slate-400 data-[state=active]:shadow-sm"
           >
             <Receipt className="mr-1.5 h-3.5 w-3.5" />
             Daftar Transaksi
           </TabsTrigger>
           <TabsTrigger
             value="closing"
-            className="text-xs px-3 h-8 rounded-md data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100 text-zinc-400 data-[state=active]:shadow-sm"
+            className="text-xs px-3 h-8 rounded-md data-[state=active]:bg-white/[0.04] data-[state=active]:text-white text-slate-400 data-[state=active]:shadow-sm"
           >
             <BarChart3 className="mr-1.5 h-3.5 w-3.5" />
             Closing Harian
@@ -1311,20 +1310,20 @@ export default function TransactionsPage() {
 
       {/* Detail Dialog */}
       <ResponsiveDialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <ResponsiveDialogContent className="bg-zinc-900 border-zinc-800 max-h-[90vh] overflow-y-auto p-0" desktopClassName="max-w-md sm:max-w-lg">
+        <ResponsiveDialogContent className="bg-nebula border-white/[0.06] max-h-[90vh] overflow-y-auto p-0" desktopClassName="max-w-md sm:max-w-lg">
           {detailTransaction && (
             <>
               {/* Dialog Header */}
-              <div className="p-4 pb-3 border-b border-zinc-800/60">
+              <div className="p-4 pb-3 border-b border-white/[0.06]">
                 <ResponsiveDialogHeader>
                   <div className="flex items-center justify-between w-full">
                     <div className="flex items-center gap-2.5 min-w-0">
                       {getPaymentIcon(detailTransaction.paymentMethod)}
                       <div className="min-w-0">
-                        <ResponsiveDialogTitle className="text-zinc-100 text-sm font-semibold font-mono truncate block">
+                        <ResponsiveDialogTitle className="text-white text-sm font-semibold font-mono truncate block">
                           {detailTransaction.invoiceNumber}
                         </ResponsiveDialogTitle>
-                        <p className="text-[10px] text-zinc-500 mt-0.5">{formatDate(detailTransaction.createdAt)}</p>
+                        <p className="text-[10px] text-slate-500 mt-0.5">{formatDate(detailTransaction.createdAt)}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
@@ -1343,43 +1342,43 @@ export default function TransactionsPage() {
               <div className="p-4 space-y-4">
                 {/* Info Row */}
                 <div className="grid grid-cols-2 gap-2">
-                  <div className="rounded-lg bg-zinc-800/50 p-2.5 space-y-1">
-                    <p className="text-[10px] text-zinc-500">Kasir</p>
-                    <p className="text-xs text-zinc-200 font-medium">{detailCashierName || '-'}</p>
+                  <div className="rounded-lg bg-white/[0.03] p-2.5 space-y-1">
+                    <p className="text-[10px] text-slate-500">Kasir</p>
+                    <p className="text-xs text-slate-200 font-medium">{detailCashierName || '-'}</p>
                   </div>
-                  <div className="rounded-lg bg-zinc-800/50 p-2.5 space-y-1">
-                    <p className="text-[10px] text-zinc-500">Customer</p>
-                    <p className="text-xs text-zinc-200 font-medium">{detailTransaction.customerName || 'Walk-in'}</p>
+                  <div className="rounded-lg bg-white/[0.03] p-2.5 space-y-1">
+                    <p className="text-[10px] text-slate-500">Customer</p>
+                    <p className="text-xs text-slate-200 font-medium">{detailTransaction.customerName || 'Walk-in'}</p>
                   </div>
-                  <div className="rounded-lg bg-zinc-800/50 p-2.5 space-y-1">
-                    <p className="text-[10px] text-zinc-500">Outlet</p>
-                    <p className="text-xs text-zinc-200 font-medium truncate">{detailOutlet?.name || 'Outlet Saat Ini'}</p>
+                  <div className="rounded-lg bg-white/[0.03] p-2.5 space-y-1">
+                    <p className="text-[10px] text-slate-500">Outlet</p>
+                    <p className="text-xs text-slate-200 font-medium truncate">{detailOutlet?.name || 'Outlet Saat Ini'}</p>
                   </div>
-                  <div className="rounded-lg bg-zinc-800/50 p-2.5 space-y-1">
-                    <p className="text-[10px] text-zinc-500">Item</p>
-                    <p className="text-xs text-zinc-200 font-medium">{detailLoading ? '-' : detailItems.length} produk</p>
+                  <div className="rounded-lg bg-white/[0.03] p-2.5 space-y-1">
+                    <p className="text-[10px] text-slate-500">Item</p>
+                    <p className="text-xs text-slate-200 font-medium">{detailLoading ? '-' : detailItems.length} produk</p>
                   </div>
                 </div>
 
                 {/* Items List */}
-                <div className="rounded-lg border border-zinc-800 overflow-hidden">
-                  <div className="px-3 py-2 bg-zinc-800/40 border-b border-zinc-800/60">
-                    <p className="text-[11px] font-medium text-zinc-400">Item Pesanan</p>
+                <div className="rounded-lg border border-white/[0.06] overflow-hidden">
+                  <div className="px-3 py-2 bg-white/[0.03] border-b border-white/[0.06]">
+                    <p className="text-[11px] font-medium text-slate-400">Item Pesanan</p>
                   </div>
                   {detailLoading ? (
                     <div className="p-3 space-y-2">
-                      <Skeleton className="h-8 bg-zinc-800 rounded" />
-                      <Skeleton className="h-8 bg-zinc-800 rounded" />
+                      <Skeleton className="h-8 bg-white/[0.04] rounded" />
+                      <Skeleton className="h-8 bg-white/[0.04] rounded" />
                     </div>
                   ) : (
-                    <div className="divide-y divide-zinc-800/40">
+                    <div className="divide-y divide-white/[0.04]">
                       {detailItems.map((item) => (
                         <div key={item.id} className="flex items-center justify-between px-3 py-2">
                           <div className="min-w-0 flex-1">
-                            <p className="text-xs text-zinc-200 truncate">{item.productName}</p>
-                            <p className="text-[10px] text-zinc-500">{formatCurrency(item.price)} × {item.qty}</p>
+                            <p className="text-xs text-slate-200 truncate">{item.productName}</p>
+                            <p className="text-[10px] text-slate-500">{formatCurrency(item.price)} × {item.qty}</p>
                           </div>
-                          <span className="text-xs font-medium text-zinc-200 shrink-0 ml-3">{formatCurrency(item.subtotal)}</span>
+                          <span className="text-xs font-medium text-slate-200 shrink-0 ml-3">{formatCurrency(item.subtotal)}</span>
                         </div>
                       ))}
                     </div>
@@ -1387,41 +1386,41 @@ export default function TransactionsPage() {
                 </div>
 
                 {/* Payment Summary */}
-                <div className="rounded-lg border border-zinc-800 overflow-hidden">
-                  <div className="px-3 py-2 bg-zinc-800/40 border-b border-zinc-800/60">
-                    <p className="text-[11px] font-medium text-zinc-400">Ringkasan Pembayaran</p>
+                <div className="rounded-lg border border-white/[0.06] overflow-hidden">
+                  <div className="px-3 py-2 bg-white/[0.03] border-b border-white/[0.06]">
+                    <p className="text-[11px] font-medium text-slate-400">Ringkasan Pembayaran</p>
                   </div>
                   <div className="p-3 space-y-2">
                     <div className="flex justify-between text-xs">
-                      <span className="text-zinc-400">Subtotal</span>
-                      <span className="text-zinc-200">{formatCurrency(detailTransaction.subtotal ?? 0)}</span>
+                      <span className="text-slate-400">Subtotal</span>
+                      <span className="text-slate-200">{formatCurrency(detailTransaction.subtotal ?? 0)}</span>
                     </div>
                     {(detailTransaction.discount ?? 0) > 0 && (
                       <div className="flex justify-between text-xs">
-                        <span className="text-zinc-400">Diskon</span>
+                        <span className="text-slate-400">Diskon</span>
                         <span className="text-amber-400">-{formatCurrency(detailTransaction.discount ?? 0)}</span>
                       </div>
                     )}
                     {(detailTransaction.taxAmount ?? 0) > 0 && (
                       <div className="flex justify-between text-xs">
-                        <span className="text-zinc-400">PPN</span>
-                        <span className="text-zinc-300">+{formatCurrency(detailTransaction.taxAmount ?? 0)}</span>
+                        <span className="text-slate-400">PPN</span>
+                        <span className="text-slate-300">+{formatCurrency(detailTransaction.taxAmount ?? 0)}</span>
                       </div>
                     )}
-                    <Separator className="bg-zinc-800" />
+                    <Separator className="bg-white/[0.04]" />
                     <div className="flex justify-between text-sm">
-                      <span className="font-semibold text-zinc-200">Total</span>
+                      <span className="font-semibold text-slate-200">Total</span>
                       <span className="font-bold theme-text">{formatCurrency(detailTransaction.total)}</span>
                     </div>
-                    <Separator className="bg-zinc-800" />
+                    <Separator className="bg-white/[0.04]" />
                     <div className="flex justify-between text-xs">
-                      <span className="text-zinc-400">Dibayar</span>
-                      <span className="text-zinc-200">{formatCurrency(detailTransaction.paidAmount ?? 0)}</span>
+                      <span className="text-slate-400">Dibayar</span>
+                      <span className="text-slate-200">{formatCurrency(detailTransaction.paidAmount ?? 0)}</span>
                     </div>
                     {(detailTransaction.change ?? 0) > 0 && (
                       <div className="flex justify-between text-xs">
-                        <span className="text-zinc-400">Kembalian</span>
-                        <span className="text-zinc-200">{formatCurrency(detailTransaction.change ?? 0)}</span>
+                        <span className="text-slate-400">Kembalian</span>
+                        <span className="text-slate-200">{formatCurrency(detailTransaction.change ?? 0)}</span>
                       </div>
                     )}
                   </div>
@@ -1535,7 +1534,7 @@ export default function TransactionsPage() {
                     variant="outline"
                     size="sm"
                     onClick={handlePrint}
-                    className="flex-1 bg-zinc-800 border-zinc-700 text-zinc-300 hover:text-zinc-100 hover:bg-zinc-700 h-9 text-xs"
+                    className="flex-1 bg-white/[0.04] border-white/[0.08] text-slate-300 hover:text-white hover:bg-white/[0.06] h-9 text-xs"
                   >
                     <Printer className="mr-1.5 h-3.5 w-3.5" />
                     Cetak Struk
@@ -1560,22 +1559,22 @@ export default function TransactionsPage() {
 
       {/* Void Confirmation Dialog */}
       <ResponsiveDialog open={voidOpen} onOpenChange={setVoidOpen}>
-        <ResponsiveDialogContent className="bg-zinc-900 border-zinc-800 p-4" desktopClassName="max-w-sm">
+        <ResponsiveDialogContent className="bg-nebula border-white/[0.06] p-4" desktopClassName="max-w-sm">
           <ResponsiveDialogHeader>
-            <ResponsiveDialogTitle className="text-zinc-100 text-sm font-semibold">Void Transaksi</ResponsiveDialogTitle>
-            <ResponsiveDialogDescription className="text-zinc-400 text-xs">
+            <ResponsiveDialogTitle className="text-white text-sm font-semibold">Void Transaksi</ResponsiveDialogTitle>
+            <ResponsiveDialogDescription className="text-slate-400 text-xs">
               Transaksi <span className="theme-text font-mono">{detailTransaction?.invoiceNumber}</span> akan ditandai sebagai void. Data tetap tersimpan untuk audit.
             </ResponsiveDialogDescription>
           </ResponsiveDialogHeader>
           <div className="space-y-3 py-1">
             <div className="space-y-1.5">
-              <Label className="text-zinc-300 text-xs">Alasan void <span className="text-red-400">*</span></Label>
+              <Label className="text-slate-300 text-xs">Alasan void <span className="text-red-400">*</span></Label>
               <Textarea
                 placeholder="Masukkan alasan void..."
                 value={voidReason}
                 onChange={(e) => setVoidReason(e.target.value)}
                 rows={3}
-                className="text-xs bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 resize-none"
+                className="text-xs bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 resize-none"
               />
             </div>
           </div>
@@ -1584,7 +1583,7 @@ export default function TransactionsPage() {
               variant="ghost"
               onClick={() => setVoidOpen(false)}
               disabled={voidSubmitting}
-              className="bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700 h-8 text-xs"
+              className="bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.06] h-8 text-xs"
             >
               Batal
             </Button>

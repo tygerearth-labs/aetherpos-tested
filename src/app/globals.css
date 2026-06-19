@@ -3,11 +3,20 @@
 
 @custom-variant dark (&:is(.dark *));
 
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuLyfAZ9hiA.woff2') format('woff2');
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-body: 'Inter', ui-sans-serif, system-ui, sans-serif;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -41,61 +50,71 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+
+  /* AETHER Mission Control Colors */
+  --color-deep-space: #020617;
+  --color-nebula: #0F172A;
+  --color-aether-pink: #EC4899;
+  --color-aether-purple: #8B5CF6;
+  --color-aether-cyan: #06B6D4;
+  --color-star-dust: rgba(255, 255, 255, 0.04);
+  --color-cosmic-border: rgba(255, 255, 255, 0.06);
+  --color-stellar-border: rgba(255, 255, 255, 0.08);
 }
 
 :root {
   /* Theme shade variables — set dynamically by useThemeColor() */
-  --theme-50: #ecfdf5;
-  --theme-100: #d1fae5;
-  --theme-200: #a7f3d0;
-  --theme-300: #6ee7b7;
-  --theme-400: #34d399;
-  --theme-500: #10b981;
-  --theme-600: #059669;
-  --theme-700: #047857;
-  --theme-800: #065f46;
-  --theme-900: #064e3b;
+  --theme-50: #ecfeff;
+  --theme-100: #cffafe;
+  --theme-200: #a5f3fc;
+  --theme-300: #67e8f9;
+  --theme-400: #22d3ee;
+  --theme-500: #06b6d4;
+  --theme-600: #0891b2;
+  --theme-700: #0e7490;
+  --theme-800: #155e75;
+  --theme-900: #164e63;
   /* Backward-compat aliases */
-  --theme-primary: #34d399;
-  --theme-bg: #059669;
-  --theme-css: #10b981;
+  --theme-primary: #22d3ee;
+  --theme-bg: #0891b2;
+  --theme-css: #06b6d4;
 
-  --radius: 0.5rem;
-  --background: oklch(0.09 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.145 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.145 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.707 0.165 163.223);
-  --primary-foreground: oklch(0.09 0 0);
-  --secondary: oklch(0.205 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.205 0 0);
-  --muted-foreground: oklch(0.637 0 0);
-  --accent: oklch(0.205 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 8%);
-  --input: oklch(1 0 0 / 12%);
-  --ring: oklch(0.707 0.165 163.223);
-  --chart-1: oklch(0.707 0.165 163.223);
-  --chart-2: oklch(0.828 0.189 84.429);
-  --chart-3: oklch(0.696 0.17 162.48);
-  --chart-4: oklch(0.646 0.222 41.116);
-  --chart-5: oklch(0.627 0.265 303.9);
-  --sidebar: oklch(0.11 0 0);
-  --sidebar-foreground: oklch(0.922 0 0);
-  --sidebar-primary: oklch(0.707 0.165 163.223);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.205 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 6%);
-  --sidebar-ring: oklch(0.707 0.165 163.223);
+  --radius: 0.625rem;
+  --background: #020617;
+  --foreground: #f1f5f9;
+  --card: #0f172a;
+  --card-foreground: #f1f5f9;
+  --popover: #0f172a;
+  --popover-foreground: #f1f5f9;
+  --primary: #06b6d4;
+  --primary-foreground: #020617;
+  --secondary: #1e293b;
+  --secondary-foreground: #f1f5f9;
+  --muted: #1e293b;
+  --muted-foreground: #64748b;
+  --accent: #1e293b;
+  --accent-foreground: #f1f5f9;
+  --destructive: #ef4444;
+  --border: rgba(255, 255, 255, 0.06);
+  --input: rgba(255, 255, 255, 0.08);
+  --ring: #06b6d4;
+  --chart-1: #06b6d4;
+  --chart-2: #8b5cf6;
+  --chart-3: #ec4899;
+  --chart-4: #f59e0b;
+  --chart-5: #10b981;
+  --sidebar: #0a0f1e;
+  --sidebar-foreground: #cbd5e1;
+  --sidebar-primary: #06b6d4;
+  --sidebar-primary-foreground: #f1f5f9;
+  --sidebar-accent: #1e293b;
+  --sidebar-accent-foreground: #f1f5f9;
+  --sidebar-border: rgba(255, 255, 255, 0.05);
+  --sidebar-ring: #06b6d4;
 }
 
 .dark {
-  /* Same as :root since we're always dark */
+  /* Same as :root — always dark */
 }
 
 @layer base {
@@ -103,17 +122,27 @@
     @apply border-border outline-ring/50;
   }
   html, body {
-    @apply bg-zinc-950 text-zinc-100;
+    @apply bg-deep-space text-slate-100 font-[var(--font-body)];
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-geist-sans), 'Inter', system-ui, sans-serif;
   }
 }
 
-/* Compact & modern scrollbar */
-::-webkit-scrollbar { width: 5px; height: 5px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: oklch(1 0 0 / 10%); border-radius: 10px; }
-::-webkit-scrollbar-thumb:hover { background: oklch(1 0 0 / 16%); }
+/* ═══════════════════════════════════════════════════════════
+   AETHER MISSION CONTROL — DESIGN SYSTEM
+   Inspiration: Linear · Stripe · Vercel · Mercury · Raycast
+   ═══════════════════════════════════════════════════════════ */
 
-/* Hide scrollbar utility */
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.08); border-radius: 100px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.14); }
+
+/* ── Hide scrollbar utility ── */
 .scrollbar-hide {
   scrollbar-width: none;
   -ms-overflow-style: none;
@@ -122,27 +151,83 @@
   display: none;
 }
 
-/* Modern card hover */
-.aether-card {
-  @apply bg-zinc-900/80 border border-zinc-800/60 rounded-lg;
-  backdrop-filter: blur(4px);
+/* ── AETHER Gradient System ── */
+.aether-gradient {
+  background: linear-gradient(135deg, #EC4899, #8B5CF6, #06B6D4);
+}
+.aether-gradient-text {
+  background: linear-gradient(135deg, #EC4899, #8B5CF6, #06B6D4);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.aether-gradient-border {
+  position: relative;
+}
+.aether-gradient-border::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, #EC4899, #8B5CF6, #06B6D4);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+.aether-gradient-glow {
+  box-shadow: 0 0 40px -10px rgba(139, 92, 246, 0.3),
+              0 0 20px -5px rgba(236, 72, 153, 0.2),
+              0 0 20px -5px rgba(6, 182, 212, 0.2);
+}
+.aether-gradient-subtle {
+  background: linear-gradient(135deg,
+    rgba(236, 72, 153, 0.08),
+    rgba(139, 92, 246, 0.08),
+    rgba(6, 182, 212, 0.08)
+  );
+}
+.aether-gradient-surface {
+  background: linear-gradient(135deg,
+    rgba(236, 72, 153, 0.04),
+    rgba(139, 92, 246, 0.04),
+    rgba(6, 182, 212, 0.04)
+  );
 }
 
-/* Compact text utilities */
-.text-caption { font-size: 0.625rem; line-height: 0.875rem; letter-spacing: 0.02em; }
-.text-overline { font-size: 0.6875rem; line-height: 1rem; letter-spacing: 0.04em; font-weight: 600; }
+/* ── Modern Card (Mission Control style) ── */
+.aether-card {
+  @apply bg-nebula/80 rounded-xl;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(12px);
+}
+.aether-card:hover {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+.aether-card-elevated {
+  @apply bg-nebula rounded-xl;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 4px 24px -4px rgba(0, 0, 0, 0.4),
+              0 0 0 1px rgba(255, 255, 255, 0.03);
+}
 
-/* Smooth focus ring */
+/* ── Compact text utilities ── */
+.text-caption { font-size: 0.625rem; line-height: 0.875rem; letter-spacing: 0.02em; }
+.text-overline { font-size: 0.6875rem; line-height: 1rem; letter-spacing: 0.06em; font-weight: 600; text-transform: uppercase; }
+
+/* ── Smooth focus ring ── */
 *:focus-visible {
   outline: 1.5px solid var(--theme-500);
   outline-offset: 1px;
-  border-radius: 4px;
+  border-radius: 6px;
 }
 
-/* Better table styling */
+/* ── Better table styling ── */
 table { border-collapse: separate; border-spacing: 0; }
 
-/* Print styles — hide everything except receipt when printing */
+/* ── Print styles ── */
 @media print {
   body * { visibility: hidden !important; }
   #receipt-print, #receipt-print * { visibility: visible !important; }
@@ -157,10 +242,7 @@ table { border-collapse: separate; border-spacing: 0; }
   }
 }
 
-/* ── iOS Safari input zoom fix ──
- * Safari auto-zooms into inputs with font-size < 16px.
- * Force 16px on all form inputs for touch devices to prevent this.
- */
+/* ── iOS Safari input zoom fix ── */
 @layer base {
   @media (pointer: coarse) {
     input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
@@ -201,29 +283,51 @@ table { border-collapse: separate; border-spacing: 0; }
   }
 }
 
-/* ── Modern dialog animations ── */
+/* ── Mission Control Dialog Animations ── */
 @keyframes dialog-content-show {
-  from { opacity: 0; transform: scale(0.96) translateY(4px); }
+  from { opacity: 0; transform: scale(0.97) translateY(8px); }
   to { opacity: 1; transform: scale(1) translateY(0); }
 }
 @keyframes dialog-content-hide {
   from { opacity: 1; transform: scale(1) translateY(0); }
-  to { opacity: 0; transform: scale(0.96) translateY(4px); }
+  to { opacity: 0; transform: scale(0.97) translateY(8px); }
 }
 
-/* ================================================================
+/* ── Aether Shimmer Animation ── */
+@keyframes aether-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.aether-shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(139, 92, 246, 0.06) 25%,
+    rgba(236, 72, 153, 0.06) 50%,
+    rgba(6, 182, 212, 0.06) 75%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: aether-shimmer 3s ease-in-out infinite;
+}
+
+/* ── Pulse Glow (for status indicators) ── */
+@keyframes aether-pulse-glow {
+  0%, 100% { box-shadow: 0 0 4px 1px rgba(6, 182, 212, 0.4); }
+  50% { box-shadow: 0 0 8px 2px rgba(6, 182, 212, 0.2); }
+}
+
+/* ═══════════════════════════════════════════════════════════
    THEME-AWARE UTILITY CLASSES
-   Use these instead of hardcoded emerald-* Tailwind classes.
-   The CSS variables are set dynamically by useThemeColor() hook.
-   ================================================================ */
+   ═══════════════════════════════════════════════════════════ */
 
 /* ── Primary button ── */
 .theme-btn-primary {
-  background-color: var(--theme-600);
+  background: linear-gradient(135deg, var(--theme-600), var(--theme-500));
   color: white;
 }
 .theme-btn-primary:hover {
-  background-color: var(--theme-500);
+  background: linear-gradient(135deg, var(--theme-500), var(--theme-400));
 }
 
 /* ── Backgrounds ── */
@@ -231,8 +335,8 @@ table { border-collapse: separate; border-spacing: 0; }
 .theme-bg-light { background-color: var(--theme-400); }
 .theme-bg-dark { background-color: var(--theme-600); }
 .theme-bg-darker { background-color: var(--theme-700); }
-.theme-bg-ultra-light { background-color: color-mix(in srgb, var(--theme-500) 3%, transparent); }
-.theme-bg-very-light { background-color: color-mix(in srgb, var(--theme-500) 5%, transparent); }
+.theme-bg-ultra-light { background-color: color-mix(in srgb, var(--theme-500) 4%, transparent); }
+.theme-bg-very-light { background-color: color-mix(in srgb, var(--theme-500) 6%, transparent); }
 .theme-bg-lighter { background-color: color-mix(in srgb, var(--theme-500) 8%, transparent); }
 .theme-bg-subtle { background-color: color-mix(in srgb, var(--theme-500) 10%, transparent); }
 .theme-bg-medium { background-color: color-mix(in srgb, var(--theme-500) 15%, transparent); }
@@ -254,7 +358,7 @@ table { border-collapse: separate; border-spacing: 0; }
 
 /* ── Ring / outline ── */
 .theme-ring { box-shadow: 0 0 0 2px var(--theme-500); }
-.theme-ring-offset { box-shadow: 0 0 0 2px var(--theme-500), 0 0 0 4px var(--theme-900); }
+.theme-ring-offset { box-shadow: 0 0 0 2px var(--theme-500), 0 0 0 4px #020617; }
 
 /* ── Shadows ── */
 .theme-shadow { box-shadow: 0 1px 3px 0 color-mix(in srgb, var(--theme-500) 15%, transparent); }
@@ -272,7 +376,7 @@ table { border-collapse: separate; border-spacing: 0; }
   background: linear-gradient(135deg, color-mix(in srgb, var(--theme-500) 15%, transparent), color-mix(in srgb, var(--theme-600) 15%, transparent));
 }
 
-/* ── Hover variants (pair with non-hover class) ── */
+/* ── Hover variants ── */
 .theme-hover:hover { background-color: var(--theme-600); }
 .theme-hover-light:hover { background-color: var(--theme-500); }
 .theme-hover-subtle:hover { background-color: color-mix(in srgb, var(--theme-500) 15%, transparent); }
@@ -289,9 +393,9 @@ table { border-collapse: separate; border-spacing: 0; }
 
 /* ── Theme-aware tab trigger active state ── */
 button[data-state="active"].theme-tab-trigger {
-  background: color-mix(in srgb, var(--theme-primary) 15%, transparent);
+  background: color-mix(in srgb, var(--theme-primary) 12%, transparent);
   color: var(--theme-primary);
-  border-color: color-mix(in srgb, var(--theme-primary) 20%, transparent);
+  border-color: color-mix(in srgb, var(--theme-primary) 15%, transparent);
 }
 
 /* ── Theme-aware switch ── */
@@ -299,7 +403,7 @@ button[data-state="active"].theme-tab-trigger {
   background-color: var(--theme-600);
 }
 
-/* ── Theme-aware dialog accent line (top glow) ── */
+/* ── Theme-aware dialog accent line (gradient glow top) ── */
 [data-slot="dialog-content"]::before,
 [data-slot="alert-dialog-content"]::before {
   content: '';
@@ -307,18 +411,18 @@ button[data-state="active"].theme-tab-trigger {
   top: 0;
   left: 50%;
   transform: translateX(-50%);
-  width: 50%;
+  width: 60%;
   height: 2px;
-  background: linear-gradient(90deg, transparent, var(--theme-primary), transparent);
+  background: linear-gradient(90deg, #EC4899, #8B5CF6, #06B6D4);
   border-radius: 0 0 4px 4px;
   z-index: 1;
   pointer-events: none;
 }
 
-/* ── Theme-aware scrollbar thumb (subtle) ── */
+/* ── Theme-aware scrollbar thumb ── */
 .theme-scrollbar::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--theme-500) 30%, transparent);
+  background: color-mix(in srgb, var(--theme-500) 25%, transparent);
 }
 .theme-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, var(--theme-500) 50%, transparent);
+  background: color-mix(in srgb, var(--theme-500) 40%, transparent);
 }

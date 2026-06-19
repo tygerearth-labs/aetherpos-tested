@@ -171,8 +171,8 @@ export default function SettingsPage() {
   return (
     <div className="space-y-4 max-w-5xl mx-auto">
       <div>
-        <h1 className="text-lg font-semibold text-zinc-100">Pengaturan</h1>
-        <p className="text-xs text-zinc-400 mt-0.5">Konfigurasi outlet dan preferensi sistem</p>
+        <h1 className="text-lg font-semibold text-white">Pengaturan</h1>
+        <p className="text-xs text-slate-400 mt-0.5">Konfigurasi outlet dan preferensi sistem</p>
       </div>
 
       <SettingsTabs isOwner={isOwner} />
@@ -202,7 +202,7 @@ function SettingsTabs({ isOwner }: { isOwner: boolean }) {
             <TabsTrigger
               key={tab.value}
               value={tab.value}
-              className="theme-tab-trigger flex items-center gap-2 px-3 py-2.5 sm:py-2 rounded-lg text-xs font-medium whitespace-nowrap text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/80 transition-all duration-150 border border-transparent"
+              className="theme-tab-trigger flex items-center gap-2 px-3 py-2.5 sm:py-2 rounded-lg text-xs font-medium whitespace-nowrap text-slate-500 hover:text-slate-300 hover:bg-white/[0.04]/80 transition-all duration-150 border border-transparent"
             >
               {tab.icon}
               {tab.label}
@@ -370,12 +370,12 @@ function PaymentMethodsTab() {
 
   if (loading) {
     return (
-      <Card className="bg-zinc-900 border-zinc-800">
+      <Card className="bg-nebula border-white/[0.06]">
         <CardContent className="p-4 space-y-3">
-          <Skeleton className="h-5 w-36 bg-zinc-800" />
+          <Skeleton className="h-5 w-36 bg-white/[0.04]" />
           <div className="grid gap-3">
             {Array.from({ length: 3 }).map((_, i) => (
-              <Skeleton key={i} className="h-16 bg-zinc-800 rounded-lg" />
+              <Skeleton key={i} className="h-16 bg-white/[0.04] rounded-lg" />
             ))}
           </div>
         </CardContent>
@@ -384,11 +384,11 @@ function PaymentMethodsTab() {
   }
 
   return (
-    <Card className="bg-zinc-900 border-zinc-800">
+    <Card className="bg-nebula border-white/[0.06]">
       <CardContent className="p-4 space-y-4">
         <div>
-          <h2 className="text-sm font-semibold text-zinc-100">Metode Pembayaran</h2>
-          <p className="text-xs text-zinc-400 mt-0.5">Pilih metode pembayaran yang tersedia di outlet Anda</p>
+          <h2 className="text-sm font-semibold text-white">Metode Pembayaran</h2>
+          <p className="text-xs text-slate-400 mt-0.5">Pilih metode pembayaran yang tersedia di outlet Anda</p>
         </div>
 
         <div className="grid gap-3">
@@ -404,19 +404,19 @@ function PaymentMethodsTab() {
                 className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer ${
                   isActive
                     ? 'theme-border-medium theme-bg-ultra-light hover:theme-hover-light'
-                    : 'border-zinc-800 bg-zinc-800/50 hover:bg-zinc-800'
+                    : 'border-white/[0.06] bg-white/[0.03] hover:bg-white/[0.04]'
                 }`}
               >
                 <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                  isActive ? 'theme-bg-subtle theme-text' : 'bg-zinc-800 text-zinc-500'
+                  isActive ? 'theme-bg-subtle theme-text' : 'bg-white/[0.04] text-slate-500'
                 }`}>
                   {method.icon}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className={`text-sm font-semibold ${isActive ? 'theme-text' : 'text-zinc-300'}`}>
+                  <p className={`text-sm font-semibold ${isActive ? 'theme-text' : 'text-slate-300'}`}>
                     {method.label}
                   </p>
-                  <p className="text-xs text-zinc-500 mt-0.5">{method.desc}</p>
+                  <p className="text-xs text-slate-500 mt-0.5">{method.desc}</p>
                 </div>
                 <Switch
                   checked={isActive}
@@ -478,33 +478,33 @@ function TaxTab() {
 
   if (loading) {
     return (
-      <Card className="bg-zinc-900 border-zinc-800">
+      <Card className="bg-nebula border-white/[0.06]">
         <CardContent className="p-4 space-y-3">
-          <Skeleton className="h-5 w-36 bg-zinc-800" />
-          <Skeleton className="h-16 bg-zinc-800 rounded-lg" />
-          <Skeleton className="h-9 bg-zinc-800" />
+          <Skeleton className="h-5 w-36 bg-white/[0.04]" />
+          <Skeleton className="h-16 bg-white/[0.04] rounded-lg" />
+          <Skeleton className="h-9 bg-white/[0.04]" />
         </CardContent>
       </Card>
     )
   }
 
   return (
-    <Card className="bg-zinc-900 border-zinc-800">
+    <Card className="bg-nebula border-white/[0.06]">
       <CardContent className="p-4 space-y-4">
         <div>
-          <h2 className="text-sm font-semibold text-zinc-100">Pajak PPN</h2>
-          <p className="text-xs text-zinc-400 mt-0.5">Atur Pajak Pertambahan Nilai untuk transaksi</p>
+          <h2 className="text-sm font-semibold text-white">Pajak PPN</h2>
+          <p className="text-xs text-slate-400 mt-0.5">Atur Pajak Pertambahan Nilai untuk transaksi</p>
         </div>
 
         {/* Enable toggle */}
-        <div className="flex items-center justify-between p-3 rounded-lg border border-zinc-800 bg-zinc-800/50">
+        <div className="flex items-center justify-between p-3 rounded-lg border border-white/[0.06] bg-white/[0.03]">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg theme-bg-very-light flex items-center justify-center">
               <ReceiptText className="h-4 w-4 theme-text" />
             </div>
             <div>
-              <p className="text-sm font-semibold text-zinc-200">Aktifkan PPN</p>
-              <p className="text-[11px] text-zinc-500">Pajak otomatis ditambahkan ke setiap transaksi</p>
+              <p className="text-sm font-semibold text-slate-200">Aktifkan PPN</p>
+              <p className="text-[11px] text-slate-500">Pajak otomatis ditambahkan ke setiap transaksi</p>
             </div>
           </div>
           <Switch
@@ -516,10 +516,10 @@ function TaxTab() {
 
         {ppnEnabled && (
           <>
-            <Separator className="bg-zinc-800" />
+            <Separator className="bg-white/[0.04]" />
 
             <div className="space-y-1.5">
-              <Label htmlFor="ppn-rate" className="text-xs text-zinc-300">
+              <Label htmlFor="ppn-rate" className="text-xs text-slate-300">
                 Tarif PPN (%)
               </Label>
               <div className="relative">
@@ -532,17 +532,17 @@ function TaxTab() {
                   value={ppnRate}
                   onChange={(e) => handleChange('ppnRate', e.target.value)}
                   placeholder="11"
-                  className="bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 h-9 text-sm pr-10"
+                  className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm pr-10"
                 />
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-500">%</span>
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500">%</span>
               </div>
-              <p className="text-[10px] text-zinc-600">Tarif PPN standar Indonesia: 11%</p>
+              <p className="text-[10px] text-slate-600">Tarif PPN standar Indonesia: 11%</p>
             </div>
 
             {/* Example formula */}
             <div className="rounded-lg border theme-border-light theme-bg-ultra-light p-3">
               <p className="text-[11px] font-medium theme-text uppercase tracking-wider mb-1.5">Contoh Perhitungan</p>
-              <div className="space-y-1 text-xs text-zinc-300">
+              <div className="space-y-1 text-xs text-slate-300">
                 <div className="flex justify-between">
                   <span>Subtotal</span>
                   <span className="font-medium">{formatCurrency(exampleSubtotal)}</span>
@@ -552,7 +552,7 @@ function TaxTab() {
                   <span className="font-medium theme-text">+{formatCurrency(exampleTax)}</span>
                 </div>
                 <div className="flex justify-between border-t theme-border-light pt-1 mt-1">
-                  <span className="font-semibold text-zinc-200">Total</span>
+                  <span className="font-semibold text-slate-200">Total</span>
                   <span className="font-bold theme-text">{formatCurrency(exampleTotal)}</span>
                 </div>
               </div>
@@ -608,58 +608,58 @@ function OutletInfoTab() {
 
   if (loading) {
     return (
-      <Card className="bg-zinc-900 border-zinc-800">
+      <Card className="bg-nebula border-white/[0.06]">
         <CardContent className="p-4 space-y-3">
-          <Skeleton className="h-5 w-36 bg-zinc-800" />
-          <Skeleton className="h-9 bg-zinc-800" />
-          <Skeleton className="h-9 bg-zinc-800" />
-          <Skeleton className="h-9 bg-zinc-800" />
+          <Skeleton className="h-5 w-36 bg-white/[0.04]" />
+          <Skeleton className="h-9 bg-white/[0.04]" />
+          <Skeleton className="h-9 bg-white/[0.04]" />
+          <Skeleton className="h-9 bg-white/[0.04]" />
         </CardContent>
       </Card>
     )
   }
 
   return (
-    <Card className="bg-zinc-900 border-zinc-800">
+    <Card className="bg-nebula border-white/[0.06]">
       <CardContent className="p-4 space-y-4">
         <div>
-          <h2 className="text-sm font-semibold text-zinc-100">Informasi Outlet</h2>
-          <p className="text-xs text-zinc-400 mt-0.5">Detail informasi usaha Anda</p>
+          <h2 className="text-sm font-semibold text-white">Informasi Outlet</h2>
+          <p className="text-xs text-slate-400 mt-0.5">Detail informasi usaha Anda</p>
         </div>
 
         <div className="space-y-4">
           {/* Desktop: name + phone side by side, address full width below */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label htmlFor="outlet-name" className="text-xs text-zinc-300">Nama Outlet</Label>
+              <Label htmlFor="outlet-name" className="text-xs text-slate-300">Nama Outlet</Label>
               <Input
                 id="outlet-name"
                 value={outletName}
                 onChange={(e) => handleChange('outletName', e.target.value)}
                 placeholder="Masukkan nama outlet"
-                className="bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 h-9 text-sm"
+                className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="outlet-phone" className="text-xs text-zinc-300">Telepon</Label>
+              <Label htmlFor="outlet-phone" className="text-xs text-slate-300">Telepon</Label>
               <Input
                 id="outlet-phone"
                 value={outletPhone}
                 onChange={(e) => handleChange('outletPhone', e.target.value)}
                 placeholder="Masukkan nomor telepon"
-                className="bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 h-9 text-sm"
+                className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
               />
             </div>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="outlet-address" className="text-xs text-zinc-300">Alamat</Label>
+            <Label htmlFor="outlet-address" className="text-xs text-slate-300">Alamat</Label>
             <Textarea
               id="outlet-address"
               value={outletAddress}
               onChange={(e) => handleChange('outletAddress', e.target.value)}
               placeholder="Masukkan alamat outlet"
               rows={2}
-              className="bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 text-sm resize-none"
+              className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 text-sm resize-none"
             />
           </div>
         </div>
@@ -716,34 +716,34 @@ function LoyaltyTab() {
 
   if (loading) {
     return (
-      <Card className="bg-zinc-900 border-zinc-800">
+      <Card className="bg-nebula border-white/[0.06]">
         <CardContent className="p-4 space-y-3">
-          <Skeleton className="h-5 w-36 bg-zinc-800" />
-          <Skeleton className="h-9 bg-zinc-800" />
-          <Skeleton className="h-9 bg-zinc-800" />
-          <Skeleton className="h-9 bg-zinc-800" />
+          <Skeleton className="h-5 w-36 bg-white/[0.04]" />
+          <Skeleton className="h-9 bg-white/[0.04]" />
+          <Skeleton className="h-9 bg-white/[0.04]" />
+          <Skeleton className="h-9 bg-white/[0.04]" />
         </CardContent>
       </Card>
     )
   }
 
   return (
-    <Card className="bg-zinc-900 border-zinc-800">
+    <Card className="bg-nebula border-white/[0.06]">
       <CardContent className="p-4 space-y-4">
         <div>
-          <h2 className="text-sm font-semibold text-zinc-100">Program Loyalti</h2>
-          <p className="text-xs text-zinc-400 mt-0.5">Konfigurasi poin loyalitas pelanggan</p>
+          <h2 className="text-sm font-semibold text-white">Program Loyalti</h2>
+          <p className="text-xs text-slate-400 mt-0.5">Konfigurasi poin loyalitas pelanggan</p>
         </div>
 
         {/* Enable toggle */}
-        <div className="flex items-center justify-between p-3 rounded-lg border border-zinc-800 bg-zinc-800/50">
+        <div className="flex items-center justify-between p-3 rounded-lg border border-white/[0.06] bg-white/[0.03]">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center">
               <Star className="h-4 w-4 text-amber-400" />
             </div>
             <div>
-              <p className="text-sm font-semibold text-zinc-200">Aktifkan Program Loyalti</p>
-              <p className="text-[11px] text-zinc-500">Pelanggan mendapat poin dari setiap transaksi</p>
+              <p className="text-sm font-semibold text-slate-200">Aktifkan Program Loyalti</p>
+              <p className="text-[11px] text-slate-500">Pelanggan mendapat poin dari setiap transaksi</p>
             </div>
           </div>
           <Switch
@@ -755,11 +755,11 @@ function LoyaltyTab() {
 
         {loyaltyEnabled && (
           <>
-            <Separator className="bg-zinc-800" />
+            <Separator className="bg-white/[0.04]" />
 
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="points-per-amount" className="text-xs text-zinc-300">
+                <Label htmlFor="points-per-amount" className="text-xs text-slate-300">
                   Setiap Rp X = 1 poin
                 </Label>
                 <Input
@@ -769,11 +769,11 @@ function LoyaltyTab() {
                   value={pointsPerAmount}
                   onChange={(e) => handleChange('pointsPerAmount', e.target.value)}
                   placeholder="10000"
-                  className="bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 h-9 text-sm"
+                  className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="point-value" className="text-xs text-zinc-300">
+                <Label htmlFor="point-value" className="text-xs text-slate-300">
                   1 poin = Rp X diskon
                 </Label>
                 <Input
@@ -783,7 +783,7 @@ function LoyaltyTab() {
                   value={pointValue}
                   onChange={(e) => handleChange('pointValue', e.target.value)}
                   placeholder="100"
-                  className="bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 h-9 text-sm"
+                  className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
                 />
               </div>
             </div>
@@ -791,7 +791,7 @@ function LoyaltyTab() {
             {/* Example formula */}
             <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
               <p className="text-[11px] font-medium text-amber-400 uppercase tracking-wider mb-1.5">Contoh Perhitungan</p>
-              <p className="text-xs text-zinc-300">
+              <p className="text-xs text-slate-300">
                 Belanja <span className="font-semibold text-amber-300">{formatCurrency(exampleSpend)}</span> ={' '}
                 <span className="font-semibold text-amber-300">{examplePoints} poin</span> ={' '}
                 <span className="font-semibold text-amber-300">{formatCurrency(exampleDiscount)} diskon</span>
@@ -945,12 +945,12 @@ function PromoTab() {
   }
 
   return (
-    <Card className="bg-zinc-900 border-zinc-800">
+    <Card className="bg-nebula border-white/[0.06]">
       <CardContent className="p-4 space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-sm font-semibold text-zinc-100">Promo / Diskon</h2>
-            <p className="text-xs text-zinc-400 mt-0.5">Kelola promo dan diskon untuk pelanggan</p>
+            <h2 className="text-sm font-semibold text-white">Promo / Diskon</h2>
+            <p className="text-xs text-slate-400 mt-0.5">Kelola promo dan diskon untuk pelanggan</p>
           </div>
           <Button
             onClick={openCreate}
@@ -964,34 +964,34 @@ function PromoTab() {
         {loading ? (
           <div className="space-y-2">
             {Array.from({ length: 3 }).map((_, i) => (
-              <Skeleton key={i} className="h-10 bg-zinc-800 rounded" />
+              <Skeleton key={i} className="h-10 bg-white/[0.04] rounded" />
             ))}
           </div>
         ) : promos.length === 0 ? (
           <div className="py-8 text-center">
             <Tag className="h-10 w-10 text-zinc-700 mx-auto mb-2" />
-            <p className="text-sm text-zinc-500">Belum ada promo</p>
-            <p className="text-[11px] text-zinc-600 mt-0.5">Tambahkan promo untuk menarik pelanggan</p>
+            <p className="text-sm text-slate-500">Belum ada promo</p>
+            <p className="text-[11px] text-slate-600 mt-0.5">Tambahkan promo untuk menarik pelanggan</p>
           </div>
         ) : (
-          <div className="rounded-lg border border-zinc-800 overflow-x-auto">
+          <div className="rounded-lg border border-white/[0.06] overflow-x-auto">
             <Table>
               <TableHeader>
-                <TableRow className="border-zinc-800 hover:bg-transparent">
-                  <TableHead className="text-zinc-500 text-[11px] font-medium h-8">Nama</TableHead>
-                  <TableHead className="text-zinc-500 text-[11px] font-medium h-8">Tipe</TableHead>
-                  <TableHead className="text-zinc-500 text-[11px] font-medium h-8">Kategori</TableHead>
-                  <TableHead className="text-zinc-500 text-[11px] font-medium h-8 text-right">Nilai</TableHead>
-                  <TableHead className="text-zinc-500 text-[11px] font-medium h-8 text-right">Min. Belanja</TableHead>
-                  <TableHead className="text-zinc-500 text-[11px] font-medium h-8 text-right">Maks Diskon</TableHead>
-                  <TableHead className="text-zinc-500 text-[11px] font-medium h-8 text-center">Status</TableHead>
-                  <TableHead className="text-zinc-500 text-[11px] font-medium h-8 text-right">Aksi</TableHead>
+                <TableRow className="border-white/[0.06] hover:bg-transparent">
+                  <TableHead className="text-slate-500 text-[11px] font-medium h-8">Nama</TableHead>
+                  <TableHead className="text-slate-500 text-[11px] font-medium h-8">Tipe</TableHead>
+                  <TableHead className="text-slate-500 text-[11px] font-medium h-8">Kategori</TableHead>
+                  <TableHead className="text-slate-500 text-[11px] font-medium h-8 text-right">Nilai</TableHead>
+                  <TableHead className="text-slate-500 text-[11px] font-medium h-8 text-right">Min. Belanja</TableHead>
+                  <TableHead className="text-slate-500 text-[11px] font-medium h-8 text-right">Maks Diskon</TableHead>
+                  <TableHead className="text-slate-500 text-[11px] font-medium h-8 text-center">Status</TableHead>
+                  <TableHead className="text-slate-500 text-[11px] font-medium h-8 text-right">Aksi</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {promos.map((promo) => (
-                  <TableRow key={promo.id} className="border-zinc-800 hover:bg-zinc-800/50">
-                    <TableCell className="text-xs text-zinc-200 font-medium py-2">{promo.name}</TableCell>
+                  <TableRow key={promo.id} className="border-white/[0.06] hover:bg-white/[0.03]">
+                    <TableCell className="text-xs text-slate-200 font-medium py-2">{promo.name}</TableCell>
                     <TableCell className="py-2">
                       <Badge
                         variant="outline"
@@ -1006,20 +1006,20 @@ function PromoTab() {
                         {promo.type === 'PERCENTAGE' ? 'Persentase' : promo.type === 'BUY_X_GET_DISCOUNT' ? 'Beli N Diskon' : 'Nominal'}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-xs text-zinc-400 py-2">
+                    <TableCell className="text-xs text-slate-400 py-2">
                       {promo.categoryId ? (promo.categoryName || 'Kategori spesifik') : (
-                        <span className="text-zinc-500">Semua</span>
+                        <span className="text-slate-500">Semua</span>
                       )}
                     </TableCell>
-                    <TableCell className="text-xs text-zinc-200 text-right py-2">
+                    <TableCell className="text-xs text-slate-200 text-right py-2">
                       {promo.type === 'BUY_X_GET_DISCOUNT'
                         ? `${promo.buyMinQty || 2} item → ${promo.discountType === 'PERCENTAGE' ? `${promo.value}%` : formatCurrency(promo.value)}`
                         : promo.type === 'PERCENTAGE' ? `${promo.value}%` : formatCurrency(promo.value)}
                     </TableCell>
-                    <TableCell className="text-xs text-zinc-400 text-right py-2">
+                    <TableCell className="text-xs text-slate-400 text-right py-2">
                       {promo.minPurchase ? formatCurrency(promo.minPurchase) : '-'}
                     </TableCell>
-                    <TableCell className="text-xs text-zinc-400 text-right py-2">
+                    <TableCell className="text-xs text-slate-400 text-right py-2">
                       {promo.maxDiscount ? formatCurrency(promo.maxDiscount) : '-'}
                     </TableCell>
                     <TableCell className="text-center py-2">
@@ -1027,7 +1027,7 @@ function PromoTab() {
                         className={`text-[11px] ${
                           promo.active
                             ? 'theme-accent-bg theme-accent-border theme-accent-text'
-                            : 'bg-zinc-800 border-zinc-700 text-zinc-500'
+                            : 'bg-white/[0.04] border-white/[0.08] text-slate-500'
                         }`}
                       >
                         {promo.active ? 'Aktif' : 'Nonaktif'}
@@ -1038,7 +1038,7 @@ function PromoTab() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-7 w-7 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800"
+                          className="h-7 w-7 text-slate-400 hover:text-white hover:bg-white/[0.04]"
                           onClick={() => openEdit(promo)}
                         >
                           <Pencil className="h-3.5 w-3.5" />
@@ -1046,7 +1046,7 @@ function PromoTab() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-7 w-7 text-zinc-400 hover:text-red-400 hover:bg-red-500/10"
+                          className="h-7 w-7 text-slate-400 hover:text-red-400 hover:bg-red-500/10"
                           onClick={() => setDeleteId(promo.id)}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
@@ -1062,50 +1062,50 @@ function PromoTab() {
 
         {/* Promo Form Dialog */}
         <ResponsiveDialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <ResponsiveDialogContent className="bg-zinc-900 border-zinc-800 p-4">
+          <ResponsiveDialogContent className="bg-nebula border-white/[0.06] p-4">
             <ResponsiveDialogHeader>
-              <ResponsiveDialogTitle className="text-sm font-semibold text-zinc-100">
+              <ResponsiveDialogTitle className="text-sm font-semibold text-white">
                 {editPromo ? 'Edit Promo' : 'Tambah Promo Baru'}
               </ResponsiveDialogTitle>
             </ResponsiveDialogHeader>
             <div className="space-y-4 py-1">
               <div className="space-y-1.5">
-                <Label className="text-xs text-zinc-300">Kategori (opsional)</Label>
+                <Label className="text-xs text-slate-300">Kategori (opsional)</Label>
                 <Select
                   value={formData.categoryId}
                   onValueChange={(v) => setFormData((p) => ({ ...p, categoryId: v }))}
                 >
-                  <SelectTrigger className="bg-zinc-800 border-zinc-700 text-zinc-100 w-full h-9 text-sm">
+                  <SelectTrigger className="bg-white/[0.04] border-white/[0.08] text-white w-full h-9 text-sm">
                     <SelectValue placeholder="Semua Kategori" />
                   </SelectTrigger>
-                  <SelectContent className="bg-zinc-900 border-zinc-800">
+                  <SelectContent className="bg-nebula border-white/[0.06]">
                     <SelectItem value="__all__">Semua Kategori</SelectItem>
                     {categories.map((cat) => (
                       <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                <p className="text-[10px] text-zinc-500">Kosongkan untuk berlaku ke semua kategori</p>
+                <p className="text-[10px] text-slate-500">Kosongkan untuk berlaku ke semua kategori</p>
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs text-zinc-300">Nama Promo</Label>
+                <Label className="text-xs text-slate-300">Nama Promo</Label>
                 <Input
                   value={formData.name}
                   onChange={(e) => setFormData((p) => ({ ...p, name: e.target.value }))}
                   placeholder="Contoh: Diskon Akhir Tahun"
-                  className="bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 h-9 text-sm"
+                  className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
                 />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs text-zinc-300">Tipe Diskon</Label>
+                <Label className="text-xs text-slate-300">Tipe Diskon</Label>
                 <Select
                   value={formData.type}
                   onValueChange={(v) => setFormData((p) => ({ ...p, type: v }))}
                 >
-                  <SelectTrigger className="bg-zinc-800 border-zinc-700 text-zinc-100 w-full h-9 text-sm">
+                  <SelectTrigger className="bg-white/[0.04] border-white/[0.08] text-white w-full h-9 text-sm">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent className="bg-zinc-900 border-zinc-800">
+                  <SelectContent className="bg-nebula border-white/[0.06]">
                     <SelectItem value="PERCENTAGE">Persentase (%)</SelectItem>
                     <SelectItem value="NOMINAL">Nominal (Rp)</SelectItem>
                     <SelectItem value="BUY_X_GET_DISCOUNT">Beli N Produk Diskon</SelectItem>
@@ -1113,7 +1113,7 @@ function PromoTab() {
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs text-zinc-300">
+                <Label className="text-xs text-slate-300">
                   Nilai Diskon {formData.type === 'PERCENTAGE' || (formData.type === 'BUY_X_GET_DISCOUNT' && formData.discountType === 'PERCENTAGE') ? '(%)' : '(Rp)'}
                 </Label>
                 <Input
@@ -1122,57 +1122,57 @@ function PromoTab() {
                   value={formData.value}
                   onChange={(e) => setFormData((p) => ({ ...p, value: e.target.value }))}
                   placeholder={formData.type === 'PERCENTAGE' ? '10' : '50000'}
-                  className="bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 h-9 text-sm"
+                  className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
                 />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs text-zinc-300">Minimum Pembayaran (opsional)</Label>
+                <Label className="text-xs text-slate-300">Minimum Pembayaran (opsional)</Label>
                 <Input
                   type="number"
                   min="0"
                   value={formData.minPurchase}
                   onChange={(e) => setFormData((p) => ({ ...p, minPurchase: e.target.value }))}
                   placeholder="100000"
-                  className="bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 h-9 text-sm"
+                  className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
                 />
               </div>
               {(formData.type === 'PERCENTAGE' || formData.type === 'BUY_X_GET_DISCOUNT') && (
                 <div className="space-y-1.5">
-                  <Label className="text-xs text-zinc-300">Maks Diskon (opsional)</Label>
+                  <Label className="text-xs text-slate-300">Maks Diskon (opsional)</Label>
                   <Input
                     type="number"
                     min="0"
                     value={formData.maxDiscount}
                     onChange={(e) => setFormData((p) => ({ ...p, maxDiscount: e.target.value }))}
                     placeholder="50000"
-                    className="bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 h-9 text-sm"
+                    className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
                   />
                 </div>
               )}
               {formData.type === 'BUY_X_GET_DISCOUNT' && (
                 <>
                   <div className="space-y-1.5">
-                    <Label className="text-xs text-zinc-300">Minimal Jumlah Item</Label>
+                    <Label className="text-xs text-slate-300">Minimal Jumlah Item</Label>
                     <Input
                       type="number"
                       min="2"
                       value={formData.buyMinQty}
                       onChange={(e) => setFormData((p) => ({ ...p, buyMinQty: e.target.value }))}
                       placeholder="2"
-                      className="bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 h-9 text-sm"
+                      className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
                     />
-                    <p className="text-[10px] text-zinc-500">Minimal jumlah item di keranjang untuk mendapat diskon</p>
+                    <p className="text-[10px] text-slate-500">Minimal jumlah item di keranjang untuk mendapat diskon</p>
                   </div>
                   <div className="space-y-1.5">
-                    <Label className="text-xs text-zinc-300">Tipe Diskon</Label>
+                    <Label className="text-xs text-slate-300">Tipe Diskon</Label>
                     <Select
                       value={formData.discountType}
                       onValueChange={(v) => setFormData((p) => ({ ...p, discountType: v }))}
                     >
-                      <SelectTrigger className="bg-zinc-800 border-zinc-700 text-zinc-100 w-full h-9 text-sm">
+                      <SelectTrigger className="bg-white/[0.04] border-white/[0.08] text-white w-full h-9 text-sm">
                         <SelectValue />
                       </SelectTrigger>
-                      <SelectContent className="bg-zinc-900 border-zinc-800">
+                      <SelectContent className="bg-nebula border-white/[0.06]">
                         <SelectItem value="PERCENTAGE">Persentase (%)</SelectItem>
                         <SelectItem value="NOMINAL">Nominal (Rp)</SelectItem>
                       </SelectContent>
@@ -1186,14 +1186,14 @@ function PromoTab() {
                   onCheckedChange={(v) => setFormData((p) => ({ ...p, active: v }))}
                   className="theme-switch"
                 />
-                <Label className="text-xs text-zinc-300">Promo aktif</Label>
+                <Label className="text-xs text-slate-300">Promo aktif</Label>
               </div>
             </div>
             <ResponsiveDialogFooter>
               <Button
                 variant="ghost"
                 onClick={() => setDialogOpen(false)}
-                className="bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700 h-8 text-xs"
+                className="bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.06] h-8 text-xs"
               >
                 Batal
               </Button>
@@ -1211,15 +1211,15 @@ function PromoTab() {
 
         {/* Delete Confirmation */}
         <AlertDialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>
-          <AlertDialogContent className="bg-zinc-900 border-zinc-800">
+          <AlertDialogContent className="bg-nebula border-white/[0.06]">
             <AlertDialogHeader>
-              <AlertDialogTitle className="text-sm font-semibold text-zinc-100">Hapus Promo</AlertDialogTitle>
-              <AlertDialogDescription className="text-xs text-zinc-400">
+              <AlertDialogTitle className="text-sm font-semibold text-white">Hapus Promo</AlertDialogTitle>
+              <AlertDialogDescription className="text-xs text-slate-400">
                 Apakah Anda yakin ingin menghapus promo ini? Tindakan ini tidak dapat dibatalkan.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel className="bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700 h-8 text-xs">
+              <AlertDialogCancel className="bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.06] h-8 text-xs">
                 Batal
               </AlertDialogCancel>
               <AlertDialogAction
@@ -1274,27 +1274,27 @@ function ThemeReceiptTab() {
       <div className="space-y-4">
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
           <div className="lg:col-span-3 space-y-4">
-            <Card className="bg-zinc-900 border-zinc-800">
+            <Card className="bg-nebula border-white/[0.06]">
               <CardContent className="p-4 space-y-3">
-                <Skeleton className="h-5 w-36 bg-zinc-800" />
-                <Skeleton className="h-9 bg-zinc-800" />
+                <Skeleton className="h-5 w-36 bg-white/[0.04]" />
+                <Skeleton className="h-9 bg-white/[0.04]" />
               </CardContent>
             </Card>
-            <Card className="bg-zinc-900 border-zinc-800">
+            <Card className="bg-nebula border-white/[0.06]">
               <CardContent className="p-4 space-y-3">
-                <Skeleton className="h-5 w-40 bg-zinc-800" />
-                <Skeleton className="h-9 bg-zinc-800" />
-                <Skeleton className="h-9 bg-zinc-800" />
-                <Skeleton className="h-9 bg-zinc-800" />
-                <Skeleton className="h-9 bg-zinc-800" />
+                <Skeleton className="h-5 w-40 bg-white/[0.04]" />
+                <Skeleton className="h-9 bg-white/[0.04]" />
+                <Skeleton className="h-9 bg-white/[0.04]" />
+                <Skeleton className="h-9 bg-white/[0.04]" />
+                <Skeleton className="h-9 bg-white/[0.04]" />
               </CardContent>
             </Card>
           </div>
           <div className="lg:col-span-2">
-            <Card className="bg-zinc-900 border-zinc-800">
+            <Card className="bg-nebula border-white/[0.06]">
               <CardContent className="p-4 space-y-3">
-                <Skeleton className="h-5 w-36 bg-zinc-800" />
-                <Skeleton className="h-72 w-full bg-zinc-800 rounded-lg" />
+                <Skeleton className="h-5 w-36 bg-white/[0.04]" />
+                <Skeleton className="h-72 w-full bg-white/[0.04] rounded-lg" />
               </CardContent>
             </Card>
           </div>
@@ -1310,15 +1310,15 @@ function ThemeReceiptTab() {
         {/* Left column: Theme + Receipt Form */}
         <div className="lg:col-span-3 space-y-4 min-w-0">
           {/* Theme Section */}
-          <Card className="bg-zinc-900 border-zinc-800">
+          <Card className="bg-nebula border-white/[0.06]">
             <CardContent className="p-4 space-y-4">
               <div>
-                <h2 className="text-sm font-semibold text-zinc-100">Tema</h2>
-                <p className="text-xs text-zinc-400 mt-0.5">Kustomisasi tampilan aplikasi</p>
+                <h2 className="text-sm font-semibold text-white">Tema</h2>
+                <p className="text-xs text-slate-400 mt-0.5">Kustomisasi tampilan aplikasi</p>
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-xs text-zinc-300">Warna tema utama</Label>
+                <Label className="text-xs text-slate-300">Warna tema utama</Label>
                 <div className="flex items-center gap-2.5 flex-wrap">
                   {THEME_COLORS.map((color) => {
                     const isSelected = themeColor === color.name
@@ -1327,7 +1327,7 @@ function ThemeReceiptTab() {
                         key={color.name}
                         onClick={() => handleChange('themeColor', color.name)}
                         className={`relative w-8 h-8 rounded-full ${color.classes} flex items-center justify-center transition-colors ${
-                          isSelected ? 'ring-2 ring-offset-2 ring-offset-zinc-900 ring-white/50 scale-110' : 'hover:scale-105'
+                          isSelected ? 'ring-2 ring-offset-2 ring-offset-nebula ring-white/50 scale-110' : 'hover:scale-105'
                         }`}
                         title={color.label}
                       >
@@ -1341,67 +1341,67 @@ function ThemeReceiptTab() {
           </Card>
 
           {/* Receipt Section */}
-          <Card className="bg-zinc-900 border-zinc-800 overflow-hidden">
+          <Card className="bg-nebula border-white/[0.06] overflow-hidden">
             <CardContent className="p-4 space-y-4">
               <div>
-                <h2 className="text-sm font-semibold text-zinc-100">Pengaturan Struk</h2>
-                <p className="text-xs text-zinc-400 mt-0.5">Informasi yang ditampilkan pada struk belanja</p>
+                <h2 className="text-sm font-semibold text-white">Pengaturan Struk</h2>
+                <p className="text-xs text-slate-400 mt-0.5">Informasi yang ditampilkan pada struk belanja</p>
               </div>
 
               <div className="grid gap-3">
                 <div className="space-y-1.5">
-                  <Label htmlFor="receipt-name" className="text-xs text-zinc-300">Nama Usaha</Label>
+                  <Label htmlFor="receipt-name" className="text-xs text-slate-300">Nama Usaha</Label>
                   <Input
                     id="receipt-name"
                     value={receiptBusinessName}
                     onChange={(e) => handleChange('receiptBusinessName', e.target.value)}
                     placeholder="Masukkan nama usaha"
-                    className="bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 h-9 text-sm"
+                    className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="receipt-address" className="text-xs text-zinc-300">Alamat</Label>
+                  <Label htmlFor="receipt-address" className="text-xs text-slate-300">Alamat</Label>
                   <Textarea
                     id="receipt-address"
                     value={receiptAddress}
                     onChange={(e) => handleChange('receiptAddress', e.target.value)}
                     placeholder="Masukkan alamat usaha"
                     rows={2}
-                    className="bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 text-sm resize-none"
+                    className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 text-sm resize-none"
                   />
                 </div>
                 {/* Desktop: phone + footer side by side */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                   <div className="space-y-1.5">
-                    <Label htmlFor="receipt-phone" className="text-xs text-zinc-300">Telepon</Label>
+                    <Label htmlFor="receipt-phone" className="text-xs text-slate-300">Telepon</Label>
                     <Input
                       id="receipt-phone"
                       value={receiptPhone}
                       onChange={(e) => handleChange('receiptPhone', e.target.value)}
                       placeholder="08xxxxxxxxxx"
-                      className="bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 h-9 text-sm"
+                      className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor="receipt-footer" className="text-xs text-zinc-300">Pesan Footer</Label>
+                    <Label htmlFor="receipt-footer" className="text-xs text-slate-300">Pesan Footer</Label>
                     <Input
                       id="receipt-footer"
                       value={receiptFooter}
                       onChange={(e) => handleChange('receiptFooter', e.target.value)}
                       placeholder="Terima kasih atas kunjungan Anda!"
-                      className="bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 h-9 text-sm"
+                      className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
                     />
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="receipt-logo" className="text-xs text-zinc-300">Logo Outlet (Image URL)</Label>
+                  <Label htmlFor="receipt-logo" className="text-xs text-slate-300">Logo Outlet (Image URL)</Label>
                   <div className="flex items-center gap-2">
                     <Input
                       id="receipt-logo"
                       value={receiptLogo}
                       onChange={(e) => handleChange('receiptLogo', e.target.value)}
                       placeholder="https://example.com/logo.png"
-                      className="flex-1 min-w-0 bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 h-9 text-sm"
+                      className="flex-1 min-w-0 bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
                     />
                     {receiptLogo && (
                       <Button
@@ -1416,7 +1416,7 @@ function ThemeReceiptTab() {
                     )}
                   </div>
                   {receiptLogo && (
-                    <div className="mt-1 flex items-center gap-3 p-3 rounded-lg bg-zinc-800/50 border border-zinc-700/30">
+                    <div className="mt-1 flex items-center gap-3 p-3 rounded-lg bg-white/[0.03] border border-white/[0.03]">
                       <img
                         src={receiptLogo}
                         alt="Logo Preview"
@@ -1425,11 +1425,11 @@ function ThemeReceiptTab() {
                       />
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-medium theme-text">Logo berhasil dimuat</p>
-                        <p className="text-[10px] text-zinc-500 truncate mt-0.5">{receiptLogo}</p>
+                        <p className="text-[10px] text-slate-500 truncate mt-0.5">{receiptLogo}</p>
                       </div>
                     </div>
                   )}
-                  <p className="text-[11px] text-zinc-500">Masukkan URL gambar logo. Logo akan ditampilkan pada struk belanja.</p>
+                  <p className="text-[11px] text-slate-500">Masukkan URL gambar logo. Logo akan ditampilkan pada struk belanja.</p>
                 </div>
               </div>
 
@@ -1450,11 +1450,11 @@ function ThemeReceiptTab() {
 
         {/* Right column: Receipt Preview — sticky on desktop */}
         <div className="lg:col-span-2 min-w-0">
-          <Card className="bg-zinc-900 border-zinc-800 lg:sticky lg:top-4">
+          <Card className="bg-nebula border-white/[0.06] lg:sticky lg:top-4">
             <CardContent className="p-4 space-y-3">
               <div>
-                <h2 className="text-sm font-semibold text-zinc-100">Pratinjau Struk</h2>
-                <p className="text-xs text-zinc-400 mt-0.5">Tampilan struk yang akan dicetak</p>
+                <h2 className="text-sm font-semibold text-white">Pratinjau Struk</h2>
+                <p className="text-xs text-slate-400 mt-0.5">Tampilan struk yang akan dicetak</p>
               </div>
 
               <div className="flex justify-center">
@@ -1703,12 +1703,12 @@ function TelegramTab() {
 
   if (loading) {
     return (
-      <Card className="bg-zinc-900 border-zinc-800">
+      <Card className="bg-nebula border-white/[0.06]">
         <CardContent className="p-4 space-y-3">
-          <Skeleton className="h-5 w-36 bg-zinc-800" />
-          <Skeleton className="h-9 bg-zinc-800" />
-          <Skeleton className="h-9 bg-zinc-800" />
-          <Skeleton className="h-12 bg-zinc-800 rounded-lg" />
+          <Skeleton className="h-5 w-36 bg-white/[0.04]" />
+          <Skeleton className="h-9 bg-white/[0.04]" />
+          <Skeleton className="h-9 bg-white/[0.04]" />
+          <Skeleton className="h-12 bg-white/[0.04] rounded-lg" />
         </CardContent>
       </Card>
     )
@@ -1732,7 +1732,7 @@ function TelegramTab() {
             <div className="w-7 h-7 rounded-lg bg-sky-500/15 flex items-center justify-center shrink-0">
               <CircleHelp className="h-4 w-4 text-sky-400" />
             </div>
-            <h2 className="text-sm font-semibold text-zinc-100">Cara Setup Telegram Bot</h2>
+            <h2 className="text-sm font-semibold text-white">Cara Setup Telegram Bot</h2>
           </div>
 
           <div className="space-y-3">
@@ -1741,9 +1741,9 @@ function TelegramTab() {
                 <span className="text-[11px] font-bold text-sky-400">1</span>
               </div>
               <div className="min-w-0">
-                <p className="text-xs font-medium text-zinc-200">Buat Bot Token dari BotFather</p>
-                <p className="text-[11px] text-zinc-400 mt-0.5">
-                  Buka Telegram, cari <span className="text-sky-300 font-medium">@BotFather</span>. Kirim pesan <code className="bg-zinc-800 px-1.5 py-0.5 rounded text-[10px] text-sky-300">/newbot</code>, ikuti instruksi, lalu copy <span className="text-zinc-300">Bot Token</span> yang diberikan.
+                <p className="text-xs font-medium text-slate-200">Buat Bot Token dari BotFather</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Buka Telegram, cari <span className="text-sky-300 font-medium">@BotFather</span>. Kirim pesan <code className="bg-white/[0.04] px-1.5 py-0.5 rounded text-[10px] text-sky-300">/newbot</code>, ikuti instruksi, lalu copy <span className="text-slate-300">Bot Token</span> yang diberikan.
                 </p>
               </div>
             </div>
@@ -1753,13 +1753,13 @@ function TelegramTab() {
                 <span className="text-[11px] font-bold text-sky-400">2</span>
               </div>
               <div className="min-w-0">
-                <p className="text-xs font-medium text-zinc-200">Dapatkan Chat ID</p>
-                <p className="text-[11px] text-zinc-400 mt-0.5">
+                <p className="text-xs font-medium text-slate-200">Dapatkan Chat ID</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">
                   Kirim pesan apapun ke bot yang baru dibuat. Lalu buka browser, akses:{' '}
-                  <code className="bg-zinc-800 px-1.5 py-0.5 rounded text-[10px] text-sky-300 break-all">
+                  <code className="bg-white/[0.04] px-1.5 py-0.5 rounded text-[10px] text-sky-300 break-all">
                     https://api.telegram.org/bot{'{TOKEN}'}/getUpdates
                   </code>
-                  {' '}Cari <span className="text-zinc-300">chat.id</span> di response JSON.
+                  {' '}Cari <span className="text-slate-300">chat.id</span> di response JSON.
                 </p>
               </div>
             </div>
@@ -1769,18 +1769,18 @@ function TelegramTab() {
                 <span className="text-[11px] font-bold text-sky-400">3</span>
               </div>
               <div className="min-w-0">
-                <p className="text-xs font-medium text-zinc-200">Masukkan & Test Koneksi</p>
-                <p className="text-[11px] text-zinc-400 mt-0.5">
-                  Paste <span className="text-zinc-300">Bot Token</span> dan <span className="text-zinc-300">Chat ID</span> di form bawah, lalu klik <span className="theme-text font-medium">Test Koneksi</span>. Jika berhasil, klik <span className="theme-text font-medium">Simpan</span>.
+                <p className="text-xs font-medium text-slate-200">Masukkan & Test Koneksi</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Paste <span className="text-slate-300">Bot Token</span> dan <span className="text-slate-300">Chat ID</span> di form bawah, lalu klik <span className="theme-text font-medium">Test Koneksi</span>. Jika berhasil, klik <span className="theme-text font-medium">Simpan</span>.
                 </p>
               </div>
             </div>
           </div>
 
-          <div className="flex items-start gap-2 p-2.5 rounded-lg bg-zinc-800/40 border border-zinc-700/40">
+          <div className="flex items-start gap-2 p-2.5 rounded-lg bg-white/[0.03] border border-white/[0.04]">
             <MessageSquare className="h-3.5 w-3.5 text-amber-400 shrink-0 mt-0.5" />
-            <p className="text-[11px] text-zinc-400">
-              <span className="text-amber-400 font-medium">Tips:</span> Pastikan bot sudah di-Start (klik Start di chat bot) sebelum test koneksi. Chat ID biasanya berupa angka (contoh: <span className="text-zinc-300">123456789</span>).
+            <p className="text-[11px] text-slate-400">
+              <span className="text-amber-400 font-medium">Tips:</span> Pastikan bot sudah di-Start (klik Start di chat bot) sebelum test koneksi. Chat ID biasanya berupa angka (contoh: <span className="text-slate-300">123456789</span>).
             </p>
           </div>
         </CardContent>
@@ -1790,18 +1790,18 @@ function TelegramTab() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Connection Card */}
         <div className="min-w-0">
-        <Card className="bg-zinc-900 border-zinc-800">
+        <Card className="bg-nebula border-white/[0.06]">
           <CardContent className="p-4 space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-sm font-semibold text-zinc-100">Koneksi Telegram</h2>
-              <p className="text-xs text-zinc-400 mt-0.5">Hubungkan bot untuk notifikasi otomatis</p>
+                <h2 className="text-sm font-semibold text-white">Koneksi Telegram</h2>
+              <p className="text-xs text-slate-400 mt-0.5">Hubungkan bot untuk notifikasi otomatis</p>
             </div>
             <Badge
               className={`text-[11px] ${
                 isConnected
                   ? 'theme-bg-very-light theme-border-light theme-text'
-                  : 'bg-zinc-800 border-zinc-700 text-zinc-500'
+                  : 'bg-white/[0.04] border-white/[0.08] text-slate-500'
               }`}
             >
               {isConnected ? (
@@ -1815,7 +1815,7 @@ function TelegramTab() {
           <div className="space-y-3">
             {/* Bot Token */}
             <div className="space-y-1.5">
-              <Label htmlFor="bot-token" className="text-xs text-zinc-300">Bot Token</Label>
+              <Label htmlFor="bot-token" className="text-xs text-slate-300">Bot Token</Label>
               <div className="relative">
                 <Input
                   id="bot-token"
@@ -1823,12 +1823,12 @@ function TelegramTab() {
                   value={botToken}
                   onChange={(e) => { setBotToken(e.target.value); setDirty(true) }}
                   placeholder={settings?.telegramBotToken === '••••••' ? 'Token tersimpan (kosongkan untuk mengganti)' : 'Masukkan token dari @BotFather'}
-                  className="bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 h-9 text-sm pr-9"
+                  className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm pr-9"
                 />
                 <button
                   type="button"
                   onClick={() => setShowToken(!showToken)}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
                 >
                   {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
@@ -1837,13 +1837,13 @@ function TelegramTab() {
 
             {/* Chat ID */}
             <div className="space-y-1.5">
-              <Label htmlFor="chat-id" className="text-xs text-zinc-300">Chat ID</Label>
+              <Label htmlFor="chat-id" className="text-xs text-slate-300">Chat ID</Label>
               <Input
                 id="chat-id"
                 value={chatId}
                 onChange={(e) => { setChatId(e.target.value); setDirty(true) }}
                 placeholder="Contoh: 123456789"
-                className="bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 h-9 text-sm"
+                className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
               />
             </div>
 
@@ -1852,7 +1852,7 @@ function TelegramTab() {
               onClick={handleTestConnection}
               disabled={testing || !botToken}
               variant="outline"
-              className="w-full border-zinc-700 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 h-9 text-xs"
+              className="w-full border-white/[0.08] text-slate-300 hover:bg-white/[0.04] hover:text-white h-9 text-xs"
             >
               {testing ? (
                 <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
@@ -1880,14 +1880,14 @@ function TelegramTab() {
                   </p>
                 </div>
                 {testResult.botName && (
-                  <p className="text-[11px] text-zinc-400 mt-1 ml-5.5">Bot: {testResult.botName}</p>
+                  <p className="text-[11px] text-slate-400 mt-1 ml-5.5">Bot: {testResult.botName}</p>
                 )}
               </div>
             )}
 
             {/* Status info */}
             {isConnected && (
-              <div className="flex items-center gap-2 text-[11px] text-zinc-500">
+              <div className="flex items-center gap-2 text-[11px] text-slate-500">
                 <Link2 className="h-3.5 w-3.5" />
                 <span>Chat ID: {settings?.telegramChatId}</span>
               </div>
@@ -1920,22 +1920,22 @@ function TelegramTab() {
 
       {/* Notification Toggles */}
       <div className="min-w-0">
-      <Card className="bg-zinc-900 border-zinc-800">
+      <Card className="bg-nebula border-white/[0.06]">
         <CardContent className="p-4 space-y-4">
           <div>
-            <h2 className="text-sm font-semibold text-zinc-100">Jenis Notifikasi</h2>
-            <p className="text-xs text-zinc-400 mt-0.5">Pilih event yang ingin dikirim via Telegram</p>
+            <h2 className="text-sm font-semibold text-white">Jenis Notifikasi</h2>
+            <p className="text-xs text-slate-400 mt-0.5">Pilih event yang ingin dikirim via Telegram</p>
           </div>
 
           <div className="space-y-2">
             {notificationToggles.map((item) => (
               <div
                 key={item.key}
-                className="flex items-center justify-between p-2.5 rounded-lg border border-zinc-800 bg-zinc-800/30"
+                className="flex items-center justify-between p-2.5 rounded-lg border border-white/[0.06] bg-white/[0.02]"
               >
                 <div className="min-w-0">
-                  <p className="text-xs font-medium text-zinc-200">{item.label}</p>
-                  <p className="text-[11px] text-zinc-500">{item.desc}</p>
+                  <p className="text-xs font-medium text-slate-200">{item.label}</p>
+                  <p className="text-[11px] text-slate-500">{item.desc}</p>
                 </div>
                 <Switch
                   checked={!!settings?.[item.key]}
@@ -2006,12 +2006,12 @@ function UsageRing({ label, used, limit, icon }: { label: string; used: number; 
           />
         </svg>
         <div className="absolute inset-0 flex items-center justify-center">
-          <span className={isAtLimit ? 'text-red-400' : isNearLimit ? 'text-amber-400' : 'text-zinc-200'}>{icon}</span>
+          <span className={isAtLimit ? 'text-red-400' : isNearLimit ? 'text-amber-400' : 'text-slate-200'}>{icon}</span>
         </div>
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-xs text-zinc-300 font-medium">{label}</p>
-        <p className={`text-[11px] ${isAtLimit ? 'text-red-400' : isNearLimit ? 'text-amber-400' : 'text-zinc-500'}`}>
+        <p className="text-xs text-slate-300 font-medium">{label}</p>
+        <p className={`text-[11px] ${isAtLimit ? 'text-red-400' : isNearLimit ? 'text-amber-400' : 'text-slate-500'}`}>
           {unlimited ? 'Unlimited' : `${used} / ${limit}`}
         </p>
       </div>
@@ -2026,17 +2026,17 @@ function PlanTab() {
   if (isLoading) {
     return (
       <div className="space-y-4">
-        <Card className="bg-zinc-900 border-zinc-800">
+        <Card className="bg-nebula border-white/[0.06]">
           <CardContent className="p-4 space-y-3">
-            <Skeleton className="h-5 w-36 bg-zinc-800" />
-            <Skeleton className="h-40 bg-zinc-800 rounded-lg" />
-            <Skeleton className="h-24 bg-zinc-800 rounded-lg" />
+            <Skeleton className="h-5 w-36 bg-white/[0.04]" />
+            <Skeleton className="h-40 bg-white/[0.04] rounded-lg" />
+            <Skeleton className="h-24 bg-white/[0.04] rounded-lg" />
           </CardContent>
         </Card>
-        <Card className="bg-zinc-900 border-zinc-800">
+        <Card className="bg-nebula border-white/[0.06]">
           <CardContent className="p-4 space-y-3">
-            <Skeleton className="h-5 w-48 bg-zinc-800" />
-            <Skeleton className="h-48 bg-zinc-800 rounded-lg" />
+            <Skeleton className="h-5 w-48 bg-white/[0.04]" />
+            <Skeleton className="h-48 bg-white/[0.04] rounded-lg" />
           </CardContent>
         </Card>
       </div>
@@ -2085,12 +2085,12 @@ function PlanTab() {
   return (
     <div className="space-y-4">
       {/* ===== SECTION 1: Current Plan Card ===== */}
-      <Card className="bg-zinc-900 border-zinc-800">
+      <Card className="bg-nebula border-white/[0.06]">
         <CardContent className="p-4 space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-sm font-semibold text-zinc-100">Plan & Langganan</h2>
-              <p className="text-xs text-zinc-400 mt-0.5">Informasi paket langganan outlet Anda</p>
+              <h2 className="text-sm font-semibold text-white">Plan & Langganan</h2>
+              <p className="text-xs text-slate-400 mt-0.5">Informasi paket langganan outlet Anda</p>
             </div>
             <div className="flex items-center gap-2">
               {plan?.isSuspended ? (
@@ -2117,25 +2117,25 @@ function PlanTab() {
 
           {/* Account & Plan Info */}
           {planData && (
-            <div className="rounded-lg border border-zinc-800 bg-zinc-800/30 p-3 space-y-2">
+            <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-xs text-zinc-400">Nama Outlet</span>
-                <span className="text-xs font-medium text-zinc-200">{planData.outletName || '-'}</span>
+                <span className="text-xs text-slate-400">Nama Outlet</span>
+                <span className="text-xs font-medium text-slate-200">{planData.outletName || '-'}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-xs text-zinc-400">Tipe Plan</span>
+                <span className="text-xs text-slate-400">Tipe Plan</span>
                 <span className={`text-xs font-medium ${planAccent[currentPlan].text}`}>{getPlanLabel(currentPlan)}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-xs text-zinc-400">Status</span>
+                <span className="text-xs text-slate-400">Status</span>
                 <Badge className={`text-[10px] px-1.5 py-0 ${plan?.isSuspended ? 'bg-red-500/10 border-red-500/20 text-red-400' : 'theme-bg-very-light theme-border-light theme-text'}`}>
                   {plan?.isSuspended ? 'Ditangguhkan' : 'Aktif'}
                 </Badge>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-xs text-zinc-400">Harga</span>
-                <span className="text-xs font-medium text-zinc-200">
-                  {PLAN_PRICING[currentPlan].price}{PLAN_PRICING[currentPlan].period && <span className="text-zinc-500 font-normal">{PLAN_PRICING[currentPlan].period}</span>}
+                <span className="text-xs text-slate-400">Harga</span>
+                <span className="text-xs font-medium text-slate-200">
+                  {PLAN_PRICING[currentPlan].price}{PLAN_PRICING[currentPlan].period && <span className="text-slate-500 font-normal">{PLAN_PRICING[currentPlan].period}</span>}
                 </span>
               </div>
             </div>
@@ -2144,7 +2144,7 @@ function PlanTab() {
           {/* Usage Stats with Circular Rings */}
           {features && usage && (
             <div className="space-y-3">
-              <p className="text-[11px] font-medium text-zinc-500 uppercase tracking-wider">Penggunaan Saat Ini</p>
+              <p className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Penggunaan Saat Ini</p>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 <UsageRing
                   label="Produk"
@@ -2192,7 +2192,7 @@ function PlanTab() {
                   <div className="flex-1 min-w-0 space-y-2">
                     <div>
                       <p className="text-xs font-semibold theme-text">Upgrade ke Pro</p>
-                      <p className="text-[11px] text-zinc-400 mt-0.5">
+                      <p className="text-[11px] text-slate-400 mt-0.5">
                         Unlimited produk, export Excel, API access, foto produk, dan banyak lagi.
                       </p>
                       <p className="text-xs font-semibold theme-text mt-1">
@@ -2212,7 +2212,7 @@ function PlanTab() {
                         onClick={() => handleUpgrade('enterprise')}
                         variant="outline"
                         size="sm"
-                        className="border-zinc-700 text-zinc-300 hover:bg-zinc-800 h-7 text-[11px]"
+                        className="border-white/[0.08] text-slate-300 hover:bg-white/[0.04] h-7 text-[11px]"
                       >
                         Upgrade ke Enterprise
                       </Button>
@@ -2232,7 +2232,7 @@ function PlanTab() {
                 <div className="flex-1 min-w-0 space-y-2">
                   <div>
                     <p className="text-xs font-semibold text-amber-300">Upgrade ke Enterprise</p>
-                    <p className="text-[11px] text-zinc-400 mt-0.5">
+                    <p className="text-[11px] text-slate-400 mt-0.5">
                       Multi-outlet management untuk bisnis yang berkembang dengan kontrol penuh.
                     </p>
                     <p className="text-xs font-semibold text-amber-400 mt-1">
@@ -2260,7 +2260,7 @@ function PlanTab() {
                 </div>
                 <div>
                   <p className="text-xs font-semibold text-amber-300">Current Plan — Semua fitur terbuka</p>
-                  <p className="text-[11px] text-zinc-400 mt-0.5">
+                  <p className="text-[11px] text-slate-400 mt-0.5">
                     Anda memiliki akses penuh ke semua fitur Aether POS termasuk multi-outlet.
                   </p>
                 </div>
@@ -2269,17 +2269,17 @@ function PlanTab() {
           )}
 
           {/* ===== SECTION 3: Manage Subscription ===== */}
-          <Separator className="bg-zinc-800" />
+          <Separator className="bg-white/[0.04]" />
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs font-medium text-zinc-300">Kelola Langganan</p>
-              <p className="text-[11px] text-zinc-500 mt-0.5">Upgrade, downgrade, atau perubahan plan lainnya</p>
+              <p className="text-xs font-medium text-slate-300">Kelola Langganan</p>
+              <p className="text-[11px] text-slate-500 mt-0.5">Upgrade, downgrade, atau perubahan plan lainnya</p>
             </div>
             <Button
               onClick={handleContactAdmin}
               variant="outline"
               size="sm"
-              className="border-zinc-700 text-zinc-300 hover:bg-zinc-800 h-8 text-xs gap-1.5"
+              className="border-white/[0.08] text-slate-300 hover:bg-white/[0.04] h-8 text-xs gap-1.5"
             >
               <Send className="h-3.5 w-3.5" />
               Hubungi Admin
@@ -2289,11 +2289,11 @@ function PlanTab() {
       </Card>
 
       {/* ===== SECTION 4: Plan Comparison ===== */}
-      <Card className="bg-zinc-900 border-zinc-800">
+      <Card className="bg-nebula border-white/[0.06]">
         <CardContent className="p-4 space-y-4">
           <div>
-            <h2 className="text-sm font-semibold text-zinc-100">Perbandingan Plan</h2>
-            <p className="text-xs text-zinc-400 mt-0.5">Bandingkan fitur dari setiap paket langganan</p>
+            <h2 className="text-sm font-semibold text-white">Perbandingan Plan</h2>
+            <p className="text-xs text-slate-400 mt-0.5">Bandingkan fitur dari setiap paket langganan</p>
           </div>
 
           {/* Pricing Cards Row */}
@@ -2308,18 +2308,18 @@ function PlanTab() {
                   className={`rounded-lg border p-3 text-center space-y-1.5 transition-colors ${
                     isCurrent
                       ? `${accent.border} ${accent.bg}`
-                      : 'border-zinc-800 bg-zinc-800/20 hover:bg-zinc-800/40'
+                      : 'border-white/[0.06] bg-white/[0.04]/20 hover:bg-white/[0.04]/40'
                   }`}
                 >
                   <Badge className={`${getPlanBadgeClass(key)} text-[10px] font-semibold px-2 py-0`}>
                     {getPlanLabel(key)}
                   </Badge>
                   <div>
-                    <p className={`text-sm font-bold ${isCurrent ? accent.text : 'text-zinc-200'}`}>
+                    <p className={`text-sm font-bold ${isCurrent ? accent.text : 'text-slate-200'}`}>
                       {pricing.price}
                     </p>
                     {pricing.period && (
-                      <p className="text-[10px] text-zinc-500">{pricing.period}</p>
+                      <p className="text-[10px] text-slate-500">{pricing.period}</p>
                     )}
                   </div>
                   {isCurrent && (
@@ -2331,11 +2331,11 @@ function PlanTab() {
           </div>
 
           {/* Desktop Table */}
-          <div className="hidden md:block rounded-lg border border-zinc-800 overflow-hidden max-h-[420px] overflow-y-auto">
+          <div className="hidden md:block rounded-lg border border-white/[0.06] overflow-hidden max-h-[420px] overflow-y-auto">
             <Table>
               <TableHeader>
-                <TableRow className="border-zinc-800 hover:bg-transparent bg-zinc-800/30 sticky top-0 z-10">
-                  <TableHead className="text-zinc-500 text-[11px] font-medium h-9 w-[180px]">Fitur</TableHead>
+                <TableRow className="border-white/[0.06] hover:bg-transparent bg-white/[0.02] sticky top-0 z-10">
+                  <TableHead className="text-slate-500 text-[11px] font-medium h-9 w-[180px]">Fitur</TableHead>
                   {planKeys.map((key) => (
                     <TableHead key={key} className="text-center text-[11px] font-medium h-9">
                       <div className="flex flex-col items-center gap-1">
@@ -2352,8 +2352,8 @@ function PlanTab() {
               </TableHeader>
               <TableBody>
                 {comparisonRows.map((row, idx) => (
-                  <TableRow key={row.key} className={`border-zinc-800 hover:bg-transparent ${idx % 2 === 0 ? 'bg-zinc-900/50' : ''}`}>
-                    <TableCell className="text-xs text-zinc-300 font-medium py-2">{row.label}</TableCell>
+                  <TableRow key={row.key} className={`border-white/[0.06] hover:bg-transparent ${idx % 2 === 0 ? 'bg-nebula/50' : ''}`}>
+                    <TableCell className="text-xs text-slate-300 font-medium py-2">{row.label}</TableCell>
                     {planKeys.map((key) => {
                       const planFeatures = PLANS[key]
                       const value = planFeatures[row.key]
@@ -2368,10 +2368,10 @@ function PlanTab() {
                             value ? (
                               <Check className="h-4 w-4 theme-text mx-auto" />
                             ) : (
-                              <X className="h-3.5 w-3.5 text-zinc-600 mx-auto" />
+                              <X className="h-3.5 w-3.5 text-slate-600 mx-auto" />
                             )
                           ) : (
-                            <span className={`text-xs font-medium ${isUnlimitedValue ? 'theme-text' : isCurrentPlan ? 'text-zinc-200' : 'text-zinc-400'}`}>
+                            <span className={`text-xs font-medium ${isUnlimitedValue ? 'theme-text' : isCurrentPlan ? 'text-slate-200' : 'text-slate-400'}`}>
                               {display}
                             </span>
                           )}
@@ -2397,7 +2397,7 @@ function PlanTab() {
                   className={`rounded-lg border p-3 space-y-2.5 transition-colors ${
                     isCurrentPlan
                       ? `${accent.border} ${accent.bg}`
-                      : 'border-zinc-800 bg-zinc-800/30'
+                      : 'border-white/[0.06] bg-white/[0.02]'
                   }`}
                 >
                   <div className="flex items-center justify-between">
@@ -2408,8 +2408,8 @@ function PlanTab() {
                       <span className="text-[10px] theme-text font-medium">Plan Anda</span>
                     )}
                   </div>
-                  <p className={`text-sm font-bold ${isCurrentPlan ? accent.text : 'text-zinc-200'}`}>
-                    {PLAN_PRICING[key].price}{PLAN_PRICING[key].period && <span className="text-zinc-500 font-normal text-xs">{PLAN_PRICING[key].period}</span>}
+                  <p className={`text-sm font-bold ${isCurrentPlan ? accent.text : 'text-slate-200'}`}>
+                    {PLAN_PRICING[key].price}{PLAN_PRICING[key].period && <span className="text-slate-500 font-normal text-xs">{PLAN_PRICING[key].period}</span>}
                   </p>
                   <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
                     {comparisonRows.map((row) => {
@@ -2420,15 +2420,15 @@ function PlanTab() {
 
                       return (
                         <div key={row.key} className="flex items-center justify-between py-0.5">
-                          <span className="text-[11px] text-zinc-500">{row.label}</span>
+                          <span className="text-[11px] text-slate-500">{row.label}</span>
                           {isBoolean ? (
                             value ? (
                               <Check className="h-3.5 w-3.5 theme-text" />
                             ) : (
-                              <X className="h-3 w-3 text-zinc-600" />
+                              <X className="h-3 w-3 text-slate-600" />
                             )
                           ) : (
-                            <span className={`text-[11px] font-medium ${isUnlimitedValue ? 'theme-text' : 'text-zinc-300'}`}>
+                            <span className={`text-[11px] font-medium ${isUnlimitedValue ? 'theme-text' : 'text-slate-300'}`}>
                               {display}
                             </span>
                           )}
@@ -2441,7 +2441,7 @@ function PlanTab() {
                       onClick={() => handleUpgrade(key)}
                       variant="outline"
                       size="sm"
-                      className="w-full border-zinc-700 text-zinc-300 hover:bg-zinc-800 h-7 text-[11px]"
+                      className="w-full border-white/[0.08] text-slate-300 hover:bg-white/[0.04] h-7 text-[11px]"
                     >
                       Upgrade ke {getPlanLabel(key)}
                       <ArrowUpRight className="ml-1 h-3 w-3" />
@@ -2546,30 +2546,30 @@ function AccountTab() {
   return (
     <div className="space-y-4">
       {/* Current Account Info */}
-      <Card className="bg-zinc-900 border-zinc-800">
+      <Card className="bg-nebula border-white/[0.06]">
         <CardContent className="p-4 space-y-3">
           <div>
-            <h2 className="text-sm font-semibold text-zinc-100">Informasi Akun</h2>
-            <p className="text-xs text-zinc-400 mt-0.5">Detail akun yang sedang digunakan</p>
+            <h2 className="text-sm font-semibold text-white">Informasi Akun</h2>
+            <p className="text-xs text-slate-400 mt-0.5">Detail akun yang sedang digunakan</p>
           </div>
 
-          <div className="rounded-lg border border-zinc-800 bg-zinc-800/30 p-3 space-y-2">
+          <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-xs text-zinc-400">Nama</span>
-              <span className="text-xs font-medium text-zinc-200">{session?.user?.name || '-'}</span>
+              <span className="text-xs text-slate-400">Nama</span>
+              <span className="text-xs font-medium text-slate-200">{session?.user?.name || '-'}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-xs text-zinc-400">Email</span>
-              <span className="text-xs font-medium text-zinc-200">{session?.user?.email || '-'}</span>
+              <span className="text-xs text-slate-400">Email</span>
+              <span className="text-xs font-medium text-slate-200">{session?.user?.email || '-'}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-xs text-zinc-400">Peran</span>
+              <span className="text-xs text-slate-400">Peran</span>
               <Badge
                 variant="outline"
                 className={`text-[11px] px-1.5 py-0 ${
                   session?.user?.role === 'OWNER'
                     ? 'bg-amber-500/10 border-amber-500/15 text-amber-400'
-                    : 'bg-zinc-800 border-zinc-700 text-zinc-500'
+                    : 'bg-white/[0.04] border-white/[0.08] text-slate-500'
                 }`}
               >
                 {session?.user?.role === 'OWNER' ? 'Owner' : 'Crew'}
@@ -2583,34 +2583,34 @@ function AccountTab() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Change Email */}
         <div className="min-w-0">
-        <Card className="bg-zinc-900 border-zinc-800">
+        <Card className="bg-nebula border-white/[0.06]">
           <CardContent className="p-4 space-y-4">
             <div>
-              <h2 className="text-sm font-semibold text-zinc-100">Ganti Email</h2>
-            <p className="text-xs text-zinc-400 mt-0.5">Ubah email akun Anda</p>
+              <h2 className="text-sm font-semibold text-white">Ganti Email</h2>
+            <p className="text-xs text-slate-400 mt-0.5">Ubah email akun Anda</p>
           </div>
 
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <Label htmlFor="new-email" className="text-xs text-zinc-300">Email Baru</Label>
+              <Label htmlFor="new-email" className="text-xs text-slate-300">Email Baru</Label>
               <Input
                 id="new-email"
                 type="email"
                 value={newEmail}
                 onChange={(e) => setNewEmail(e.target.value)}
                 placeholder="email@contoh.com"
-                className="bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 h-9 text-sm"
+                className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="email-password" className="text-xs text-zinc-300">Konfirmasi Password</Label>
+              <Label htmlFor="email-password" className="text-xs text-slate-300">Konfirmasi Password</Label>
               <Input
                 id="email-password"
                 type="password"
                 value={emailPassword}
                 onChange={(e) => setEmailPassword(e.target.value)}
                 placeholder="Masukkan password saat ini"
-                className="bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 h-9 text-sm"
+                className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
               />
             </div>
           </div>
@@ -2633,45 +2633,45 @@ function AccountTab() {
 
       {/* Change Password */}
       <div className="min-w-0">
-      <Card className="bg-zinc-900 border-zinc-800">
+      <Card className="bg-nebula border-white/[0.06]">
         <CardContent className="p-4 space-y-4">
           <div>
-            <h2 className="text-sm font-semibold text-zinc-100">Ganti Password</h2>
-            <p className="text-xs text-zinc-400 mt-0.5">Ubah password akun Anda</p>
+            <h2 className="text-sm font-semibold text-white">Ganti Password</h2>
+            <p className="text-xs text-slate-400 mt-0.5">Ubah password akun Anda</p>
           </div>
 
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <Label htmlFor="current-password" className="text-xs text-zinc-300">Password Saat Ini</Label>
+              <Label htmlFor="current-password" className="text-xs text-slate-300">Password Saat Ini</Label>
               <Input
                 id="current-password"
                 type="password"
                 value={currentPwd}
                 onChange={(e) => setCurrentPwd(e.target.value)}
                 placeholder="Masukkan password saat ini"
-                className="bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 h-9 text-sm"
+                className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="new-password" className="text-xs text-zinc-300">Password Baru</Label>
+              <Label htmlFor="new-password" className="text-xs text-slate-300">Password Baru</Label>
               <Input
                 id="new-password"
                 type="password"
                 value={newPwd}
                 onChange={(e) => setNewPwd(e.target.value)}
                 placeholder="Minimal 6 karakter"
-                className="bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 h-9 text-sm"
+                className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="confirm-password" className="text-xs text-zinc-300">Konfirmasi Password Baru</Label>
+              <Label htmlFor="confirm-password" className="text-xs text-slate-300">Konfirmasi Password Baru</Label>
               <Input
                 id="confirm-password"
                 type="password"
                 value={confirmPwd}
                 onChange={(e) => setConfirmPwd(e.target.value)}
                 placeholder="Ulangi password baru"
-                className="bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 h-9 text-sm"
+                className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
               />
             </div>
           </div>
@@ -2782,10 +2782,10 @@ function MultiOutletTab() {
 
   if (loading || outletsLoading) {
     return (
-      <Card className="bg-zinc-900 border-zinc-800">
+      <Card className="bg-nebula border-white/[0.06]">
         <CardContent className="p-4 space-y-3">
-          <Skeleton className="h-5 w-36 bg-zinc-800" />
-          <Skeleton className="h-20 bg-zinc-800 rounded-lg" />
+          <Skeleton className="h-5 w-36 bg-white/[0.04]" />
+          <Skeleton className="h-20 bg-white/[0.04] rounded-lg" />
         </CardContent>
       </Card>
     )
@@ -2795,11 +2795,11 @@ function MultiOutletTab() {
 
   if (!isEnterprise) {
     return (
-      <Card className="bg-zinc-900 border-zinc-800">
+      <Card className="bg-nebula border-white/[0.06]">
         <CardContent className="p-4 space-y-4">
           <div>
-            <h2 className="text-sm font-semibold text-zinc-100">Outlet Cabang</h2>
-            <p className="text-xs text-zinc-400 mt-0.5">Kelola beberapa outlet dalam satu akun</p>
+            <h2 className="text-sm font-semibold text-white">Outlet Cabang</h2>
+            <p className="text-xs text-slate-400 mt-0.5">Kelola beberapa outlet dalam satu akun</p>
           </div>
 
           <div className="rounded-lg border theme-border-light theme-bg-ultra-light p-3 space-y-2">
@@ -2807,13 +2807,13 @@ function MultiOutletTab() {
               <Building2 className="h-4 w-4 theme-text" />
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-semibold theme-text">Outlet Utama (Aktif)</p>
-                <p className="text-[11px] text-zinc-400">{settings?.outlet?.name || '-'}</p>
+                <p className="text-[11px] text-slate-400">{settings?.outlet?.name || '-'}</p>
               </div>
             </div>
           </div>
 
-          <div className="rounded-lg border border-zinc-800 bg-zinc-800/30 p-3">
-            <p className="text-[11px] text-zinc-500 text-center">
+          <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
+            <p className="text-[11px] text-slate-500 text-center">
               Multi-outlet tersedia untuk akun <span className="text-amber-400 font-medium">Enterprise</span>. Upgrade untuk mengakses fitur ini.
             </p>
           </div>
@@ -2824,12 +2824,12 @@ function MultiOutletTab() {
 
   return (
     <div className="space-y-4">
-      <Card className="bg-zinc-900 border-zinc-800">
+      <Card className="bg-nebula border-white/[0.06]">
         <CardContent className="p-4 space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-sm font-semibold text-zinc-100">Outlet Cabang</h2>
-              <p className="text-xs text-zinc-400 mt-0.5">
+              <h2 className="text-sm font-semibold text-white">Outlet Cabang</h2>
+              <p className="text-xs text-slate-400 mt-0.5">
                 {outlets.length} outlet terdaftar
               </p>
             </div>
@@ -2848,30 +2848,30 @@ function MultiOutletTab() {
                 className={`rounded-lg border p-3 space-y-1.5 transition-colors ${
                   outlet.isPrimary
                     ? 'theme-border-light theme-bg-ultra-light'
-                    : 'border-zinc-800 bg-zinc-800/30 hover:border-zinc-700'
+                    : 'border-white/[0.06] bg-white/[0.02] hover:border-white/[0.08]'
                 }`}
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 min-w-0">
-                    <Building2 className={`h-4 w-4 shrink-0 ${outlet.isPrimary ? 'theme-text' : 'text-zinc-500'}`} />
+                    <Building2 className={`h-4 w-4 shrink-0 ${outlet.isPrimary ? 'theme-text' : 'text-slate-500'}`} />
                     <div className="min-w-0">
-                      <p className={`text-xs font-semibold truncate ${outlet.isPrimary ? 'theme-text' : 'text-zinc-200'}`}>
+                      <p className={`text-xs font-semibold truncate ${outlet.isPrimary ? 'theme-text' : 'text-slate-200'}`}>
                         {outlet.name}
                         {outlet.isPrimary && <span className="ml-1.5 text-[10px] font-normal theme-text">(Utama)</span>}
                       </p>
-                      {outlet.address && <p className="text-[11px] text-zinc-500 truncate">{outlet.address}</p>}
+                      {outlet.address && <p className="text-[11px] text-slate-500 truncate">{outlet.address}</p>}
                     </div>
                   </div>
                   {!outlet.isPrimary && (
                     <Button variant="ghost" size="icon"
-                      className="h-7 w-7 text-zinc-500 hover:text-red-400 hover:bg-red-500/10 shrink-0"
+                      className="h-7 w-7 text-slate-500 hover:text-red-400 hover:bg-red-500/10 shrink-0"
                       onClick={() => setDeleteId(outlet.id)}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
                   )}
                 </div>
-                <div className="flex gap-3 text-[10px] text-zinc-500">
+                <div className="flex gap-3 text-[10px] text-slate-500">
                   {outlet.userCount > 0 && <span>{outlet.userCount} crew</span>}
                   {outlet.productCount > 0 && <span>{outlet.productCount} produk</span>}
                   {outlet.customerCount > 0 && <span>{outlet.customerCount} customer</span>}
@@ -2884,13 +2884,13 @@ function MultiOutletTab() {
           {outlets.length === 0 && (
             <div className="py-6 text-center">
               <Building2 className="h-8 w-8 text-zinc-700 mx-auto mb-2" />
-              <p className="text-sm text-zinc-500">Belum ada outlet cabang</p>
-              <p className="text-[11px] text-zinc-600">Tambahkan outlet cabang untuk memperluas bisnis Anda</p>
+              <p className="text-sm text-slate-500">Belum ada outlet cabang</p>
+              <p className="text-[11px] text-slate-600">Tambahkan outlet cabang untuk memperluas bisnis Anda</p>
             </div>
           )}
 
-          <div className="rounded-lg border border-zinc-800 bg-zinc-800/30 p-2.5">
-            <p className="text-[10px] text-zinc-500 text-center">
+          <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-2.5">
+            <p className="text-[10px] text-slate-500 text-center">
               💡 Gunakan email & password yang sama untuk login ke outlet cabang.
               Setiap outlet cabang memiliki data & transaksi terpisah.
             </p>
@@ -2900,42 +2900,42 @@ function MultiOutletTab() {
 
       {/* Add Outlet Dialog */}
       <ResponsiveDialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <ResponsiveDialogContent className="bg-zinc-900 border-zinc-800 p-4">
+        <ResponsiveDialogContent className="bg-nebula border-white/[0.06] p-4">
           <ResponsiveDialogHeader>
-            <ResponsiveDialogTitle className="text-sm font-semibold text-zinc-100">Tambah Outlet Cabang</ResponsiveDialogTitle>
+            <ResponsiveDialogTitle className="text-sm font-semibold text-white">Tambah Outlet Cabang</ResponsiveDialogTitle>
           </ResponsiveDialogHeader>
           <div className="space-y-3 py-2">
             <div className="space-y-1.5">
-              <Label className="text-xs text-zinc-300">Nama Outlet *</Label>
+              <Label className="text-xs text-slate-300">Nama Outlet *</Label>
               <Input
                 value={formData.name}
                 onChange={(e) => setFormData((p) => ({ ...p, name: e.target.value }))}
                 placeholder="Contoh: Toko Cabang Pondok Indah"
-                className="bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 h-9 text-sm"
+                className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs text-zinc-300">Alamat</Label>
+              <Label className="text-xs text-slate-300">Alamat</Label>
               <Input
                 value={formData.address}
                 onChange={(e) => setFormData((p) => ({ ...p, address: e.target.value }))}
                 placeholder="Jl. Merdeka No. 10"
-                className="bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 h-9 text-sm"
+                className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs text-zinc-300">Telepon</Label>
+              <Label className="text-xs text-slate-300">Telepon</Label>
               <Input
                 value={formData.phone}
                 onChange={(e) => setFormData((p) => ({ ...p, phone: e.target.value }))}
                 placeholder="081234567890"
-                className="bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 h-9 text-sm"
+                className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
               />
             </div>
           </div>
           <ResponsiveDialogFooter>
             <Button type="button" variant="ghost" onClick={() => setDialogOpen(false)}
-              className="bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700 h-8 text-xs">
+              className="bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.06] h-8 text-xs">
               Batal
             </Button>
             <Button onClick={handleCreate} disabled={saving || !formData.name.trim()}
@@ -2949,15 +2949,15 @@ function MultiOutletTab() {
 
       {/* Delete Confirmation */}
       <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
-        <AlertDialogContent className="bg-zinc-900 border-zinc-800">
+        <AlertDialogContent className="bg-nebula border-white/[0.06]">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-sm font-semibold text-zinc-100">Hapus Outlet</AlertDialogTitle>
-            <AlertDialogDescription className="text-xs text-zinc-400">
+            <AlertDialogTitle className="text-sm font-semibold text-white">Hapus Outlet</AlertDialogTitle>
+            <AlertDialogDescription className="text-xs text-slate-400">
               Apakah Anda yakin ingin menghapus outlet ini? Semua data (produk, customer, transaksi, crew) akan dihapus permanen.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700 h-8 text-xs" />
+            <AlertDialogCancel className="bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.06] h-8 text-xs" />
             <AlertDialogAction onClick={handleDelete} disabled={deleting}
               className="bg-red-500 hover:bg-red-600 text-white h-8 text-xs">
               {deleting && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}

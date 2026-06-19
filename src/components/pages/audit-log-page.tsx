@@ -270,10 +270,10 @@ function formatDetailValue(key: string, value: unknown): string {
 // ==================== DETAIL DISPLAY COMPONENT ====================
 function DetailsDisplay({ action, details }: { action: string; details: string | null }) {
   const parsed = parseDetails(details)
-  if (!parsed) return <span className="text-zinc-500 italic">-</span>
+  if (!parsed) return <span className="text-slate-500 italic">-</span>
 
   if (typeof parsed === 'string') {
-    return <span className="text-zinc-400">{parsed}</span>
+    return <span className="text-slate-400">{parsed}</span>
   }
 
   const entries = Object.entries(parsed) as [string, unknown][]
@@ -309,21 +309,21 @@ function DetailsDisplay({ action, details }: { action: string; details: string |
         if (key === 'itemsRestored' && Array.isArray(value) && value.length > 0) {
           return (
             <div key={key} className="space-y-0.5">
-              <span className="text-zinc-500 text-[10px]">{getDetailLabel(key)}:</span>
-              <div className="text-zinc-400 text-[11px]">{formatted}</div>
+              <span className="text-slate-500 text-[10px]">{getDetailLabel(key)}:</span>
+              <div className="text-slate-400 text-[11px]">{formatted}</div>
             </div>
           )
         }
 
         return (
           <div key={key} className="flex items-center gap-1.5 leading-tight">
-            <span className="text-zinc-500 text-[10px] shrink-0">{getDetailLabel(key)}:</span>
-            <span className="text-zinc-300 text-[11px] truncate">{formatted}</span>
+            <span className="text-slate-500 text-[10px] shrink-0">{getDetailLabel(key)}:</span>
+            <span className="text-slate-300 text-[11px] truncate">{formatted}</span>
           </div>
         )
       })}
       {uniqueKeys.length > 5 && (
-        <span className="text-zinc-500 text-[10px]">+{uniqueKeys.length - 5} lainnya</span>
+        <span className="text-slate-500 text-[10px]">+{uniqueKeys.length - 5} lainnya</span>
       )}
     </div>
   )
@@ -437,13 +437,13 @@ export default function AuditLogPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div>
-          <h1 className="text-lg font-semibold text-zinc-100">Audit Log</h1>
-          <p className="text-xs text-zinc-500 mt-0.5">Lacak semua aktivitas dan perubahan sistem</p>
+          <h1 className="text-lg font-semibold text-white">Audit Log</h1>
+          <p className="text-xs text-slate-500 mt-0.5">Lacak semua aktivitas dan perubahan sistem</p>
         </div>
         <Button
           onClick={handleExport}
           variant="outline"
-          className="h-9 sm:h-8 text-xs bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700 gap-1.5"
+          className="h-9 sm:h-8 text-xs bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.06] gap-1.5"
         >
           <Download className="h-3.5 w-3.5" />
           Export
@@ -454,19 +454,19 @@ export default function AuditLogPage() {
       <div className="flex flex-col sm:flex-row gap-2">
         {/* Search */}
         <div className="relative flex-1 min-w-0 sm:max-w-xs">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500 pointer-events-none" />
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500 pointer-events-none" />
           <Input
             type="text"
             placeholder="Cari nama, invoice, SKU..."
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            className="pl-8 pr-8 bg-zinc-800 border-zinc-700 text-zinc-100 h-8 text-xs placeholder:text-zinc-500"
+            className="pl-8 pr-8 bg-white/[0.04] border-white/[0.08] text-white h-8 text-xs placeholder:text-slate-500"
           />
           {searchInput && (
             <button
               onClick={handleClearSearch}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
             >
               <X className="h-3.5 w-3.5" />
             </button>
@@ -475,13 +475,13 @@ export default function AuditLogPage() {
 
         {/* Action type filter */}
         <Select value={actionFilter} onValueChange={(v) => { setActionFilter(v); setPage(1) }}>
-          <SelectTrigger className="w-full sm:w-40 bg-zinc-800 border-zinc-700 text-zinc-100 h-8 text-xs">
+          <SelectTrigger className="w-full sm:w-40 bg-white/[0.04] border-white/[0.08] text-white h-8 text-xs">
             <SelectValue placeholder="Semua Aksi" />
           </SelectTrigger>
-          <SelectContent className="bg-zinc-800 border-zinc-700">
-            <SelectItem value="ALL" className="text-zinc-200 focus:bg-zinc-700 text-xs">Semua Aksi</SelectItem>
+          <SelectContent className="bg-white/[0.04] border-white/[0.08]">
+            <SelectItem value="ALL" className="text-slate-200 focus:bg-white/[0.06] text-xs">Semua Aksi</SelectItem>
             {Object.entries(ACTION_CONFIG).map(([key, config]) => (
-              <SelectItem key={key} value={key} className="text-zinc-200 focus:bg-zinc-700 text-xs">
+              <SelectItem key={key} value={key} className="text-slate-200 focus:bg-white/[0.06] text-xs">
                 {config.label}
               </SelectItem>
             ))}
@@ -490,13 +490,13 @@ export default function AuditLogPage() {
 
         {/* Entity type filter */}
         <Select value={entityFilter} onValueChange={(v) => { setEntityFilter(v); setPage(1) }}>
-          <SelectTrigger className="w-full sm:w-36 bg-zinc-800 border-zinc-700 text-zinc-100 h-8 text-xs">
+          <SelectTrigger className="w-full sm:w-36 bg-white/[0.04] border-white/[0.08] text-white h-8 text-xs">
             <SelectValue placeholder="Semua Entitas" />
           </SelectTrigger>
-          <SelectContent className="bg-zinc-800 border-zinc-700">
-            <SelectItem value="ALL" className="text-zinc-200 focus:bg-zinc-700 text-xs">Semua Entitas</SelectItem>
+          <SelectContent className="bg-white/[0.04] border-white/[0.08]">
+            <SelectItem value="ALL" className="text-slate-200 focus:bg-white/[0.06] text-xs">Semua Entitas</SelectItem>
             {Object.entries(ENTITY_LABELS).map(([key, label]) => (
-              <SelectItem key={key} value={key} className="text-zinc-200 focus:bg-zinc-700 text-xs">
+              <SelectItem key={key} value={key} className="text-slate-200 focus:bg-white/[0.06] text-xs">
                 {label}
               </SelectItem>
             ))}
@@ -514,7 +514,7 @@ export default function AuditLogPage() {
         {hasActiveFilters && (
           <Button
             variant="ghost"
-            className="h-8 text-xs text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 shrink-0"
+            className="h-8 text-xs text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] shrink-0"
             onClick={handleClearAllFilters}
           >
             <RotateCcw className="mr-1 h-3 w-3" />
@@ -527,7 +527,7 @@ export default function AuditLogPage() {
       {hasActiveFilters && (
         <div className="flex flex-wrap gap-1.5">
           {search && (
-            <Badge variant="outline" className="bg-zinc-800 border-zinc-700 text-zinc-300 text-[11px] gap-1 px-2 py-0.5 cursor-pointer">
+            <Badge variant="outline" className="bg-white/[0.04] border-white/[0.08] text-slate-300 text-[11px] gap-1 px-2 py-0.5 cursor-pointer">
               Cari: &quot;{search}&quot;
               <button onClick={() => { setSearchInput(''); setSearch(''); setPage(1) }}>
                 <X className="h-2.5 w-2.5 ml-0.5" />
@@ -543,7 +543,7 @@ export default function AuditLogPage() {
             </Badge>
           )}
           {entityFilter !== 'ALL' && (
-            <Badge variant="outline" className="bg-zinc-800 border-zinc-700 text-zinc-300 text-[11px] gap-1 px-2 py-0.5 cursor-pointer">
+            <Badge variant="outline" className="bg-white/[0.04] border-white/[0.08] text-slate-300 text-[11px] gap-1 px-2 py-0.5 cursor-pointer">
               {getEntityLabel(entityFilter)}
               <button onClick={() => { setEntityFilter('ALL'); setPage(1) }}>
                 <X className="h-2.5 w-2.5 ml-0.5" />
@@ -551,7 +551,7 @@ export default function AuditLogPage() {
             </Badge>
           )}
           {dateFrom && (
-            <Badge variant="outline" className="bg-zinc-800 border-zinc-700 text-zinc-300 text-[11px] gap-1 px-2 py-0.5 cursor-pointer">
+            <Badge variant="outline" className="bg-white/[0.04] border-white/[0.08] text-slate-300 text-[11px] gap-1 px-2 py-0.5 cursor-pointer">
               📅 {dateFrom}{dateTo && dateTo !== dateFrom ? ` – ${dateTo}` : ''}
               <button onClick={() => { setDateFrom(''); setDateTo(''); setPage(1) }}>
                 <X className="h-2.5 w-2.5 ml-0.5" />
@@ -565,13 +565,13 @@ export default function AuditLogPage() {
       {loading ? (
         <div className="space-y-2">
           {Array.from({ length: 6 }).map((_, i) => (
-            <Skeleton key={i} className="h-16 bg-zinc-900 rounded-xl" />
+            <Skeleton key={i} className="h-16 bg-nebula rounded-xl" />
           ))}
         </div>
       ) : logs.length === 0 ? (
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-8 text-center">
+        <div className="rounded-xl border border-white/[0.06] bg-nebula p-8 text-center">
           <Search className="h-8 w-8 text-zinc-700 mx-auto mb-3" />
-          <p className="text-xs text-zinc-500">
+          <p className="text-xs text-slate-500">
             {hasActiveFilters ? 'Tidak ada audit log yang cocok dengan filter' : 'Belum ada audit log'}
           </p>
           {hasActiveFilters && (
@@ -579,7 +579,7 @@ export default function AuditLogPage() {
               variant="ghost"
               size="sm"
               onClick={handleClearAllFilters}
-              className="mt-3 text-zinc-500 hover:text-zinc-300 text-xs h-7"
+              className="mt-3 text-slate-500 hover:text-slate-300 text-xs h-7"
             >
               Reset semua filter
             </Button>
@@ -594,7 +594,7 @@ export default function AuditLogPage() {
               return (
                 <div
                   key={log.id}
-                  className={`rounded-xl border-l-4 ${config.leftBorder} border border-zinc-800/60 bg-zinc-900 p-3.5 transition-colors`}
+                  className={`rounded-xl border-l-4 ${config.leftBorder} border border-white/[0.06] bg-nebula p-3.5 transition-colors`}
                 >
                   {/* Top row: icon + action + entity + time */}
                   <div className="flex items-center gap-2.5 mb-2">
@@ -602,17 +602,17 @@ export default function AuditLogPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <ActionBadge action={log.action} />
-                        <Badge variant="outline" className="bg-zinc-800 border-zinc-700 text-zinc-400 text-[10px] px-1.5 py-0">
+                        <Badge variant="outline" className="bg-white/[0.04] border-white/[0.08] text-slate-400 text-[10px] px-1.5 py-0">
                           {getEntityLabel(log.entityType)}
                         </Badge>
                       </div>
-                      <p className="text-[10px] text-zinc-500 mt-0.5">{formatDate(log.createdAt)}</p>
+                      <p className="text-[10px] text-slate-500 mt-0.5">{formatDate(log.createdAt)}</p>
                     </div>
                   </div>
 
                   {/* User */}
-                  <p className="text-xs text-zinc-300 mb-1.5">
-                    <span className="text-zinc-500">oleh</span>{' '}
+                  <p className="text-xs text-slate-300 mb-1.5">
+                    <span className="text-slate-500">oleh</span>{' '}
                     {log.user?.name || 'System'}
                   </p>
 
@@ -626,16 +626,16 @@ export default function AuditLogPage() {
           </div>
 
           {/* Desktop table view */}
-          <div className="hidden md:block rounded-xl border border-zinc-800 overflow-hidden">
+          <div className="hidden md:block rounded-xl border border-white/[0.06] overflow-hidden">
             <Table>
               <TableHeader>
-                <TableRow className="border-zinc-800 hover:bg-transparent bg-zinc-900/50">
-                  <TableHead className="text-zinc-500 text-[11px] font-medium w-10"></TableHead>
-                  <TableHead className="text-zinc-500 text-[11px] font-medium">Waktu</TableHead>
-                  <TableHead className="text-zinc-500 text-[11px] font-medium">User</TableHead>
-                  <TableHead className="text-zinc-500 text-[11px] font-medium text-center">Aksi</TableHead>
-                  <TableHead className="text-zinc-500 text-[11px] font-medium">Entitas</TableHead>
-                  <TableHead className="text-zinc-500 text-[11px] font-medium">Detail</TableHead>
+                <TableRow className="border-white/[0.06] hover:bg-transparent bg-nebula/50">
+                  <TableHead className="text-slate-500 text-[11px] font-medium w-10"></TableHead>
+                  <TableHead className="text-slate-500 text-[11px] font-medium">Waktu</TableHead>
+                  <TableHead className="text-slate-500 text-[11px] font-medium">User</TableHead>
+                  <TableHead className="text-slate-500 text-[11px] font-medium text-center">Aksi</TableHead>
+                  <TableHead className="text-slate-500 text-[11px] font-medium">Entitas</TableHead>
+                  <TableHead className="text-slate-500 text-[11px] font-medium">Detail</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -644,18 +644,18 @@ export default function AuditLogPage() {
                   return (
                     <TableRow
                       key={log.id}
-                      className={`border-zinc-800/60 transition-colors border-l-2 ${config.leftBorder}`}
+                      className={`border-white/[0.06] transition-colors border-l-2 ${config.leftBorder}`}
                     >
                       {/* Action indicator dot */}
                       <TableCell className="py-3 px-3">
                         <div className={`w-2 h-2 rounded-full ${config.dotColor}`} />
                       </TableCell>
                       {/* Timestamp */}
-                      <TableCell className="text-xs text-zinc-400 py-3 px-3 whitespace-nowrap">
+                      <TableCell className="text-xs text-slate-400 py-3 px-3 whitespace-nowrap">
                         {formatDate(log.createdAt)}
                       </TableCell>
                       {/* User */}
-                      <TableCell className="text-xs text-zinc-300 py-3 px-3">
+                      <TableCell className="text-xs text-slate-300 py-3 px-3">
                         {log.user?.name || 'System'}
                       </TableCell>
                       {/* Action badge */}
@@ -663,13 +663,13 @@ export default function AuditLogPage() {
                         <ActionBadge action={log.action} />
                       </TableCell>
                       {/* Entity type */}
-                      <TableCell className="text-xs text-zinc-400 py-3 px-3">
-                        <Badge variant="outline" className="bg-zinc-800 border-zinc-700 text-zinc-400 text-[10px] px-1.5 py-0">
+                      <TableCell className="text-xs text-slate-400 py-3 px-3">
+                        <Badge variant="outline" className="bg-white/[0.04] border-white/[0.08] text-slate-400 text-[10px] px-1.5 py-0">
                           {getEntityLabel(log.entityType)}
                         </Badge>
                       </TableCell>
                       {/* Details */}
-                      <TableCell className="text-xs text-zinc-400 py-3 px-3 max-w-xs">
+                      <TableCell className="text-xs text-slate-400 py-3 px-3 max-w-xs">
                         <DetailsDisplay action={log.action} details={log.details} />
                       </TableCell>
                     </TableRow>

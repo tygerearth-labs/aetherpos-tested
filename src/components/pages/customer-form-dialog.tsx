@@ -90,32 +90,32 @@ export default function CustomerFormDialog({ open, onOpenChange, customer, onSav
 
   return (
     <ResponsiveDialog open={open} onOpenChange={onOpenChange}>
-      <ResponsiveDialogContent className="bg-zinc-900 border-zinc-800 p-4">
+      <ResponsiveDialogContent className="bg-nebula border-white/[0.06] p-4">
         <ResponsiveDialogHeader>
-          <ResponsiveDialogTitle className="text-sm font-semibold text-zinc-100">
+          <ResponsiveDialogTitle className="text-sm font-semibold text-white">
             {isEdit ? 'Edit Customer' : 'Add Customer'}
           </ResponsiveDialogTitle>
         </ResponsiveDialogHeader>
         <form onSubmit={handleSubmit} className="space-y-3 py-1">
           <div className="space-y-1.5">
-            <Label className="text-xs text-zinc-300">Customer Name *</Label>
+            <Label className="text-xs text-slate-300">Customer Name *</Label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Enter customer name"
-              className="bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 h-9 text-sm"
+              className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
             />
           </div>
 
           <div className="space-y-1.5">
-            <Label className="text-xs text-zinc-300">WhatsApp Number *</Label>
+            <Label className="text-xs text-slate-300">WhatsApp Number *</Label>
             <Input
               value={whatsapp}
               onChange={(e) => setWhatsapp(e.target.value)}
               placeholder="+6281234567890"
-              className="bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 h-9 text-sm"
+              className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
             />
-            <p className="text-[11px] text-zinc-500">Must start with +62 or 08</p>
+            <p className="text-[11px] text-slate-500">Must start with +62 or 08</p>
           </div>
 
           {error && (
@@ -127,7 +127,7 @@ export default function CustomerFormDialog({ open, onOpenChange, customer, onSav
               type="button"
               variant="ghost"
               onClick={() => onOpenChange(false)}
-              className="bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700 h-8 text-xs"
+              className="bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.06] h-8 text-xs"
             >
               Cancel
             </Button>

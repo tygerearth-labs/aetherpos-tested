@@ -14,11 +14,11 @@ const Toaster = ({ ...props }: ToasterProps) => {
       position={isMobile ? "top-center" : "bottom-right"}
       toastOptions={{
         classNames: {
-          toast: "bg-zinc-900 border-zinc-800 text-zinc-100 shadow-2xl shadow-black/30",
-          title: "text-zinc-100 text-sm font-medium",
-          description: "text-zinc-400 text-xs",
+          toast: "bg-nebula border-white/[0.06] text-white shadow-2xl shadow-black/30",
+          title: "text-white text-sm font-medium",
+          description: "text-slate-400 text-xs",
           actionButton: "theme-bg theme-hover text-white",
-          cancelButton: "bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border-zinc-700",
+          cancelButton: "bg-white/[0.04] hover:bg-zinc-700 text-slate-300 border-zinc-700",
         },
       }}
       className="toaster group"

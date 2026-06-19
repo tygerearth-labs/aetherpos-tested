@@ -15,12 +15,11 @@ import AuditLogPage from '@/components/pages/audit-log-page'
 import CrewPage from '@/components/pages/crew-page'
 import SettingsPage from '@/components/pages/settings-page'
 import { Loader2 } from 'lucide-react'
+import { motion } from 'framer-motion'
 
 function AppContent() {
-  // Reduce session polling to every 5 minutes to prevent premature session expiry detection
-  // during offline→online transitions (default is every 5s which is too aggressive)
   const { data: session, status } = useSession({
-    refetchInterval: 5 * 60 * 1000, // Poll every 5 minutes instead of default 5s
+    refetchInterval: 5 * 60 * 1000,
     refetchOnWindowFocus: true,
   })
   const { currentPage } = usePageStore()
@@ -28,8 +27,14 @@ function AppContent() {
 
   if (status === 'loading') {
     return (
-      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin theme-text" />
+      <div className="min-h-screen bg-deep-space flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="relative h-8 w-8 rounded-lg overflow-hidden">
+            <div className="absolute inset-0 aether-gradient animate-pulse" />
+            <span className="absolute inset-0 flex items-center justify-center text-[12px] font-black text-white tracking-wider" style={{ fontFamily: 'var(--font-geist-sans)' }}>A</span>
+          </div>
+          <span className="text-[10px] text-slate-600 uppercase tracking-[0.15em] font-medium">Initializing</span>
+        </div>
       </div>
     )
   }
@@ -62,17 +67,16 @@ function AppContent() {
   }
 
   return (
-    <div className={`bg-zinc-950 ${currentPage === 'pos' ? 'md:h-screen md:overflow-y-hidden' : 'min-h-screen'}`}>
+    <div className={`bg-deep-space ${currentPage === 'pos' ? 'md:h-screen md:overflow-y-hidden' : 'min-h-screen'}`}>
       <Sidebar />
       <MobileBottomNav />
       <main
-        className={`transition-all duration-300 ease-in-out ${
-          collapsed ? 'md:ml-[68px]' : 'md:ml-64'
+        className={`transition-all duration-300 ease-out ${
+          collapsed ? 'md:ml-[68px]' : 'md:ml-[260px]'
         } ${
           currentPage === 'pos' ? 'md:h-full' : 'min-h-screen'
         }`}
       >
-        {/* Mobile: bottom padding for nav. Desktop POS: full screen. Others: normal padding */}
         <div className={`max-w-full ${
           currentPage === 'pos'
             ? 'pb-20 px-3 pt-3 sm:px-4 md:h-full md:pb-0 md:px-3 md:py-2 md:overflow-y-hidden'

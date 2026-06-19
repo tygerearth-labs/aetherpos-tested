@@ -57,7 +57,7 @@ import {
   Store,
   Tag,
   Layers,
-  ClockArrowDown,
+  Pause,
   Play,
   Clock,
 } from 'lucide-react'
@@ -175,7 +175,7 @@ const CATEGORY_COLORS: Record<string, { bg: string; text: string; border: string
   orange: { bg: 'bg-orange-500/10', text: 'text-orange-400', border: 'border-orange-500/20', activeBg: 'bg-orange-500/20' },
   pink: { bg: 'bg-pink-500/10', text: 'text-pink-400', border: 'border-pink-500/20', activeBg: 'bg-pink-500/20' },
   teal: { bg: 'bg-teal-500/10', text: 'text-teal-400', border: 'border-teal-500/20', activeBg: 'bg-teal-500/20' },
-  zinc: { bg: 'bg-zinc-500/10', text: 'text-zinc-400', border: 'border-zinc-500/20', activeBg: 'bg-zinc-500/20' },
+  zinc: { bg: 'bg-slate-500/10', text: 'text-slate-400', border: 'border-slate-500/20', activeBg: 'bg-slate-500/20' },
 }
 
 const QUICK_NOMINALS = [5000, 10000, 20000, 50000, 100000, 200000, 500000]
@@ -472,8 +472,6 @@ export default function PosPage() {
 
   // Pending Transactions
   const [pendingListOpen, setPendingListOpen] = useState(false)
-  const [holdNoteDialog, setHoldNoteDialog] = useState(false)
-  const [pendingNote, setPendingNote] = useState('')
   const pendingCount = useLiveQuery(
     () => localDB.pendingTransactions.count(),
     []
@@ -927,11 +925,6 @@ export default function PosPage() {
 
   const handleHoldTransaction = async () => {
     if (cart.length === 0) return
-    setPendingNote('')
-    setHoldNoteDialog(true)
-  }
-
-  const confirmHoldTransaction = async () => {
     try {
       const userName = session?.user?.name || 'Unknown'
       const userId = (session?.user as any)?.id || ''
@@ -943,8 +936,7 @@ export default function PosPage() {
         })),
         customerId: selectedCustomer?.id || null,
         customerName: selectedCustomer?.name || null,
-        customerPhone: selectedCustomer?.whatsapp || null,
-        note: pendingNote.trim(),
+        note: '',
         subtotal,
         createdAt: Date.now(),
         userId,
@@ -952,8 +944,6 @@ export default function PosPage() {
       })
       clearCart()
       setMobileCartOpen(false)
-      setHoldNoteDialog(false)
-      setPendingNote('')
       toast.success('Transaksi ditunda')
     } catch {
       toast.error('Gagal menunda transaksi')
@@ -974,7 +964,6 @@ export default function PosPage() {
           })),
           customerId: selectedCustomer?.id || null,
           customerName: selectedCustomer?.name || null,
-          customerPhone: selectedCustomer?.whatsapp || null,
           note: '',
           subtotal,
           createdAt: Date.now(),
@@ -1395,7 +1384,7 @@ export default function PosPage() {
         className={`shrink-0 px-3 py-1.5 sm:px-3 sm:py-1.5 rounded-full text-[11px] font-medium border transition-all backdrop-blur-sm ${
           !selectedCategoryId
             ? `${themeColors.activeBg} ${themeColors.text} ${themeColors.border} shadow-sm`
-            : 'bg-zinc-900/60 border-zinc-800/60 text-zinc-500 hover:border-zinc-700 hover:text-zinc-300'
+            : 'bg-nebula/60 border-white/[0.06] text-slate-500 hover:border-white/[0.08] hover:text-slate-300'
         }`}
       >
         <LayoutGrid className="inline h-3 w-3 mr-1 -mt-0.5" />
@@ -1411,7 +1400,7 @@ export default function PosPage() {
             className={`shrink-0 px-3 py-1.5 sm:px-3 sm:py-1.5 rounded-full text-[11px] font-medium border transition-all backdrop-blur-sm ${
               isActive
                 ? `${colors.activeBg} ${colors.text} ${colors.border} shadow-sm`
-                : 'bg-zinc-900/60 border-zinc-800/60 text-zinc-500 hover:border-zinc-700 hover:text-zinc-300'
+                : 'bg-nebula/60 border-white/[0.06] text-slate-500 hover:border-white/[0.08] hover:text-slate-300'
             }`}
           >
             {cat.name}
@@ -1424,15 +1413,15 @@ export default function PosPage() {
   const renderProductGrid = () => {
     if (productsLoading) {
       return Array.from({ length: 8 }).map((_, i) => (
-        <div key={i} className="h-[88px] md:h-[72px] rounded-xl bg-zinc-800/20 animate-pulse" />
+        <div key={i} className="h-[88px] md:h-[72px] rounded-xl bg-white/[0.02] animate-pulse" />
       ))
     }
 
     if (products.length === 0) {
       return (
         <div className="col-span-full text-center py-12">
-          <Package className="h-10 w-10 text-zinc-700 mx-auto mb-2" />
-          <p className="text-xs text-zinc-500">
+          <Package className="h-10 w-10 text-slate-700 mx-auto mb-2" />
+          <p className="text-xs text-slate-500">
             {selectedCategoryId ? 'Tidak ada produk di kategori ini' : 'Tidak ada produk ditemukan'}
           </p>
         </div>
@@ -1477,10 +1466,10 @@ export default function PosPage() {
           className={cn(
             'relative group min-h-[68px] md:min-h-0 rounded-2xl md:rounded-xl border text-left transition-all duration-200',
             outOfStock
-              ? 'opacity-40 cursor-not-allowed border-zinc-800/40 bg-zinc-900/30 p-2.5 md:p-3'
+              ? 'opacity-40 cursor-not-allowed border-white/[0.04] bg-white/[0.02] p-2.5 md:p-3'
               : hasCartItems
               ? `${accentColor.border} ${accentColor.bg} ring-1 ring-inset ${accentColor.border.replace('border-', 'ring-')} cursor-pointer active:scale-[0.98]`
-              : 'border-zinc-800/50 bg-zinc-900/60 hover:border-zinc-700/60 hover:bg-zinc-800/50 hover:shadow-lg hover:shadow-black/20 backdrop-blur-sm cursor-pointer active:scale-[0.98]'
+              : 'border-white/[0.04] bg-nebula/60 hover:border-white/[0.08] hover:bg-white/[0.03] hover:shadow-lg hover:shadow-black/20 backdrop-blur-sm cursor-pointer active:scale-[0.98]'
           )}
         >
           {/* Entire card is clickable */}
@@ -1501,7 +1490,7 @@ export default function PosPage() {
             'p-2.5 md:p-3'
           )}>
             <div className="flex items-start justify-between gap-1 mb-1 md:mb-1.5">
-              <p className="text-[11px] md:text-xs font-medium text-zinc-200 truncate">{product.name}</p>
+              <p className="text-[11px] md:text-xs font-medium text-slate-200 truncate">{product.name}</p>
               {isVariantProduct && (
                 <span className="shrink-0 inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-md font-medium bg-violet-500/10 text-violet-400 border border-violet-500/20">
                   <Layers className="h-2.5 w-2.5" />
@@ -1535,9 +1524,9 @@ export default function PosPage() {
                     'inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md font-medium',
                     lowStock
                       ? 'bg-amber-500/10 text-amber-400'
-                      : 'bg-zinc-800/80 text-zinc-500'
+                      : 'bg-white/[0.04] text-slate-500'
                   )}>
-                    <span className={cn('w-1 h-1 rounded-full', lowStock ? 'bg-amber-400' : 'bg-zinc-600')} />
+                    <span className={cn('w-1 h-1 rounded-full', lowStock ? 'bg-amber-400' : 'bg-slate-600')} />
                     {product.stock}
                   </span>
                 )}
@@ -1553,12 +1542,12 @@ export default function PosPage() {
     return (
       <div className="flex items-center justify-between px-1 py-2">
         <Button variant="outline" size="sm" onClick={() => setProductPage(p => Math.max(1, p - 1))} disabled={productPage <= 1 || productsLoading}
-          className="bg-zinc-900 border-zinc-800 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 h-7 text-xs">
+          className="bg-nebula border-white/[0.06] text-slate-400 hover:bg-white/[0.04] hover:text-slate-200 h-7 text-xs">
           <ChevronLeft className="h-3 w-3 mr-1" /> Prev
         </Button>
-        <span className="text-[11px] text-zinc-500 font-medium">{productPage}/{totalProductPages}</span>
+        <span className="text-[11px] text-slate-500 font-medium">{productPage}/{totalProductPages}</span>
         <Button variant="outline" size="sm" onClick={() => setProductPage(p => Math.min(totalProductPages, p + 1))} disabled={productPage >= totalProductPages || productsLoading}
-          className="bg-zinc-900 border-zinc-800 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 h-7 text-xs">
+          className="bg-nebula border-white/[0.06] text-slate-400 hover:bg-white/[0.04] hover:text-slate-200 h-7 text-xs">
           Next <ChevronRight className="h-3 w-3 ml-1" />
         </Button>
       </div>
@@ -1579,7 +1568,7 @@ export default function PosPage() {
                 compact ? 'h-9 py-2' : 'h-10 py-2.5',
                 isActive
                   ? `${themeColors.activeBg} ${themeColors.text} ${themeColors.border} shadow-sm ring-1 ring-inset ${themeColors.border.replace('border-', 'ring-')}`
-                  : 'bg-zinc-800/60 border-zinc-700/60 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 hover:border-zinc-600'
+                  : 'bg-white/[0.04] border-white/[0.08] text-slate-400 hover:bg-white/[0.06] hover:text-slate-200 hover:border-white/[0.08]'
               )}>
               {icons[method]} {method}
             </button>
@@ -1590,36 +1579,36 @@ export default function PosPage() {
   }
 
   const renderCustomerSelector = (isMobile = false) => (
-    <div className={isMobile ? 'bg-zinc-900/80 border border-zinc-800/60 rounded-2xl p-3.5 space-y-2' : 'border-b border-zinc-800 px-4 py-3'}>
+    <div className={isMobile ? 'bg-nebula/80 border border-white/[0.06] rounded-2xl p-3.5 space-y-2' : 'border-b border-white/[0.06] px-4 py-3'}>
       <div className="flex items-center justify-between">
-        <Label className="text-[11px] text-zinc-500 font-medium tracking-wide uppercase">Customer</Label>
+        <Label className="text-[11px] text-slate-500 font-medium tracking-wide uppercase">Customer</Label>
         <button onClick={() => setAddCustomerOpen(true)} className="text-[10px] theme-text hover:theme-text font-semibold flex items-center gap-1 transition-colors">
           <UserPlus className="h-3 w-3" /> Tambah Baru
         </button>
       </div>
       <div className="relative">
-        <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
+        <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
         <Input
           placeholder={selectedCustomer ? selectedCustomer.name : 'Cari customer (walk-in jika kosong)'}
           value={customerSearch}
           onChange={(e) => { setCustomerSearch(e.target.value); setCustomerDropdownOpen(true) }}
           onFocus={() => setCustomerDropdownOpen(true)}
-          className="pl-10 pr-8 h-10 text-sm bg-zinc-800/50 border-zinc-700/60 text-zinc-100 placeholder:text-zinc-500 rounded-xl backdrop-blur-sm"
+          className="pl-10 pr-8 h-10 text-sm bg-white/[0.03] border-white/[0.08] text-white placeholder:text-slate-500 rounded-xl backdrop-blur-sm"
         />
         {selectedCustomer && (
           <button onClick={() => { setSelectedCustomer(null); setCustomerSearch(''); setPointsToUse(0) }}
-            className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 flex items-center justify-center rounded-full bg-zinc-700/50 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700 transition-colors">
+            className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 flex items-center justify-center rounded-full bg-white/[0.06] text-slate-400 hover:text-slate-200 hover:bg-white/[0.06] transition-colors">
             <X className="h-3 w-3" />
           </button>
         )}
       </div>
       {customerDropdownOpen && filteredCustomers.length > 0 && !selectedCustomer && (
-        <div className={`absolute z-30 ${isMobile ? 'w-[calc(100%-1.75rem)]' : 'w-full'} mt-1 bg-zinc-900 border border-zinc-700/60 rounded-2xl shadow-2xl shadow-black/40 max-h-44 overflow-y-auto backdrop-blur-xl`}>
+        <div className={`absolute z-30 ${isMobile ? 'w-[calc(100%-1.75rem)]' : 'w-full'} mt-1 bg-nebula border border-white/[0.08] rounded-2xl shadow-2xl shadow-black/40 max-h-44 overflow-y-auto backdrop-blur-xl`}>
           {filteredCustomers.map((customer) => (
             <button key={customer.id} onClick={() => { setSelectedCustomer(customer); setCustomerSearch(''); setCustomerDropdownOpen(false); setPointsToUse(0) }}
-              className="w-full text-left px-4 py-2.5 hover:bg-zinc-800/80 border-b border-zinc-800/40 last:border-0 transition-colors first:rounded-t-2xl last:rounded-b-2xl">
-              <p className="text-xs text-zinc-200 font-medium">{customer.name}</p>
-              <p className="text-[10px] text-zinc-500 mt-0.5">{customer.whatsapp} · <span className="text-amber-400">{customer.points} pts</span></p>
+              className="w-full text-left px-4 py-2.5 hover:bg-white/[0.04] border-b border-white/[0.04] last:border-0 transition-colors first:rounded-t-2xl last:rounded-b-2xl">
+              <p className="text-xs text-slate-200 font-medium">{customer.name}</p>
+              <p className="text-[10px] text-slate-500 mt-0.5">{customer.whatsapp} · <span className="text-amber-400">{customer.points} pts</span></p>
             </button>
           ))}
         </div>
@@ -1749,12 +1738,12 @@ export default function PosPage() {
       <div className="md:hidden flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           {outletInfo ? (
-            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-zinc-900 border border-zinc-800 text-[11px] font-semibold text-zinc-300 min-w-0">
+            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-nebula border border-white/[0.06] text-[11px] font-semibold text-slate-300 min-w-0">
               <Store className="h-3.5 w-3.5 theme-text shrink-0" />
               <span className="truncate">{outletInfo.name}</span>
             </div>
           ) : (
-            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-zinc-900 border border-zinc-800 text-[11px] font-medium text-zinc-600">
+            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-nebula border border-white/[0.06] text-[11px] font-medium text-slate-600">
               <Store className="h-3.5 w-3.5" />
               <span>No outlet</span>
             </div>
@@ -1786,7 +1775,7 @@ export default function PosPage() {
           } catch { toast.error('Gagal refresh data') }
           finally { setDataSyncing(false) }
         }} disabled={dataSyncing || !isOnline}
-          className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-500 text-[10px] font-medium shrink-0 disabled:opacity-50">
+          className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-nebula border border-white/[0.06] text-slate-500 text-[10px] font-medium shrink-0 disabled:opacity-50">
           {dataSyncing ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowDownToLine className="h-3 w-3" />}
         </button>
       </div>
@@ -1795,8 +1784,8 @@ export default function PosPage() {
       <div className="hidden md:flex md:items-center md:justify-between shrink-0">
         <div className="flex items-center gap-3">
           <div>
-            <h1 className="text-lg font-bold text-zinc-100">Point of Sale</h1>
-            <p className="text-[11px] text-zinc-500">Proses transaksi & terima pembayaran</p>
+            <h1 className="text-lg font-bold text-white">Point of Sale</h1>
+            <p className="text-[11px] text-slate-500">Proses transaksi & terima pembayaran</p>
           </div>
 
           {/* Outlet Selector */}
@@ -1819,15 +1808,15 @@ export default function PosPage() {
                 }
               }}
             >
-              <SelectTrigger className="w-auto min-w-[180px] max-w-[220px] h-8 bg-zinc-900 border-zinc-700 text-zinc-200 text-xs rounded-lg gap-1.5 pr-2">
-                <Store className="h-3.5 w-3.5 text-zinc-500 shrink-0" />
+              <SelectTrigger className="w-auto min-w-[180px] max-w-[220px] h-8 bg-nebula border-white/[0.08] text-slate-200 text-xs rounded-lg gap-1.5 pr-2">
+                <Store className="h-3.5 w-3.5 text-slate-500 shrink-0" />
                 <SelectValue placeholder={outletsLoading ? 'Loading...' : 'Select outlet'} />
               </SelectTrigger>
-              <SelectContent className="bg-zinc-900 border-zinc-700">
+              <SelectContent className="bg-nebula border-white/[0.08]">
                 {userOutlets.map((outlet) => (
-                  <SelectItem key={outlet.id} value={outlet.id} className="text-xs text-zinc-200 focus:bg-zinc-800 focus:text-zinc-100">
+                  <SelectItem key={outlet.id} value={outlet.id} className="text-xs text-slate-200 focus:bg-white/[0.04] focus:text-white">
                     <div className="flex items-center gap-2">
-                      <Store className="h-3.5 w-3.5 text-zinc-500" />
+                      <Store className="h-3.5 w-3.5 text-slate-500" />
                       <span>{outlet.name}</span>
                       {outlet.isPrimary && (
                         <span className="text-[9px] theme-bg-very-light theme-text border theme-border-light px-1.5 py-0.5 rounded-full font-medium">
@@ -1840,12 +1829,12 @@ export default function PosPage() {
               </SelectContent>
             </Select>
           ) : outletInfo ? (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-zinc-800/80 border border-zinc-700 text-[11px] font-medium text-zinc-400">
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/[0.04] border border-white/[0.08] text-[11px] font-medium text-slate-400">
               <Store className="h-3 w-3" />
               <span>{outletInfo.name}</span>
             </div>
           ) : !outletsLoading ? (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-zinc-800/50 border border-zinc-800 text-[11px] font-medium text-zinc-600">
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/[0.03] border border-white/[0.06] text-[11px] font-medium text-slate-600">
               <Store className="h-3 w-3" />
               <span>No outlet</span>
             </div>
@@ -1862,7 +1851,7 @@ export default function PosPage() {
           {/* Data sync */}
           {lastSyncTimes.products ? (
             <div className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium border ${
-              dataSyncing ? 'bg-blue-500/10 border-blue-500/20 text-blue-400' : 'bg-zinc-800/80 border-zinc-700 text-zinc-500'
+              dataSyncing ? 'bg-blue-500/10 border-blue-500/20 text-blue-400' : 'bg-white/[0.04] border-white/[0.08] text-slate-500'
             }`}>
               {dataSyncing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Database className="h-3 w-3" />}
               <span>{dataSyncing ? 'Syncing...' : 'Cached'}</span>
@@ -1895,7 +1884,7 @@ export default function PosPage() {
             } catch { toast.error('Gagal refresh data') }
             finally { setDataSyncing(false) }
           }} disabled={dataSyncing || !isOnline} variant="outline" size="sm"
-            className="bg-zinc-800/80 border-zinc-700 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 disabled:opacity-50 h-7 text-xs gap-1.5">
+            className="bg-white/[0.04] border-white/[0.08] text-slate-400 hover:bg-white/[0.06] hover:text-slate-200 disabled:opacity-50 h-7 text-xs gap-1.5">
             {dataSyncing ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowDownToLine className="h-3 w-3" />}
             Refresh
           </Button>
@@ -1916,14 +1905,14 @@ export default function PosPage() {
         <div className="md:col-span-3 flex flex-col min-h-0">
           {/* Search */}
           <div className="relative mb-3 shrink-0">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
             <Input
               ref={searchInputRef}
               placeholder="Scan barcode atau cari produk..."
               value={productSearch}
               onChange={(e) => handleSearchChange(e.target.value)}
               onKeyDown={handleSearchKeyDown}
-              className="pl-10 h-10 text-sm bg-zinc-900/80 border-zinc-800 text-zinc-100 placeholder:text-zinc-500 rounded-xl"
+              className="pl-10 h-10 text-sm bg-nebula/80 border-white/[0.06] text-white placeholder:text-slate-500 rounded-xl"
             />
           </div>
 
@@ -1942,32 +1931,32 @@ export default function PosPage() {
         </div>
 
         {/* Cart - Right — Redesigned */}
-        <div className="md:col-span-2 flex flex-col h-full bg-zinc-950 border border-zinc-800/80 rounded-2xl overflow-hidden shadow-2xl shadow-black/20">
+        <div className="md:col-span-2 flex flex-col h-full bg-deep-space border border-white/[0.06] rounded-2xl overflow-hidden shadow-2xl shadow-black/20">
           {/* Cart Header */}
-          <div className="px-4 py-3 border-b border-zinc-800/60 bg-gradient-to-b from-zinc-900/50 to-transparent shrink-0">
+          <div className="px-4 py-3 border-b border-white/[0.06] bg-gradient-to-b from-nebula/50 to-transparent shrink-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-xl theme-gradient-subtle flex items-center justify-center border theme-border-light">
                   <ShoppingCart className="h-4 w-4 theme-text" />
                 </div>
                 <div>
-                  <h2 className="text-sm font-bold text-zinc-100 leading-tight">Keranjang</h2>
-                  {cart.length > 0 && <p className="text-[10px] text-zinc-500 leading-tight">{cart.length} produk · {cart.reduce((s, i) => s + i.qty, 0)} item</p>}
+                  <h2 className="text-sm font-bold text-white leading-tight">Keranjang</h2>
+                  {cart.length > 0 && <p className="text-[10px] text-slate-500 leading-tight">{cart.length} produk · {cart.reduce((s, i) => s + i.qty, 0)} item</p>}
                 </div>
               </div>
               {cart.length > 0 && (
                 <div className="flex items-center gap-1.5">
-                  <button onClick={() => setPendingListOpen(true)} className="relative h-7 px-2.5 rounded-lg text-[10px] font-semibold text-zinc-500 hover:text-amber-400 hover:bg-amber-500/10 border border-transparent hover:border-amber-500/20 transition-all">
+                  <button onClick={() => setPendingListOpen(true)} className="relative h-7 px-2.5 rounded-lg text-[10px] font-semibold text-slate-500 hover:text-amber-400 hover:bg-amber-500/10 border border-transparent hover:border-amber-500/20 transition-all">
                     <Clock className="h-3 w-3" />
                     {pendingCount > 0 && <span className="ml-1">{pendingCount}</span>}
                   </button>
-                  <button onClick={clearCart} className="h-7 px-2.5 rounded-lg text-[10px] font-semibold text-zinc-500 hover:text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 transition-all">
+                  <button onClick={clearCart} className="h-7 px-2.5 rounded-lg text-[10px] font-semibold text-slate-500 hover:text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 transition-all">
                     Hapus Semua
                   </button>
                 </div>
               )}
               {cart.length === 0 && pendingCount > 0 && (
-                <button onClick={() => setPendingListOpen(true)} className="relative h-7 px-2.5 rounded-lg text-[10px] font-semibold text-zinc-500 hover:text-amber-400 hover:bg-amber-500/10 border border-transparent hover:border-amber-500/20 transition-all">
+                <button onClick={() => setPendingListOpen(true)} className="relative h-7 px-2.5 rounded-lg text-[10px] font-semibold text-slate-500 hover:text-amber-400 hover:bg-amber-500/10 border border-transparent hover:border-amber-500/20 transition-all">
                   <Clock className="h-3 w-3" />
                   <span className="ml-1">{pendingCount} pending</span>
                 </button>
@@ -1978,34 +1967,34 @@ export default function PosPage() {
           {/* Customer Selector — embedded at top of scrollable area */}
           <div className="shrink-0 px-4 pt-3 pb-1">
             <div className="flex items-center justify-between mb-1.5">
-              <span className="text-[10px] text-zinc-500 font-semibold uppercase tracking-wider">Customer</span>
+              <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">Customer</span>
               <button onClick={() => setAddCustomerOpen(true)} className="text-[10px] theme-text hover:theme-text font-semibold flex items-center gap-0.5 transition-colors">
                 <UserPlus className="h-2.5 w-2.5" /> Baru
               </button>
             </div>
             <div className="relative">
-              <User className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500" />
+              <User className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
               <Input
                 placeholder={selectedCustomer ? selectedCustomer.name : 'Tambah customer (opsional)'}
                 value={customerSearch}
                 onChange={(e) => { setCustomerSearch(e.target.value); setCustomerDropdownOpen(true) }}
                 onFocus={() => setCustomerDropdownOpen(true)}
-                className="pl-9 pr-8 h-9 text-xs bg-zinc-900 border-zinc-800 text-zinc-100 placeholder:text-zinc-600 rounded-xl"
+                className="pl-9 pr-8 h-9 text-xs bg-nebula border-white/[0.06] text-white placeholder:text-slate-600 rounded-xl"
               />
               {selectedCustomer && (
                 <button onClick={() => { setSelectedCustomer(null); setCustomerSearch(''); setPointsToUse(0) }}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 h-5 w-5 flex items-center justify-center rounded-full bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors">
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 h-5 w-5 flex items-center justify-center rounded-full bg-white/[0.04] text-slate-400 hover:text-slate-200 transition-colors">
                   <X className="h-2.5 w-2.5" />
                 </button>
               )}
             </div>
             {customerDropdownOpen && filteredCustomers.length > 0 && !selectedCustomer && (
-              <div className="absolute z-30 w-full mt-1 bg-zinc-900 border border-zinc-700/60 rounded-xl shadow-2xl shadow-black/50 max-h-40 overflow-y-auto">
+              <div className="absolute z-30 w-full mt-1 bg-nebula border border-white/[0.08] rounded-xl shadow-2xl shadow-black/50 max-h-40 overflow-y-auto">
                 {filteredCustomers.map((customer) => (
                   <button key={customer.id} onClick={() => { setSelectedCustomer(customer); setCustomerSearch(''); setCustomerDropdownOpen(false); setPointsToUse(0) }}
-                    className="w-full text-left px-3.5 py-2 hover:bg-zinc-800/80 border-b border-zinc-800/30 last:border-0 transition-colors">
-                    <p className="text-xs text-zinc-200 font-medium">{customer.name}</p>
-                    <p className="text-[10px] text-zinc-500 mt-0.5">{customer.whatsapp} · <span className="text-amber-400">{customer.points} pts</span></p>
+                    className="w-full text-left px-3.5 py-2 hover:bg-white/[0.04] border-b border-white/[0.04] last:border-0 transition-colors">
+                    <p className="text-xs text-slate-200 font-medium">{customer.name}</p>
+                    <p className="text-[10px] text-slate-500 mt-0.5">{customer.whatsapp} · <span className="text-amber-400">{customer.points} pts</span></p>
                   </button>
                 ))}
               </div>
@@ -2027,11 +2016,11 @@ export default function PosPage() {
           <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 py-2">
             {cart.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-10">
-                <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-zinc-800/60 to-zinc-900 border border-zinc-800/40 flex items-center justify-center mb-4">
-                  <ShoppingCart className="h-8 w-8 text-zinc-700/60" />
+                <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-white/[0.04] to-nebula border border-white/[0.04] flex items-center justify-center mb-4">
+                  <ShoppingCart className="h-8 w-8 text-slate-700/60" />
                 </div>
-                <p className="text-sm font-medium text-zinc-500">Keranjang Kosong</p>
-                <p className="text-[11px] text-zinc-600 mt-1">Pilih produk dari kiri untuk memulai</p>
+                <p className="text-sm font-medium text-slate-500">Keranjang Kosong</p>
+                <p className="text-[11px] text-slate-600 mt-1">Pilih produk dari kiri untuk memulai</p>
               </div>
             ) : (
               <div className="space-y-1.5">
@@ -2039,16 +2028,16 @@ export default function PosPage() {
                   const itemKey = getCartKey(item.product.id, item.variant?.id || null)
                   const itemTotal = getItemPrice(item) * item.qty
                   return (
-                  <div key={itemKey} className="group flex items-center gap-2.5 p-2.5 rounded-xl bg-zinc-900/60 border border-zinc-800/40 hover:border-zinc-700/60 transition-all duration-150">
+                  <div key={itemKey} className="group flex items-center gap-2.5 p-2.5 rounded-xl bg-nebula/60 border border-white/[0.04] hover:border-white/[0.08] transition-all duration-150">
                     {/* Product Info */}
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-zinc-100 truncate leading-tight">{item.product.name}</p>
+                      <p className="text-xs font-semibold text-white truncate leading-tight">{item.product.name}</p>
                       {item.variant && (
                         <span className="inline-flex items-center gap-1 mt-0.5 px-1.5 py-0.5 rounded-md bg-violet-500/10 border border-violet-500/15">
                           <span className="text-[9px] font-medium text-violet-400 leading-tight">{item.variant.name}</span>
                         </span>
                       )}
-                      <p className="text-[10px] text-zinc-500 mt-1">
+                      <p className="text-[10px] text-slate-500 mt-1">
                         {formatCurrency(getItemPrice(item))} × {item.qty}
                       </p>
                     </div>
@@ -2058,7 +2047,7 @@ export default function PosPage() {
 
                     {/* Qty Controls */}
                     <div className="flex items-center gap-0.5 shrink-0">
-                      <button className="h-7 w-7 flex items-center justify-center rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-all active:scale-90"
+                      <button className="h-7 w-7 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-200 hover:bg-white/[0.04] transition-all active:scale-90"
                         onClick={() => updateQty(item.product.id, item.qty - 1, item.variant?.id)}><Minus className="h-3 w-3" /></button>
                       {editingQtyId === itemKey ? (
                         <input
@@ -2070,21 +2059,21 @@ export default function PosPage() {
                           onChange={(e) => setEditingQtyValue(e.target.value)}
                           onBlur={confirmEditQty}
                           onKeyDown={(e) => { if (e.key === 'Enter') confirmEditQty(); if (e.key === 'Escape') cancelEditQty() }}
-                          className="text-xs text-zinc-100 w-8 text-center font-bold bg-zinc-800 border border-zinc-700 rounded-lg h-7 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          className="text-xs text-white w-8 text-center font-bold bg-white/[0.04] border border-white/[0.08] rounded-lg h-7 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                         />
                       ) : (
                         <span
-                          className="text-xs text-zinc-100 w-6 text-center font-bold cursor-pointer hover:theme-text transition-colors"
+                          className="text-xs text-white w-6 text-center font-bold cursor-pointer hover:theme-text transition-colors"
                           onClick={() => startEditQty(itemKey, item.qty)}
                           title="Klik untuk edit qty"
                         >{item.qty}</span>
                       )}
-                      <button className="h-7 w-7 flex items-center justify-center rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-all active:scale-90"
+                      <button className="h-7 w-7 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-200 hover:bg-white/[0.04] transition-all active:scale-90"
                         onClick={() => updateQty(item.product.id, item.qty + 1, item.variant?.id)}><Plus className="h-3 w-3" /></button>
                     </div>
 
                     {/* Delete — shown on hover */}
-                    <button className="h-6 w-6 flex items-center justify-center rounded-md text-zinc-700 opacity-0 group-hover:opacity-100 hover:text-red-400 hover:bg-red-500/10 transition-all shrink-0"
+                    <button className="h-6 w-6 flex items-center justify-center rounded-md text-slate-700 opacity-0 group-hover:opacity-100 hover:text-red-400 hover:bg-red-500/10 transition-all shrink-0"
                       onClick={() => removeFromCart(item.product.id, item.variant?.id)}><Trash2 className="h-3 w-3" /></button>
                   </div>
                   )
@@ -2094,16 +2083,16 @@ export default function PosPage() {
           </div>
 
           {/* Summary & Payment — fixed bottom */}
-          <div className="shrink-0 border-t border-zinc-800/60 bg-gradient-to-t from-zinc-950 to-zinc-900/80 overflow-y-auto overscroll-contain max-h-[45%]">
+          <div className="shrink-0 border-t border-white/[0.06] bg-gradient-to-t from-deep-space to-nebula/80 overflow-y-auto overscroll-contain max-h-[45%]">
             <div className="p-4 space-y-3">
             {/* Totals */}
             <div className="space-y-1.5 text-xs">
-              <div className="flex justify-between text-zinc-400"><span>Subtotal</span><span className="text-zinc-200 tabular-nums">{formatCurrency(subtotal)}</span></div>
+              <div className="flex justify-between text-slate-400"><span>Subtotal</span><span className="text-slate-200 tabular-nums">{formatCurrency(subtotal)}</span></div>
               {settings.loyaltyEnabled && selectedCustomer && maxPointsToUse > 0 && (
                 <div className="flex items-center justify-between">
-                  <span className="text-zinc-400 flex items-center gap-1.5"><Coins className="h-3 w-3" /> Pakai Poin</span>
+                  <span className="text-slate-400 flex items-center gap-1.5"><Coins className="h-3 w-3" /> Pakai Poin</span>
                   <Input type="number" min="0" max={maxPointsToUse} value={pointsToUse || ''} onChange={(e) => handlePointsChange(e.target.value)}
-                    placeholder="0" className="w-20 h-7 text-right text-[11px] bg-zinc-800 border-zinc-700 text-zinc-100 rounded-lg" />
+                    placeholder="0" className="w-20 h-7 text-right text-[11px] bg-white/[0.04] border-white/[0.08] text-white rounded-lg" />
                 </div>
               )}
               {pointsDiscount > 0 && (
@@ -2118,10 +2107,10 @@ export default function PosPage() {
               {ppnAmount > 0 && (
                 <div className="flex justify-between text-sky-300"><span>PPN ({settings.ppnRate}%)</span><span className="tabular-nums">+{formatCurrency(ppnAmount)}</span></div>
               )}
-              <Separator className="bg-zinc-800/80" />
+              <Separator className="bg-white/[0.04]" />
               <div className="flex justify-between items-baseline">
-                <span className="text-sm font-black text-zinc-100">Total</span>
-                <span className="text-lg font-black text-zinc-50 tabular-nums">{formatCurrency(total)}</span>
+                <span className="text-sm font-black text-white">Total</span>
+                <span className="text-lg font-black text-white tabular-nums">{formatCurrency(total)}</span>
               </div>
             </div>
 
@@ -2132,10 +2121,10 @@ export default function PosPage() {
             {paymentMethod === 'CASH' && (
               <div className="space-y-2.5">
                 <div className="relative">
-                  <Label className="text-[10px] text-zinc-500 font-semibold uppercase tracking-wider">Jumlah Bayar</Label>
+                  <Label className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">Jumlah Bayar</Label>
                   <Input type="number" min="0" step="any" value={paidAmount} onChange={(e) => setPaidAmount(e.target.value)}
-                    placeholder="0" className="mt-1.5 h-11 text-base font-bold bg-zinc-800/80 border-zinc-700 text-zinc-100 placeholder:text-zinc-600 rounded-xl text-right pr-14 tabular-nums" />
-                  <span className="absolute right-3 top-[calc(50%+8px)] -translate-y-1/2 text-xs text-zinc-500 font-medium">Rp</span>
+                    placeholder="0" className="mt-1.5 h-11 text-base font-bold bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-600 rounded-xl text-right pr-14 tabular-nums" />
+                  <span className="absolute right-3 top-[calc(50%+8px)] -translate-y-1/2 text-xs text-slate-500 font-medium">Rp</span>
                 </div>
                 {Number(paidAmount) >= total && total > 0 && (
                   <div className="flex items-center justify-between text-xs theme-bg-very-light border theme-border-light rounded-xl px-3.5 py-2.5">
@@ -2149,7 +2138,7 @@ export default function PosPage() {
                       className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border transition-all ${
                         Number(paidAmount) === nom
                           ? `${themeColors.activeBg} ${themeColors.text} ${themeColors.border} shadow-sm`
-                          : 'bg-zinc-800/60 border-zinc-700/60 text-zinc-400 hover:border-zinc-600 hover:text-zinc-200'
+                          : 'bg-white/[0.04] border-white/[0.08] text-slate-400 hover:border-white/[0.08] hover:text-slate-200'
                       }`}>
                       {nom >= 1000 ? `${nom / 1000}K` : nom}
                     </button>
@@ -2166,34 +2155,34 @@ export default function PosPage() {
 
             {/* QRIS Payment */}
             {paymentMethod === 'QRIS' && (
-              <div className="p-5 rounded-xl bg-zinc-900 border border-zinc-800/60 text-center">
-                <div className="w-16 h-16 rounded-2xl bg-zinc-800 flex items-center justify-center mx-auto mb-3">
-                  <QrCode className="h-8 w-8 text-zinc-600" />
+              <div className="p-5 rounded-xl bg-nebula border border-white/[0.06] text-center">
+                <div className="w-16 h-16 rounded-2xl bg-white/[0.04] flex items-center justify-center mx-auto mb-3">
+                  <QrCode className="h-8 w-8 text-slate-600" />
                 </div>
-                <p className="text-xs text-zinc-400">Scan QRIS untuk bayar</p>
-                <p className="text-base font-black text-zinc-200 mt-1 tabular-nums">{formatCurrency(total)}</p>
+                <p className="text-xs text-slate-400">Scan QRIS untuk bayar</p>
+                <p className="text-base font-black text-slate-200 mt-1 tabular-nums">{formatCurrency(total)}</p>
               </div>
             )}
 
             {/* DEBIT Payment */}
             {paymentMethod === 'DEBIT' && (
-              <div className="p-5 rounded-xl bg-zinc-900 border border-zinc-800/60 text-center">
-                <div className="w-16 h-16 rounded-2xl bg-zinc-800 flex items-center justify-center mx-auto mb-3">
-                  <CreditCard className="h-8 w-8 text-zinc-600" />
+              <div className="p-5 rounded-xl bg-nebula border border-white/[0.06] text-center">
+                <div className="w-16 h-16 rounded-2xl bg-white/[0.04] flex items-center justify-center mx-auto mb-3">
+                  <CreditCard className="h-8 w-8 text-slate-600" />
                 </div>
-                <p className="text-xs text-zinc-400">Tap atau gesek kartu debit</p>
-                <p className="text-base font-black text-zinc-200 mt-1 tabular-nums">{formatCurrency(total)}</p>
+                <p className="text-xs text-slate-400">Tap atau gesek kartu debit</p>
+                <p className="text-base font-black text-slate-200 mt-1 tabular-nums">{formatCurrency(total)}</p>
               </div>
             )}
 
             {/* TRANSFER Payment */}
             {paymentMethod === 'TRANSFER' && (
-              <div className="p-5 rounded-xl bg-zinc-900 border border-zinc-800/60 text-center">
-                <div className="w-16 h-16 rounded-2xl bg-zinc-800 flex items-center justify-center mx-auto mb-3">
+              <div className="p-5 rounded-xl bg-nebula border border-white/[0.06] text-center">
+                <div className="w-16 h-16 rounded-2xl bg-white/[0.04] flex items-center justify-center mx-auto mb-3">
                   <ArrowRightLeft className="h-8 w-8 text-orange-500/40" />
                 </div>
-                <p className="text-xs text-zinc-400">Mohon transfer ke rekening outlet</p>
-                <p className="text-base font-black text-zinc-200 mt-1 tabular-nums">{formatCurrency(total)}</p>
+                <p className="text-xs text-slate-400">Mohon transfer ke rekening outlet</p>
+                <p className="text-base font-black text-slate-200 mt-1 tabular-nums">{formatCurrency(total)}</p>
               </div>
             )}
 
@@ -2201,8 +2190,8 @@ export default function PosPage() {
             <div className="flex gap-2">
               {cart.length > 0 && (
                 <Button onClick={handleHoldTransaction} variant="outline"
-                  className="h-12 px-4 font-semibold text-sm rounded-xl border-zinc-700 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 transition-all shrink-0">
-                  <ClockArrowDown className="mr-1.5 h-4 w-4" />
+                  className="h-12 px-4 font-semibold text-sm rounded-xl border-white/[0.08] text-slate-300 hover:bg-white/[0.04] hover:text-white transition-all shrink-0">
+                  <Pause className="mr-1.5 h-4 w-4" />
                   Tunda
                 </Button>
               )}
@@ -2210,7 +2199,7 @@ export default function PosPage() {
                 className={`flex-1 h-12 font-bold text-sm rounded-xl transition-all ${
                   cart.length > 0
                     ? `theme-gradient hover:theme-hover text-white shadow-lg theme-shadow hover:theme-shadow active:scale-[0.99]`
-                    : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
+                    : 'bg-white/[0.04] text-slate-500 cursor-not-allowed'
                 }`}>
                 {checkingOut ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}
                 {checkingOut ? 'Memproses...' : 'Proses Pembayaran'}
@@ -2224,14 +2213,14 @@ export default function PosPage() {
       {/* Mobile Layout — Product view + floating cart */}
       <div className="md:hidden shrink-0">
         <div className="relative mb-3">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
           <Input
             ref={searchInputRef}
             placeholder="Cari produk..."
             value={productSearch}
             onChange={(e) => handleSearchChange(e.target.value)}
             onKeyDown={handleSearchKeyDown}
-            className="pl-10 h-11 text-sm bg-zinc-900/80 border-zinc-800 text-zinc-100 placeholder:text-zinc-500 rounded-xl"
+            className="pl-10 h-11 text-sm bg-nebula/80 border-white/[0.06] text-white placeholder:text-slate-500 rounded-xl"
           />
         </div>
         {renderCategoryChips()}
@@ -2243,7 +2232,7 @@ export default function PosPage() {
       {isMobile && pendingCount > 0 && cart.length === 0 && (
         <button
           onClick={() => setPendingListOpen(true)}
-          className="md:hidden fixed bottom-20 right-4 z-50 flex items-center gap-2.5 h-12 pl-3.5 pr-4 rounded-2xl bg-zinc-800 border border-zinc-700/80 text-zinc-100 shadow-2xl shadow-black/30 hover:bg-zinc-700 active:scale-95 transition-all duration-150"
+          className="md:hidden fixed bottom-20 right-4 z-50 flex items-center gap-2.5 h-12 pl-3.5 pr-4 rounded-2xl bg-white/[0.04] border border-white/[0.08] text-white shadow-2xl shadow-black/30 hover:bg-white/[0.06] active:scale-95 transition-all duration-150"
         >
           <div className="relative">
             <Clock className="h-5 w-5 text-amber-400" />
@@ -2272,10 +2261,10 @@ export default function PosPage() {
 
       {/* ── Mobile Cart Sheet — Redesigned ── */}
       <Sheet open={mobileCartOpen} onOpenChange={(open) => { if (!open) setMobileCartOpen(false) }}>
-        <SheetContent side="bottom" className="bg-zinc-950 border-zinc-800/80 rounded-t-[28px] h-[88vh] max-h-[88vh] overflow-hidden flex flex-col px-0 gap-0">
+        <SheetContent side="bottom" className="bg-deep-space border-white/[0.06] rounded-t-[28px] h-[88vh] max-h-[88vh] overflow-hidden flex flex-col px-0 gap-0">
           {/* Drag handle */}
           <div className="flex justify-center pt-3 pb-1 shrink-0">
-            <div className="w-10 h-1 rounded-full bg-zinc-700/60" />
+            <div className="w-10 h-1 rounded-full bg-white/[0.06]" />
           </div>
 
           {/* Header */}
@@ -2286,23 +2275,23 @@ export default function PosPage() {
                   <ShoppingCart className="h-4 w-4 theme-text" />
                 </div>
                 <div>
-                  <h2 className="text-[15px] font-bold text-zinc-100 leading-tight">Keranjang</h2>
-                  {cart.length > 0 && <p className="text-[10px] text-zinc-500">{cart.length} produk · {cart.reduce((s, i) => s + i.qty, 0)} item</p>}
+                  <h2 className="text-[15px] font-bold text-white leading-tight">Keranjang</h2>
+                  {cart.length > 0 && <p className="text-[10px] text-slate-500">{cart.length} produk · {cart.reduce((s, i) => s + i.qty, 0)} item</p>}
                 </div>
               </div>
               {cart.length > 0 && (
                 <div className="flex items-center gap-1.5">
-                  <button onClick={() => setPendingListOpen(true)} className="relative h-8 px-2.5 rounded-lg text-[11px] font-semibold text-zinc-500 hover:text-amber-400 hover:bg-amber-500/10 border border-zinc-800 hover:border-amber-500/20 transition-all">
+                  <button onClick={() => setPendingListOpen(true)} className="relative h-8 px-2.5 rounded-lg text-[11px] font-semibold text-slate-500 hover:text-amber-400 hover:bg-amber-500/10 border border-white/[0.06] hover:border-amber-500/20 transition-all">
                     <Clock className="h-3.5 w-3.5" />
                     {pendingCount > 0 && <span className="ml-1">{pendingCount}</span>}
                   </button>
-                  <button onClick={clearCart} className="h-8 px-3 rounded-lg text-[11px] font-semibold text-zinc-500 hover:text-red-400 hover:bg-red-500/10 border border-zinc-800 hover:border-red-500/20 transition-all">
+                  <button onClick={clearCart} className="h-8 px-3 rounded-lg text-[11px] font-semibold text-slate-500 hover:text-red-400 hover:bg-red-500/10 border border-white/[0.06] hover:border-red-500/20 transition-all">
                     Hapus Semua
                   </button>
                 </div>
               )}
               {cart.length === 0 && pendingCount > 0 && (
-                <button onClick={() => setPendingListOpen(true)} className="h-8 px-3 rounded-lg text-[11px] font-semibold text-zinc-500 hover:text-amber-400 hover:bg-amber-500/10 border border-zinc-800 hover:border-amber-500/20 transition-all">
+                <button onClick={() => setPendingListOpen(true)} className="h-8 px-3 rounded-lg text-[11px] font-semibold text-slate-500 hover:text-amber-400 hover:bg-amber-500/10 border border-white/[0.06] hover:border-amber-500/20 transition-all">
                   <Clock className="h-3.5 w-3.5 mr-1" />
                   {pendingCount} pending
                 </button>
@@ -2317,11 +2306,11 @@ export default function PosPage() {
           <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5">
             {cart.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12">
-                <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-zinc-800/60 to-zinc-900 border border-zinc-800/40 flex items-center justify-center mb-4">
-                  <ShoppingCart className="h-8 w-8 text-zinc-700/60" />
+                <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-white/[0.04] to-nebula border border-white/[0.04] flex items-center justify-center mb-4">
+                  <ShoppingCart className="h-8 w-8 text-slate-700/60" />
                 </div>
-                <p className="text-sm font-medium text-zinc-500">Keranjang Kosong</p>
-                <p className="text-[11px] text-zinc-600 mt-1">Pilih produk untuk memulai</p>
+                <p className="text-sm font-medium text-slate-500">Keranjang Kosong</p>
+                <p className="text-[11px] text-slate-600 mt-1">Pilih produk untuk memulai</p>
               </div>
             ) : (
               <div className="space-y-2 pb-2">
@@ -2329,23 +2318,23 @@ export default function PosPage() {
                   const itemKey = getCartKey(item.product.id, item.variant?.id || null)
                   const itemTotal = getItemPrice(item) * item.qty
                   return (
-                  <div key={itemKey} className="flex items-center gap-3 p-3 rounded-2xl bg-zinc-900/70 border border-zinc-800/50">
+                  <div key={itemKey} className="flex items-center gap-3 p-3 rounded-2xl bg-nebula/70 border border-white/[0.04]">
                     {/* Product Info */}
                     <div className="flex-1 min-w-0">
-                      <p className="text-[13px] text-zinc-100 font-semibold truncate leading-tight">{item.product.name}</p>
+                      <p className="text-[13px] text-white font-semibold truncate leading-tight">{item.product.name}</p>
                       {item.variant && (
                         <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-md bg-violet-500/10 border border-violet-500/15">
                           <span className="text-[9px] font-semibold text-violet-400 leading-tight">{item.variant.name}</span>
                         </span>
                       )}
-                      <p className="text-[11px] text-zinc-500 mt-1">
+                      <p className="text-[11px] text-slate-500 mt-1">
                         {formatCurrency(getItemPrice(item))} × {item.qty}
                       </p>
                     </div>
 
                     {/* Qty Controls */}
                     <div className="flex items-center gap-1 shrink-0">
-                      <button className="h-9 w-9 flex items-center justify-center rounded-xl bg-zinc-800 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-700 transition-all active:scale-95"
+                      <button className="h-9 w-9 flex items-center justify-center rounded-xl bg-white/[0.04] text-slate-400 hover:text-white hover:bg-white/[0.06] transition-all active:scale-95"
                         onClick={() => updateQty(item.product.id, item.qty - 1, item.variant?.id)}><Minus className="h-4 w-4" /></button>
                       {editingQtyId === itemKey ? (
                         <input
@@ -2357,22 +2346,22 @@ export default function PosPage() {
                           onChange={(e) => setEditingQtyValue(e.target.value)}
                           onBlur={confirmEditQty}
                           onKeyDown={(e) => { if (e.key === 'Enter') confirmEditQty(); if (e.key === 'Escape') cancelEditQty() }}
-                          className="text-sm text-zinc-100 w-14 text-center font-bold bg-zinc-800 border border-zinc-700 rounded-xl h-9 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          className="text-sm text-white w-14 text-center font-bold bg-white/[0.04] border border-white/[0.08] rounded-xl h-9 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                         />
                       ) : (
                         <span
-                          className="text-sm w-8 text-center text-zinc-100 font-bold cursor-pointer hover:theme-text transition-colors"
+                          className="text-sm w-8 text-center text-white font-bold cursor-pointer hover:theme-text transition-colors"
                           onClick={() => startEditQty(itemKey, item.qty)}
                         >{item.qty}</span>
                       )}
-                      <button className="h-9 w-9 flex items-center justify-center rounded-xl bg-zinc-800 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-700 transition-all active:scale-95"
+                      <button className="h-9 w-9 flex items-center justify-center rounded-xl bg-white/[0.04] text-slate-400 hover:text-white hover:bg-white/[0.06] transition-all active:scale-95"
                         onClick={() => updateQty(item.product.id, item.qty + 1, item.variant?.id)}><Plus className="h-4 w-4" /></button>
                     </div>
 
                     {/* Item Total + Delete */}
                     <div className="flex flex-col items-end gap-1 shrink-0">
                       <p className="text-sm font-bold theme-text tabular-nums">{formatCurrency(itemTotal)}</p>
-                      <button className="h-6 w-6 flex items-center justify-center rounded-md text-zinc-600 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                      <button className="h-6 w-6 flex items-center justify-center rounded-md text-slate-600 hover:text-red-400 hover:bg-red-500/10 transition-colors"
                         onClick={() => removeFromCart(item.product.id, item.variant?.id)}><Trash2 className="h-3 w-3" /></button>
                     </div>
                   </div>
@@ -2384,7 +2373,7 @@ export default function PosPage() {
 
           {/* Sticky footer: Total + Bayar */}
           {cart.length > 0 && (
-            <div className="shrink-0 border-t border-zinc-800/60 bg-gradient-to-t from-zinc-950 to-zinc-900/50 px-5 pt-3.5 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+            <div className="shrink-0 border-t border-white/[0.06] bg-gradient-to-t from-deep-space to-nebula/50 px-5 pt-3.5 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
               {/* Discount info (compact) */}
               {(pointsDiscount > 0 || promoDiscount > 0 || ppnAmount > 0) && (
                 <div className="flex flex-wrap gap-x-3 gap-y-1 mb-2.5">
@@ -2401,12 +2390,12 @@ export default function PosPage() {
               )}
               <div className="flex items-center gap-3">
                 <div className="flex-1 min-w-0">
-                  <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold leading-tight">Total</p>
-                  <p className="text-2xl font-black text-zinc-50 leading-tight tabular-nums">{formatCurrency(total)}</p>
+                  <p className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold leading-tight">Total</p>
+                  <p className="text-2xl font-black text-white leading-tight tabular-nums">{formatCurrency(total)}</p>
                 </div>
                 <Button onClick={handleHoldTransaction} variant="outline"
-                  className="h-12 px-3 font-semibold text-xs rounded-2xl border-zinc-700 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 transition-all shrink-0">
-                  <ClockArrowDown className="h-4 w-4" />
+                  className="h-12 px-3 font-semibold text-xs rounded-2xl border-white/[0.08] text-slate-300 hover:bg-white/[0.04] hover:text-white transition-all shrink-0">
+                  <Pause className="h-4 w-4" />
                 </Button>
                 <Button onClick={openCheckoutDialog}
                   className="h-12 px-8 font-bold text-sm rounded-2xl theme-gradient hover:theme-hover text-white shadow-lg theme-shadow transition-all active:scale-[0.98] shrink-0">
@@ -2421,40 +2410,40 @@ export default function PosPage() {
       {/* ── Mobile Checkout Sheet (Payment Flow) ── */}
       {isMobile ? (
         <Sheet open={checkoutOpen} onOpenChange={(open) => { if (!open) setCheckoutOpen(false) }}>
-          <SheetContent side="bottom" className="bg-zinc-950 border-zinc-800 rounded-t-3xl h-[92vh] max-h-[92vh] overflow-hidden flex flex-col px-0 gap-0">
+          <SheetContent side="bottom" className="bg-deep-space border-white/[0.06] rounded-t-3xl h-[92vh] max-h-[92vh] overflow-hidden flex flex-col px-0 gap-0">
             {/* Drag handle */}
             <div className="flex justify-center pt-3 pb-1 shrink-0">
-              <div className="w-10 h-1 rounded-full bg-zinc-700" />
+              <div className="w-10 h-1 rounded-full bg-white/[0.06]" />
             </div>
             <SheetHeader className="px-5 pb-3 shrink-0">
-              <SheetTitle className="text-zinc-100 text-base font-bold flex items-center gap-2">
+              <SheetTitle className="text-white text-base font-bold flex items-center gap-2">
                 <div className="w-7 h-7 rounded-lg theme-bg-subtle flex items-center justify-center">
                   <Banknote className="h-4 w-4 theme-text" />
                 </div>
                 Pembayaran
-                <span className="ml-auto text-[11px] font-medium text-zinc-500 bg-zinc-800 px-2.5 py-0.5 rounded-full">{cart.reduce((s, i) => s + i.qty, 0)} item</span>
+                <span className="ml-auto text-[11px] font-medium text-slate-500 bg-white/[0.04] px-2.5 py-0.5 rounded-full">{cart.reduce((s, i) => s + i.qty, 0)} item</span>
               </SheetTitle>
             </SheetHeader>
 
             {/* Scrollable content */}
             <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 space-y-4 pb-2">
               {/* Order summary */}
-              <div className="bg-zinc-900 border border-zinc-800/60 rounded-2xl p-3.5">
-                <p className="text-[11px] text-zinc-500 font-medium uppercase tracking-wide mb-2">Ringkasan Pesanan</p>
+              <div className="bg-nebula border border-white/[0.06] rounded-2xl p-3.5">
+                <p className="text-[11px] text-slate-500 font-medium uppercase tracking-wide mb-2">Ringkasan Pesanan</p>
                 <div className="space-y-1.5 text-xs">
                   {cart.map((item) => (
-                    <div key={getCartKey(item.product.id, item.variant?.id || null)} className="flex justify-between text-zinc-300">
-                      <span className="truncate mr-2">{item.variant ? `${item.product.name} (${item.variant.name})` : item.product.name} <span className="text-zinc-500">×{item.qty}</span></span>
+                    <div key={getCartKey(item.product.id, item.variant?.id || null)} className="flex justify-between text-slate-300">
+                      <span className="truncate mr-2">{item.variant ? `${item.product.name} (${item.variant.name})` : item.product.name} <span className="text-slate-500">×{item.qty}</span></span>
                       <span className="font-medium shrink-0">{formatCurrency(getItemPrice(item) * item.qty)}</span>
                     </div>
                   ))}
-                  <Separator className="bg-zinc-800 !my-2" />
-                  <div className="flex justify-between text-zinc-400"><span>Subtotal</span><span className="text-zinc-200">{formatCurrency(subtotal)}</span></div>
+                  <Separator className="bg-white/[0.04] !my-2" />
+                  <div className="flex justify-between text-slate-400"><span>Subtotal</span><span className="text-slate-200">{formatCurrency(subtotal)}</span></div>
                   {settings.loyaltyEnabled && selectedCustomer && maxPointsToUse > 0 && (
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-zinc-400 flex items-center gap-1 shrink-0"><Coins className="h-3 w-3" /> Pakai Poin</span>
+                      <span className="text-slate-400 flex items-center gap-1 shrink-0"><Coins className="h-3 w-3" /> Pakai Poin</span>
                       <Input type="number" min="0" max={maxPointsToUse} value={pointsToUse || ''} onChange={(e) => handlePointsChange(e.target.value)}
-                        placeholder="0" className="w-24 h-8 text-right text-xs bg-zinc-800 border-zinc-700 text-zinc-100 rounded-lg" />
+                        placeholder="0" className="w-24 h-8 text-right text-xs bg-white/[0.04] border-white/[0.08] text-white rounded-lg" />
                     </div>
                   )}
                   {pointsDiscount > 0 && <div className="flex justify-between theme-text"><span>Diskon Poin</span><span>-{formatCurrency(pointsDiscount)}</span></div>}
@@ -2465,11 +2454,11 @@ export default function PosPage() {
                     </div>
                   )}
                   {ppnAmount > 0 && <div className="flex justify-between text-sky-300 font-medium"><span>PPN ({settings.ppnRate}%)</span><span>+{formatCurrency(ppnAmount)}</span></div>}
-                  <Separator className="bg-zinc-800 !my-2" />
-                  <div className="flex justify-between text-base font-black text-zinc-100"><span>Total</span><span>{formatCurrency(total)}</span></div>
+                  <Separator className="bg-white/[0.04] !my-2" />
+                  <div className="flex justify-between text-base font-black text-white"><span>Total</span><span>{formatCurrency(total)}</span></div>
                 </div>
                 {selectedCustomer && (
-                  <div className="mt-2 pt-2 border-t border-zinc-800/60 text-[11px] text-zinc-500">
+                  <div className="mt-2 pt-2 border-t border-white/[0.06] text-[11px] text-slate-500">
                     👤 {selectedCustomer.name}
                   </div>
                 )}
@@ -2477,7 +2466,7 @@ export default function PosPage() {
 
               {/* Payment method */}
               <div>
-                <p className="text-[11px] text-zinc-500 font-medium uppercase tracking-wide mb-2">Metode Pembayaran</p>
+                <p className="text-[11px] text-slate-500 font-medium uppercase tracking-wide mb-2">Metode Pembayaran</p>
                 {renderPaymentButtons(false)}
               </div>
 
@@ -2485,9 +2474,9 @@ export default function PosPage() {
               {paymentMethod === 'CASH' && (
                 <div className="space-y-3">
                   <div>
-                    <p className="text-[11px] text-zinc-500 font-medium mb-1.5">Jumlah Bayar</p>
+                    <p className="text-[11px] text-slate-500 font-medium mb-1.5">Jumlah Bayar</p>
                     <Input type="number" min="0" value={paidAmount} onChange={(e) => setPaidAmount(e.target.value)} placeholder="Masukkan jumlah"
-                      className="h-12 text-base bg-zinc-900 border-zinc-800 text-zinc-100 placeholder:text-zinc-600 rounded-xl text-right font-bold" />
+                      className="h-12 text-base bg-nebula border-white/[0.06] text-white placeholder:text-slate-600 rounded-xl text-right font-bold" />
                   </div>
                   {Number(paidAmount) >= total && total > 0 && (
                     <div className="flex justify-between items-center text-sm theme-bg-very-light border theme-border-light rounded-xl px-4 py-3">
@@ -2496,7 +2485,7 @@ export default function PosPage() {
                     </div>
                   )}
                   <div>
-                    <p className="text-[11px] text-zinc-500 font-medium mb-2">Nominal Cepat</p>
+                    <p className="text-[11px] text-slate-500 font-medium mb-2">Nominal Cepat</p>
                     <div className="grid grid-cols-3 gap-2">
                       {getQuickNominals.map((nom) => (
                         <button key={nom} onClick={() => setPaidAmount(String(nom))}
@@ -2504,14 +2493,14 @@ export default function PosPage() {
                             'py-3 rounded-xl text-sm font-bold border transition-all active:scale-95',
                             Number(paidAmount) === nom
                               ? 'theme-bg-subtle theme-text theme-border-medium shadow-sm'
-                              : 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:border-zinc-700 active:bg-zinc-800'
+                              : 'bg-nebula border-white/[0.06] text-slate-300 hover:border-white/[0.08] active:bg-white/[0.04]'
                           )}>
                           {nom >= 1000 ? `${(nom / 1000)}K` : nom}
                         </button>
                       ))}
                       {total > 0 && (
                         <button onClick={() => setPaidAmount(String(Math.ceil(total / 1000) * 1000))}
-                          className="py-3 rounded-xl text-sm font-bold border bg-zinc-900 border-zinc-800 text-amber-400 hover:border-amber-500/30 transition-all active:scale-95">
+                          className="py-3 rounded-xl text-sm font-bold border bg-nebula border-white/[0.06] text-amber-400 hover:border-amber-500/30 transition-all active:scale-95">
                           Uang Pas
                         </button>
                       )}
@@ -2522,17 +2511,17 @@ export default function PosPage() {
 
               {/* Non-cash info */}
               {paymentMethod !== 'CASH' && (
-                <div className="bg-zinc-900 border border-zinc-800/60 rounded-2xl p-4 text-center">
-                  <p className="text-xs text-zinc-400">Pembayaran <span className="font-bold text-zinc-200 uppercase">{paymentMethod}</span></p>
-                  <p className="text-2xl font-black text-zinc-100 mt-1">{formatCurrency(total)}</p>
+                <div className="bg-nebula border border-white/[0.06] rounded-2xl p-4 text-center">
+                  <p className="text-xs text-slate-400">Pembayaran <span className="font-bold text-slate-200 uppercase">{paymentMethod}</span></p>
+                  <p className="text-2xl font-black text-white mt-1">{formatCurrency(total)}</p>
                 </div>
               )}
             </div>
 
             {/* Sticky confirm footer */}
-            <SheetFooter className="shrink-0 flex-row gap-2 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] px-5 border-t border-zinc-800">
+            <SheetFooter className="shrink-0 flex-row gap-2 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] px-5 border-t border-white/[0.06]">
               <Button variant="ghost" onClick={() => setCheckoutOpen(false)}
-                className="flex-1 bg-zinc-900 border border-zinc-800 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 text-sm font-medium rounded-2xl h-12">
+                className="flex-1 bg-nebula border border-white/[0.06] text-slate-300 hover:bg-white/[0.04] hover:text-white text-sm font-medium rounded-2xl h-12">
                 Kembali
               </Button>
               <Button onClick={handleCheckout}
@@ -2546,20 +2535,20 @@ export default function PosPage() {
         </Sheet>
       ) : (
         <Dialog open={checkoutOpen} onOpenChange={(open) => { if (!open) setCheckoutOpen(false) }}>
-          <DialogContent className="bg-zinc-900 border-zinc-800 max-w-md rounded-2xl">
+          <DialogContent className="bg-nebula border-white/[0.06] max-w-md rounded-2xl">
             <DialogHeader className="pb-2">
-              <DialogTitle className="text-zinc-100 text-sm font-bold">Konfirmasi Pembayaran</DialogTitle>
+              <DialogTitle className="text-white text-sm font-bold">Konfirmasi Pembayaran</DialogTitle>
             </DialogHeader>
             <div className="space-y-3 py-1">
               <div className="space-y-1 text-xs">
                 {cart.map((item) => (
-                  <div key={getCartKey(item.product.id, item.variant?.id || null)} className="flex justify-between text-zinc-300 py-0.5">
+                  <div key={getCartKey(item.product.id, item.variant?.id || null)} className="flex justify-between text-slate-300 py-0.5">
                     <span>{item.variant ? `${item.product.name} (${item.variant.name})` : item.product.name} × {item.qty}</span>
                     <span className="font-medium">{formatCurrency(getItemPrice(item) * item.qty)}</span>
                   </div>
                 ))}
-                <Separator className="bg-zinc-800 my-1.5" />
-                <div className="flex justify-between text-zinc-400"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
+                <Separator className="bg-white/[0.04] my-1.5" />
+                <div className="flex justify-between text-slate-400"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
                 {pointsDiscount > 0 && <div className="flex justify-between theme-text"><span>Diskon Poin</span><span>-{formatCurrency(pointsDiscount)}</span></div>}
                 {promoDiscount > 0 && selectedPromo && (
                   <div className="flex justify-between text-amber-400 text-xs">
@@ -2568,28 +2557,28 @@ export default function PosPage() {
                   </div>
                 )}
                 {ppnAmount > 0 && <div className="flex justify-between text-sky-300 text-xs font-medium"><span>PPN ({settings.ppnRate}%)</span><span>+{formatCurrency(ppnAmount)}</span></div>}
-                <div className="flex justify-between text-sm font-black text-zinc-100 pt-0.5"><span>Total</span><span>{formatCurrency(total)}</span></div>
+                <div className="flex justify-between text-sm font-black text-white pt-0.5"><span>Total</span><span>{formatCurrency(total)}</span></div>
               </div>
 
-              <Separator className="bg-zinc-800" />
+              <Separator className="bg-white/[0.04]" />
 
               <div className="text-xs space-y-1">
-                <div className="flex justify-between text-zinc-400"><span>Metode</span><span className="text-zinc-200 font-medium uppercase">{paymentMethod}</span></div>
+                <div className="flex justify-between text-slate-400"><span>Metode</span><span className="text-slate-200 font-medium uppercase">{paymentMethod}</span></div>
                 {paymentMethod === 'CASH' && (
                   <>
-                    <div className="flex justify-between text-zinc-400"><span>Dibayar</span><span className="text-zinc-200">{formatCurrency(Number(paidAmount))}</span></div>
+                    <div className="flex justify-between text-slate-400"><span>Dibayar</span><span className="text-slate-200">{formatCurrency(Number(paidAmount))}</span></div>
                     <div className="flex justify-between theme-text font-bold"><span>Kembalian</span><span>{formatCurrency(change)}</span></div>
                   </>
                 )}
                 {(paymentMethod === 'QRIS' || paymentMethod === 'DEBIT' || paymentMethod === 'TRANSFER') && (
-                  <div className="flex justify-between text-zinc-400"><span>Dibayar</span><span className="text-zinc-200">{formatCurrency(total)}</span></div>
+                  <div className="flex justify-between text-slate-400"><span>Dibayar</span><span className="text-slate-200">{formatCurrency(total)}</span></div>
                 )}
               </div>
 
-              <p className="text-[11px] text-zinc-500">Customer: {selectedCustomer ? selectedCustomer.name : 'Walk-in'}</p>
+              <p className="text-[11px] text-slate-500">Customer: {selectedCustomer ? selectedCustomer.name : 'Walk-in'}</p>
             </div>
             <DialogFooter className="gap-2 pt-1">
-              <Button variant="ghost" onClick={() => setCheckoutOpen(false)} className="bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700 text-xs rounded-xl">Batal</Button>
+              <Button variant="ghost" onClick={() => setCheckoutOpen(false)} className="bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.06] text-xs rounded-xl">Batal</Button>
               <Button onClick={handleCheckout} disabled={checkingOut || (paymentMethod === 'CASH' && Number(paidAmount) < total)}
                 className="theme-bg theme-hover text-white text-xs rounded-xl font-bold">
                 {checkingOut && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />} Konfirmasi
@@ -2616,7 +2605,7 @@ export default function PosPage() {
                       <p className={`text-xs font-bold ${isOfflineReceipt ? 'text-amber-700' : 'theme-text-medium'}`}>
                         {isOfflineReceipt ? 'Tersimpan Offline' : 'Pembayaran Berhasil'}
                       </p>
-                      <p className="text-[10px] text-zinc-500">{checkoutResult.invoiceNumber}</p>
+                      <p className="text-[10px] text-slate-500">{checkoutResult.invoiceNumber}</p>
                     </div>
                   </div>
 
@@ -2641,7 +2630,7 @@ export default function PosPage() {
                 <Button onClick={handleReceiptPrint} className="flex-1 theme-bg theme-hover text-white text-sm font-medium rounded-xl h-10">
                   <ReceiptText className="mr-1.5 h-4 w-4" /> Cetak Struk
                 </Button>
-                <Button variant="outline" onClick={handleReceiptSkip} className="flex-1 border-zinc-300 text-zinc-600 hover:bg-zinc-100 text-sm rounded-xl h-10">
+                <Button variant="outline" onClick={handleReceiptSkip} className="flex-1 border-zinc-300 text-slate-600 hover:bg-zinc-100 text-sm rounded-xl h-10">
                   Selesai
                 </Button>
               </DialogFooter>
@@ -2656,25 +2645,25 @@ export default function PosPage() {
       }}>
         <ResponsiveDialogContent desktopClassName="max-w-sm rounded-2xl">
           <ResponsiveDialogHeader>
-            <ResponsiveDialogTitle className="text-sm font-bold text-zinc-100 flex items-center gap-2">
+            <ResponsiveDialogTitle className="text-sm font-bold text-white flex items-center gap-2">
               <div className="w-6 h-6 rounded-lg bg-violet-500/20 flex items-center justify-center">
                 <Layers className="h-3.5 w-3.5 text-violet-400" />
               </div>
               Pilih Varian
             </ResponsiveDialogTitle>
-            <ResponsiveDialogDescription className="text-xs text-zinc-500">
+            <ResponsiveDialogDescription className="text-xs text-slate-500">
               {variantPicker.product?.name || 'Produk'}
             </ResponsiveDialogDescription>
           </ResponsiveDialogHeader>
           <div className="py-2">
             {variantPicker.loading ? (
               <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-5 w-5 text-zinc-500 animate-spin" />
+                <Loader2 className="h-5 w-5 text-slate-500 animate-spin" />
               </div>
             ) : variantPicker.variants.length === 0 ? (
               <div className="text-center py-8">
-                <Package className="h-8 w-8 text-zinc-700 mx-auto mb-2" />
-                <p className="text-xs text-zinc-500">Tidak ada varian tersedia</p>
+                <Package className="h-8 w-8 text-slate-700 mx-auto mb-2" />
+                <p className="text-xs text-slate-500">Tidak ada varian tersedia</p>
               </div>
             ) : (
               <div className="space-y-1.5 max-h-64 overflow-y-auto">
@@ -2696,15 +2685,15 @@ export default function PosPage() {
                       className={cn(
                         'w-full text-left flex items-center justify-between gap-3 p-3 rounded-xl border transition-all',
                         isOutOfStock
-                          ? 'opacity-40 cursor-not-allowed bg-zinc-900/30 border-zinc-800/40'
-                          : 'bg-zinc-800/50 border-zinc-700/50 hover:border-violet-500/40 hover:bg-violet-500/5 active:scale-[0.99] cursor-pointer'
+                          ? 'opacity-40 cursor-not-allowed bg-white/[0.02] border-white/[0.04]'
+                          : 'bg-white/[0.03] border-white/[0.08] hover:border-violet-500/40 hover:bg-violet-500/5 active:scale-[0.99] cursor-pointer'
                       )}
                     >
                       <div className="flex-1 min-w-0">
-                        <p className={cn('text-xs font-medium', isOutOfStock ? 'text-zinc-600' : 'text-zinc-200')}>{variant.name}</p>
+                        <p className={cn('text-xs font-medium', isOutOfStock ? 'text-slate-600' : 'text-slate-200')}>{variant.name}</p>
                         <div className="flex items-center gap-2 mt-1">
                           {variant.sku && (
-                            <span className="text-[10px] text-zinc-600 font-mono">{variant.sku}</span>
+                            <span className="text-[10px] text-slate-600 font-mono">{variant.sku}</span>
                           )}
                           <span className={cn(
                             'text-[10px] px-1.5 py-0.5 rounded-md font-medium',
@@ -2712,7 +2701,7 @@ export default function PosPage() {
                               ? 'bg-red-500/10 text-red-400'
                               : variant.stock <= 5
                                 ? 'bg-amber-500/10 text-amber-400'
-                                : 'bg-zinc-800 text-zinc-500'
+                                : 'bg-white/[0.04] text-slate-500'
                           )}>
                             Stok: {variant.stock}
                           </span>
@@ -2724,18 +2713,18 @@ export default function PosPage() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
-                        <p className={cn('text-sm font-bold', isOutOfStock ? 'text-zinc-600' : 'text-violet-400')}>
+                        <p className={cn('text-sm font-bold', isOutOfStock ? 'text-slate-600' : 'text-violet-400')}>
                           {formatCurrency(variant.price)}
                         </p>
                         {existingItem && !isOutOfStock && (
                           <div className="flex items-center gap-0.5 ml-1">
                             <button
                               onClick={(e) => { e.stopPropagation(); updateQty(variantPicker.product.id, existingItem.qty - 1, variant.id) }}
-                              className="w-6 h-6 rounded-md bg-zinc-800 border border-zinc-700/50 flex items-center justify-center text-zinc-400 hover:bg-red-500/20 hover:text-red-400 transition-all active:scale-95"
+                              className="w-6 h-6 rounded-md bg-white/[0.04] border border-white/[0.08] flex items-center justify-center text-slate-400 hover:bg-red-500/20 hover:text-red-400 transition-all active:scale-95"
                             >
                               {existingItem.qty === 1 ? <Trash2 className="h-2.5 w-2.5" /> : <Minus className="h-2.5 w-2.5" />}
                             </button>
-                            <span className="text-[11px] font-bold text-zinc-200 w-5 text-center">{existingItem.qty}</span>
+                            <span className="text-[11px] font-bold text-slate-200 w-5 text-center">{existingItem.qty}</span>
                             <button
                               onClick={(e) => { e.stopPropagation(); updateQty(variantPicker.product.id, existingItem.qty + 1, variant.id) }}
                               disabled={existingItem.qty >= variant.stock}
@@ -2754,7 +2743,7 @@ export default function PosPage() {
           </div>
           <ResponsiveDialogFooter className="gap-2">
             <Button variant="ghost" onClick={() => setVariantPicker({ product: null as unknown as Product, open: false, variants: [], loading: false })}
-              className="bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700 text-xs rounded-xl">Tutup</Button>
+              className="bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.06] text-xs rounded-xl">Tutup</Button>
           </ResponsiveDialogFooter>
         </ResponsiveDialogContent>
       </ResponsiveDialog>
@@ -2763,66 +2752,31 @@ export default function PosPage() {
       <ResponsiveDialog open={addCustomerOpen} onOpenChange={setAddCustomerOpen}>
         <ResponsiveDialogContent desktopClassName="max-w-sm rounded-2xl">
           <ResponsiveDialogHeader>
-            <ResponsiveDialogTitle className="text-sm font-bold text-zinc-100 flex items-center gap-2">
+            <ResponsiveDialogTitle className="text-sm font-bold text-white flex items-center gap-2">
               <UserPlus className="h-4 w-4 theme-text" /> Tambah Customer Baru
             </ResponsiveDialogTitle>
           </ResponsiveDialogHeader>
           <div className="space-y-3 py-2">
             <div className="space-y-1.5">
-              <Label className="text-xs text-zinc-300">Nama *</Label>
+              <Label className="text-xs text-slate-300">Nama *</Label>
               <Input value={newCustomer.name} onChange={(e) => setNewCustomer(p => ({ ...p, name: e.target.value }))}
-                placeholder="Nama customer" className="h-9 text-sm bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 rounded-lg" />
+                placeholder="Nama customer" className="h-9 text-sm bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 rounded-lg" />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs text-zinc-300">No. WhatsApp *</Label>
+              <Label className="text-xs text-slate-300">No. WhatsApp *</Label>
               <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[11px] text-zinc-500 font-medium">+62</span>
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[11px] text-slate-500 font-medium">+62</span>
                 <Input value={newCustomer.whatsapp} onChange={(e) => setNewCustomer(p => ({ ...p, whatsapp: e.target.value.replace(/[^0-9]/g, '') }))}
-                  placeholder="81234567890" className="h-9 text-sm bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 rounded-lg pl-12" />
+                  placeholder="81234567890" className="h-9 text-sm bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 rounded-lg pl-12" />
               </div>
-              <p className="text-[10px] text-zinc-600">Format: 81234567890 (tanpa 0 di depan). WhatsApp digunakan sebagai ID unik.</p>
+              <p className="text-[10px] text-slate-600">Format: 81234567890 (tanpa 0 di depan). WhatsApp digunakan sebagai ID unik.</p>
             </div>
           </div>
           <ResponsiveDialogFooter className="gap-2">
-            <Button variant="ghost" onClick={() => setAddCustomerOpen(false)} className="bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700 text-xs rounded-xl">Batal</Button>
+            <Button variant="ghost" onClick={() => setAddCustomerOpen(false)} className="bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.06] text-xs rounded-xl">Batal</Button>
             <Button onClick={handleAddCustomer} disabled={addingCustomer || !newCustomer.name.trim() || !newCustomer.whatsapp.trim()}
               className="theme-bg theme-hover text-white text-xs rounded-xl font-medium">
               {addingCustomer && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />} Simpan
-            </Button>
-          </ResponsiveDialogFooter>
-        </ResponsiveDialogContent>
-      </ResponsiveDialog>
-
-      {/* Hold Note Dialog */}
-      <ResponsiveDialog open={holdNoteDialog} onOpenChange={setHoldNoteDialog}>
-        <ResponsiveDialogContent desktopClassName="max-w-sm rounded-2xl">
-          <ResponsiveDialogHeader>
-            <ResponsiveDialogTitle className="text-sm font-bold text-zinc-100 flex items-center gap-2">
-              <ClockArrowDown className="h-4 w-4 text-amber-400" /> Tunda Transaksi
-            </ResponsiveDialogTitle>
-            <ResponsiveDialogDescription className="text-xs text-zinc-500">
-              Tambahkan catatan untuk memudahkan identifikasi transaksi ini
-            </ResponsiveDialogDescription>
-          </ResponsiveDialogHeader>
-          <div className="py-2">
-            <Label className="text-[11px] text-zinc-400 font-medium">Catatan (opsional)</Label>
-            <Input
-              value={pendingNote}
-              onChange={(e) => setPendingNote(e.target.value)}
-              placeholder="cth: Bapak baju merah, nanti sore"
-              className="mt-1.5 h-10 text-sm bg-zinc-900 border-zinc-800 text-zinc-100 placeholder:text-zinc-600 rounded-xl"
-              onKeyDown={(e) => { if (e.key === 'Enter') confirmHoldTransaction() }}
-              autoFocus
-            />
-          </div>
-          <ResponsiveDialogFooter>
-            <Button variant="ghost" onClick={() => setHoldNoteDialog(false)}
-              className="h-9 text-xs rounded-xl text-zinc-400 hover:text-zinc-200">
-              Batal
-            </Button>
-            <Button onClick={confirmHoldTransaction}
-              className="h-9 text-xs font-semibold rounded-xl theme-bg hover:theme-hover text-white">
-              Tunda
             </Button>
           </ResponsiveDialogFooter>
         </ResponsiveDialogContent>
@@ -2832,7 +2786,7 @@ export default function PosPage() {
       <ResponsiveDialog open={pendingListOpen} onOpenChange={setPendingListOpen}>
         <ResponsiveDialogContent desktopClassName="max-w-md rounded-2xl">
           <ResponsiveDialogHeader>
-            <ResponsiveDialogTitle className="text-sm font-bold text-zinc-100 flex items-center gap-2">
+            <ResponsiveDialogTitle className="text-sm font-bold text-white flex items-center gap-2">
               <Clock className="h-4 w-4 text-amber-400" /> Transaksi Pending
               {pendingCount > 0 && (
                 <Badge variant="secondary" className="ml-1 bg-amber-500/10 text-amber-400 border-amber-500/20 text-[10px] px-1.5">{pendingCount}</Badge>
@@ -2866,7 +2820,7 @@ function PendingListContent({
   if (!pendingList) {
     return (
       <div className="flex items-center justify-center py-10">
-        <Loader2 className="h-5 w-5 text-zinc-500 animate-spin" />
+        <Loader2 className="h-5 w-5 text-slate-500 animate-spin" />
       </div>
     )
   }
@@ -2874,11 +2828,11 @@ function PendingListContent({
   if (pendingList.length === 0) {
     return (
       <div className="text-center py-10">
-        <div className="w-12 h-12 rounded-2xl bg-zinc-800/60 flex items-center justify-center mx-auto mb-3">
-          <Clock className="h-5 w-5 text-zinc-600" />
+        <div className="w-12 h-12 rounded-2xl bg-white/[0.04] flex items-center justify-center mx-auto mb-3">
+          <Clock className="h-5 w-5 text-slate-600" />
         </div>
-        <p className="text-sm text-zinc-400 font-medium">Belum ada transaksi pending</p>
-        <p className="text-[11px] text-zinc-600 mt-1">Tunda transaksi untuk melayani customer lain</p>
+        <p className="text-sm text-slate-400 font-medium">Belum ada transaksi pending</p>
+        <p className="text-[11px] text-slate-600 mt-1">Tunda transaksi untuk melayani customer lain</p>
       </div>
     )
   }
@@ -2895,52 +2849,39 @@ function PendingListContent({
         const totalItems = items.reduce((s, i) => s + i.qty, 0)
 
         return (
-          <div key={pending.id} className="bg-zinc-900 border border-zinc-800/60 rounded-xl p-3.5 space-y-2.5">
+          <div key={pending.id} className="bg-nebula border border-white/[0.06] rounded-xl p-3.5 space-y-2.5">
             {/* Header */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="w-7 h-7 rounded-lg bg-amber-500/10 flex items-center justify-center">
-                  <ClockArrowDown className="h-3.5 w-3.5 text-amber-400" />
+                  <Pause className="h-3.5 w-3.5 text-amber-400" />
                 </div>
                 <div>
-                  <p className="text-xs font-semibold text-zinc-200">{totalItems} item</p>
-                  <p className="text-[10px] text-zinc-500">{formatTime(pending.createdAt)} · {pending.userName}</p>
+                  <p className="text-xs font-semibold text-slate-200">{totalItems} item</p>
+                  <p className="text-[10px] text-slate-500">{formatTime(pending.createdAt)} · {pending.userName}</p>
                 </div>
               </div>
-              <p className="text-sm font-bold text-zinc-100 tabular-nums">{formatCurrency(pending.subtotal)}</p>
+              <p className="text-sm font-bold text-white tabular-nums">{formatCurrency(pending.subtotal)}</p>
             </div>
-
-            {/* Note */}
-            {pending.note && (
-              <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
-                <p className="text-[11px] text-amber-300 font-medium leading-relaxed">{pending.note}</p>
-              </div>
-            )}
-
-            {/* Customer info */}
-            {(pending.customerName || pending.customerPhone) && (
-              <div className="flex items-center gap-1.5 text-[10px] text-zinc-400">
-                <User className="h-3 w-3 text-zinc-500" />
-                <span>{pending.customerName || '-'}</span>
-                {pending.customerPhone && (
-                  <span className="text-zinc-500 ml-1">· {pending.customerPhone}</span>
-                )}
-              </div>
-            )}
 
             {/* Items preview */}
             <div className="flex flex-wrap gap-1">
-              {items.slice(0, 3).map((item, idx) => (
-                <span key={idx} className="text-[10px] bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded-md truncate max-w-[140px]">
+              {items.slice(0, 4).map((item, idx) => (
+                <span key={idx} className="text-[10px] bg-white/[0.04] text-slate-400 px-2 py-0.5 rounded-md truncate max-w-[140px]">
                   {item.variant ? `${item.product.name} (${item.variant.name})` : item.product.name} ×{item.qty}
                 </span>
               ))}
-              {items.length > 3 && (
-                <span className="text-[10px] bg-zinc-800 text-zinc-500 px-2 py-0.5 rounded-md">
-                  +{items.length - 3} lainnya
+              {items.length > 4 && (
+                <span className="text-[10px] bg-white/[0.04] text-slate-500 px-2 py-0.5 rounded-md">
+                  +{items.length - 4} lainnya
                 </span>
               )}
             </div>
+
+            {/* Customer */}
+            {pending.customerName && (
+              <p className="text-[10px] text-slate-500">👤 {pending.customerName}</p>
+            )}
 
             {/* Actions */}
             <div className="flex gap-2 pt-1">

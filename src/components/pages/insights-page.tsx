@@ -143,10 +143,10 @@ function ScoreRing({ score, label }: { score: number; label: string }) {
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           <span className={`text-xl font-bold ${getScoreColor(score)}`}>{score}</span>
-          <span className="text-[9px] text-zinc-500">/100</span>
+          <span className="text-[9px] text-slate-500">/100</span>
         </div>
       </div>
-      <span className="text-[11px] font-semibold text-zinc-300">{label}</span>
+      <span className="text-[11px] font-semibold text-slate-300">{label}</span>
     </div>
   )
 }
@@ -161,20 +161,20 @@ function InsightCard({ insight, index }: { insight: InsightItem; index: number }
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.06, duration: 0.3 }}
-      className={`rounded-xl border border-zinc-800/60 bg-zinc-900/60 p-4 border-l-[3px] ${getInsightBorder(insight.type)} hover:bg-zinc-900/80 transition-colors`}
+      className={`rounded-xl border border-white/[0.06] bg-nebula/60 p-4 border-l-[3px] ${getInsightBorder(insight.type)} hover:bg-nebula/80 transition-colors`}
     >
       <div className="flex items-start gap-3">
         <div className="mt-0.5">{getInsightIcon(insight.type)}</div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
-            <h4 className="text-xs font-semibold text-zinc-200">{insight.title}</h4>
+            <h4 className="text-xs font-semibold text-slate-200">{insight.title}</h4>
             {insight.metric && (
-              <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-zinc-700 text-zinc-400 shrink-0">
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-white/[0.08] text-slate-400 shrink-0">
                 {insight.metric}
               </Badge>
             )}
           </div>
-          <p className="text-[11px] text-zinc-400 leading-relaxed">{insight.description}</p>
+          <p className="text-[11px] text-slate-400 leading-relaxed">{insight.description}</p>
         </div>
       </div>
     </motion.div>
@@ -209,18 +209,18 @@ function StatCard({
   return (
     <div className={`rounded-xl bg-gradient-to-br ${colorMap[color]} border p-3.5`}>
       <div className="flex items-start justify-between mb-2">
-        <span className={`p-1.5 rounded-lg bg-zinc-900/60 ${iconColorMap[color]}`}>{icon}</span>
+        <span className={`p-1.5 rounded-lg bg-nebula/60 ${iconColorMap[color]}`}>{icon}</span>
         {trend && (
           <div className={`flex items-center gap-0.5 text-[10px] font-semibold ${
-            trend === 'up' ? 'theme-text' : trend === 'down' ? 'text-red-400' : 'text-zinc-500'
+            trend === 'up' ? 'theme-text' : trend === 'down' ? 'text-red-400' : 'text-slate-500'
           }`}>
             {trend === 'up' ? <TrendingUp className="h-3 w-3" /> : trend === 'down' ? <TrendingDown className="h-3 w-3" /> : <Minus className="h-3 w-3" />}
           </div>
         )}
       </div>
-      <p className="text-[10px] text-zinc-500 font-medium mb-0.5">{label}</p>
-      <p className="text-sm font-bold text-zinc-100">{value}</p>
-      {sub && <p className="text-[10px] text-zinc-500 mt-0.5">{sub}</p>}
+      <p className="text-[10px] text-slate-500 font-medium mb-0.5">{label}</p>
+      <p className="text-sm font-bold text-white">{value}</p>
+      {sub && <p className="text-[10px] text-slate-500 mt-0.5">{sub}</p>}
     </div>
   )
 }
@@ -232,7 +232,7 @@ function StatCard({
 function PeakHoursChart({ buckets }: { buckets: HourBucket[] }) {
   const activeBuckets = buckets.filter(b => b.count > 0)
   if (activeBuckets.length === 0) {
-    return <p className="text-xs text-zinc-500 text-center py-4">Belum ada data transaksi hari ini</p>
+    return <p className="text-xs text-slate-500 text-center py-4">Belum ada data transaksi hari ini</p>
   }
 
   const maxCount = Math.max(...buckets.map(b => b.count))
@@ -246,22 +246,22 @@ function PeakHoursChart({ buckets }: { buckets: HourBucket[] }) {
           const width = maxCount > 0 ? (b.count / maxCount) * 100 : 0
           return (
             <div key={b.hour} className="flex items-center gap-2">
-              <span className={`text-[10px] w-10 text-right shrink-0 ${isPeak ? 'theme-text font-semibold' : 'text-zinc-500'}`}>
+              <span className={`text-[10px] w-10 text-right shrink-0 ${isPeak ? 'theme-text font-semibold' : 'text-slate-500'}`}>
                 {String(b.hour).padStart(2, '0')}:00
               </span>
-              <div className="flex-1 h-4 bg-zinc-800/50 rounded-sm overflow-hidden">
+              <div className="flex-1 h-4 bg-white/[0.03] rounded-sm overflow-hidden">
                 <div
                   className={`h-full rounded-sm transition-all duration-500 ${
                     isPeak
                       ? 'bg-gradient-to-r theme-gradient'
                       : b.count > 0
-                        ? 'bg-zinc-700'
+                        ? 'bg-white/[0.06]'
                         : 'bg-transparent'
                   }`}
                   style={{ width: `${Math.max(width, b.count > 0 ? 4 : 0)}%` }}
                 />
               </div>
-              <span className={`text-[10px] w-6 shrink-0 ${isPeak ? 'theme-text font-semibold' : 'text-zinc-600'}`}>
+              <span className={`text-[10px] w-6 shrink-0 ${isPeak ? 'theme-text font-semibold' : 'text-slate-600'}`}>
                 {b.count}
               </span>
             </div>
@@ -310,12 +310,12 @@ export default function InsightsPage() {
   if (!isOwner) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
-        <div className="w-16 h-16 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-center">
-          <Brain className="h-7 w-7 text-zinc-600" />
+        <div className="w-16 h-16 rounded-2xl bg-nebula border border-white/[0.06] flex items-center justify-center">
+          <Brain className="h-7 w-7 text-slate-600" />
         </div>
         <div className="text-center">
-          <h2 className="text-sm font-semibold text-zinc-300">Hanya untuk Owner</h2>
-          <p className="text-xs text-zinc-500 mt-1">Halaman Insight hanya tersedia untuk akun Owner.</p>
+          <h2 className="text-sm font-semibold text-slate-300">Hanya untuk Owner</h2>
+          <p className="text-xs text-slate-500 mt-1">Halaman Insight hanya tersedia untuk akun Owner.</p>
         </div>
       </div>
     )
@@ -333,15 +333,15 @@ export default function InsightsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-bold text-zinc-100 tracking-tight">Insight</h1>
-          <p className="text-xs text-zinc-500 mt-0.5">Analisis bisnis real-time berdasarkan data outlet</p>
+          <h1 className="text-lg font-bold text-white tracking-tight">Insight</h1>
+          <p className="text-xs text-slate-500 mt-0.5">Analisis bisnis real-time berdasarkan data outlet</p>
         </div>
         <Button
           variant="ghost"
           size="sm"
           onClick={fetchInsights}
           disabled={loading}
-          className="h-8 text-xs text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 gap-1.5"
+          className="h-8 text-xs text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] gap-1.5"
         >
           <RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />
           Refresh
@@ -361,11 +361,11 @@ export default function InsightsPage() {
         <div className="space-y-4">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-24 rounded-xl bg-zinc-900" />
+              <Skeleton key={i} className="h-24 rounded-xl bg-nebula" />
             ))}
           </div>
-          <Skeleton className="h-64 rounded-xl bg-zinc-900" />
-          <Skeleton className="h-48 rounded-xl bg-zinc-900" />
+          <Skeleton className="h-64 rounded-xl bg-nebula" />
+          <Skeleton className="h-48 rounded-xl bg-nebula" />
         </div>
       ) : data ? (
         <AnimatePresence mode="wait">
@@ -377,24 +377,24 @@ export default function InsightsPage() {
           >
             {/* Tabs */}
             <Tabs value={activeTab} onValueChange={setActiveTab}>
-              <TabsList className="bg-zinc-900 border border-zinc-800/60 h-9 p-0.5 mb-4">
+              <TabsList className="bg-nebula border border-white/[0.06] h-9 p-0.5 mb-4">
                 <TabsTrigger
                   value="overview"
-                  className="text-xs h-8 rounded-md data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100"
+                  className="text-xs h-8 rounded-md data-[state=active]:bg-white/[0.04] data-[state=active]:text-white"
                 >
                   <BarChart3 className="h-3 w-3 mr-1.5" />
                   Overview
                 </TabsTrigger>
                 <TabsTrigger
                   value="cmo"
-                  className="text-xs h-8 rounded-md data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100"
+                  className="text-xs h-8 rounded-md data-[state=active]:bg-white/[0.04] data-[state=active]:text-white"
                 >
                   <TrendingUp className="h-3 w-3 mr-1.5" />
                   CMO
                 </TabsTrigger>
                 <TabsTrigger
                   value="cto"
-                  className="text-xs h-8 rounded-md data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100"
+                  className="text-xs h-8 rounded-md data-[state=active]:bg-white/[0.04] data-[state=active]:text-white"
                 >
                   <Activity className="h-3 w-3 mr-1.5" />
                   CTO
@@ -443,16 +443,16 @@ export default function InsightsPage() {
                       <div>
                         <div className="flex items-center gap-2 mb-1">
                           <TrendingUp className={`h-4 w-4 ${getScoreColor(data.cmo.score)}`} />
-                          <h3 className="text-xs font-semibold text-zinc-200">CMO Score</h3>
+                          <h3 className="text-xs font-semibold text-slate-200">CMO Score</h3>
                         </div>
-                        <p className="text-[10px] text-zinc-400 leading-relaxed mt-1">
+                        <p className="text-[10px] text-slate-400 leading-relaxed mt-1">
                           Performa marketing & penjualan berdasarkan data revenue, customer, dan produk.
                         </p>
                         <div className="flex gap-1.5 mt-2">
-                          <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-zinc-700 text-zinc-400">
+                          <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-white/[0.08] text-slate-400">
                             {data.cmo.insights.filter(i => i.type === 'positive').length} positif
                           </Badge>
-                          <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-zinc-700 text-zinc-400">
+                          <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-white/[0.08] text-slate-400">
                             {data.cmo.insights.filter(i => i.type === 'warning' || i.type === 'critical').length} perlu atensi
                           </Badge>
                         </div>
@@ -466,16 +466,16 @@ export default function InsightsPage() {
                       <div>
                         <div className="flex items-center gap-2 mb-1">
                           <Activity className={`h-4 w-4 ${getScoreColor(data.cto.score)}`} />
-                          <h3 className="text-xs font-semibold text-zinc-200">CTO Score</h3>
+                          <h3 className="text-xs font-semibold text-slate-200">CTO Score</h3>
                         </div>
-                        <p className="text-[10px] text-zinc-400 leading-relaxed mt-1">
+                        <p className="text-[10px] text-slate-400 leading-relaxed mt-1">
                           Kesehatan operasional berdasarkan inventori, data quality, dan efisiensi.
                         </p>
                         <div className="flex gap-1.5 mt-2">
-                          <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-zinc-700 text-zinc-400">
+                          <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-white/[0.08] text-slate-400">
                             {data.cto.insights.filter(i => i.type === 'positive').length} positif
                           </Badge>
-                          <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-zinc-700 text-zinc-400">
+                          <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-white/[0.08] text-slate-400">
                             {data.cto.insights.filter(i => i.type === 'warning' || i.type === 'critical').length} perlu atensi
                           </Badge>
                         </div>
@@ -487,58 +487,58 @@ export default function InsightsPage() {
 
                 {/* Quick Metrics Row */}
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                  <div className="rounded-xl bg-zinc-900/60 border border-zinc-800/60 p-3">
-                    <p className="text-[10px] text-zinc-500 font-medium">Revenue Minggu Ini</p>
-                    <p className="text-sm font-bold text-zinc-100 mt-1">{formatRp(d.thisWeek.revenue)}</p>
-                    <p className="text-[10px] text-zinc-500">{d.thisWeek.transactions} transaksi</p>
+                  <div className="rounded-xl bg-nebula/60 border border-white/[0.06] p-3">
+                    <p className="text-[10px] text-slate-500 font-medium">Revenue Minggu Ini</p>
+                    <p className="text-sm font-bold text-white mt-1">{formatRp(d.thisWeek.revenue)}</p>
+                    <p className="text-[10px] text-slate-500">{d.thisWeek.transactions} transaksi</p>
                   </div>
-                  <div className="rounded-xl bg-zinc-900/60 border border-zinc-800/60 p-3">
-                    <p className="text-[10px] text-zinc-500 font-medium">Revenue Bulan Ini</p>
-                    <p className="text-sm font-bold text-zinc-100 mt-1">{formatRp(d.thisMonth.revenue)}</p>
-                    <p className="text-[10px] text-zinc-500">{d.thisMonth.transactions} transaksi</p>
+                  <div className="rounded-xl bg-nebula/60 border border-white/[0.06] p-3">
+                    <p className="text-[10px] text-slate-500 font-medium">Revenue Bulan Ini</p>
+                    <p className="text-sm font-bold text-white mt-1">{formatRp(d.thisMonth.revenue)}</p>
+                    <p className="text-[10px] text-slate-500">{d.thisMonth.transactions} transaksi</p>
                   </div>
-                  <div className="rounded-xl bg-zinc-900/60 border border-zinc-800/60 p-3">
-                    <p className="text-[10px] text-zinc-500 font-medium">Nilai Inventori</p>
-                    <p className="text-sm font-bold text-zinc-100 mt-1">{formatRp(d.products.inventoryValue)}</p>
-                    <p className="text-[10px] text-zinc-500">{d.products.total} produk</p>
+                  <div className="rounded-xl bg-nebula/60 border border-white/[0.06] p-3">
+                    <p className="text-[10px] text-slate-500 font-medium">Nilai Inventori</p>
+                    <p className="text-sm font-bold text-white mt-1">{formatRp(d.products.inventoryValue)}</p>
+                    <p className="text-[10px] text-slate-500">{d.products.total} produk</p>
                   </div>
-                  <div className="rounded-xl bg-zinc-900/60 border border-zinc-800/60 p-3">
-                    <p className="text-[10px] text-zinc-500 font-medium">Jam Puncak</p>
-                    <p className="text-sm font-bold text-zinc-100 mt-1">{String(d.transactions.peakHour).padStart(2, '0')}:00</p>
-                    <p className="text-[10px] text-zinc-500">{formatRp(d.transactions.peakHourRevenue)}</p>
+                  <div className="rounded-xl bg-nebula/60 border border-white/[0.06] p-3">
+                    <p className="text-[10px] text-slate-500 font-medium">Jam Puncak</p>
+                    <p className="text-sm font-bold text-white mt-1">{String(d.transactions.peakHour).padStart(2, '0')}:00</p>
+                    <p className="text-[10px] text-slate-500">{formatRp(d.transactions.peakHourRevenue)}</p>
                   </div>
                 </div>
 
                 {/* Peak Hours + Top Products */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                  <Card className="bg-zinc-900/60 border-zinc-800/60">
+                  <Card className="bg-nebula/60 border-white/[0.06]">
                     <CardContent className="p-4">
                       <div className="flex items-center gap-2 mb-3">
-                        <Clock className="h-3.5 w-3.5 text-zinc-400" />
-                        <h3 className="text-xs font-semibold text-zinc-200">Distribusi Transaksi per Jam</h3>
+                        <Clock className="h-3.5 w-3.5 text-slate-400" />
+                        <h3 className="text-xs font-semibold text-slate-200">Distribusi Transaksi per Jam</h3>
                       </div>
                       <PeakHoursChart buckets={d.transactions.hourBuckets} />
                     </CardContent>
                   </Card>
 
-                  <Card className="bg-zinc-900/60 border-zinc-800/60">
+                  <Card className="bg-nebula/60 border-white/[0.06]">
                     <CardContent className="p-4">
                       <div className="flex items-center gap-2 mb-3">
-                        <Package className="h-3.5 w-3.5 text-zinc-400" />
-                        <h3 className="text-xs font-semibold text-zinc-200">Produk Terlaris</h3>
+                        <Package className="h-3.5 w-3.5 text-slate-400" />
+                        <h3 className="text-xs font-semibold text-slate-200">Produk Terlaris</h3>
                       </div>
                       {d.products.topSelling.length === 0 ? (
-                        <p className="text-xs text-zinc-500 text-center py-4">Belum ada data penjualan</p>
+                        <p className="text-xs text-slate-500 text-center py-4">Belum ada data penjualan</p>
                       ) : (
                         <div className="space-y-2">
                           {d.products.topSelling.slice(0, 5).map((p, i) => (
                             <div key={i} className="flex items-center gap-3">
-                              <span className="text-[10px] text-zinc-600 w-4 font-bold">{i + 1}</span>
+                              <span className="text-[10px] text-slate-600 w-4 font-bold">{i + 1}</span>
                               <div className="flex-1 min-w-0">
-                                <p className="text-xs text-zinc-200 truncate">{p.name}</p>
-                                <p className="text-[10px] text-zinc-500">{p.qty} unit · {formatRp(p.revenue)}</p>
+                                <p className="text-xs text-slate-200 truncate">{p.name}</p>
+                                <p className="text-[10px] text-slate-500">{p.qty} unit · {formatRp(p.revenue)}</p>
                               </div>
-                              <div className="w-16 h-1.5 bg-zinc-800 rounded-full overflow-hidden shrink-0">
+                              <div className="w-16 h-1.5 bg-white/[0.04] rounded-full overflow-hidden shrink-0">
                                 <div
                                   className="h-full theme-bg/60 rounded-full"
                                   style={{ width: `${d.products.topSelling[0].qty > 0 ? (p.qty / d.products.topSelling[0].qty) * 100 : 0}%` }}
@@ -554,14 +554,14 @@ export default function InsightsPage() {
 
                 {/* Payment Methods + Data Quality */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                  <Card className="bg-zinc-900/60 border-zinc-800/60">
+                  <Card className="bg-nebula/60 border-white/[0.06]">
                     <CardContent className="p-4">
                       <div className="flex items-center gap-2 mb-3">
-                        <ShoppingCart className="h-3.5 w-3.5 text-zinc-400" />
-                        <h3 className="text-xs font-semibold text-zinc-200">Metode Pembayaran</h3>
+                        <ShoppingCart className="h-3.5 w-3.5 text-slate-400" />
+                        <h3 className="text-xs font-semibold text-slate-200">Metode Pembayaran</h3>
                       </div>
                       {d.transactions.paymentMethods.length === 0 ? (
-                        <p className="text-xs text-zinc-500 text-center py-4">Belum ada data</p>
+                        <p className="text-xs text-slate-500 text-center py-4">Belum ada data</p>
                       ) : (
                         <div className="space-y-2">
                           {d.transactions.paymentMethods.map((pm) => {
@@ -579,14 +579,14 @@ export default function InsightsPage() {
                                 >
                                   {pm.method}
                                 </Badge>
-                                <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                                <div className="flex-1 h-1.5 bg-white/[0.04] rounded-full overflow-hidden">
                                   <div
                                     className="h-full bg-zinc-600 rounded-full"
                                     style={{ width: `${pct}%` }}
                                   />
                                 </div>
-                                <span className="text-[10px] text-zinc-400 w-8 text-right">{pct.toFixed(0)}%</span>
-                                <span className="text-[10px] text-zinc-500 w-16 text-right">{formatRp(pm.total)}</span>
+                                <span className="text-[10px] text-slate-400 w-8 text-right">{pct.toFixed(0)}%</span>
+                                <span className="text-[10px] text-slate-500 w-16 text-right">{formatRp(pm.total)}</span>
                               </div>
                             )
                           })}
@@ -595,11 +595,11 @@ export default function InsightsPage() {
                     </CardContent>
                   </Card>
 
-                  <Card className="bg-zinc-900/60 border-zinc-800/60">
+                  <Card className="bg-nebula/60 border-white/[0.06]">
                     <CardContent className="p-4">
                       <div className="flex items-center gap-2 mb-3">
-                        <CheckCircle2 className="h-3.5 w-3.5 text-zinc-400" />
-                        <h3 className="text-xs font-semibold text-zinc-200">Kualitas Data</h3>
+                        <CheckCircle2 className="h-3.5 w-3.5 text-slate-400" />
+                        <h3 className="text-xs font-semibold text-slate-200">Kualitas Data</h3>
                       </div>
                       <div className="space-y-2.5">
                         <DataQualityRow label="Tanpa Kategori" count={d.dataQuality.productsWithoutCategory} total={d.products.total} />
@@ -608,8 +608,8 @@ export default function InsightsPage() {
                         <DataQualityRow label="Potensi Dead Stock" count={d.dataQuality.deadStockCount} total={d.products.total} color={d.dataQuality.deadStockCount > d.products.total * 0.3 ? 'rose' : undefined} />
                       </div>
                       {d.dataQuality.deadStockValue > 0 && (
-                        <div className="mt-3 pt-2.5 border-t border-zinc-800/60">
-                          <p className="text-[10px] text-zinc-500">Nilai Dead Stock</p>
+                        <div className="mt-3 pt-2.5 border-t border-white/[0.06]">
+                          <p className="text-[10px] text-slate-500">Nilai Dead Stock</p>
                           <p className="text-xs font-semibold text-amber-400">{formatRp(d.dataQuality.deadStockValue)}</p>
                         </div>
                       )}
@@ -617,7 +617,7 @@ export default function InsightsPage() {
                   </Card>
                 </div>
 
-                <p className="text-[10px] text-zinc-600 text-center">
+                <p className="text-[10px] text-slate-600 text-center">
                   Diperbarui: {new Date(data.generatedAt).toLocaleString('id-ID', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short', year: 'numeric' })}
                 </p>
               </TabsContent>
@@ -627,25 +627,25 @@ export default function InsightsPage() {
                 <div className="flex items-center gap-3">
                   <ScoreRing score={data.cmo.score} label="CMO Score" />
                   <div className="flex-1">
-                    <h2 className="text-sm font-bold text-zinc-100">Chief Marketing Officer Insights</h2>
-                    <p className="text-[11px] text-zinc-400 mt-0.5 leading-relaxed">
+                    <h2 className="text-sm font-bold text-white">Chief Marketing Officer Insights</h2>
+                    <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
                       Analisis performa marketing & penjualan — revenue, customer acquisition, produk terlaris, dan rekomendasi strategi promosi.
                     </p>
                     <div className="flex gap-3 mt-2">
                       <div className="text-center">
-                        <p className="text-[10px] text-zinc-500">Positif</p>
+                        <p className="text-[10px] text-slate-500">Positif</p>
                         <p className="text-sm font-bold theme-text">{data.cmo.insights.filter(i => i.type === 'positive').length}</p>
                       </div>
                       <div className="text-center">
-                        <p className="text-[10px] text-zinc-500">Peringatan</p>
+                        <p className="text-[10px] text-slate-500">Peringatan</p>
                         <p className="text-sm font-bold text-amber-400">{data.cmo.insights.filter(i => i.type === 'warning').length}</p>
                       </div>
                       <div className="text-center">
-                        <p className="text-[10px] text-zinc-500">Info</p>
+                        <p className="text-[10px] text-slate-500">Info</p>
                         <p className="text-sm font-bold text-sky-400">{data.cmo.insights.filter(i => i.type === 'info').length}</p>
                       </div>
                       <div className="text-center">
-                        <p className="text-[10px] text-zinc-500">Kritis</p>
+                        <p className="text-[10px] text-slate-500">Kritis</p>
                         <p className="text-sm font-bold text-red-400">{data.cmo.insights.filter(i => i.type === 'critical').length}</p>
                       </div>
                     </div>
@@ -659,25 +659,25 @@ export default function InsightsPage() {
                 </div>
 
                 {/* CMO Data Reference */}
-                <Card className="bg-zinc-900/40 border-zinc-800/40">
+                <Card className="bg-nebula/40 border-white/[0.04]">
                   <CardContent className="p-4">
-                    <h4 className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider mb-3">Data Referensi CMO</h4>
+                    <h4 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-3">Data Referensi CMO</h4>
                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
                       <div>
-                        <p className="text-zinc-500 text-[10px]">Revenue Hari Ini</p>
-                        <p className="text-zinc-200 font-semibold">{formatRp(d.today.revenue)}</p>
+                        <p className="text-slate-500 text-[10px]">Revenue Hari Ini</p>
+                        <p className="text-slate-200 font-semibold">{formatRp(d.today.revenue)}</p>
                       </div>
                       <div>
-                        <p className="text-zinc-500 text-[10px]">Revenue Kemarin</p>
-                        <p className="text-zinc-200 font-semibold">{formatRp(d.yesterday.revenue)}</p>
+                        <p className="text-slate-500 text-[10px]">Revenue Kemarin</p>
+                        <p className="text-slate-200 font-semibold">{formatRp(d.yesterday.revenue)}</p>
                       </div>
                       <div>
-                        <p className="text-zinc-500 text-[10px]">Total Customer</p>
-                        <p className="text-zinc-200 font-semibold">{d.customers.total}</p>
+                        <p className="text-slate-500 text-[10px]">Total Customer</p>
+                        <p className="text-slate-200 font-semibold">{d.customers.total}</p>
                       </div>
                       <div>
-                        <p className="text-zinc-500 text-[10px]">Avg Spend/Customer</p>
-                        <p className="text-zinc-200 font-semibold">{formatRp(d.customers.avgSpendPerCustomer)}</p>
+                        <p className="text-slate-500 text-[10px]">Avg Spend/Customer</p>
+                        <p className="text-slate-200 font-semibold">{formatRp(d.customers.avgSpendPerCustomer)}</p>
                       </div>
                     </div>
                   </CardContent>
@@ -689,25 +689,25 @@ export default function InsightsPage() {
                 <div className="flex items-center gap-3">
                   <ScoreRing score={data.cto.score} label="CTO Score" />
                   <div className="flex-1">
-                    <h2 className="text-sm font-bold text-zinc-100">Chief Technology Officer Insights</h2>
-                    <p className="text-[11px] text-zinc-400 mt-0.5 leading-relaxed">
+                    <h2 className="text-sm font-bold text-white">Chief Technology Officer Insights</h2>
+                    <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
                       Analisis kesehatan operasional — inventori, kualitas data, efisiensi staffing, dan rekomendasi optimasi sistem.
                     </p>
                     <div className="flex gap-3 mt-2">
                       <div className="text-center">
-                        <p className="text-[10px] text-zinc-500">Positif</p>
+                        <p className="text-[10px] text-slate-500">Positif</p>
                         <p className="text-sm font-bold theme-text">{data.cto.insights.filter(i => i.type === 'positive').length}</p>
                       </div>
                       <div className="text-center">
-                        <p className="text-[10px] text-zinc-500">Peringatan</p>
+                        <p className="text-[10px] text-slate-500">Peringatan</p>
                         <p className="text-sm font-bold text-amber-400">{data.cto.insights.filter(i => i.type === 'warning').length}</p>
                       </div>
                       <div className="text-center">
-                        <p className="text-[10px] text-zinc-500">Info</p>
+                        <p className="text-[10px] text-slate-500">Info</p>
                         <p className="text-sm font-bold text-sky-400">{data.cto.insights.filter(i => i.type === 'info').length}</p>
                       </div>
                       <div className="text-center">
-                        <p className="text-[10px] text-zinc-500">Kritis</p>
+                        <p className="text-[10px] text-slate-500">Kritis</p>
                         <p className="text-sm font-bold text-red-400">{data.cto.insights.filter(i => i.type === 'critical').length}</p>
                       </div>
                     </div>
@@ -721,25 +721,25 @@ export default function InsightsPage() {
                 </div>
 
                 {/* CTO Data Reference */}
-                <Card className="bg-zinc-900/40 border-zinc-800/40">
+                <Card className="bg-nebula/40 border-white/[0.04]">
                   <CardContent className="p-4">
-                    <h4 className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider mb-3">Data Referensi CTO</h4>
+                    <h4 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-3">Data Referensi CTO</h4>
                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
                       <div>
-                        <p className="text-zinc-500 text-[10px]">Stok Habis</p>
-                        <p className={`font-semibold ${d.products.outOfStock > 0 ? 'text-red-400' : 'text-zinc-200'}`}>{d.products.outOfStock} produk</p>
+                        <p className="text-slate-500 text-[10px]">Stok Habis</p>
+                        <p className={`font-semibold ${d.products.outOfStock > 0 ? 'text-red-400' : 'text-slate-200'}`}>{d.products.outOfStock} produk</p>
                       </div>
                       <div>
-                        <p className="text-zinc-500 text-[10px]">Stok Rendah</p>
-                        <p className={`font-semibold ${d.products.lowStock > 0 ? 'text-amber-400' : 'text-zinc-200'}`}>{d.products.lowStock} produk</p>
+                        <p className="text-slate-500 text-[10px]">Stok Rendah</p>
+                        <p className={`font-semibold ${d.products.lowStock > 0 ? 'text-amber-400' : 'text-slate-200'}`}>{d.products.lowStock} produk</p>
                       </div>
                       <div>
-                        <p className="text-zinc-500 text-[10px]">Dead Stock</p>
-                        <p className={`font-semibold ${d.dataQuality.deadStockCount > 0 ? 'text-amber-400' : 'text-zinc-200'}`}>{d.dataQuality.deadStockCount} ({formatRp(d.dataQuality.deadStockValue)})</p>
+                        <p className="text-slate-500 text-[10px]">Dead Stock</p>
+                        <p className={`font-semibold ${d.dataQuality.deadStockCount > 0 ? 'text-amber-400' : 'text-slate-200'}`}>{d.dataQuality.deadStockCount} ({formatRp(d.dataQuality.deadStockValue)})</p>
                       </div>
                       <div>
-                        <p className="text-zinc-500 text-[10px]">Diskon Rata-rata</p>
-                        <p className="text-zinc-200 font-semibold">{formatRp(d.transactions.avgDiscount)}/trx</p>
+                        <p className="text-slate-500 text-[10px]">Diskon Rata-rata</p>
+                        <p className="text-slate-200 font-semibold">{formatRp(d.transactions.avgDiscount)}/trx</p>
                       </div>
                     </div>
                   </CardContent>
@@ -763,8 +763,8 @@ function DataQualityRow({ label, count, total, color }: { label: string; count: 
 
   return (
     <div className="flex items-center gap-3">
-      <span className="text-[11px] text-zinc-400 w-28 shrink-0">{label}</span>
-      <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+      <span className="text-[11px] text-slate-400 w-28 shrink-0">{label}</span>
+      <div className="flex-1 h-1.5 bg-white/[0.04] rounded-full overflow-hidden">
         <div
           className={`h-full rounded-full transition-all duration-500 ${
             color === 'rose' || isBad ? 'bg-rose-500/60' : count > 0 ? 'bg-amber-500/40' : 'theme-bg/60'

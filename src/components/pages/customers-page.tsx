@@ -146,7 +146,7 @@ function getTier(totalSpend: number): CustomerTier {
 function getTierBadgeClass(tier: CustomerTier): string {
   switch (tier) {
     case 'New':
-      return 'bg-zinc-500/10 border-zinc-500/20 text-zinc-400'
+      return 'bg-slate-500/10 border-slate-500/20 text-slate-400'
     case 'Regular':
       return 'bg-blue-500/10 border-blue-500/20 text-blue-400'
     case 'VIP':
@@ -388,53 +388,53 @@ export default function CustomersPage() {
       {!loading && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {/* Total Customers */}
-          <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
+          <div className="rounded-lg border border-white/[0.06] bg-nebula p-4">
             <div className="flex items-center gap-3">
               <div className="h-9 w-9 rounded-lg theme-bg-very-light border theme-border-light flex items-center justify-center shrink-0">
                 <Users className="h-4 w-4 theme-text" />
               </div>
               <div className="min-w-0">
-                <p className="text-[11px] font-medium text-zinc-500 truncate">Total Customers</p>
-                <p className="text-lg font-bold text-zinc-100 leading-tight">{formatNumber(stats.total)}</p>
+                <p className="text-[11px] font-medium text-slate-500 truncate">Total Customers</p>
+                <p className="text-lg font-bold text-white leading-tight">{formatNumber(stats.total)}</p>
               </div>
             </div>
           </div>
 
           {/* Total Loyalty Points */}
-          <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
+          <div className="rounded-lg border border-white/[0.06] bg-nebula p-4">
             <div className="flex items-center gap-3">
               <div className="h-9 w-9 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center shrink-0">
                 <Coins className="h-4 w-4 text-amber-400" />
               </div>
               <div className="min-w-0">
-                <p className="text-[11px] font-medium text-zinc-500 truncate">Total Loyalty Points</p>
-                <p className="text-lg font-bold text-zinc-100 leading-tight">{formatNumber(stats.totalPoints)}</p>
+                <p className="text-[11px] font-medium text-slate-500 truncate">Total Loyalty Points</p>
+                <p className="text-lg font-bold text-white leading-tight">{formatNumber(stats.totalPoints)}</p>
               </div>
             </div>
           </div>
 
           {/* Average Spend */}
-          <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
+          <div className="rounded-lg border border-white/[0.06] bg-nebula p-4">
             <div className="flex items-center gap-3">
               <div className="h-9 w-9 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center shrink-0">
                 <TrendingUp className="h-4 w-4 text-blue-400" />
               </div>
               <div className="min-w-0">
-                <p className="text-[11px] font-medium text-zinc-500 truncate">Average Spend</p>
-                <p className="text-lg font-bold text-zinc-100 leading-tight">{formatCurrency(stats.avgSpend)}</p>
+                <p className="text-[11px] font-medium text-slate-500 truncate">Average Spend</p>
+                <p className="text-lg font-bold text-white leading-tight">{formatCurrency(stats.avgSpend)}</p>
               </div>
             </div>
           </div>
 
           {/* New This Month */}
-          <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
+          <div className="rounded-lg border border-white/[0.06] bg-nebula p-4">
             <div className="flex items-center gap-3">
               <div className="h-9 w-9 rounded-lg bg-violet-500/10 border border-violet-500/20 flex items-center justify-center shrink-0">
                 <UserPlus className="h-4 w-4 text-violet-400" />
               </div>
               <div className="min-w-0">
-                <p className="text-[11px] font-medium text-zinc-500 truncate">New This Month</p>
-                <p className="text-lg font-bold text-zinc-100 leading-tight">{formatNumber(stats.newThisMonth)}</p>
+                <p className="text-[11px] font-medium text-slate-500 truncate">New This Month</p>
+                <p className="text-lg font-bold text-white leading-tight">{formatNumber(stats.newThisMonth)}</p>
               </div>
             </div>
           </div>
@@ -444,30 +444,30 @@ export default function CustomersPage() {
       {/* Analytics Section */}
       {!loading && customers.length > 0 && (
         <Collapsible open={analyticsOpen} onOpenChange={setAnalyticsOpen}>
-          <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 overflow-hidden">
-            <CollapsibleTrigger className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-zinc-800/50 transition-colors">
+          <div className="rounded-lg border border-white/[0.06] bg-nebula/50 overflow-hidden">
+            <CollapsibleTrigger className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-white/[0.03] transition-colors">
               <div className="flex items-center gap-2">
                 <BarChart3 className="h-3.5 w-3.5 theme-text" />
-                <span className="text-xs font-semibold text-zinc-200">Analitik</span>
+                <span className="text-xs font-semibold text-slate-200">Analitik</span>
                 <Badge className="theme-bg-very-light theme-border-light theme-text text-[10px] px-1.5 py-0">
                   {analytics.totalCustomers} customer
                 </Badge>
               </div>
               <div className="flex items-center gap-3">
                 <div className="hidden sm:flex items-center gap-3">
-                  <div className="flex items-center gap-1 text-[11px] text-zinc-400">
+                  <div className="flex items-center gap-1 text-[11px] text-slate-400">
                     <UserPlus className="h-3 w-3" />
                     <span>{analytics.newThisMonth} baru</span>
                   </div>
-                  <div className="flex items-center gap-1 text-[11px] text-zinc-400">
+                  <div className="flex items-center gap-1 text-[11px] text-slate-400">
                     <Coins className="h-3 w-3 text-amber-400" />
                     <span>{formatNumber(analytics.totalPoints)} pts</span>
                   </div>
                 </div>
                 {analyticsOpen ? (
-                  <ChevronDown className="h-3.5 w-3.5 text-zinc-500" />
+                  <ChevronDown className="h-3.5 w-3.5 text-slate-500" />
                 ) : (
-                  <ChevronRight className="h-3.5 w-3.5 text-zinc-500" />
+                  <ChevronRight className="h-3.5 w-3.5 text-slate-500" />
                 )}
               </div>
             </CollapsibleTrigger>
@@ -476,11 +476,11 @@ export default function CustomersPage() {
               <div className="px-4 pb-3">
                 {/* Mobile mini stats */}
                 <div className="sm:hidden flex items-center gap-3 mb-3">
-                  <div className="flex items-center gap-1 text-[11px] text-zinc-400">
+                  <div className="flex items-center gap-1 text-[11px] text-slate-400">
                     <UserPlus className="h-3 w-3" />
                     <span>{analytics.newThisMonth} baru</span>
                   </div>
-                  <div className="flex items-center gap-1 text-[11px] text-zinc-400">
+                  <div className="flex items-center gap-1 text-[11px] text-slate-400">
                     <Coins className="h-3 w-3 text-amber-400" />
                     <span>{formatNumber(analytics.totalPoints)} pts</span>
                   </div>
@@ -488,22 +488,22 @@ export default function CustomersPage() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   {/* Top Spenders */}
-                  <div className="rounded-lg border border-zinc-800 bg-zinc-800/30 p-3 space-y-2">
-                    <h3 className="text-[11px] font-semibold text-zinc-400 flex items-center gap-1.5">
+                  <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 space-y-2">
+                    <h3 className="text-[11px] font-semibold text-slate-400 flex items-center gap-1.5">
                       <Trophy className="h-3 w-3 text-amber-400" />
                       Top Spenders
                     </h3>
                     <div className="space-y-1.5">
                       {analytics.topSpenders.length === 0 ? (
-                        <p className="text-[11px] text-zinc-500">Belum ada data</p>
+                        <p className="text-[11px] text-slate-500">Belum ada data</p>
                       ) : (
                         analytics.topSpenders.map((c, i) => (
                           <div key={c.id} className="flex items-center justify-between">
                             <div className="flex items-center gap-1.5 min-w-0">
-                              <span className={`text-[10px] font-bold w-4 text-center ${i === 0 ? 'text-amber-400' : i === 1 ? 'text-zinc-300' : 'text-orange-400'}`}>#{i + 1}</span>
-                              <span className="text-xs text-zinc-200 truncate">{c.name}</span>
+                              <span className={`text-[10px] font-bold w-4 text-center ${i === 0 ? 'text-amber-400' : i === 1 ? 'text-slate-300' : 'text-orange-400'}`}>#{i + 1}</span>
+                              <span className="text-xs text-slate-200 truncate">{c.name}</span>
                             </div>
-                            <span className="text-xs font-medium text-zinc-300 ml-2 shrink-0">{formatCurrency(c.totalSpend)}</span>
+                            <span className="text-xs font-medium text-slate-300 ml-2 shrink-0">{formatCurrency(c.totalSpend)}</span>
                           </div>
                         ))
                       )}
@@ -511,8 +511,8 @@ export default function CustomersPage() {
                   </div>
 
                   {/* Tier Distribution */}
-                  <div className="rounded-lg border border-zinc-800 bg-zinc-800/30 p-3 space-y-2">
-                    <h3 className="text-[11px] font-semibold text-zinc-400 flex items-center gap-1.5">
+                  <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 space-y-2">
+                    <h3 className="text-[11px] font-semibold text-slate-400 flex items-center gap-1.5">
                       <Users className="h-3 w-3 theme-text" />
                       Distribusi Tier
                     </h3>
@@ -531,14 +531,14 @@ export default function CustomersPage() {
                   </div>
 
                   {/* Total Loyalty Points */}
-                  <div className="rounded-lg border border-zinc-800 bg-zinc-800/30 p-3 space-y-2">
-                    <h3 className="text-[11px] font-semibold text-zinc-400 flex items-center gap-1.5">
+                  <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 space-y-2">
+                    <h3 className="text-[11px] font-semibold text-slate-400 flex items-center gap-1.5">
                       <Coins className="h-3 w-3 text-amber-400" />
                       Total Poin Loyalti
                     </h3>
                     <div className="flex items-center gap-2">
                       <span className="text-lg font-bold text-amber-400">{formatNumber(analytics.totalPoints)}</span>
-                      <span className="text-[11px] text-zinc-500">poin tersebar di {analytics.totalCustomers} customer</span>
+                      <span className="text-[11px] text-slate-500">poin tersebar di {analytics.totalCustomers} customer</span>
                     </div>
                   </div>
                 </div>
@@ -551,8 +551,8 @@ export default function CustomersPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-lg font-semibold text-zinc-100">Customers</h1>
-          <p className="text-xs text-zinc-500 mt-0.5">Manage your customer database & CRM</p>
+          <h1 className="text-lg font-semibold text-white">Customers</h1>
+          <p className="text-xs text-slate-500 mt-0.5">Manage your customer database & CRM</p>
         </div>
         <Button onClick={handleAdd} className="theme-bg hover:theme-hover text-white h-8 text-xs">
           <Plus className="mr-1.5 h-3.5 w-3.5" />
@@ -562,12 +562,12 @@ export default function CustomersPage() {
 
       {/* Search */}
       <div className="relative w-full sm:max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500" />
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
         <Input
           placeholder="Search customers..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="pl-9 h-9 sm:h-10 text-xs bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500"
+          className="pl-9 h-9 sm:h-10 text-xs bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500"
         />
       </div>
 
@@ -575,12 +575,12 @@ export default function CustomersPage() {
       {loading ? (
         <div className="space-y-2">
           {Array.from({ length: 5 }).map((_, i) => (
-            <Skeleton key={i} className="h-10 bg-zinc-900 rounded" />
+            <Skeleton key={i} className="h-10 bg-nebula rounded" />
           ))}
         </div>
       ) : customers.length === 0 ? (
-        <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-6 text-center">
-          <p className="text-xs text-zinc-500">No customers found</p>
+        <div className="rounded-lg border border-white/[0.06] bg-nebula p-6 text-center">
+          <p className="text-xs text-slate-500">No customers found</p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -591,12 +591,12 @@ export default function CustomersPage() {
               return (
                 <div
                   key={customer.id}
-                  className="rounded-xl bg-zinc-900 border border-zinc-800/60 p-3 cursor-pointer"
+                  className="rounded-xl bg-nebula border border-white/[0.06] p-3 cursor-pointer"
                   onClick={() => handleViewPurchases(customer)}
                 >
                   {/* Top row: Name + Tier badge */}
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs text-zinc-200 font-semibold truncate mr-2">{customer.name}</span>
+                    <span className="text-xs text-slate-200 font-semibold truncate mr-2">{customer.name}</span>
                     <Badge className={`${getTierBadgeClass(tier)} text-[10px] font-medium border px-1.5 py-0 shrink-0`}>
                       {tier === 'VIP' && <Crown className="mr-0.5 h-2.5 w-2.5" />}
                       {tier}
@@ -604,8 +604,8 @@ export default function CustomersPage() {
                   </div>
                   {/* Middle row: WhatsApp + Total spend */}
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs text-zinc-400">{customer.whatsapp}</span>
-                    <span className="text-xs text-zinc-200 font-medium">{formatCurrency(customer.totalSpend)}</span>
+                    <span className="text-xs text-slate-400">{customer.whatsapp}</span>
+                    <span className="text-xs text-slate-200 font-medium">{formatCurrency(customer.totalSpend)}</span>
                   </div>
                   {/* Bottom row: Points badge + Action buttons */}
                   <div className="flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
@@ -617,7 +617,7 @@ export default function CustomersPage() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7 text-zinc-400 hover:text-blue-400 hover:bg-blue-500/10"
+                        className="h-7 w-7 text-slate-400 hover:text-blue-400 hover:bg-blue-500/10"
                         onClick={() => handleViewPurchases(customer)}
                         title="Riwayat"
                       >
@@ -626,7 +626,7 @@ export default function CustomersPage() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7 text-zinc-400 hover:text-amber-400 hover:bg-amber-500/10"
+                        className="h-7 w-7 text-slate-400 hover:text-amber-400 hover:bg-amber-500/10"
                         onClick={() => handleViewLoyalty(customer)}
                         title="Loyalty"
                       >
@@ -635,7 +635,7 @@ export default function CustomersPage() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800"
+                        className="h-7 w-7 text-slate-400 hover:text-white hover:bg-white/[0.04]"
                         onClick={() => handleEdit(customer)}
                         title="Edit"
                       >
@@ -644,7 +644,7 @@ export default function CustomersPage() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7 text-zinc-400 hover:text-red-400 hover:bg-red-500/10"
+                        className="h-7 w-7 text-slate-400 hover:text-red-400 hover:bg-red-500/10"
                         onClick={() => setDeleteId(customer.id)}
                         title="Delete"
                       >
@@ -658,16 +658,16 @@ export default function CustomersPage() {
           </div>
 
           {/* Desktop table view */}
-          <div className="hidden md:block rounded-lg border border-zinc-800 overflow-x-auto">
+          <div className="hidden md:block rounded-lg border border-white/[0.06] overflow-x-auto">
             <Table>
               <TableHeader>
-                <TableRow className="border-zinc-800 hover:bg-transparent">
-                  <TableHead className="text-zinc-500 text-[11px] font-medium">Name</TableHead>
-                  <TableHead className="text-zinc-500 text-[11px] font-medium hidden sm:table-cell">WhatsApp</TableHead>
-                  <TableHead className="text-zinc-500 text-[11px] font-medium">Tier</TableHead>
-                  <TableHead className="text-zinc-500 text-[11px] font-medium text-right">Total Spend</TableHead>
-                  <TableHead className="text-zinc-500 text-[11px] font-medium text-center">Points</TableHead>
-                  <TableHead className="text-zinc-500 text-[11px] font-medium text-right w-[140px]">Actions</TableHead>
+                <TableRow className="border-white/[0.06] hover:bg-transparent">
+                  <TableHead className="text-slate-500 text-[11px] font-medium">Name</TableHead>
+                  <TableHead className="text-slate-500 text-[11px] font-medium hidden sm:table-cell">WhatsApp</TableHead>
+                  <TableHead className="text-slate-500 text-[11px] font-medium">Tier</TableHead>
+                  <TableHead className="text-slate-500 text-[11px] font-medium text-right">Total Spend</TableHead>
+                  <TableHead className="text-slate-500 text-[11px] font-medium text-center">Points</TableHead>
+                  <TableHead className="text-slate-500 text-[11px] font-medium text-right w-[140px]">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -676,18 +676,18 @@ export default function CustomersPage() {
                   return (
                     <TableRow
                       key={customer.id}
-                      className="border-zinc-800 hover:bg-zinc-800/50 cursor-pointer"
+                      className="border-white/[0.06] hover:bg-white/[0.03] cursor-pointer"
                       onClick={() => handleViewPurchases(customer)}
                     >
-                      <TableCell className="text-xs text-zinc-200 font-medium py-2.5 px-3">{customer.name}</TableCell>
-                      <TableCell className="text-xs text-zinc-400 py-2.5 px-3 hidden sm:table-cell">{customer.whatsapp}</TableCell>
+                      <TableCell className="text-xs text-slate-200 font-medium py-2.5 px-3">{customer.name}</TableCell>
+                      <TableCell className="text-xs text-slate-400 py-2.5 px-3 hidden sm:table-cell">{customer.whatsapp}</TableCell>
                       <TableCell className="py-2.5 px-3">
                         <Badge className={`${getTierBadgeClass(tier)} text-[10px] font-medium border px-1.5 py-0`}>
                           {tier === 'VIP' && <Crown className="mr-0.5 h-2.5 w-2.5" />}
                           {tier}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-xs text-zinc-200 text-right py-2.5 px-3">{formatCurrency(customer.totalSpend)}</TableCell>
+                      <TableCell className="text-xs text-slate-200 text-right py-2.5 px-3">{formatCurrency(customer.totalSpend)}</TableCell>
                       <TableCell className="text-center py-2.5 px-3">
                         <Badge className="bg-amber-500/10 border-amber-500/20 text-amber-400 text-[10px]">
                           <Coins className="mr-0.5 h-2.5 w-2.5" />
@@ -699,7 +699,7 @@ export default function CustomersPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-7 w-7 text-zinc-400 hover:text-blue-400 hover:bg-blue-500/10"
+                            className="h-7 w-7 text-slate-400 hover:text-blue-400 hover:bg-blue-500/10"
                             onClick={() => handleViewPurchases(customer)}
                             title="Riwayat"
                           >
@@ -708,7 +708,7 @@ export default function CustomersPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-7 w-7 text-zinc-400 hover:text-amber-400 hover:bg-amber-500/10"
+                            className="h-7 w-7 text-slate-400 hover:text-amber-400 hover:bg-amber-500/10"
                             onClick={() => handleViewLoyalty(customer)}
                             title="Loyalty"
                           >
@@ -717,7 +717,7 @@ export default function CustomersPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-7 w-7 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800"
+                            className="h-7 w-7 text-slate-400 hover:text-white hover:bg-white/[0.04]"
                             onClick={() => handleEdit(customer)}
                             title="Edit"
                           >
@@ -726,7 +726,7 @@ export default function CustomersPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-7 w-7 text-zinc-400 hover:text-red-400 hover:bg-red-500/10"
+                            className="h-7 w-7 text-slate-400 hover:text-red-400 hover:bg-red-500/10"
                             onClick={() => setDeleteId(customer.id)}
                             title="Delete"
                           >
@@ -755,15 +755,15 @@ export default function CustomersPage() {
 
       {/* Delete Confirmation */}
       <AlertDialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>
-        <AlertDialogContent className="bg-zinc-900 border-zinc-800">
+        <AlertDialogContent className="bg-nebula border-white/[0.06]">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-zinc-100 text-sm font-semibold">Delete Customer</AlertDialogTitle>
-            <AlertDialogDescription className="text-zinc-400 text-xs">
+            <AlertDialogTitle className="text-white text-sm font-semibold">Delete Customer</AlertDialogTitle>
+            <AlertDialogDescription className="text-slate-400 text-xs">
               Are you sure? This will permanently delete this customer and their loyalty history.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700 h-8 text-xs">
+            <AlertDialogCancel className="bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.06] h-8 text-xs">
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
@@ -780,9 +780,9 @@ export default function CustomersPage() {
 
       {/* Loyalty History Sheet */}
       <Sheet open={loyaltyOpen} onOpenChange={setLoyaltyOpen}>
-        <SheetContent className="bg-zinc-900 border-zinc-800 w-full sm:max-w-md p-0">
+        <SheetContent className="bg-nebula border-white/[0.06] w-full sm:max-w-md p-0">
           <SheetHeader className="p-4 pb-3">
-            <SheetTitle className="text-zinc-100 text-sm font-semibold flex items-center gap-2">
+            <SheetTitle className="text-white text-sm font-semibold flex items-center gap-2">
               <Coins className="h-4 w-4 text-amber-400" />
               Loyalty — {loyaltyCustomer?.name}
             </SheetTitle>
@@ -790,20 +790,20 @@ export default function CustomersPage() {
           {loyaltyCustomer && (
             <div className="px-4 pb-4 space-y-3">
               {/* Customer summary */}
-              <div className="p-3 rounded-lg bg-zinc-800/50 border border-zinc-800 space-y-2">
+              <div className="p-3 rounded-lg bg-white/[0.03] border border-white/[0.06] space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-zinc-500">Tier</span>
+                  <span className="text-xs text-slate-500">Tier</span>
                   <Badge className={`${getTierBadgeClass(getTier(loyaltyCustomer.totalSpend))} text-[10px] font-medium border px-1.5 py-0`}>
                     {getTier(loyaltyCustomer.totalSpend) === 'VIP' && <Crown className="mr-0.5 h-2.5 w-2.5" />}
                     {getTier(loyaltyCustomer.totalSpend)}
                   </Badge>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-zinc-500">Total Spend</span>
-                  <span className="text-xs font-semibold text-zinc-200">{formatCurrency(loyaltyCustomer.totalSpend)}</span>
+                  <span className="text-xs text-slate-500">Total Spend</span>
+                  <span className="text-xs font-semibold text-slate-200">{formatCurrency(loyaltyCustomer.totalSpend)}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-zinc-500">Current Points</span>
+                  <span className="text-xs text-slate-500">Current Points</span>
                   <Badge className="bg-amber-500/20 border-amber-500/30 text-amber-400 text-[10px]">
                     {formatNumber(loyaltyCustomer.points)} pts
                   </Badge>
@@ -817,10 +817,10 @@ export default function CustomersPage() {
                     return (
                       <div className="pt-1">
                         <div className="flex items-center justify-between mb-1">
-                          <span className="text-[11px] text-zinc-500">Loyalty Progress</span>
+                          <span className="text-[11px] text-slate-500">Loyalty Progress</span>
                           <span className="text-[11px] text-amber-400 font-medium">Max tier reached! 🎉</span>
                         </div>
-                        <Progress value={100} className="h-1.5 bg-zinc-700 [&>div]:bg-amber-400" />
+                        <Progress value={100} className="h-1.5 bg-white/[0.06] [&>div]:bg-amber-400" />
                       </div>
                     )
                   }
@@ -828,22 +828,22 @@ export default function CustomersPage() {
                     return (
                       <div className="pt-1">
                         <div className="flex items-center justify-between mb-1">
-                          <span className="text-[11px] text-zinc-500">Loyalty Progress</span>
+                          <span className="text-[11px] text-slate-500">Loyalty Progress</span>
                           <span className="text-[11px] text-blue-400 font-medium">First purchase to unlock Regular</span>
                         </div>
-                        <Progress value={0} className="h-1.5 bg-zinc-700 [&>div]:bg-blue-400" />
+                        <Progress value={0} className="h-1.5 bg-white/[0.06] [&>div]:bg-blue-400" />
                       </div>
                     )
                   }
                   return (
                     <div className="pt-1">
                       <div className="flex items-center justify-between mb-1">
-                        <span className="text-[11px] text-zinc-500">Loyalty Progress</span>
+                        <span className="text-[11px] text-slate-500">Loyalty Progress</span>
                         <span className="text-[11px] text-blue-400 font-medium">
                           {formatCurrency(loyaltyCustomer.totalSpend)} / {formatCurrency(nextTier.target)} ke {nextTier.label}
                         </span>
                       </div>
-                      <Progress value={nextTier.progress} className="h-1.5 bg-zinc-700 [&>div]:bg-blue-400" />
+                      <Progress value={nextTier.progress} className="h-1.5 bg-white/[0.06] [&>div]:bg-blue-400" />
                     </div>
                   )
                 })()}
@@ -853,7 +853,7 @@ export default function CustomersPage() {
               {plan?.type && (
                 <Button
                   variant="outline"
-                  className="w-full border-zinc-700 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 h-8 text-xs"
+                  className="w-full border-white/[0.08] text-slate-300 hover:bg-white/[0.04] hover:text-white h-8 text-xs"
                   onClick={() => handleAdjustPoints(loyaltyCustomer)}
                 >
                   <PlusCircle className="mr-1.5 h-3.5 w-3.5" />
@@ -861,25 +861,25 @@ export default function CustomersPage() {
                 </Button>
               )}
 
-              <Separator className="bg-zinc-800" />
+              <Separator className="bg-white/[0.04]" />
 
               {/* Loyalty logs */}
               <div>
-                <h3 className="text-xs font-semibold text-zinc-300 mb-2">Points History</h3>
+                <h3 className="text-xs font-semibold text-slate-300 mb-2">Points History</h3>
                 {loyaltyLoading ? (
                   <div className="space-y-2">
                     {Array.from({ length: 4 }).map((_, i) => (
-                      <Skeleton key={i} className="h-14 bg-zinc-800 rounded" />
+                      <Skeleton key={i} className="h-14 bg-white/[0.04] rounded" />
                     ))}
                   </div>
                 ) : loyaltyLogs.length === 0 ? (
-                  <p className="text-xs text-zinc-500 text-center py-6">No loyalty history</p>
+                  <p className="text-xs text-slate-500 text-center py-6">No loyalty history</p>
                 ) : (
                   <div className="space-y-1.5 max-h-96 overflow-y-auto">
                     {loyaltyLogs.map((log) => (
                       <div
                         key={log.id}
-                        className="p-2.5 rounded-lg bg-zinc-800/50 border border-zinc-800"
+                        className="p-2.5 rounded-lg bg-white/[0.03] border border-white/[0.06]"
                       >
                         <div className="flex items-center justify-between mb-1">
                           <Badge
@@ -897,8 +897,8 @@ export default function CustomersPage() {
                             {log.points > 0 ? '+' : ''}{log.points} pts
                           </span>
                         </div>
-                        <p className="text-[11px] text-zinc-400 mt-0.5">{log.description}</p>
-                        <p className="text-[10px] text-zinc-500 mt-0.5">{formatDate(log.createdAt)}</p>
+                        <p className="text-[11px] text-slate-400 mt-0.5">{log.description}</p>
+                        <p className="text-[10px] text-slate-500 mt-0.5">{formatDate(log.createdAt)}</p>
                       </div>
                     ))}
                   </div>
@@ -911,9 +911,9 @@ export default function CustomersPage() {
 
       {/* Purchase History Sheet */}
       <Sheet open={purchaseOpen} onOpenChange={setPurchaseOpen}>
-        <SheetContent className="bg-zinc-900 border-zinc-800 w-full sm:max-w-md p-0">
+        <SheetContent className="bg-nebula border-white/[0.06] w-full sm:max-w-md p-0">
           <SheetHeader className="p-4 pb-3">
-            <SheetTitle className="text-zinc-100 text-sm font-semibold flex items-center gap-2">
+            <SheetTitle className="text-white text-sm font-semibold flex items-center gap-2">
               <History className="h-4 w-4 text-blue-400" />
               Riwayat — {purchaseCustomer?.name}
             </SheetTitle>
@@ -921,20 +921,20 @@ export default function CustomersPage() {
           {purchaseCustomer && (
             <div className="px-4 pb-4 space-y-3">
               {/* Customer info header */}
-              <div className="p-3 rounded-lg bg-zinc-800/50 border border-zinc-800 space-y-2">
+              <div className="p-3 rounded-lg bg-white/[0.03] border border-white/[0.06] space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-zinc-500">Tier</span>
+                  <span className="text-xs text-slate-500">Tier</span>
                   <Badge className={`${getTierBadgeClass(getTier(purchaseCustomer.totalSpend))} text-[10px] font-medium border px-1.5 py-0`}>
                     {getTier(purchaseCustomer.totalSpend) === 'VIP' && <Crown className="mr-0.5 h-2.5 w-2.5" />}
                     {getTier(purchaseCustomer.totalSpend)}
                   </Badge>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-zinc-500">Total Spend</span>
-                  <span className="text-xs font-semibold text-zinc-200">{formatCurrency(purchaseCustomer.totalSpend)}</span>
+                  <span className="text-xs text-slate-500">Total Spend</span>
+                  <span className="text-xs font-semibold text-slate-200">{formatCurrency(purchaseCustomer.totalSpend)}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-zinc-500">Points</span>
+                  <span className="text-xs text-slate-500">Points</span>
                   <Badge className="bg-amber-500/10 border-amber-500/20 text-amber-400 text-[10px]">
                     {formatNumber(purchaseCustomer.points)} pts
                   </Badge>
@@ -948,8 +948,8 @@ export default function CustomersPage() {
                     <Lock className="h-5 w-5 text-violet-400" />
                   </div>
                   <div>
-                    <h3 className="text-sm font-semibold text-zinc-100">Fitur Pro</h3>
-                    <p className="text-xs text-zinc-500 mt-0.5">
+                    <h3 className="text-sm font-semibold text-white">Fitur Pro</h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
                       Riwayat pembelian customer tersedia untuk akun Pro dan Enterprise.
                     </p>
                   </div>
@@ -962,18 +962,18 @@ export default function CustomersPage() {
                 </div>
               ) : (
                 <>
-                  <Separator className="bg-zinc-800" />
+                  <Separator className="bg-white/[0.04]" />
 
                   <div>
-                    <h3 className="text-xs font-semibold text-zinc-300 mb-2">Riwayat Transaksi</h3>
+                    <h3 className="text-xs font-semibold text-slate-300 mb-2">Riwayat Transaksi</h3>
                     {purchaseLoading ? (
                       <div className="space-y-2">
                         {Array.from({ length: 4 }).map((_, i) => (
-                          <Skeleton key={i} className="h-16 bg-zinc-800 rounded" />
+                          <Skeleton key={i} className="h-16 bg-white/[0.04] rounded" />
                         ))}
                       </div>
                     ) : purchases.length === 0 ? (
-                      <p className="text-xs text-zinc-500 text-center py-6">Belum ada transaksi</p>
+                      <p className="text-xs text-slate-500 text-center py-6">Belum ada transaksi</p>
                     ) : (
                       <div className="space-y-1.5 max-h-[60vh] overflow-y-auto">
                         {purchases.map((purchase) => {
@@ -981,52 +981,52 @@ export default function CustomersPage() {
                           return (
                             <div
                               key={purchase.id}
-                              className="rounded-lg bg-zinc-800/50 border border-zinc-800 overflow-hidden"
+                              className="rounded-lg bg-white/[0.03] border border-white/[0.06] overflow-hidden"
                             >
                               {/* Transaction header — clickable to expand */}
                               <button
-                                className="w-full p-2.5 flex items-center justify-between hover:bg-zinc-800 transition-colors"
+                                className="w-full p-2.5 flex items-center justify-between hover:bg-white/[0.04] transition-colors"
                                 onClick={() => setExpandedTx(isExpanded ? null : purchase.id)}
                               >
                                 <div className="flex-1 text-left min-w-0">
                                   <div className="flex items-center gap-1.5 mb-0.5">
-                                    <span className="text-xs font-medium text-zinc-200 truncate">
+                                    <span className="text-xs font-medium text-slate-200 truncate">
                                       {purchase.invoiceNumber}
                                     </span>
-                                    <Badge className="bg-zinc-700/50 border-zinc-600/50 text-zinc-400 text-[10px] shrink-0 px-1 py-0">
+                                    <Badge className="bg-white/[0.06] border-white/[0.08] text-slate-400 text-[10px] shrink-0 px-1 py-0">
                                       {purchase.paymentMethod}
                                     </Badge>
                                   </div>
-                                  <div className="flex items-center gap-2 text-[11px] text-zinc-500">
+                                  <div className="flex items-center gap-2 text-[11px] text-slate-500">
                                     <span>{formatDate(purchase.date)}</span>
                                     <span>{purchase.itemCount} item</span>
                                   </div>
                                 </div>
                                 <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                                  <span className="text-xs font-semibold text-zinc-200">
+                                  <span className="text-xs font-semibold text-slate-200">
                                     {formatCurrency(purchase.total)}
                                   </span>
                                   {isExpanded ? (
-                                    <ChevronUp className="h-3.5 w-3.5 text-zinc-500" />
+                                    <ChevronUp className="h-3.5 w-3.5 text-slate-500" />
                                   ) : (
-                                    <ChevronDown className="h-3.5 w-3.5 text-zinc-500" />
+                                    <ChevronDown className="h-3.5 w-3.5 text-slate-500" />
                                   )}
                                 </div>
                               </button>
 
                               {/* Expanded items */}
                               {isExpanded && (
-                                <div className="px-2.5 pb-2.5 border-t border-zinc-800">
+                                <div className="px-2.5 pb-2.5 border-t border-white/[0.06]">
                                   <div className="pt-1.5 space-y-1">
                                     {purchase.items.map((item, idx) => (
                                       <div key={idx} className="flex items-center justify-between py-0.5">
                                         <div className="flex-1 min-w-0">
-                                          <span className="text-[11px] text-zinc-300 truncate block">{item.productName}</span>
-                                          <span className="text-[10px] text-zinc-500">
+                                          <span className="text-[11px] text-slate-300 truncate block">{item.productName}</span>
+                                          <span className="text-[10px] text-slate-500">
                                             {formatNumber(item.qty)} × {formatCurrency(item.price)}
                                           </span>
                                         </div>
-                                        <span className="text-[11px] text-zinc-400 shrink-0 ml-2">
+                                        <span className="text-[11px] text-slate-400 shrink-0 ml-2">
                                           {formatCurrency(item.subtotal)}
                                         </span>
                                       </div>
@@ -1040,7 +1040,7 @@ export default function CustomersPage() {
 
                         {/* Summary */}
                         <div className="pt-1.5 pb-0.5">
-                          <p className="text-[11px] text-zinc-500 text-center">
+                          <p className="text-[11px] text-slate-500 text-center">
                             Total transaksi: {purchases.length}
                           </p>
                         </div>
@@ -1056,28 +1056,28 @@ export default function CustomersPage() {
 
       {/* Manual Adjust Points Dialog */}
       <ResponsiveDialog open={adjustOpen} onOpenChange={setAdjustOpen}>
-        <ResponsiveDialogContent className="bg-zinc-900 border-zinc-800 p-4" desktopClassName="max-w-sm">
+        <ResponsiveDialogContent className="bg-nebula border-white/[0.06] p-4" desktopClassName="max-w-sm">
           <ResponsiveDialogHeader>
-            <ResponsiveDialogTitle className="text-zinc-100 text-sm font-semibold flex items-center gap-2">
+            <ResponsiveDialogTitle className="text-white text-sm font-semibold flex items-center gap-2">
               <Coins className="h-4 w-4 text-amber-400" />
               Adjust Points — {adjustCustomer?.name}
             </ResponsiveDialogTitle>
           </ResponsiveDialogHeader>
           <div className="space-y-3 py-1">
             <div className="space-y-1.5">
-              <Label className="text-zinc-300 text-xs">Tipe</Label>
+              <Label className="text-slate-300 text-xs">Tipe</Label>
               <Select value={adjustType} onValueChange={(v: 'ADD' | 'DEDUCT') => setAdjustType(v)}>
-                <SelectTrigger className="h-8 text-xs bg-zinc-800 border-zinc-700 text-zinc-100">
+                <SelectTrigger className="h-8 text-xs bg-white/[0.04] border-white/[0.08] text-white">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-zinc-800 border-zinc-700">
-                  <SelectItem value="ADD" className="text-zinc-100 focus:bg-zinc-700 focus:text-zinc-100 text-xs">
+                <SelectContent className="bg-white/[0.04] border-white/[0.08]">
+                  <SelectItem value="ADD" className="text-white focus:bg-white/[0.06] focus:text-white text-xs">
                     <div className="flex items-center gap-2">
                       <PlusCircle className="h-3.5 w-3.5 theme-text" />
                       Tambah Poin (ADD)
                     </div>
                   </SelectItem>
-                  <SelectItem value="DEDUCT" className="text-zinc-100 focus:bg-zinc-700 focus:text-zinc-100 text-xs">
+                  <SelectItem value="DEDUCT" className="text-white focus:bg-white/[0.06] focus:text-white text-xs">
                     <div className="flex items-center gap-2">
                       <MinusCircle className="h-3.5 w-3.5 text-red-400" />
                       Kurangi Poin (DEDUCT)
@@ -1088,30 +1088,30 @@ export default function CustomersPage() {
             </div>
 
             <div className="space-y-1.5">
-              <Label className="text-zinc-300 text-xs">Jumlah Poin</Label>
+              <Label className="text-slate-300 text-xs">Jumlah Poin</Label>
               <Input
                 type="number"
                 min="1"
                 value={adjustPoints}
                 onChange={(e) => setAdjustPoints(e.target.value)}
                 placeholder="Masukkan jumlah poin"
-                className="h-8 text-xs bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500"
+                className="h-8 text-xs bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500"
               />
               {adjustCustomer && adjustType === 'DEDUCT' && (
-                <p className="text-[11px] text-zinc-500">
+                <p className="text-[11px] text-slate-500">
                   Poin tersedia: {formatNumber(adjustCustomer.points)} pts
                 </p>
               )}
             </div>
 
             <div className="space-y-1.5">
-              <Label className="text-zinc-300 text-xs">Alasan</Label>
+              <Label className="text-slate-300 text-xs">Alasan</Label>
               <Textarea
                 value={adjustReason}
                 onChange={(e) => setAdjustReason(e.target.value)}
                 placeholder="Contoh: Bonus ulang tahun, Kompensasi komplain, dll."
                 rows={3}
-                className="text-xs bg-zinc-800 border-zinc-700 text-zinc-100 placeholder:text-zinc-500"
+                className="text-xs bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500"
               />
             </div>
 
@@ -1126,7 +1126,7 @@ export default function CustomersPage() {
                   {adjustType === 'ADD' ? '+' : '-'}{formatNumber(parseInt(adjustPoints))} poin
                 </p>
                 {adjustCustomer && (
-                  <p className="text-[11px] text-zinc-400 mt-0.5">
+                  <p className="text-[11px] text-slate-400 mt-0.5">
                     Poin setelah: {formatNumber(
                       adjustType === 'ADD'
                         ? adjustCustomer.points + parseInt(adjustPoints)
@@ -1142,7 +1142,7 @@ export default function CustomersPage() {
               type="button"
               variant="ghost"
               onClick={() => setAdjustOpen(false)}
-              className="bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700 h-8 text-xs"
+              className="bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.06] h-8 text-xs"
             >
               Batal
             </Button>

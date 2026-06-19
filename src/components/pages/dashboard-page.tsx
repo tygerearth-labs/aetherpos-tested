@@ -204,7 +204,7 @@ function HealthRing({ score, size = 'md' }: { score: number; size?: 'sm' | 'md' 
         : 'border-red-500/20'
 
   return (
-    <div className={`relative ${size === 'sm' ? 'w-11 h-11' : 'w-16 h-16'} border ${bgColor} rounded-full flex items-center justify-center bg-zinc-900/80`}>
+    <div className={`relative ${size === 'sm' ? 'w-11 h-11' : 'w-16 h-16'} border ${bgColor} rounded-full flex items-center justify-center bg-nebula/80`}>
       <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox={`0 0 ${svgSize} ${svgSize}`}>
         <circle
           cx={svgSize / 2}
@@ -212,7 +212,7 @@ function HealthRing({ score, size = 'md' }: { score: number; size?: 'sm' | 'md' 
           r={radius}
           fill="none"
           stroke="currentColor"
-          className="text-zinc-800"
+          className="text-slate-700"
           strokeWidth={sw}
         />
         <circle
@@ -261,7 +261,7 @@ function getPriorityBg(priority: InsightItem['priority']): string {
 function MiniBar({ value, max, color }: { value: number; max: number; color: string }) {
   const pct = max > 0 ? Math.min((value / max) * 100, 100) : 0
   return (
-    <div className="h-1.5 w-full rounded-full bg-zinc-800 overflow-hidden">
+    <div className="h-1.5 w-full rounded-full bg-white/[0.04] overflow-hidden">
       <motion.div
         className={`h-full rounded-full ${color}`}
         initial={{ width: 0 }}
@@ -284,7 +284,7 @@ function ProLock({ label = 'PRO' }: { label?: string }) {
 function TrendIcon({ direction }: { direction: 'up' | 'down' | 'stable' }) {
   if (direction === 'up') return <TrendingUp className="h-3.5 w-3.5 theme-text" />
   if (direction === 'down') return <TrendingDown className="h-3.5 w-3.5 text-red-400" />
-  return <Minus className="h-3.5 w-3.5 text-zinc-400" />
+  return <Minus className="h-3.5 w-3.5 text-slate-400" />
 }
 
 // ── Sparkline mini-chart ──
@@ -431,7 +431,7 @@ function RevenueLineChart({ trend, forecast, onReady }: {
             key={i}
             x={toX(i * 3)} y={chartH - 4}
             textAnchor="middle"
-            className="fill-zinc-600"
+            className="fill-slate-600"
             style={{ fontSize: '9px' }}
           >
             {formatShortDate(p.x)}
@@ -459,14 +459,14 @@ function DayHeatBar({ day, avgRevenue, maxRevenue, avgTx }: { day: string; avgRe
   const today = new Date().getDay()
   const dayIndex = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'].indexOf(day)
   const isToday = dayIndex === today
-  const intensity = pct > 80 ? 'theme-gradient-light' : pct > 50 ? 'theme-gradient-subtle' : 'from-zinc-600/20 to-zinc-500/10'
+  const intensity = pct > 80 ? 'theme-gradient-light' : pct > 50 ? 'theme-gradient-subtle' : 'from-slate-600/20 to-slate-500/10'
 
   return (
     <div className="flex items-center gap-2 py-1">
-      <span className={`text-[11px] w-8 shrink-0 font-medium ${isToday ? 'theme-text' : 'text-zinc-500'}`}>
+      <span className={`text-[11px] w-8 shrink-0 font-medium ${isToday ? 'theme-text' : 'text-slate-500'}`}>
         {day}
       </span>
-      <div className={`flex-1 h-5 rounded-md bg-gradient-to-r ${intensity} border ${isToday ? 'theme-border-medium' : 'border-zinc-700/30'} relative overflow-hidden`}>
+      <div className={`flex-1 h-5 rounded-md bg-gradient-to-r ${intensity} border ${isToday ? 'theme-border-medium' : 'border-white/[0.03]'} relative overflow-hidden`}>
         <motion.div
           className={`absolute inset-y-0 left-0 rounded-md ${isToday ? 'theme-bg-subtle' : 'bg-zinc-500/10'}`}
           initial={{ width: 0 }}
@@ -474,8 +474,8 @@ function DayHeatBar({ day, avgRevenue, maxRevenue, avgTx }: { day: string; avgRe
           transition={{ duration: 0.6, ease: 'easeOut' }}
         />
         <div className="absolute inset-0 flex items-center justify-between px-2">
-          <span className="text-[9px] text-zinc-400 font-medium">{formatCurrency(avgRevenue)}</span>
-          <span className="text-[9px] text-zinc-500">{avgTx} trx</span>
+          <span className="text-[9px] text-slate-400 font-medium">{formatCurrency(avgRevenue)}</span>
+          <span className="text-[9px] text-slate-500">{avgTx} trx</span>
         </div>
       </div>
     </div>
@@ -567,18 +567,18 @@ export default function DashboardPage() {
     return (
       <div className="space-y-4">
         <div className="space-y-1.5">
-          <Skeleton className="h-7 w-52 bg-zinc-800" />
-          <Skeleton className="h-3.5 w-64 bg-zinc-800" />
+          <Skeleton className="h-7 w-52 bg-white/[0.04]" />
+          <Skeleton className="h-3.5 w-64 bg-white/[0.04]" />
         </div>
-        <Skeleton className="h-56 bg-zinc-900 rounded-2xl" />
+        <Skeleton className="h-56 bg-nebula rounded-2xl" />
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-24 bg-zinc-900 rounded-xl" />
+            <Skeleton key={i} className="h-24 bg-nebula rounded-xl" />
           ))}
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <Skeleton className="h-52 bg-zinc-900 rounded-2xl" />
-          <Skeleton className="h-52 bg-zinc-900 rounded-2xl" />
+          <Skeleton className="h-52 bg-nebula rounded-2xl" />
+          <Skeleton className="h-52 bg-nebula rounded-2xl" />
         </div>
       </div>
     )
@@ -591,15 +591,15 @@ export default function DashboardPage() {
       ═══════════════════════════════════════════════════ */}
       <motion.div variants={itemVariants} className="flex items-start justify-between gap-4">
         <div className="space-y-1">
-          <h1 className="text-xl font-bold text-zinc-100 tracking-tight">
+          <h1 className="text-xl font-bold text-white tracking-tight">
             {getGreeting()}, {session?.user?.name?.split(' ')[0] ?? 'User'}
           </h1>
-          <p className="text-sm text-zinc-500">{formatDateNow()}</p>
+          <p className="text-sm text-slate-500">{formatDateNow()}</p>
         </div>
         {isOwner && insightData && (
           <div className="flex items-center gap-2">
             <div className="text-right hidden sm:block">
-              <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Health Score</p>
+              <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">Health Score</p>
               <p className={`text-xs font-semibold ${insightData.healthScore >= 75 ? 'theme-text' : insightData.healthScore >= 50 ? 'text-amber-400' : 'text-red-400'}`}>
                 {insightData.healthScore >= 75 ? 'Sehat' : insightData.healthScore >= 50 ? 'Perhatian' : 'Kritis'}
               </p>
@@ -614,11 +614,11 @@ export default function DashboardPage() {
       ═══════════════════════════════════════════════════ */}
       {!planLoading && plan?.type === 'free' && (
         <motion.div variants={itemVariants}>
-          <div className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-gradient-to-r from-violet-500/[0.06] theme-gradient-subtle border border-zinc-800/50">
+          <div className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-gradient-to-r from-violet-500/[0.06] theme-gradient-subtle border border-white/[0.04]">
             <div className="flex items-center gap-2.5">
               <Sparkles className="h-4 w-4 text-violet-400 shrink-0" />
-              <p className="text-xs text-zinc-400">
-                Buka fitur <span className="font-medium text-zinc-200">Forecasting & Prediksi</span> — upgrade ke Pro atau Enterprise
+              <p className="text-xs text-slate-400">
+                Buka fitur <span className="font-medium text-slate-200">Forecasting & Prediksi</span> — upgrade ke Pro atau Enterprise
               </p>
             </div>
             <Button
@@ -639,16 +639,16 @@ export default function DashboardPage() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {/* Revenue */}
         <motion.div variants={itemVariants}>
-          <Card className="bg-zinc-900 border border-zinc-800/60 rounded-xl overflow-hidden relative">
+          <Card className="aether-card overflow-hidden relative">
             <div className="absolute inset-0 bg-gradient-to-br theme-gradient-subtle" />
             <CardContent className="p-3.5 relative">
               <div className="flex items-center justify-between mb-1.5">
-                <p className="text-[10px] font-medium text-zinc-500 uppercase tracking-wider">Revenue</p>
+                <p className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Revenue</p>
                 <div className="w-7 h-7 rounded-lg theme-bg-very-light flex items-center justify-center theme-text">
                   <DollarSign className="h-3.5 w-3.5" />
                 </div>
               </div>
-              <p className="text-xl font-bold text-zinc-100 tracking-tight">
+              <p className="text-xl font-bold text-white tracking-tight">
                 {stats ? formatCurrency(stats.todayRevenue) : '-'}
               </p>
               <div className="flex items-center gap-1.5 mt-1.5">
@@ -660,7 +660,7 @@ export default function DashboardPage() {
                     {Math.abs(changePercent).toFixed(1)}%
                   </span>
                 ) : (
-                  <span className="text-[10px] text-zinc-600">vs kemarin</span>
+                  <span className="text-[10px] text-slate-600">vs kemarin</span>
                 )}
               </div>
             </CardContent>
@@ -669,20 +669,20 @@ export default function DashboardPage() {
 
         {/* Transaksi */}
         <motion.div variants={itemVariants}>
-          <Card className="bg-zinc-900 border border-zinc-800/60 rounded-xl">
+          <Card className="aether-card">
             <CardContent className="p-3.5">
               <div className="flex items-center justify-between mb-1.5">
-                <p className="text-[10px] font-medium text-zinc-500 uppercase tracking-wider">Transaksi</p>
-                <div className="w-7 h-7 rounded-lg bg-zinc-800 flex items-center justify-center text-zinc-300">
+                <p className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Transaksi</p>
+                <div className="w-7 h-7 rounded-lg bg-white/[0.04] flex items-center justify-center text-slate-300">
                   <Receipt className="h-3.5 w-3.5" />
                 </div>
               </div>
-              <p className="text-xl font-bold text-zinc-100 tracking-tight">
+              <p className="text-xl font-bold text-white tracking-tight">
                 {stats ? formatNumber(stats.todayTransactions) : '-'}
               </p>
               <div className="flex items-center gap-1.5 mt-1.5">
-                <span className="text-[10px] text-zinc-600">kemarin </span>
-                <span className="text-[10px] text-zinc-400 font-medium">
+                <span className="text-[10px] text-slate-600">kemarin </span>
+                <span className="text-[10px] text-slate-400 font-medium">
                   {stats ? formatNumber(stats.yesterdayTransactions) : '-'}
                 </span>
               </div>
@@ -693,11 +693,11 @@ export default function DashboardPage() {
         {/* Profit — OWNER */}
         {isOwner && (
           <motion.div variants={itemVariants}>
-            <Card className="bg-zinc-900 border border-amber-500/10 rounded-xl overflow-hidden relative">
+            <Card className="bg-nebula border border-amber-500/10 rounded-xl overflow-hidden relative">
               <div className="absolute inset-0 bg-gradient-to-br from-amber-500/[0.04] to-transparent" />
               <CardContent className="p-3.5 relative">
                 <div className="flex items-center justify-between mb-1.5">
-                  <p className="text-[10px] font-medium text-zinc-500 uppercase tracking-wider">Profit</p>
+                  <p className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Profit</p>
                   <div className="w-7 h-7 rounded-lg bg-amber-500/10 flex items-center justify-center text-amber-400">
                     <TrendingUp className="h-3.5 w-3.5" />
                   </div>
@@ -706,7 +706,7 @@ export default function DashboardPage() {
                   {stats && stats.todayProfit !== null ? formatCurrency(stats.todayProfit) : '-'}
                 </p>
                 <div className="flex items-center gap-1.5 mt-1.5">
-                  <span className="text-[10px] text-zinc-600">total </span>
+                  <span className="text-[10px] text-slate-600">total </span>
                   <span className="text-[10px] text-amber-400/70 font-medium">
                     {stats && stats.totalProfit !== null ? formatCurrency(stats.totalProfit) : '-'}
                   </span>
@@ -718,21 +718,21 @@ export default function DashboardPage() {
 
         {/* Low Stock */}
         <motion.div variants={itemVariants}>
-          <Card className={`bg-zinc-900 border rounded-xl overflow-hidden relative ${
-            stats && stats.lowStockProducts > 0 ? 'border-red-500/20' : 'border-zinc-800/60'
+          <Card className={`bg-nebula border rounded-xl overflow-hidden relative ${
+            stats && stats.lowStockProducts > 0 ? 'border-red-500/20' : 'border-white/[0.06]'
           }`}>
-            <div className={`absolute inset-0 ${stats && stats.lowStockProducts > 0 ? 'bg-gradient-to-br from-red-500/[0.04] to-transparent' : 'bg-gradient-to-br from-zinc-500/[0.02] to-transparent'}`} />
+            <div className={`absolute inset-0 ${stats && stats.lowStockProducts > 0 ? 'bg-gradient-to-br from-red-500/[0.04] to-transparent' : 'bg-gradient-to-br from-slate-500/[0.02] to-transparent'}`} />
             <CardContent className="p-3.5 relative">
               <div className="flex items-center justify-between mb-1.5">
-                <p className="text-[10px] font-medium text-zinc-500 uppercase tracking-wider">Stok Menipis</p>
+                <p className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Stok Menipis</p>
                 <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${
-                  stats && stats.lowStockProducts > 0 ? 'bg-red-500/10 text-red-400' : 'bg-zinc-800 text-zinc-400'
+                  stats && stats.lowStockProducts > 0 ? 'bg-red-500/10 text-red-400' : 'bg-white/[0.04] text-slate-400'
                 }`}>
                   <AlertTriangle className="h-3.5 w-3.5" />
                 </div>
               </div>
               <p className={`text-xl font-bold tracking-tight ${
-                stats && stats.lowStockProducts > 0 ? 'text-red-400' : 'text-zinc-100'
+                stats && stats.lowStockProducts > 0 ? 'text-red-400' : 'text-white'
               }`}>
                 {stats ? formatNumber(stats.lowStockProducts) : '-'}
               </p>
@@ -740,7 +740,7 @@ export default function DashboardPage() {
                 {stats && stats.lowStockProducts > 0 ? (
                   <span className="text-[10px] text-red-400/70 font-medium">perlu restok</span>
                 ) : (
-                  <span className="text-[10px] text-zinc-600">semua aman</span>
+                  <span className="text-[10px] text-slate-600">semua aman</span>
                 )}
                 {stats && stats.lowStockProducts > 0 && (
                   <motion.span
@@ -779,7 +779,7 @@ export default function DashboardPage() {
             <Button
               key={item.page}
               variant="outline"
-              className="h-auto py-2.5 px-2 bg-zinc-900 border-zinc-800/60 hover:bg-zinc-800 hover:border-zinc-700 text-zinc-300 hover:text-zinc-100 transition-all rounded-xl gap-2 justify-center"
+              className="h-auto py-2.5 px-2 bg-nebula border-white/[0.06] hover:bg-white/[0.04] hover:border-white/[0.06] text-slate-300 hover:text-white transition-all rounded-xl gap-2 justify-center"
               onClick={() => setCurrentPage(item.page)}
             >
               {item.icon}
@@ -795,17 +795,17 @@ export default function DashboardPage() {
       {isOwner && (
         <motion.div variants={itemVariants}>
           <Tabs defaultValue="forecast" className="space-y-3">
-            <TabsList className="bg-zinc-900 border border-zinc-800/60 rounded-xl h-9 p-1">
-              <TabsTrigger value="forecast" className="text-xs gap-1.5 rounded-lg data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100">
+            <TabsList className="bg-nebula border border-white/[0.06] rounded-xl h-9 p-1">
+              <TabsTrigger value="forecast" className="text-xs gap-1.5 rounded-lg data-[state=active]:bg-white/[0.04] data-[state=active]:text-white">
                 {!hasForecasting && <Lock className="h-3 w-3" />}
                 <Activity className="h-3 w-3" />
                 Forecasting
               </TabsTrigger>
-              <TabsTrigger value="pnl" className="text-xs gap-1.5 rounded-lg data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100">
+              <TabsTrigger value="pnl" className="text-xs gap-1.5 rounded-lg data-[state=active]:bg-white/[0.04] data-[state=active]:text-white">
                 <BarChart3 className="h-3 w-3" />
                 Laba & Rugi
               </TabsTrigger>
-              <TabsTrigger value="peak" className="text-xs gap-1.5 rounded-lg data-[state=active]:bg-zinc-800 data-[state=active]:text-zinc-100">
+              <TabsTrigger value="peak" className="text-xs gap-1.5 rounded-lg data-[state=active]:bg-white/[0.04] data-[state=active]:text-white">
                 {!isPro && <Lock className="h-3 w-3" />}
                 <Clock className="h-3 w-3" />
                 Jam Ramai
@@ -815,13 +815,13 @@ export default function DashboardPage() {
             {/* ── Forecast Tab ── */}
             <TabsContent value="forecast" className="mt-0">
               {!hasForecasting ? (
-                <Card className="bg-zinc-900 border border-zinc-800/60 rounded-2xl">
+                <Card className="aether-card rounded-2xl">
                   <CardContent className="py-10 flex flex-col items-center justify-center text-center">
-                    <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-violet-500/10 theme-gradient-subtle border border-zinc-800/60 flex items-center justify-center mb-3">
+                    <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-violet-500/10 theme-gradient-subtle border border-white/[0.06] flex items-center justify-center mb-3">
                       <Activity className="h-6 w-6 text-violet-400/60" />
                     </div>
-                    <h3 className="text-sm font-semibold text-zinc-300 mb-1">Forecasting & Prediksi</h3>
-                    <p className="text-xs text-zinc-500 max-w-xs mb-4">
+                    <h3 className="text-sm font-semibold text-slate-300 mb-1">Forecasting & Prediksi</h3>
+                    <p className="text-xs text-slate-500 max-w-xs mb-4">
                       Prediksi revenue, analisa stok otomatis, dan rekomendasi berbasis data AI
                     </p>
                     <Button
@@ -835,15 +835,15 @@ export default function DashboardPage() {
                   </CardContent>
                 </Card>
               ) : forecastLoading && !forecastData ? (
-                <Card className="bg-zinc-900 border border-zinc-800/60 rounded-2xl">
+                <Card className="aether-card rounded-2xl">
                   <CardContent className="p-5 space-y-4">
                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                       {Array.from({ length: 4 }).map((_, i) => (
-                        <Skeleton key={i} className="h-16 bg-zinc-800 rounded-xl" />
+                        <Skeleton key={i} className="h-16 bg-white/[0.04] rounded-xl" />
                       ))}
                     </div>
-                    <Skeleton className="h-40 bg-zinc-800 rounded-xl" />
-                    <Skeleton className="h-48 bg-zinc-800 rounded-xl" />
+                    <Skeleton className="h-40 bg-white/[0.04] rounded-xl" />
+                    <Skeleton className="h-48 bg-white/[0.04] rounded-xl" />
                   </CardContent>
                 </Card>
               ) : forecastData ? (
@@ -851,74 +851,74 @@ export default function DashboardPage() {
                   {/* Forecast Summary Cards */}
                   <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                     {/* Trend direction */}
-                    <Card className="bg-zinc-900 border border-zinc-800/60 rounded-xl">
+                    <Card className="aether-card">
                       <CardContent className="p-3">
                         <div className="flex items-center justify-between mb-1">
-                          <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Tren Revenue 14 Hari</p>
+                          <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">Tren Revenue 14 Hari</p>
                           <TrendIcon direction={forecastData.trendDirection} />
                         </div>
                         <p className={`text-sm font-bold ${
                           forecastData.trendDirection === 'up' ? 'theme-text' :
-                          forecastData.trendDirection === 'down' ? 'text-red-400' : 'text-zinc-200'
+                          forecastData.trendDirection === 'down' ? 'text-red-400' : 'text-slate-200'
                         }`}>
                           {forecastData.trendDirection === 'up' ? 'Naik' :
                            forecastData.trendDirection === 'down' ? 'Turun' : 'Stabil'}
                         </p>
-                        <p className="text-[10px] text-zinc-500 mt-0.5">Total pendapatan harian</p>
+                        <p className="text-[10px] text-slate-500 mt-0.5">Total pendapatan harian</p>
                         <div className="mt-1.5">
                           <Sparkline data={trendValues} color={
                             forecastData.trendDirection === 'up' ? 'theme-text' :
-                            forecastData.trendDirection === 'down' ? 'text-red-400' : 'text-zinc-400'
+                            forecastData.trendDirection === 'down' ? 'text-red-400' : 'text-slate-400'
                           } height={24} />
                         </div>
                       </CardContent>
                     </Card>
 
                     {/* Projected Monthly */}
-                    <Card className="bg-zinc-900 border border-zinc-800/60 rounded-xl">
+                    <Card className="aether-card">
                       <CardContent className="p-3">
                         <div className="flex items-center justify-between mb-1">
-                          <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Proyeksi Bulan</p>
+                          <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">Proyeksi Bulan</p>
                           <Target className="h-3.5 w-3.5 text-violet-400" />
                         </div>
                         <p className="text-sm font-bold text-violet-400">
                           {formatCurrency(forecastData.summary.projectedMonthly)}
                         </p>
-                        <p className="text-[10px] text-zinc-500 mt-0.5">
+                        <p className="text-[10px] text-slate-500 mt-0.5">
                           ~{formatCurrency(forecastData.summary.avgDailyRevenue)}/hari
                         </p>
                       </CardContent>
                     </Card>
 
                     {/* Week over week */}
-                    <Card className="bg-zinc-900 border border-zinc-800/60 rounded-xl">
+                    <Card className="aether-card">
                       <CardContent className="p-3">
                         <div className="flex items-center justify-between mb-1">
-                          <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Week vs Week</p>
+                          <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">Week vs Week</p>
                           {forecastData.summary.weekOverWeek > 0
                             ? <ArrowUpRight className="h-3.5 w-3.5 theme-text" />
                             : forecastData.summary.weekOverWeek < 0
                               ? <ArrowDownRight className="h-3.5 w-3.5 text-red-400" />
-                              : <Minus className="h-3.5 w-3.5 text-zinc-400" />}
+                              : <Minus className="h-3.5 w-3.5 text-slate-400" />}
                         </div>
                         <p className={`text-sm font-bold ${
                           forecastData.summary.weekOverWeek > 0 ? 'theme-text' :
-                          forecastData.summary.weekOverWeek < 0 ? 'text-red-400' : 'text-zinc-200'
+                          forecastData.summary.weekOverWeek < 0 ? 'text-red-400' : 'text-slate-200'
                         }`}>
                           {forecastData.summary.weekOverWeek > 0 ? '+' : ''}{forecastData.summary.weekOverWeek}%
                         </p>
-                        <p className="text-[10px] text-zinc-500 mt-0.5">vs minggu lalu</p>
+                        <p className="text-[10px] text-slate-500 mt-0.5">vs minggu lalu</p>
                       </CardContent>
                     </Card>
 
                     {/* Stock alerts — Velocity based */}
-                    <Card className={`bg-zinc-900 border rounded-xl ${
+                    <Card className={`bg-nebula border rounded-xl ${
                       forecastData.summary.criticalStock > 0 ? 'border-red-500/20' :
-                      forecastData.summary.warningStock > 0 ? 'border-amber-500/20' : 'border-zinc-800/60'
+                      forecastData.summary.warningStock > 0 ? 'border-amber-500/20' : 'border-white/[0.06]'
                     }`}>
                       <CardContent className="p-3">
                         <div className="flex items-center justify-between mb-1">
-                          <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Stok Kritis</p>
+                          <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">Stok Kritis</p>
                           <Warehouse className={`h-3.5 w-3.5 ${
                             forecastData.summary.criticalStock > 0 ? 'text-red-400' :
                             forecastData.summary.warningStock > 0 ? 'text-amber-400' : 'theme-text'
@@ -936,7 +936,7 @@ export default function DashboardPage() {
                         </p>
                         <p className={`text-[10px] mt-0.5 ${
                           forecastData.summary.criticalStock > 0 ? 'text-red-400/60' :
-                          forecastData.summary.warningStock > 0 ? 'text-amber-400/60' : 'text-zinc-500'
+                          forecastData.summary.warningStock > 0 ? 'text-amber-400/60' : 'text-slate-500'
                         }`}>
                           {forecastData.summary.criticalStock > 0
                             ? `⚡ ${forecastData.summary.criticalStock} produk habis dalam 3 hari`
@@ -952,27 +952,27 @@ export default function DashboardPage() {
                   {/* Top: Revenue Chart + Day Performance side by side on desktop */}
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                     {/* Revenue Trend + Forecast Line Chart */}
-                    <Card className="bg-zinc-900 border border-zinc-800/60 rounded-2xl">
+                    <Card className="aether-card rounded-2xl">
                       <CardContent className="p-4">
                         <div className="flex items-center justify-between mb-2">
                           <div className="flex items-center gap-2">
                             <Activity className="h-4 w-4 text-violet-400" />
-                            <h2 className="text-sm font-semibold text-zinc-200">Revenue Trend & Forecast</h2>
+                            <h2 className="text-sm font-semibold text-slate-200">Revenue Trend & Forecast</h2>
                           </div>
                           <div className="flex items-center gap-3">
                             <div className="flex items-center gap-1.5">
                               <div className="w-6 h-[2px] rounded-full theme-bg-light" />
-                              <span className="text-[10px] text-zinc-500">Aktual 14 hari</span>
+                              <span className="text-[10px] text-slate-500">Aktual 14 hari</span>
                             </div>
                             <div className="flex items-center gap-1.5">
                               <div className="w-6 h-[2px] rounded-full bg-violet-400 border-dashed" />
-                              <span className="text-[10px] text-zinc-500">Prediksi 7 hari</span>
+                              <span className="text-[10px] text-slate-500">Prediksi 7 hari</span>
                             </div>
                           </div>
                         </div>
                         {/* Chart legend — only on mobile (header has it on desktop) */}
-                        <div className="sm:hidden mb-2 px-3 py-2 rounded-lg bg-zinc-800/40 border border-zinc-700/30">
-                          <p className="text-[10px] text-zinc-400">
+                        <div className="sm:hidden mb-2 px-3 py-2 rounded-lg bg-white/[0.03] border border-white/[0.03]">
+                          <p className="text-[10px] text-slate-400">
                             📊 <span className="theme-text font-medium">Hijau</span>: aktual • <span className="text-violet-400 font-medium">Ungu</span>: prediksi
                           </p>
                         </div>
@@ -981,19 +981,19 @@ export default function DashboardPage() {
                         <div className="mt-3 flex items-center justify-between px-1">
                           <div className="flex items-center gap-4">
                             <div>
-                              <p className="text-[10px] text-zinc-500">Rata-rata/hari</p>
-                              <p className="text-xs font-semibold text-zinc-200">{formatCurrency(forecastData.summary.avgDailyRevenue)}</p>
+                              <p className="text-[10px] text-slate-500">Rata-rata/hari</p>
+                              <p className="text-xs font-semibold text-slate-200">{formatCurrency(forecastData.summary.avgDailyRevenue)}</p>
                             </div>
                             <div>
-                              <p className="text-[10px] text-zinc-500">Proyeksi minggu depan</p>
+                              <p className="text-[10px] text-slate-500">Proyeksi minggu depan</p>
                               <p className="text-xs font-semibold text-violet-400">{formatCurrency(forecastData.summary.projectedWeekly)}</p>
                             </div>
                           </div>
                           <div className="text-right">
-                            <p className="text-[10px] text-zinc-500">Week vs Week</p>
+                            <p className="text-[10px] text-slate-500">Week vs Week</p>
                             <p className={`text-xs font-semibold ${
                               forecastData.summary.weekOverWeek > 0 ? 'theme-text' :
-                              forecastData.summary.weekOverWeek < 0 ? 'text-red-400' : 'text-zinc-200'
+                              forecastData.summary.weekOverWeek < 0 ? 'text-red-400' : 'text-slate-200'
                             }`}>
                               {forecastData.summary.weekOverWeek > 0 ? '+' : ''}{forecastData.summary.weekOverWeek}%
                             </p>
@@ -1003,16 +1003,16 @@ export default function DashboardPage() {
                     </Card>
 
                     {/* Day of Week Performance */}
-                    <Card className="bg-zinc-900 border border-zinc-800/60 rounded-2xl">
+                    <Card className="aether-card rounded-2xl">
                       <CardContent className="p-4">
                         <div className="flex items-center gap-2 mb-3">
                           <Clock className="h-4 w-4 text-sky-400" />
-                          <h2 className="text-sm font-semibold text-zinc-200">Performa per Hari</h2>
+                          <h2 className="text-sm font-semibold text-slate-200">Performa per Hari</h2>
                         </div>
                         {forecastData.dayPerformance.length === 0 ? (
                           <div className="flex flex-col items-center py-6 text-center">
-                            <Clock className="h-7 w-7 text-zinc-700 mb-1.5" />
-                            <p className="text-xs text-zinc-500">Belum cukup data</p>
+                            <Clock className="h-7 w-7 text-slate-700 mb-1.5" />
+                            <p className="text-xs text-slate-500">Belum cukup data</p>
                           </div>
                         ) : (
                           <div className="space-y-1">
@@ -1033,21 +1033,21 @@ export default function DashboardPage() {
                   </div>
 
                   {/* Stock Predictions — full width below */}
-                  <Card className="bg-zinc-900 border border-zinc-800/60 rounded-2xl">
+                  <Card className="aether-card rounded-2xl">
                     <CardContent className="p-4">
                       <div className="flex items-center gap-2 mb-3">
                         <Warehouse className="h-4 w-4 text-amber-400" />
-                        <h2 className="text-sm font-semibold text-zinc-200">Prediksi Stok</h2>
+                        <h2 className="text-sm font-semibold text-slate-200">Prediksi Stok</h2>
                         {forecastData.stockPredictions.length > 0 && (
-                          <Badge className="text-[9px] bg-zinc-800 border-zinc-700/50 text-zinc-400 ml-auto">
+                          <Badge className="text-[9px] bg-white/[0.04] border-white/[0.03] text-slate-400 ml-auto">
                             {forecastData.stockPredictions.length} produk
                           </Badge>
                         )}
                       </div>
                       {forecastData.stockPredictions.length === 0 ? (
                         <div className="flex flex-col items-center py-6 text-center">
-                          <Package className="h-7 w-7 text-zinc-700 mb-1.5" />
-                          <p className="text-xs text-zinc-500">Belum cukup data untuk prediksi</p>
+                          <Package className="h-7 w-7 text-slate-700 mb-1.5" />
+                          <p className="text-xs text-slate-500">Belum cukup data untuk prediksi</p>
                         </div>
                       ) : (
                         <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
@@ -1055,23 +1055,23 @@ export default function DashboardPage() {
                             <div key={i} className={`flex items-center gap-3 px-3 py-2 rounded-lg border ${
                               p.status === 'critical' ? 'bg-red-500/[0.04] border-red-500/15' :
                               p.status === 'warning' ? 'bg-amber-500/[0.04] border-amber-500/15' :
-                              'bg-zinc-800/30 border-zinc-700/30'
+                              'bg-white/[0.03] border-white/[0.03]'
                             }`}>
-                              <span className="text-[10px] font-bold text-zinc-600 w-4 text-center shrink-0">{i + 1}</span>
+                              <span className="text-[10px] font-bold text-slate-600 w-4 text-center shrink-0">{i + 1}</span>
                               <div className="flex-1 min-w-0">
-                                <p className="text-xs font-medium text-zinc-300 truncate">{p.name}</p>
-                                <p className="text-[10px] text-zinc-500">
+                                <p className="text-xs font-medium text-slate-300 truncate">{p.name}</p>
+                                <p className="text-[10px] text-slate-500">
                                   sisa {p.stock} • {p.dailyVelocity}/hari
                                 </p>
                               </div>
                               <div className="text-right shrink-0">
                                 <p className={`text-xs font-bold ${
                                   p.status === 'critical' ? 'text-red-400' :
-                                  p.status === 'warning' ? 'text-amber-400' : 'text-zinc-300'
+                                  p.status === 'warning' ? 'text-amber-400' : 'text-slate-300'
                                 }`}>
                                   {p.daysUntilEmpty === Infinity ? '∞' : `${p.daysUntilEmpty}h`}
                                 </p>
-                                <p className="text-[9px] text-zinc-600">habis</p>
+                                <p className="text-[9px] text-slate-600">habis</p>
                               </div>
                             </div>
                           ))}
@@ -1085,22 +1085,22 @@ export default function DashboardPage() {
 
             {/* ── P&L Tab ── */}
             <TabsContent value="pnl" className="mt-0">
-              <Card className="bg-zinc-900 border border-zinc-800/60 rounded-2xl">
+              <Card className="aether-card rounded-2xl">
                 <CardContent className="p-4">
                   <div className="flex items-center gap-2 mb-4">
                     <BarChart3 className="h-4 w-4 text-amber-400" />
-                    <h2 className="text-sm font-semibold text-zinc-200">Laba & Rugi Hari Ini</h2>
+                    <h2 className="text-sm font-semibold text-slate-200">Laba & Rugi Hari Ini</h2>
                   </div>
                   <div className="grid grid-cols-2 lg:grid-cols-5 gap-2.5">
                     {[
-                      { label: 'Brutto', value: stats?.todayBrutto ?? 0, color: 'text-zinc-200', barColor: 'bg-zinc-400' },
+                      { label: 'Brutto', value: stats?.todayBrutto ?? 0, color: 'text-slate-200', barColor: 'bg-zinc-400' },
                       { label: 'Diskon', value: -(stats?.todayDiscount ?? 0), color: 'text-red-400', barColor: 'bg-red-400' },
                       { label: 'Netto', value: stats?.todayRevenue ?? 0, color: 'theme-text', barColor: 'theme-bg-light' },
                       { label: 'PPN', value: stats?.todayTax ?? 0, color: 'text-sky-400', barColor: 'bg-sky-400' },
                       { label: 'Profit', value: stats?.todayProfit ?? 0, color: 'text-amber-400', barColor: 'bg-amber-400' },
                     ].map((item) => (
-                      <div key={item.label} className="rounded-xl bg-zinc-800/40 border border-zinc-700/30 p-3 space-y-2">
-                        <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">{item.label}</p>
+                      <div key={item.label} className="rounded-xl bg-white/[0.03] border border-white/[0.03] p-3 space-y-2">
+                        <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">{item.label}</p>
                         <p className={`text-sm font-bold ${item.color}`}>
                           {item.value < 0 ? '-' : ''}{formatCurrency(Math.abs(item.value))}
                         </p>
@@ -1115,13 +1115,13 @@ export default function DashboardPage() {
             {/* ── Peak Hours Tab ── */}
             <TabsContent value="peak" className="mt-0">
               {!isPro ? (
-                <Card className="bg-zinc-900 border border-zinc-800/60 rounded-2xl">
+                <Card className="aether-card rounded-2xl">
                   <CardContent className="py-10 flex flex-col items-center justify-center text-center">
-                    <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-violet-500/10 to-sky-500/10 border border-zinc-800/60 flex items-center justify-center mb-3">
+                    <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-violet-500/10 to-sky-500/10 border border-white/[0.06] flex items-center justify-center mb-3">
                       <Clock className="h-6 w-6 text-violet-400/60" />
                     </div>
-                    <h3 className="text-sm font-semibold text-zinc-300 mb-1">Analisa Jam Ramai</h3>
-                    <p className="text-xs text-zinc-500 max-w-xs mb-4">
+                    <h3 className="text-sm font-semibold text-slate-300 mb-1">Analisa Jam Ramai</h3>
+                    <p className="text-xs text-slate-500 max-w-xs mb-4">
                       Lihat jam tersibuk untuk optimasi shift karyawan dan operasional
                     </p>
                     <Button
@@ -1137,12 +1137,12 @@ export default function DashboardPage() {
               ) : (
                 <div className="space-y-3">
                   {/* Main Bar Chart */}
-                  <Card className="bg-zinc-900 border border-zinc-800/60 rounded-2xl">
+                  <Card className="aether-card rounded-2xl">
                     <CardContent className="p-4">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
                         <div className="flex items-center gap-2">
                           <Zap className="h-4 w-4 text-violet-400" />
-                          <h2 className="text-sm font-semibold text-zinc-200">Jam Ramai Hari Ini</h2>
+                          <h2 className="text-sm font-semibold text-slate-200">Jam Ramai Hari Ini</h2>
                           {busiestHour && busiestHour.transactionCount > 0 && (
                             <Badge className="bg-violet-500/10 border-violet-500/20 text-violet-400 text-[10px]">
                               Puncak: {String(busiestHour.hour).padStart(2, '0')}:00
@@ -1151,16 +1151,16 @@ export default function DashboardPage() {
                         </div>
                         {stats?.todayTransactions && stats.todayTransactions > 0 && (
                           <div className="flex items-center gap-3 text-[10px]">
-                            <span className="text-zinc-500">Total hari ini:</span>
-                            <span className="font-semibold text-zinc-200">{stats.todayTransactions} trx</span>
-                            <span className="text-zinc-600">•</span>
+                            <span className="text-slate-500">Total hari ini:</span>
+                            <span className="font-semibold text-slate-200">{stats.todayTransactions} trx</span>
+                            <span className="text-slate-600">•</span>
                             <span className="font-semibold theme-text">{formatCurrency(stats.todayRevenue)}</span>
                           </div>
                         )}
                       </div>
                       <div className="relative h-40 sm:h-48">
                         {/* Y-axis labels */}
-                        <div className="absolute left-0 top-0 bottom-6 w-7 flex flex-col justify-between text-[10px] text-zinc-600">
+                        <div className="absolute left-0 top-0 bottom-6 w-7 flex flex-col justify-between text-[10px] text-slate-600">
                           <span>{maxTxCount}</span>
                           <span>{Math.round(maxTxCount / 2)}</span>
                           <span>0</span>
@@ -1168,7 +1168,7 @@ export default function DashboardPage() {
                         <div className="ml-9 h-full relative">
                           {/* Grid lines */}
                           {[0, 0.5, 1].map((pct) => (
-                            <div key={pct} className="absolute left-0 right-0 border-t border-zinc-800/50" style={{ top: `${(1 - pct) * 100}%` }} />
+                            <div key={pct} className="absolute left-0 right-0 border-t border-white/[0.04]" style={{ top: `${(1 - pct) * 100}%` }} />
                           ))}
                           <svg viewBox="0 0 600 160" className="w-full h-full" preserveAspectRatio="none">
                             <defs>
@@ -1230,7 +1230,7 @@ export default function DashboardPage() {
                           {/* X-axis labels */}
                           <div className="flex justify-between mt-1 px-0">
                             {[0, 3, 6, 9, 12, 15, 18, 21, 23].map((h) => (
-                              <span key={h} className="text-[9px] text-zinc-600">{String(h).padStart(2, '0')}</span>
+                              <span key={h} className="text-[9px] text-slate-600">{String(h).padStart(2, '0')}</span>
                             ))}
                           </div>
                         </div>
@@ -1241,35 +1241,35 @@ export default function DashboardPage() {
                   {/* Historical Insights Row */}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     {/* Peak Hour Insight */}
-                    <Card className="bg-zinc-900 border border-zinc-800/60 rounded-xl">
+                    <Card className="aether-card">
                       <CardContent className="p-3">
                         <div className="flex items-center gap-2 mb-2">
                           <div className="w-7 h-7 rounded-lg bg-violet-500/10 flex items-center justify-center">
                             <Zap className="h-3.5 w-3.5 text-violet-400" />
                           </div>
-                          <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Jam Puncak</p>
+                          <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">Jam Puncak</p>
                         </div>
                         {busiestHour && busiestHour.transactionCount > 0 ? (
                           <>
                             <p className="text-lg font-bold text-violet-400">{String(busiestHour.hour).padStart(2, '0')}:00</p>
-                            <p className="text-[10px] text-zinc-500 mt-0.5">
+                            <p className="text-[10px] text-slate-500 mt-0.5">
                               {busiestHour.transactionCount} trx • {formatCurrency(busiestHour.revenue)}
                             </p>
                           </>
                         ) : (
-                          <p className="text-xs text-zinc-500">Belum ada transaksi</p>
+                          <p className="text-xs text-slate-500">Belum ada transaksi</p>
                         )}
                       </CardContent>
                     </Card>
 
                     {/* Quiet Hours Insight */}
-                    <Card className="bg-zinc-900 border border-zinc-800/60 rounded-xl">
+                    <Card className="aether-card">
                       <CardContent className="p-3">
                         <div className="flex items-center gap-2 mb-2">
-                          <div className="w-7 h-7 rounded-lg bg-zinc-800 flex items-center justify-center">
-                            <Clock className="h-3.5 w-3.5 text-zinc-400" />
+                          <div className="w-7 h-7 rounded-lg bg-white/[0.04] flex items-center justify-center">
+                            <Clock className="h-3.5 w-3.5 text-slate-400" />
                           </div>
-                          <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Jam Sepi</p>
+                          <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">Jam Sepi</p>
                         </div>
                         {(() => {
                           const quietHours = stats?.peakHours?.filter(b => b.transactionCount === 0)
@@ -1288,26 +1288,26 @@ export default function DashboardPage() {
                             : null
                           return quietRange ? (
                             <>
-                              <p className="text-lg font-bold text-zinc-300">
+                              <p className="text-lg font-bold text-slate-300">
                                 {String(quietRange.start).padStart(2, '0')}:00–{String(quietRange.end).padStart(2, '0')}:00
                               </p>
-                              <p className="text-[10px] text-zinc-500 mt-0.5">{quietRange.count} jam tanpa transaksi</p>
+                              <p className="text-[10px] text-slate-500 mt-0.5">{quietRange.count} jam tanpa transaksi</p>
                             </>
                           ) : (
-                            <p className="text-xs text-zinc-500">Semua jam aktif</p>
+                            <p className="text-xs text-slate-500">Semua jam aktif</p>
                           )
                         })()}
                       </CardContent>
                     </Card>
 
                     {/* Average per Hour */}
-                    <Card className="bg-zinc-900 border border-zinc-800/60 rounded-xl">
+                    <Card className="aether-card">
                       <CardContent className="p-3">
                         <div className="flex items-center gap-2 mb-2">
                           <div className="w-7 h-7 rounded-lg theme-bg-very-light flex items-center justify-center">
                             <Activity className="h-3.5 w-3.5 theme-text" />
                           </div>
-                          <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Rata-rata/Jam</p>
+                          <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">Rata-rata/Jam</p>
                         </div>
                         {(() => {
                           const activeHours = stats?.peakHours?.filter(b => b.transactionCount > 0).length ?? 0
@@ -1316,12 +1316,12 @@ export default function DashboardPage() {
                           return activeHours > 0 ? (
                             <>
                               <p className="text-lg font-bold theme-text">{avgPerHour.toFixed(1)} trx</p>
-                              <p className="text-[10px] text-zinc-500 mt-0.5">
+                              <p className="text-[10px] text-slate-500 mt-0.5">
                                 ~{formatCurrency(Math.round(avgRevenuePerHour))}/jam • {activeHours} jam aktif
                               </p>
                             </>
                           ) : (
-                            <p className="text-xs text-zinc-500">Belum ada data</p>
+                            <p className="text-xs text-slate-500">Belum ada data</p>
                           )
                         })()}
                       </CardContent>
@@ -1336,17 +1336,17 @@ export default function DashboardPage() {
                     const peakPct = totalTrx > 0 ? Math.round((peak.transactionCount / totalTrx) * 100) : 0
                     const activeHours = stats?.peakHours?.filter(b => b.transactionCount > 0).length ?? 0
                     return (
-                      <div className="px-3 py-2.5 rounded-xl bg-zinc-800/40 border border-zinc-700/30">
-                        <p className="text-[11px] text-zinc-400 leading-relaxed">
-                          <span className="text-zinc-300 font-medium">💡 Insight:</span>{' '}
+                      <div className="px-3 py-2.5 rounded-xl bg-white/[0.03] border border-white/[0.03]">
+                        <p className="text-[11px] text-slate-400 leading-relaxed">
+                          <span className="text-slate-300 font-medium">💡 Insight:</span>{' '}
                           Jam <span className="text-violet-400 font-semibold">{String(peak.hour).padStart(2, '0')}:00</span> adalah jam tersibuk hari ini dengan{' '}
-                          <span className="text-zinc-200 font-medium">{peak.transactionCount} transaksi ({peakPct}%)</span>{' '}
+                          <span className="text-slate-200 font-medium">{peak.transactionCount} transaksi ({peakPct}%)</span>{' '}
                           menghasilkan{' '}
                           <span className="theme-text font-medium">{formatCurrency(peak.revenue)}</span>.
                           {activeHours > 0 && (
                             <span>
-                              {' '}Outlet aktif selama <span className="text-zinc-200 font-medium">{activeHours} jam</span> dengan rata-rata{' '}
-                              <span className="text-zinc-200 font-medium">{totalTrx > 0 ? (totalTrx / activeHours).toFixed(1) : 0} trx/jam</span>.
+                              {' '}Outlet aktif selama <span className="text-slate-200 font-medium">{activeHours} jam</span> dengan rata-rata{' '}
+                              <span className="text-slate-200 font-medium">{totalTrx > 0 ? (totalTrx / activeHours).toFixed(1) : 0} trx/jam</span>.
                             </span>
                           )}
                           {peakPct > 30 && (
@@ -1369,22 +1369,22 @@ export default function DashboardPage() {
       {isOwner && hasAiInsights && (
         <motion.div variants={itemVariants}>
           {insightLoading && !insightData ? (
-            <Card className="bg-zinc-900 border border-zinc-800/60 rounded-2xl">
+            <Card className="aether-card rounded-2xl">
               <CardContent className="p-5 space-y-3">
                 <div className="flex items-center gap-2">
-                  <Skeleton className="h-4 w-4 rounded bg-zinc-800" />
-                  <Skeleton className="h-4 w-32 bg-zinc-800" />
+                  <Skeleton className="h-4 w-4 rounded bg-white/[0.04]" />
+                  <Skeleton className="h-4 w-32 bg-white/[0.04]" />
                 </div>
-                <Skeleton className="h-4 w-72 bg-zinc-800" />
-                <Skeleton className="h-3 w-full bg-zinc-800" />
+                <Skeleton className="h-4 w-72 bg-white/[0.04]" />
+                <Skeleton className="h-3 w-full bg-white/[0.04]" />
                 <div className="flex gap-2">
-                  <Skeleton className="h-7 w-24 rounded-lg bg-zinc-800" />
-                  <Skeleton className="h-7 w-24 rounded-lg bg-zinc-800" />
+                  <Skeleton className="h-7 w-24 rounded-lg bg-white/[0.04]" />
+                  <Skeleton className="h-7 w-24 rounded-lg bg-white/[0.04]" />
                 </div>
               </CardContent>
             </Card>
           ) : insightData ? (
-            <Card className={`bg-zinc-900 border rounded-2xl overflow-hidden relative ${
+            <Card className={`bg-nebula border rounded-2xl overflow-hidden relative ${
               insightData.healthScore >= 75 ? 'theme-border-light' : insightData.healthScore >= 50 ? 'border-amber-500/15' : 'border-red-500/15'
             }`}>
               <div className={`absolute inset-0 pointer-events-none ${
@@ -1398,7 +1398,7 @@ export default function DashboardPage() {
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-2">
                     <Sparkles className="h-4 w-4 text-violet-400" />
-                    <h2 className="text-sm font-semibold text-zinc-200">AI Insight Hari Ini</h2>
+                    <h2 className="text-sm font-semibold text-slate-200">AI Insight Hari Ini</h2>
                   </div>
                   <div className="flex items-center gap-2">
                     <HealthRing score={insightData.healthScore} size="sm" />
@@ -1407,7 +1407,7 @@ export default function DashboardPage() {
                       size="sm"
                       onClick={fetchInsights}
                       disabled={insightLoading}
-                      className="h-7 text-[11px] text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 gap-1"
+                      className="h-7 text-[11px] text-slate-500 hover:text-slate-300 hover:bg-white/[0.04] gap-1"
                     >
                       <RefreshCw className={`h-3 w-3 ${insightLoading ? 'animate-spin' : ''}`} />
                     </Button>
@@ -1417,17 +1417,17 @@ export default function DashboardPage() {
                   <div className="space-y-3">
                     <div className="flex items-center gap-2">
                       <PriorityDot priority={insightData.topInsight.priority} />
-                      <h3 className="text-sm font-semibold text-zinc-100">
+                      <h3 className="text-sm font-semibold text-white">
                         {insightData.topInsight.emoji} {insightData.topInsight.title}
                       </h3>
                     </div>
-                    <p className="text-sm text-zinc-400 leading-relaxed">
+                    <p className="text-sm text-slate-400 leading-relaxed">
                       {insightData.topInsight.why}
                     </p>
                     {insightData.topInsight.actions.length > 0 && (
                       <ul className="space-y-1">
                         {insightData.topInsight.actions.map((action, i) => (
-                          <li key={i} className="flex items-start gap-2 text-sm text-zinc-400">
+                          <li key={i} className="flex items-start gap-2 text-sm text-slate-400">
                             <span className="text-violet-400 mt-0.5 shrink-0">•</span>
                             {action}
                           </li>
@@ -1441,7 +1441,7 @@ export default function DashboardPage() {
                             key={i}
                             size="sm"
                             variant="outline"
-                            className="h-8 text-xs font-medium bg-zinc-800/80 border-zinc-700/50 hover:bg-zinc-700 hover:border-zinc-600 text-zinc-300 rounded-lg gap-1.5"
+                            className="h-8 text-xs font-medium bg-white/[0.04] border-white/[0.03] hover:bg-white/[0.04] hover:border-white/[0.06] text-slate-300 rounded-lg gap-1.5"
                             onClick={() => setCurrentPage(cta.page as 'pos' | 'products' | 'transactions' | 'customers' | 'settings' | 'crew' | 'dashboard' | 'audit-log')}
                           >
                             {cta.label}
@@ -1451,18 +1451,18 @@ export default function DashboardPage() {
                     )}
                   </div>
                 ) : (
-                  <p className="text-sm text-zinc-500 py-2">Semua berjalan baik! Tidak ada insight penting saat ini.</p>
+                  <p className="text-sm text-slate-500 py-2">Semua berjalan baik! Tidak ada insight penting saat ini.</p>
                 )}
                 {otherInsights.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 mt-4 pt-3 border-t border-zinc-800/80">
+                  <div className="flex flex-wrap gap-1.5 mt-4 pt-3 border-t border-white/[0.06]">
                     {otherInsights.slice(0, 5).map((insight) => (
                       <button
                         key={insight.id}
                         onClick={() => setInsightData((prev) => prev ? { ...prev, topInsight: insight } : null)}
-                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border cursor-pointer transition-colors hover:bg-zinc-800/80 ${getPriorityBg(insight.priority)}`}
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border cursor-pointer transition-colors hover:bg-white/[0.04] ${getPriorityBg(insight.priority)}`}
                       >
                         <PriorityDot priority={insight.priority} />
-                        <span className="max-w-[140px] truncate text-zinc-400">{insight.emoji} {insight.title}</span>
+                        <span className="max-w-[140px] truncate text-slate-400">{insight.emoji} {insight.title}</span>
                       </button>
                     ))}
                   </div>
@@ -1479,25 +1479,25 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         {/* Top Products */}
         <motion.div variants={itemVariants}>
-          <Card className="bg-zinc-900 border border-zinc-800/60 rounded-2xl">
+          <Card className="aether-card rounded-2xl">
             <CardContent className="p-4">
               <div className="flex items-center gap-2 mb-3">
                 <Package className="h-4 w-4 theme-text" />
-                <h2 className="text-sm font-semibold text-zinc-200">Produk Terlaris</h2>
+                <h2 className="text-sm font-semibold text-slate-200">Produk Terlaris</h2>
               </div>
               {topSelling.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-6 text-center">
-                  <Package className="h-7 w-7 text-zinc-700 mb-1.5" />
-                  <p className="text-xs text-zinc-500">Belum ada data hari ini</p>
+                  <Package className="h-7 w-7 text-slate-700 mb-1.5" />
+                  <p className="text-xs text-slate-500">Belum ada data hari ini</p>
                 </div>
               ) : (
                 <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
                   {topSelling.slice(0, 5).map((p, i) => (
-                    <div key={i} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-zinc-800/30 border border-zinc-700/20">
-                      <span className={`text-[11px] font-bold w-4 text-center shrink-0 ${i === 0 ? 'text-amber-400' : 'text-zinc-600'}`}>{i + 1}</span>
+                    <div key={i} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-white/[0.03] border border-white/[0.03]">
+                      <span className={`text-[11px] font-bold w-4 text-center shrink-0 ${i === 0 ? 'text-amber-400' : 'text-slate-600'}`}>{i + 1}</span>
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium text-zinc-300 truncate">{p.name}</p>
-                        <p className="text-[10px] text-zinc-500">{formatNumber(p.qty)} unit</p>
+                        <p className="text-xs font-medium text-slate-300 truncate">{p.name}</p>
+                        <p className="text-[10px] text-slate-500">{formatNumber(p.qty)} unit</p>
                       </div>
                       <p className="text-xs font-semibold theme-text shrink-0">{formatCurrency(p.revenue)}</p>
                     </div>
@@ -1511,25 +1511,25 @@ export default function DashboardPage() {
         {/* Top Customers — OWNER */}
         {isOwner && (
           <motion.div variants={itemVariants}>
-            <Card className="bg-zinc-900 border border-zinc-800/60 rounded-2xl">
+            <Card className="aether-card rounded-2xl">
               <CardContent className="p-4">
                 <div className="flex items-center gap-2 mb-3">
                   <Users className="h-4 w-4 text-sky-400" />
-                  <h2 className="text-sm font-semibold text-zinc-200">Top Customer</h2>
+                  <h2 className="text-sm font-semibold text-slate-200">Top Customer</h2>
                 </div>
                 {(!stats?.topCustomers || stats.topCustomers.length === 0) ? (
                   <div className="flex flex-col items-center justify-center py-6 text-center">
-                    <Users className="h-7 w-7 text-zinc-700 mb-1.5" />
-                    <p className="text-xs text-zinc-500">Belum ada data customer</p>
+                    <Users className="h-7 w-7 text-slate-700 mb-1.5" />
+                    <p className="text-xs text-slate-500">Belum ada data customer</p>
                   </div>
                 ) : (
                   <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
                     {stats.topCustomers.map((c, i) => (
-                      <div key={c.id} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-zinc-800/30 border border-zinc-700/20">
-                        <span className={`text-[11px] font-bold w-4 text-center shrink-0 ${i === 0 ? 'text-amber-400' : 'text-zinc-600'}`}>{i + 1}</span>
+                      <div key={c.id} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-white/[0.03] border border-white/[0.03]">
+                        <span className={`text-[11px] font-bold w-4 text-center shrink-0 ${i === 0 ? 'text-amber-400' : 'text-slate-600'}`}>{i + 1}</span>
                         <div className="flex-1 min-w-0">
-                          <p className="text-xs font-medium text-zinc-300 truncate">{c.name}</p>
-                          <p className="text-[10px] text-zinc-500">{c.points} poin</p>
+                          <p className="text-xs font-medium text-slate-300 truncate">{c.name}</p>
+                          <p className="text-[10px] text-slate-500">{c.points} poin</p>
                         </div>
                         <p className="text-xs font-semibold text-sky-400 shrink-0">{formatCurrency(c.totalSpend)}</p>
                       </div>
@@ -1546,10 +1546,10 @@ export default function DashboardPage() {
           9. Low Stock Detail (Products & Variants)
       ═══════════════════════════════════════════════════ */}
       <motion.div variants={itemVariants}>
-        <Card className="bg-zinc-900 border border-zinc-800/60">
+        <Card className="aether-card">
           <CardContent className="p-4">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-semibold text-zinc-200 flex items-center gap-2">
+              <h2 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
                 <AlertTriangle className="h-4 w-4 text-red-400" />
                 Produk Stok Menipis
               </h2>
@@ -1563,7 +1563,7 @@ export default function DashboardPage() {
             {(!stats?.lowStockList || stats.lowStockList.length === 0) && (!stats?.lowStockVariantList || stats.lowStockVariantList.length === 0) ? (
               <div className="flex flex-col items-center justify-center py-10 text-center">
                 <Package className="h-8 w-8 theme-text-medium/30 mb-2" />
-                <p className="text-xs text-zinc-500">Semua stok aman</p>
+                <p className="text-xs text-slate-500">Semua stok aman</p>
               </div>
             ) : (
               <>
@@ -1573,10 +1573,10 @@ export default function DashboardPage() {
                     const isCritical = p.stock === 0
                     const isWarning = p.stock > 0 && p.stock <= p.lowStockAlert / 2
                     return (
-                      <div key={p.id} className="flex items-center gap-3 rounded-xl bg-zinc-800/40 border border-zinc-700/30 p-3">
+                      <div key={p.id} className="flex items-center gap-3 rounded-xl bg-white/[0.03] border border-white/[0.03] p-3">
                         <div className="flex-1 min-w-0">
-                          <p className="text-xs text-zinc-200 font-medium truncate">{p.name}</p>
-                          <p className="text-[10px] text-zinc-500">Stok: {p.lowStockAlert} alert</p>
+                          <p className="text-xs text-slate-200 font-medium truncate">{p.name}</p>
+                          <p className="text-[10px] text-slate-500">Stok: {p.lowStockAlert} alert</p>
                         </div>
                         <div className="text-right shrink-0 flex items-center gap-2">
                           <span className={`text-sm font-bold ${isCritical ? 'text-red-400' : isWarning ? 'text-amber-400' : 'text-yellow-300'}`}>
@@ -1603,8 +1603,8 @@ export default function DashboardPage() {
                       {stats.lowStockVariantList.map((v) => (
                         <div key={v.id} className="flex items-center gap-3 rounded-xl bg-violet-500/5 border border-violet-500/15 p-3">
                           <div className="flex-1 min-w-0">
-                            <p className="text-xs text-zinc-200 font-medium truncate">{v.name}</p>
-                            <p className="text-[10px] text-zinc-500 truncate">{v.productName}</p>
+                            <p className="text-xs text-slate-200 font-medium truncate">{v.name}</p>
+                            <p className="text-[10px] text-slate-500 truncate">{v.productName}</p>
                           </div>
                           <div className="text-right shrink-0 flex items-center gap-2">
                             <span className={`text-sm font-bold ${v.stock === 0 ? 'text-red-400' : 'text-violet-400'}`}>
@@ -1623,12 +1623,12 @@ export default function DashboardPage() {
                 <div className="hidden md:block overflow-x-auto max-h-60 overflow-y-auto">
                   <Table>
                     <TableHeader>
-                      <TableRow className="border-zinc-800/60 hover:bg-transparent sticky top-0 bg-zinc-900 z-10">
-                        <TableHead className="text-zinc-500 text-[11px] w-8 py-2.5">#</TableHead>
-                        <TableHead className="text-zinc-500 text-[11px] py-2.5">Produk</TableHead>
-                        <TableHead className="text-zinc-500 text-[11px] text-right py-2.5">Stok</TableHead>
-                        <TableHead className="text-zinc-500 text-[11px] text-right py-2.5">Alert</TableHead>
-                        <TableHead className="text-zinc-500 text-[11px] text-center py-2.5">Status</TableHead>
+                      <TableRow className="border-white/[0.06] hover:bg-transparent sticky top-0 bg-nebula z-10">
+                        <TableHead className="text-slate-500 text-[11px] w-8 py-2.5">#</TableHead>
+                        <TableHead className="text-slate-500 text-[11px] py-2.5">Produk</TableHead>
+                        <TableHead className="text-slate-500 text-[11px] text-right py-2.5">Stok</TableHead>
+                        <TableHead className="text-slate-500 text-[11px] text-right py-2.5">Alert</TableHead>
+                        <TableHead className="text-slate-500 text-[11px] text-center py-2.5">Status</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1636,13 +1636,13 @@ export default function DashboardPage() {
                         const isCritical = p.stock === 0
                         const isWarning = p.stock > 0 && p.stock <= p.lowStockAlert / 2
                         return (
-                          <TableRow key={p.id} className="border-zinc-800/40 hover:bg-zinc-800/30">
-                            <TableCell className="text-[11px] text-zinc-500 font-mono py-2.5">{idx + 1}</TableCell>
-                            <TableCell className="text-xs text-zinc-200 font-medium py-2.5">{p.name}</TableCell>
+                          <TableRow key={p.id} className="border-white/[0.04] hover:bg-white/[0.03]">
+                            <TableCell className="text-[11px] text-slate-500 font-mono py-2.5">{idx + 1}</TableCell>
+                            <TableCell className="text-xs text-slate-200 font-medium py-2.5">{p.name}</TableCell>
                             <TableCell className={`text-xs text-right font-bold py-2.5 ${isCritical ? 'text-red-400' : isWarning ? 'text-amber-400' : 'text-yellow-300'}`}>
                               {p.stock}
                             </TableCell>
-                            <TableCell className="text-xs text-zinc-500 text-right py-2.5">{p.lowStockAlert}</TableCell>
+                            <TableCell className="text-xs text-slate-500 text-right py-2.5">{p.lowStockAlert}</TableCell>
                             <TableCell className="text-center py-2.5">
                               {isCritical ? (
                                 <Badge className="bg-red-500/10 border-red-500/20 text-red-400 text-[10px]">Habis</Badge>
@@ -1658,7 +1658,7 @@ export default function DashboardPage() {
                       {/* Variant low stock rows */}
                       {stats.lowStockVariantList && stats.lowStockVariantList.length > 0 && (
                         <>
-                          <TableRow className="border-zinc-800/60 hover:bg-transparent">
+                          <TableRow className="border-white/[0.06] hover:bg-transparent">
                             <TableCell colSpan={5} className="py-2 px-0">
                               <div className="flex items-center gap-1.5 px-3">
                                 <Layers className="h-3 w-3 text-violet-400" />
@@ -1672,13 +1672,13 @@ export default function DashboardPage() {
                                 <Layers className="h-3 w-3 text-violet-400/50" />
                               </TableCell>
                               <TableCell className="py-2.5">
-                                <p className="text-xs text-zinc-200 font-medium">{v.name}</p>
-                                <p className="text-[10px] text-zinc-500">{v.productName}</p>
+                                <p className="text-xs text-slate-200 font-medium">{v.name}</p>
+                                <p className="text-[10px] text-slate-500">{v.productName}</p>
                               </TableCell>
                               <TableCell className={`text-xs text-right font-bold py-2.5 ${v.stock === 0 ? 'text-red-400' : 'text-violet-400'}`}>
                                 {v.stock}
                               </TableCell>
-                              <TableCell className="text-xs text-zinc-500 text-right py-2.5">-</TableCell>
+                              <TableCell className="text-xs text-slate-500 text-right py-2.5">-</TableCell>
                               <TableCell className="text-center py-2.5">
                                 <Badge className={`text-[10px] ${v.stock === 0 ? 'bg-red-500/10 border-red-500/20 text-red-400' : 'bg-violet-500/10 border-violet-500/20 text-violet-400'}`}>
                                   {v.stock === 0 ? 'Habis' : 'Rendah'}

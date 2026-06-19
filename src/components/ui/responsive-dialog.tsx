@@ -48,7 +48,7 @@ function ResponsiveDialogContent({
     <DialogContent
       showCloseButton={showCloseButton}
       className={cn(
-        "bg-zinc-900 border-zinc-800 rounded-xl max-h-[85vh] overflow-y-auto",
+        "bg-nebula border-white/[0.06] rounded-xl max-h-[85vh] overflow-y-auto",
         // Mobile: full-width with small margin, smaller padding
         "w-[calc(100%-1rem)] sm:max-w-lg",
         className

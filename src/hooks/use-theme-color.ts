@@ -3,6 +3,10 @@ import { useState, useEffect } from 'react'
 
 // Full shade palette for each theme color — 9 shades (100–900) + 50
 const THEME_COLORS: Record<string, { [shade: number]: string }> = {
+  cyan: {
+    50: '#ecfeff', 100: '#cffafe', 200: '#a5f3fc', 300: '#67e8f9', 400: '#22d3ee',
+    500: '#06b6d4', 600: '#0891b2', 700: '#0e7490', 800: '#155e75', 900: '#164e63',
+  },
   emerald: {
     50: '#ecfdf5', 100: '#d1fae5', 200: '#a7f3d0', 300: '#6ee7b7', 400: '#34d399',
     500: '#10b981', 600: '#059669', 700: '#047857', 800: '#065f46', 900: '#064e3b',
@@ -23,10 +27,6 @@ const THEME_COLORS: Record<string, { [shade: number]: string }> = {
     50: '#fffbeb', 100: '#fef3c7', 200: '#fde68a', 300: '#fcd34d', 400: '#fbbf24',
     500: '#f59e0b', 600: '#d97706', 700: '#b45309', 800: '#92400e', 900: '#78350f',
   },
-  cyan: {
-    50: '#ecfeff', 100: '#cffafe', 200: '#a5f3fc', 300: '#67e8f9', 400: '#22d3ee',
-    500: '#06b6d4', 600: '#0891b2', 700: '#0e7490', 800: '#155e75', 900: '#164e63',
-  },
 }
 
 // Shorthand accessor
@@ -35,8 +35,7 @@ export function getThemeColorMap() {
 }
 
 export function useThemeColor() {
-  const [theme, setTheme] = useState<string>('emerald')
-  const [loaded, setLoaded] = useState(false)
+  const [theme, setTheme] = useState<string>('cyan')
 
   useEffect(() => {
     const loadTheme = async () => {
@@ -44,16 +43,15 @@ export function useThemeColor() {
         const res = await fetch('/api/settings')
         if (res.ok) {
           const data = await res.json()
-          setTheme(data.themePrimaryColor || 'emerald')
+          setTheme(data.themePrimaryColor || 'cyan')
         }
       } catch { /* silent */ }
-      finally { setLoaded(true) }
     }
     loadTheme()
   }, [])
 
   useEffect(() => {
-    const colors = THEME_COLORS[theme] || THEME_COLORS.emerald
+    const colors = THEME_COLORS[theme] || THEME_COLORS.cyan
     const root = document.documentElement
 
     // Set individual shade CSS variables
@@ -85,5 +83,5 @@ export function useThemeColor() {
     }
   }, [theme])
 
-  return { theme, themeColors: THEME_COLORS[theme] || THEME_COLORS.emerald, loaded }
+  return { theme, themeColors: THEME_COLORS[theme] || THEME_COLORS.cyan }
 }

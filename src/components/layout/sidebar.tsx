@@ -25,9 +25,10 @@ import {
   PanelLeft,
   UserCog,
   Lock,
+  Command,
 } from 'lucide-react'
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { create } from 'zustand'
 
 // ============================================================
@@ -61,14 +62,14 @@ interface NavItem {
 // ============================================================
 
 const navItems: NavItem[] = [
-  { label: 'Dashboard', shortLabel: 'Dash', icon: <LayoutDashboard className="h-4 w-4" />, page: 'dashboard', section: 'main' },
-  { label: 'Products', shortLabel: 'Prod', icon: <Package className="h-4 w-4" />, page: 'products', section: 'main' },
-  { label: 'Customers', shortLabel: 'Cust', icon: <Users className="h-4 w-4" />, page: 'customers', section: 'main' },
-  { label: 'POS', shortLabel: 'POS', icon: <ShoppingCart className="h-4 w-4" />, page: 'pos', section: 'operations' },
-  { label: 'Transactions', shortLabel: 'Txn', icon: <Receipt className="h-4 w-4" />, page: 'transactions', section: 'operations' },
-  { label: 'Audit Log', shortLabel: 'Log', icon: <ClipboardList className="h-4 w-4" />, page: 'audit-log', section: 'admin' },
-  { label: 'Kelola Crew', shortLabel: 'Crew', icon: <UserCog className="h-4 w-4" />, page: 'crew', section: 'admin' },
-  { label: 'Pengaturan', shortLabel: 'Set', icon: <Settings className="h-4 w-4" />, page: 'settings', section: 'admin' },
+  { label: 'Dashboard', shortLabel: 'Dash', icon: <LayoutDashboard className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'dashboard', section: 'main' },
+  { label: 'Products', shortLabel: 'Prod', icon: <Package className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'products', section: 'main' },
+  { label: 'Customers', shortLabel: 'Cust', icon: <Users className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'customers', section: 'main' },
+  { label: 'POS', shortLabel: 'POS', icon: <ShoppingCart className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'pos', section: 'operations' },
+  { label: 'Transactions', shortLabel: 'Txn', icon: <Receipt className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'transactions', section: 'operations' },
+  { label: 'Audit Log', shortLabel: 'Log', icon: <ClipboardList className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'audit-log', section: 'admin' },
+  { label: 'Kelola Crew', shortLabel: 'Crew', icon: <UserCog className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'crew', section: 'admin' },
+  { label: 'Pengaturan', shortLabel: 'Set', icon: <Settings className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'settings', section: 'admin' },
 ]
 
 const sectionLabels: Record<string, string> = {
@@ -86,7 +87,7 @@ const mobileGroupVariants = {
   visible: (i: number) => ({
     opacity: 1,
     y: 0,
-    transition: { delay: 0.1 + i * 0.05, duration: 0.2, ease: [0.25, 0.1, 0.25, 1] },
+    transition: { delay: 0.1 + i * 0.05, duration: 0.3, ease: [0.25, 0.1, 0.25, 1] },
   }),
 }
 
@@ -147,7 +148,7 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
     }
   }, [permissionsLoaded, isOwner, allowedPages, currentPage, setCurrentPage])
 
-  // Build access map: true if user can access the page, false if locked
+  // Build access map
   const navItemAccess = useMemo(() => {
     const map = new Map<string, boolean>()
     for (const item of navItems) {
@@ -156,7 +157,7 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
     return map
   }, [isOwner, allowedPages])
 
-  // Group all items by section (never filter — locked items are shown disabled)
+  // Group all items by section
   const groupedItems = useMemo(() => {
     const groups: { key: string; label: string; items: NavItem[] }[] = []
     const seen = new Set<string>()
@@ -211,27 +212,35 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
     const isLocked = permissionsLoaded && !navItemAccess.get(item.page)
 
     const btn = (
-      <button
+      <motion.button
         onClick={() => !isLocked && handleNav(item.page)}
-        className={`group relative w-full flex items-center gap-3 rounded-lg text-[13px] font-medium transition-all duration-150 ${
+        whileTap={{ scale: 0.97 }}
+        className={`group relative w-full flex items-center gap-3 rounded-lg text-[13px] font-medium transition-all duration-200 ${
           isCompact ? 'justify-center px-2 py-2.5' : 'px-3 py-2.5'
         } ${
           isLocked
-            ? 'opacity-40 cursor-not-allowed pointer-events-none'
+            ? 'opacity-30 cursor-not-allowed pointer-events-none'
             : isActive
-              ? 'theme-bg-very-light theme-text shadow-[inset_0_0_0_1px_rgba(16,185,129,0.15)]'
-              : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200'
+              ? 'bg-white/[0.06] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]'
+              : 'text-slate-400 hover:bg-white/[0.03] hover:text-slate-200'
         }`}
       >
         {isActive && !isCompact && !isLocked && (
-          <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-4 rounded-r-full theme-bg" />
+          <motion.span
+            layoutId="sidebar-active-indicator"
+            className="absolute left-0 top-1/2 -translate-y-1/2 w-[2.5px] h-4 rounded-r-full"
+            style={{
+              background: 'linear-gradient(180deg, #EC4899, #8B5CF6, #06B6D4)',
+            }}
+            transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+          />
         )}
-        <span className={`shrink-0 transition-colors duration-150 ${
+        <span className={`shrink-0 transition-colors duration-200 ${
           isLocked
-            ? 'text-zinc-600'
+            ? 'text-slate-600'
             : isActive
-              ? 'theme-text'
-              : 'text-zinc-500 group-hover:text-zinc-300'
+              ? 'text-white'
+              : 'text-slate-500 group-hover:text-slate-300'
         }`}>
           {item.icon}
         </span>
@@ -239,12 +248,12 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
           <span className="truncate flex-1">{item.label}</span>
         )}
         {!isCompact && isLocked && (
-          <Lock className="h-3 w-3 shrink-0 text-zinc-600" />
+          <Lock className="h-3 w-3 shrink-0 text-slate-600" />
         )}
         {isCompact && isLocked && (
-          <Lock className="h-3 w-3 absolute -top-0.5 -right-0.5 text-zinc-500" />
+          <Lock className="h-3 w-3 absolute -top-0.5 -right-0.5 text-slate-500" />
         )}
-      </button>
+      </motion.button>
     )
 
     if (isCompact) {
@@ -255,7 +264,7 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
             <TooltipContent
               side="right"
               sideOffset={12}
-              className="bg-zinc-800 text-zinc-100 border border-zinc-700/80 shadow-xl rounded-lg"
+              className="bg-slate-800 text-slate-100 border border-white/[0.06] shadow-xl rounded-lg px-3 py-1.5"
             >
               {item.label}
             </TooltipContent>
@@ -270,39 +279,51 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
   const isCompact = collapsed && !isMobile
 
   return (
-    <div className="flex flex-col h-full bg-zinc-950">
+    <div className="flex flex-col h-full bg-deep-space">
       {/* Gradient accent line at top */}
-      <div className="h-[2px] shrink-0 theme-gradient" />
+      <div className="h-[2px] shrink-0 aether-gradient" />
 
       {/* Logo Header */}
-      <div className={`flex items-center shrink-0 h-14 border-b border-zinc-800/40 ${
+      <div className={`flex items-center shrink-0 h-14 border-b border-white/[0.04] ${
         isCompact ? 'justify-center gap-1 px-2' : 'gap-3 px-4'
       }`}>
-        <img
-          src="/logo.png"
-          alt="Aether POS"
-          className="h-7 w-7 rounded-md object-cover shrink-0 ring-1 ring-white/[0.06]"
-        />
+        <div className="relative h-7 w-7 rounded-lg shrink-0 flex items-center justify-center overflow-hidden">
+          <div className="absolute inset-0 aether-gradient opacity-80" />
+          <span className="relative text-[11px] font-black text-white tracking-wider" style={{ fontFamily: 'var(--font-geist-sans)' }}>A</span>
+        </div>
         {!isCompact && (
           <div className="min-w-0 flex-1">
-            <h1 className="text-[13px] font-bold text-zinc-100 tracking-tight leading-none">Aether POS</h1>
-            <p className="text-[9px] text-zinc-500 uppercase tracking-[0.15em] mt-0.5 font-medium">
-              Point of Sale
+            <h1 className="text-[13px] font-bold text-white tracking-tight leading-none" style={{ fontFamily: 'var(--font-geist-sans)' }}>
+              AETHER
+            </h1>
+            <p className="text-[9px] text-slate-500 uppercase tracking-[0.18em] mt-0.5 font-medium">
+              Mission Control
             </p>
           </div>
         )}
         {onToggleCollapse && (
           <button
             onClick={onToggleCollapse}
-            className={`shrink-0 flex items-center justify-center w-7 h-7 rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-all duration-150 ${
+            className={`shrink-0 flex items-center justify-center w-7 h-7 rounded-lg text-slate-500 hover:text-slate-200 hover:bg-white/[0.04] transition-all duration-200 ${
               isCompact ? 'ml-0' : 'ml-auto'
             }`}
             aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
-            {collapsed ? <PanelLeft className="h-3.5 w-3.5" /> : <PanelLeftClose className="h-3.5 w-3.5" />}
+            {collapsed ? <PanelLeft className="h-3.5 w-3.5" strokeWidth={1.5} /> : <PanelLeftClose className="h-3.5 w-3.5" strokeWidth={1.5} />}
           </button>
         )}
       </div>
+
+      {/* Command hint */}
+      {!isCompact && (
+        <div className="px-4 py-2 border-b border-white/[0.03]">
+          <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-white/[0.02] border border-white/[0.04] text-slate-500">
+            <Command className="h-3 w-3 shrink-0" strokeWidth={1.5} />
+            <span className="text-[10px] font-medium">Command Menu</span>
+            <span className="ml-auto text-[9px] font-mono text-slate-600 bg-white/[0.04] px-1.5 py-0.5 rounded">⌘K</span>
+          </div>
+        </div>
+      )}
 
       {/* Navigation */}
       <ScrollArea className="flex-1 px-2 py-3">
@@ -315,12 +336,12 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
               variants={mobileGroupVariants}
               initial="hidden"
               animate="visible"
-              className={groupIdx > 0 ? 'mt-4' : ''}
+              className={groupIdx > 0 ? 'mt-5' : ''}
             >
               {renderSectionContent(group, showSection, groupIdx)}
             </motion.div>
           ) : (
-            <div key={group.key} className={groupIdx > 0 ? 'mt-4' : ''}>
+            <div key={group.key} className={groupIdx > 0 ? 'mt-5' : ''}>
               {renderSectionContent(group, showSection, groupIdx)}
             </div>
           )
@@ -333,12 +354,12 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.2 }}
+          transition={{ duration: 0.3 }}
           className="mx-3 mb-2"
         >
-          <div className="p-3 rounded-xl bg-red-500/[0.06] border border-red-500/10">
+          <div className="p-3 rounded-xl bg-red-500/[0.04] border border-red-500/10">
             <div className="flex items-center gap-2 text-red-400">
-              <ShieldAlert className="h-3.5 w-3.5 shrink-0" />
+              <ShieldAlert className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} />
               <span className="text-[11px] font-semibold">Outlet Suspended</span>
             </div>
             <p className="text-[10px] text-red-400/50 mt-1.5 leading-relaxed pl-[22px]">
@@ -349,20 +370,20 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
       )}
 
       {/* User Section */}
-      <div className={`shrink-0 border-t border-zinc-800/40 ${
+      <div className={`shrink-0 border-t border-white/[0.04] ${
         isCompact ? 'px-2' : 'px-3'
       } py-3`}>
         {!isCompact ? (
           <>
             {/* User Card */}
-            <div className="flex items-center gap-3 p-2.5 mb-2.5 rounded-xl bg-zinc-900/50 border border-zinc-800/30">
-              <Avatar className="h-8 w-8 shrink-0 ring-1 ring-white/[0.06]">
-                <AvatarFallback className="theme-bg-very-light theme-text text-[11px] font-bold">
+            <div className="flex items-center gap-3 p-2.5 mb-2.5 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+              <Avatar className="h-8 w-8 shrink-0">
+                <AvatarFallback className="bg-gradient-to-br from-pink-500/20 to-cyan-500/20 text-cyan-300 text-[11px] font-bold border border-white/[0.06]">
                   {userInitials}
                 </AvatarFallback>
               </Avatar>
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-zinc-200 truncate leading-tight">
+                <p className="text-xs font-semibold text-slate-200 truncate leading-tight">
                   {session?.user?.name || 'User'}
                 </p>
                 <div className="flex items-center gap-1.5 mt-1">
@@ -371,7 +392,7 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
                     className={`text-[9px] px-1.5 py-0 leading-none border ${
                       session?.user?.role === 'OWNER'
                         ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
-                        : 'bg-zinc-800 border-zinc-700 text-zinc-500'
+                        : 'bg-white/[0.03] border-white/[0.06] text-slate-500'
                     }`}
                   >
                     {session?.user?.role || 'CREW'}
@@ -390,10 +411,10 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
             {/* Sign Out */}
             <Button
               variant="ghost"
-              className="w-full justify-start text-zinc-500 hover:text-red-400 hover:bg-red-500/[0.06] h-8 text-xs gap-2 rounded-lg px-3"
+              className="w-full justify-start text-slate-500 hover:text-red-400 hover:bg-red-500/[0.04] h-8 text-xs gap-2 rounded-lg px-3"
               onClick={handleSignOut}
             >
-              <LogOut className="h-3.5 w-3.5" />
+              <LogOut className="h-3.5 w-3.5" strokeWidth={1.5} />
               <span>Sign Out</span>
             </Button>
           </>
@@ -402,8 +423,8 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
             <TooltipProvider delayDuration={0}>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Avatar className="h-8 w-8 cursor-default ring-1 ring-white/[0.06]">
-                    <AvatarFallback className="theme-bg-very-light theme-text text-[11px] font-bold">
+                  <Avatar className="h-8 w-8 cursor-default">
+                    <AvatarFallback className="bg-gradient-to-br from-pink-500/20 to-cyan-500/20 text-cyan-300 text-[11px] font-bold border border-white/[0.06]">
                       {userInitials}
                     </AvatarFallback>
                   </Avatar>
@@ -411,7 +432,7 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
                 <TooltipContent
                   side="right"
                   sideOffset={12}
-                  className="bg-zinc-800 text-zinc-100 border border-zinc-700/80 shadow-xl rounded-lg"
+                  className="bg-slate-800 text-slate-100 border border-white/[0.06] shadow-xl rounded-lg px-3 py-1.5"
                 >
                   {session?.user?.name || 'User'}
                 </TooltipContent>
@@ -422,15 +443,15 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
                 <TooltipTrigger asChild>
                   <button
                     onClick={handleSignOut}
-                    className="flex items-center justify-center w-9 h-9 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-red-500/[0.06] transition-colors"
+                    className="flex items-center justify-center w-9 h-9 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/[0.04] transition-colors"
                   >
-                    <LogOut className="h-3.5 w-3.5" />
+                    <LogOut className="h-3.5 w-3.5" strokeWidth={1.5} />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent
                   side="right"
                   sideOffset={12}
-                  className="bg-zinc-800 text-zinc-100 border border-zinc-700/80 shadow-xl rounded-lg"
+                  className="bg-slate-800 text-slate-100 border border-white/[0.06] shadow-xl rounded-lg px-3 py-1.5"
                 >
                   Sign Out
                 </TooltipContent>
@@ -448,15 +469,15 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
       <>
         {showSection ? (
           <div className="flex items-center gap-2 mb-1.5 px-3">
-            <span className="text-[10px] font-semibold text-zinc-600 uppercase tracking-[0.1em] select-none">
+            <span className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.12em] select-none">
               {group.label}
             </span>
-            <div className="flex-1 h-px bg-zinc-800/50" />
+            <div className="flex-1 h-px bg-white/[0.04]" />
           </div>
         ) : (
           idx > 0 && (
             <div className="flex justify-center my-1">
-              <div className="w-5 h-px bg-zinc-800/60 rounded-full" />
+              <div className="w-5 h-px bg-white/[0.06] rounded-full" />
             </div>
           )
         )}
@@ -473,17 +494,14 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
 // ============================================================
 
 export default function Sidebar() {
-  const [open, setOpen] = useState(false)
   const { collapsed, setCollapsed } = useSidebarStore()
 
   return (
     <>
-      {/* Mobile uses MobileBottomNav — no hamburger header needed */}
-
       {/* ─── Desktop Sidebar ─── */}
       <aside
-        className={`hidden md:flex flex-col fixed top-0 left-0 h-full bg-zinc-950 border-r border-zinc-800/40 z-40 transition-all duration-300 ease-in-out ${
-          collapsed ? 'w-[68px]' : 'w-64'
+        className={`hidden md:flex flex-col fixed top-0 left-0 h-full bg-deep-space border-r border-white/[0.04] z-40 transition-all duration-300 ease-in-out ${
+          collapsed ? 'w-[68px]' : 'w-[260px]'
         }`}
       >
         <SidebarContent
