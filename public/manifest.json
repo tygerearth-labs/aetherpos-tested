@@ -1,6 +1,6 @@
 {
-  "name": "Aether POS",
-  "short_name": "AetherPOS",
+  "name": "Aether",
+  "short_name": "Aether",
   "description": "High-performance POS for MSME. Modern, fast, and reliable point-of-sale system.",
   "start_url": "/",
   "display": "standalone",
