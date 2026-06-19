@@ -20,8 +20,14 @@ export const metadata: Metadata = {
   description: "AETHER — High-performance POS for MSME. Modern, fast, and reliable point-of-sale system.",
   manifest: "/manifest.json",
   icons: {
-    icon: "/favicon.png",
-    apple: "/logo.png",
+    icon: [
+      { url: "/favicon.ico", sizes: "48x48" },
+      { url: "/favicon-16x16.png", sizes: "16x16", type: "image/png" },
+      { url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" },
+    ],
+    apple: [
+      { url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
+    ],
   },
   openGraph: {
     title: "AETHER",
@@ -48,7 +54,7 @@ export default function RootLayout({
         <head>
           <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, viewport-fit=cover" />
           <meta name="theme-color" content="#020617" />
-          <link rel="apple-touch-icon" href="/logo.png" />
+          <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-deep-space text-slate-100 overflow-x-hidden`}
