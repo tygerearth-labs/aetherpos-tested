@@ -199,7 +199,7 @@ export function PaymentDialog({
           <ScrollArea className="flex-1 min-h-0">
             <div className="px-5 pb-5 space-y-4">
               {/* Order Summary */}
-              <div className="bg-white/[0.02] border border-white/[0.06] rounded-2xl p-3.5 space-y-2">
+              <div className="aether-card p-3.5 space-y-2">
                 <p className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">Ringkasan Pesanan</p>
                 <div className="space-y-1.5 max-h-40 overflow-y-auto">
                   {cart.map((item) => (
@@ -246,7 +246,7 @@ export function PaymentDialog({
 
               {/* Points (if applicable) */}
               {maxPointsToUse > 0 && selectedCustomer && (
-                <div className="bg-white/[0.02] border border-white/[0.06] rounded-2xl p-3.5">
+                <div className="aether-card p-3.5">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5 shrink-0">
                       <Coins className="h-3.5 w-3.5 text-amber-400" strokeWidth={1.5} />
@@ -268,7 +268,7 @@ export function PaymentDialog({
 
               {/* Customer info */}
               {selectedCustomer && (
-                <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-white/[0.02] border border-white/[0.06]">
+                <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl aether-card">
                   <User className="h-3.5 w-3.5 text-slate-500 shrink-0" strokeWidth={1.5} />
                   <span className="text-xs text-slate-300 font-medium truncate">{selectedCustomer.name}</span>
                   {selectedCustomer.whatsapp && (
@@ -293,12 +293,12 @@ export function PaymentDialog({
                           'relative flex flex-col items-center gap-1.5 p-4 rounded-2xl border text-center transition-all duration-200',
                           isActive
                             ? 'theme-bg-very-light border-theme-border-light shadow-sm'
-                            : 'bg-white/[0.02] border-white/[0.06] hover:border-white/[0.1] hover:bg-white/[0.04] active:scale-[0.98]'
+                            : 'aether-card hover:border-white/[0.1] active:scale-[0.98]'
                         )}
                       >
                         <div className={cn(
                           'w-10 h-10 rounded-xl flex items-center justify-center transition-colors',
-                          isActive ? 'theme-bg-subtle' : 'bg-white/[0.04]'
+                          isActive ? 'theme-bg-subtle' : 'bg-white/[0.06]'
                         )}>
                           <Icon className={cn('h-5 w-5', isActive ? 'theme-text' : 'text-slate-500')} strokeWidth={1.5} />
                         </div>
@@ -375,7 +375,7 @@ export function PaymentDialog({
                               'py-2.5 rounded-xl text-xs font-bold border transition-all active:scale-95',
                               Number(paidAmount) === nom
                                 ? 'theme-bg-subtle theme-text theme-border-medium shadow-sm'
-                                : 'bg-white/[0.03] border-white/[0.08] text-slate-300 hover:border-white/[0.1] active:bg-white/[0.04]'
+                                : 'bg-white/[0.04] border-white/[0.06] text-slate-300 hover:border-white/[0.1] active:bg-white/[0.04]'
                             )}
                           >
                             {nom >= 1000 ? `${nom / 1000}K` : nom}
@@ -397,7 +397,7 @@ export function PaymentDialog({
 
               {/* Non-cash confirmation */}
               {paymentMethod !== 'CASH' && (
-                <div className="bg-white/[0.02] border border-white/[0.06] rounded-2xl p-5 text-center">
+                <div className="aether-card p-5 text-center">
                   <p className="text-xs text-slate-400">
                     Pembayaran <span className="font-bold text-slate-200 uppercase">{paymentMethod}</span>
                   </p>
@@ -408,7 +408,7 @@ export function PaymentDialog({
           </ScrollArea>
 
           {/* Footer — sticky */}
-          <div className="shrink-0 border-t border-white/[0.06] bg-gradient-to-t from-deep-space/95 to-deep-space/80 backdrop-blur-sm px-5 pt-3.5 pb-5 sm:pb-5">
+          <div className="shrink-0 border-t border-white/[0.06] bg-deep-space/95 backdrop-blur-sm px-5 pt-3.5 pb-5 sm:pb-5">
             <Button
               onClick={onCheckout}
               disabled={!canPay}

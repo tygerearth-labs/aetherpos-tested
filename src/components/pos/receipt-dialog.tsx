@@ -373,8 +373,8 @@ export function ReceiptDialog({
   return (
     <ResponsiveDialog open={open} onOpenChange={(o) => { if (!o) handleClose() }}>
       <ResponsiveDialogContent
-        desktopClassName="max-w-md rounded-2xl overflow-hidden !p-0 bg-white border-zinc-200"
-        className="!p-0 bg-white border-zinc-200"
+        desktopClassName="max-w-md rounded-2xl overflow-hidden !p-0 bg-nebula border-white/[0.06]"
+        className="!p-0 bg-nebula border-white/[0.06]"
         showCloseButton={false}
       >
         {checkoutResult && (
@@ -389,15 +389,15 @@ export function ReceiptDialog({
                   className="shrink-0 px-5 pt-5 pb-3"
                 >
                   <div className="flex items-center justify-center gap-2.5 mb-1">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center ${isOfflineReceipt ? 'bg-amber-100' : 'bg-emerald-100'}`}>
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center ${isOfflineReceipt ? 'bg-amber-500/15' : 'bg-emerald-500/15'}`}>
                       {isOfflineReceipt ? (
-                        <CloudOff className="h-4 w-4 text-amber-600" strokeWidth={1.5} />
+                        <CloudOff className="h-4 w-4 text-amber-400" strokeWidth={1.5} />
                       ) : (
-                        <Check className="h-4 w-4 text-emerald-600" strokeWidth={1.5} />
+                        <Check className="h-4 w-4 text-emerald-400" strokeWidth={1.5} />
                       )}
                     </div>
                     <div className="text-left">
-                      <p className={`text-sm font-bold ${isOfflineReceipt ? 'text-amber-700' : 'text-emerald-700'}`}>
+                      <p className={`text-sm font-bold ${isOfflineReceipt ? 'text-amber-400' : 'text-emerald-400'}`}>
                         {isOfflineReceipt ? 'Tersimpan Offline' : 'Pembayaran Berhasil'}
                       </p>
                       <p className="text-[11px] text-slate-500 font-mono">{checkoutResult.invoiceNumber}</p>
@@ -406,11 +406,11 @@ export function ReceiptDialog({
 
                   {/* Sync error warning */}
                   {checkoutResult.syncError && (
-                    <div className="flex items-start gap-2 p-2.5 rounded-lg bg-amber-50 border border-amber-200 mt-3">
+                    <div className="flex items-start gap-2 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 mt-3">
                       <AlertCircle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" strokeWidth={1.5} />
                       <div>
-                        <p className="text-[11px] text-amber-700 font-medium">Gagal sync ke server</p>
-                        <p className="text-[10px] text-amber-600">{checkoutResult.syncError}</p>
+                        <p className="text-[11px] text-amber-400 font-medium">Gagal sync ke server</p>
+                        <p className="text-[10px] text-amber-500">{checkoutResult.syncError}</p>
                       </div>
                     </div>
                   )}
@@ -420,7 +420,7 @@ export function ReceiptDialog({
 
             {/* Receipt preview — thermal style */}
             <ScrollArea className="flex-1 min-h-0">
-              <div className="px-4 pb-4">
+              <div className="px-4 pb-4 pt-2">
                 <div className="bg-white border border-zinc-200 rounded-lg shadow-inner mx-auto max-w-[280px] p-3 overflow-hidden">
                   {receiptHtml}
                 </div>
@@ -428,10 +428,10 @@ export function ReceiptDialog({
             </ScrollArea>
 
             {/* Action buttons */}
-            <div className="shrink-0 border-t border-zinc-200 bg-zinc-50 px-4 py-3.5 flex gap-2 rounded-b-2xl">
+            <div className="shrink-0 border-t border-white/[0.06] bg-deep-space/80 backdrop-blur-sm px-4 py-3.5 flex gap-2 rounded-b-2xl">
               <Button
                 onClick={handlePrint}
-                className="flex-1 h-10 text-sm font-medium rounded-xl bg-slate-800 hover:bg-slate-700 text-white transition-colors"
+                className="flex-1 h-10 text-sm font-medium rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.06] text-white transition-colors"
               >
                 <Printer className="mr-1.5 h-4 w-4" strokeWidth={1.5} />
                 Cetak Struk
@@ -451,7 +451,7 @@ export function ReceiptDialog({
               <Button
                 onClick={handleClose}
                 variant="outline"
-                className="h-10 px-4 text-sm font-medium rounded-xl border-zinc-300 text-slate-600 hover:bg-zinc-100 transition-colors"
+                className="h-10 px-4 text-sm font-medium rounded-xl border-white/[0.08] text-slate-400 hover:bg-white/[0.06] transition-colors"
               >
                 <X className="h-4 w-4" strokeWidth={1.5} />
                 <span className="sr-only sm:not-sr-only sm:ml-1.5">Selesai</span>

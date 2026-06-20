@@ -1310,7 +1310,7 @@ export default function PosPage() {
         className={`shrink-0 px-3 py-1.5 sm:px-3 sm:py-1.5 rounded-full text-[11px] font-medium border transition-all backdrop-blur-sm ${
           !selectedCategoryId
             ? `${themeColors.activeBg} ${themeColors.text} ${themeColors.border} shadow-sm`
-            : 'bg-nebula/60 border-white/[0.06] text-slate-500 hover:border-white/[0.08] hover:text-slate-300'
+            : 'aether-card text-slate-500 hover:text-slate-300'
         }`}
       >
         <LayoutGrid className="inline h-3 w-3 mr-1 -mt-0.5" strokeWidth={1.5} />
@@ -1326,7 +1326,7 @@ export default function PosPage() {
             className={`shrink-0 px-3 py-1.5 sm:px-3 sm:py-1.5 rounded-full text-[11px] font-medium border transition-all backdrop-blur-sm ${
               isActive
                 ? `${colors.activeBg} ${colors.text} ${colors.border} shadow-sm`
-                : 'bg-nebula/60 border-white/[0.06] text-slate-500 hover:border-white/[0.08] hover:text-slate-300'
+                : 'aether-card text-slate-500 hover:text-slate-300'
             }`}
           >
             {cat.name}
@@ -1339,14 +1339,14 @@ export default function PosPage() {
   const renderProductGrid = () => {
     if (productsLoading) {
       return Array.from({ length: 8 }).map((_, i) => (
-        <div key={i} className="h-[88px] md:h-[72px] rounded-xl bg-white/[0.02] animate-pulse" />
+        <div key={i} className="h-[88px] md:h-[72px] rounded-xl aether-shimmer" />
       ))
     }
 
     if (products.length === 0) {
       return (
         <div className="col-span-full text-center py-12">
-          <Package className="h-10 w-10 text-slate-700 mx-auto mb-2" strokeWidth={1.5} />
+          <Package className="h-10 w-10 text-slate-600 mx-auto mb-2" strokeWidth={1.5} />
           <p className="text-xs text-slate-500">
             {selectedCategoryId ? 'Tidak ada produk di kategori ini' : 'Tidak ada produk ditemukan'}
           </p>
@@ -1388,10 +1388,10 @@ export default function PosPage() {
           className={cn(
             'relative group min-h-[68px] md:min-h-0 rounded-2xl md:rounded-xl border text-left transition-all duration-200',
             outOfStock
-              ? 'opacity-40 cursor-not-allowed border-white/[0.04] bg-white/[0.02] p-2.5 md:p-3'
+              ? 'opacity-40 cursor-not-allowed aether-card p-2.5 md:p-3'
               : hasCartItems
               ? `${accentColor.border} ${accentColor.bg} ring-1 ring-inset ${accentColor.border.replace('border-', 'ring-')} cursor-pointer active:scale-[0.98]`
-              : 'border-white/[0.04] bg-nebula/60 hover:border-white/[0.08] hover:bg-white/[0.03] hover:shadow-lg hover:shadow-black/20 backdrop-blur-sm cursor-pointer active:scale-[0.98]'
+              : 'aether-card cursor-pointer active:scale-[0.98]'
           )}
         >
           {!outOfStock && (
@@ -1476,7 +1476,7 @@ export default function PosPage() {
 
   // Customer selector for mobile cart sheet
   const renderCustomerSelector = (isMobile = false) => (
-    <div className={isMobile ? 'bg-nebula/80 border border-white/[0.06] rounded-2xl p-3.5 space-y-2' : 'border-b border-white/[0.06] px-4 py-3'}>
+    <div className={isMobile ? 'aether-card rounded-2xl p-3.5 space-y-2' : 'border-b border-white/[0.06] px-4 py-3'}>
       <div className="flex items-center justify-between">
         <Label className="text-[11px] text-slate-500 font-medium tracking-wide uppercase">Customer</Label>
         <button onClick={() => setAddCustomerOpen(true)} className="text-[10px] theme-text hover:theme-text font-semibold flex items-center gap-1 transition-colors">
@@ -1490,7 +1490,7 @@ export default function PosPage() {
           value={customerSearch}
           onChange={(e) => { setCustomerSearch(e.target.value); setCustomerDropdownOpen(true) }}
           onFocus={() => setCustomerDropdownOpen(true)}
-          className="pl-10 pr-8 h-10 text-sm bg-white/[0.03] border-white/[0.08] text-white placeholder:text-slate-500 rounded-xl backdrop-blur-sm"
+          className="pl-10 pr-8 h-10 text-sm bg-white/[0.04] border-white/[0.06] text-white placeholder:text-slate-500 rounded-xl backdrop-blur-sm"
         />
         {selectedCustomer && (
           <button onClick={() => { setSelectedCustomer(null); setCustomerSearch(''); setPointsToUse(0) }}
@@ -1500,7 +1500,7 @@ export default function PosPage() {
         )}
       </div>
       {customerDropdownOpen && filteredCustomers.length > 0 && !selectedCustomer && (
-        <div className={`absolute z-30 ${isMobile ? 'w-[calc(100%-1.75rem)]' : 'w-full'} mt-1 bg-nebula border border-white/[0.08] rounded-2xl shadow-2xl shadow-black/40 max-h-44 overflow-y-auto backdrop-blur-xl`}>
+        <div className={`absolute z-30 ${isMobile ? 'w-[calc(100%-1.75rem)]' : 'w-full'} mt-1 aether-card-elevated rounded-2xl max-h-44 overflow-y-auto`}>
           {filteredCustomers.map((customer) => (
             <button key={customer.id} onClick={() => { setSelectedCustomer(customer); setCustomerSearch(''); setCustomerDropdownOpen(false); setPointsToUse(0) }}
               className="w-full text-left px-4 py-2.5 hover:bg-white/[0.04] border-b border-white/[0.04] last:border-0 transition-colors first:rounded-t-2xl last:rounded-b-2xl">
@@ -1537,7 +1537,7 @@ export default function PosPage() {
           const itemTotal = getItemPrice(item) * item.qty
           return (
             <div key={itemKey} className={cn(
-              'group flex items-center gap-2.5 rounded-xl bg-nebula/60 border border-white/[0.04] hover:border-white/[0.08] transition-all duration-150',
+              'group flex items-center gap-2.5 rounded-xl aether-card transition-all duration-150',
               compact ? 'p-3' : 'p-2.5'
             )}>
               {/* Product Info */}
@@ -1647,12 +1647,12 @@ export default function PosPage() {
       <div className="md:hidden flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           {outletInfo ? (
-            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-nebula border border-white/[0.06] text-[11px] font-semibold text-slate-300 min-w-0">
+            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl aether-card text-[11px] font-semibold text-slate-300 min-w-0">
               <Store className="h-3.5 w-3.5 theme-text shrink-0" strokeWidth={1.5} />
               <span className="truncate">{outletInfo.name}</span>
             </div>
           ) : (
-            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-nebula border border-white/[0.06] text-[11px] font-medium text-slate-600">
+            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl aether-card text-[11px] font-medium text-slate-600">
               <Store className="h-3.5 w-3.5" strokeWidth={1.5} />
               <span>No outlet</span>
             </div>
@@ -1684,7 +1684,7 @@ export default function PosPage() {
           } catch { toast.error('Gagal refresh data') }
           finally { setDataSyncing(false) }
         }} disabled={dataSyncing || !isOnline}
-          className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-nebula border border-white/[0.06] text-slate-500 text-[10px] font-medium shrink-0 disabled:opacity-50">
+          className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl aether-card text-slate-500 text-[10px] font-medium shrink-0 disabled:opacity-50">
           {dataSyncing ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowDownToLine className="h-3 w-3" strokeWidth={1.5} />}
         </button>
       </div>
@@ -2344,7 +2344,7 @@ function PendingListContent({
   if (pendingList.length === 0) {
     return (
       <div className="text-center py-10">
-        <div className="w-12 h-12 rounded-2xl bg-white/[0.04] flex items-center justify-center mx-auto mb-3">
+        <div className="w-12 h-12 rounded-2xl bg-white/[0.06] flex items-center justify-center mx-auto mb-3">
           <Clock className="h-5 w-5 text-slate-600" strokeWidth={1.5} />
         </div>
         <p className="text-sm text-slate-400 font-medium">Belum ada transaksi pending</p>
@@ -2365,7 +2365,7 @@ function PendingListContent({
         const totalItems = items.reduce((s, i) => s + i.qty, 0)
 
         return (
-          <div key={pending.id} className="bg-nebula border border-white/[0.06] rounded-xl p-3.5 space-y-2.5">
+          <div key={pending.id} className="aether-card p-3.5 space-y-2.5">
             {/* Header */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
