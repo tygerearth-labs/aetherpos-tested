@@ -5,7 +5,6 @@ import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog"
 
 import { cn } from "@/lib/utils"
 import { buttonVariants } from "@/components/ui/button"
-import { useIsMobile } from "@/hooks/use-mobile"
 
 function AlertDialog({
   ...props
@@ -37,9 +36,7 @@ function AlertDialogOverlay({
     <AlertDialogPrimitive.Overlay
       data-slot="alert-dialog-overlay"
       className={cn(
-        "fixed inset-0 z-[60] bg-black/60 transition-opacity duration-150",
-        "data-[state=open]:opacity-100 data-[state=closed]:opacity-0",
-        "data-[state=closed]:pointer-events-none",
+        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/50",
         className
       )}
       {...props}
@@ -51,31 +48,13 @@ function AlertDialogContent({
   className,
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Content>) {
-  const isMobile = useIsMobile()
-
-  if (isMobile) {
-    return (
-      <AlertDialogPortal>
-        <AlertDialogOverlay />
-        <AlertDialogPrimitive.Content
-          data-slot="alert-dialog-content"
-          className={cn(
-            "bg-nebula data-[state=open]:animate-in data-[state=open]:slide-in-from-bottom data-[state=closed]:animate-out data-[state=closed]:slide-out-to-bottom data-[state=closed]:duration-200 data-[state=open]:duration-300 fixed inset-x-0 bottom-0 z-[60] w-full rounded-t-2xl border border-white/[0.06] p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl shadow-black/50",
-            className
-          )}
-          {...props}
-        />
-      </AlertDialogPortal>
-    )
-  }
-
   return (
     <AlertDialogPortal>
       <AlertDialogOverlay />
       <AlertDialogPrimitive.Content
         data-slot="alert-dialog-content"
         className={cn(
-          "bg-background data-[state=open]:animate-[dialog-content-show_200ms_ease-out] data-[state=closed]:animate-[dialog-content-hide_150ms_ease-in] fixed top-[50%] left-[50%] z-[60] grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-xl border border-white/[0.06] p-6 shadow-2xl shadow-black/50 sm:max-w-lg",
+          "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 shadow-lg duration-200 sm:max-w-lg",
           className
         )}
         {...props}
@@ -101,14 +80,11 @@ function AlertDialogFooter({
   className,
   ...props
 }: React.ComponentProps<"div">) {
-  const isMobile = useIsMobile()
   return (
     <div
       data-slot="alert-dialog-footer"
       className={cn(
-        isMobile
-          ? "flex flex-row gap-2 mt-1"
-          : "flex flex-col-reverse gap-2 sm:flex-row sm:justify-end",
+        "flex flex-col-reverse gap-2 sm:flex-row sm:justify-end",
         className
       )}
       {...props}
