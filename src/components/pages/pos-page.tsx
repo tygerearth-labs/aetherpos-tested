@@ -39,9 +39,9 @@ import {
   Store,
   Tag,
   Layers,
-  Pause,
-  Play,
+  ClockArrowDown,
   Clock,
+  MessageSquare,
 } from 'lucide-react'
 import {
   Select,
@@ -452,6 +452,8 @@ export default function PosPage() {
   const [editingQtyId, setEditingQtyId] = useState<string | null>(null)
   const [editingQtyValue, setEditingQtyValue] = useState('')
   const qtyInputRef = useRef<HTMLInputElement>(null)
+  const [holdNote, setHoldNote] = useState('')
+  const [holdNoteOpen, setHoldNoteOpen] = useState(false)
 
   // Pending Transactions
   const [pendingListOpen, setPendingListOpen] = useState(false)
@@ -908,6 +910,12 @@ export default function PosPage() {
 
   const handleHoldTransaction = async () => {
     if (cart.length === 0) return
+    // Show note dialog first
+    setHoldNoteOpen(true)
+  }
+
+  const confirmHoldTransaction = async () => {
+    setHoldNoteOpen(false)
     try {
       const userName = session?.user?.name || 'Unknown'
       const userId = (session?.user as any)?.id || ''
@@ -919,12 +927,13 @@ export default function PosPage() {
         })),
         customerId: selectedCustomer?.id || null,
         customerName: selectedCustomer?.name || null,
-        note: '',
+        note: holdNote.trim(),
         subtotal,
         createdAt: Date.now(),
         userId,
         userName,
       })
+      setHoldNote('')
       clearCart()
       setMobileCartOpen(false)
       toast.success('Transaksi ditunda')
@@ -1855,9 +1864,14 @@ export default function PosPage() {
               </div>
               {cart.length > 0 && (
                 <div className="flex items-center gap-1.5">
-                  <button onClick={() => setPendingListOpen(true)} className="relative h-7 px-2.5 rounded-lg text-[10px] font-semibold text-slate-500 hover:text-amber-400 hover:bg-amber-500/10 border border-transparent hover:border-amber-500/20 transition-all">
-                    <Clock className="h-3 w-3" strokeWidth={1.5} />
-                    {pendingCount > 0 && <span className="ml-1">{pendingCount}</span>}
+                  <button onClick={() => setPendingListOpen(true)} className={cn(
+                    "relative flex items-center gap-1.5 h-7 px-2.5 rounded-lg text-[10px] font-semibold transition-all",
+                    pendingCount > 0
+                      ? "text-amber-400 bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/15"
+                      : "text-slate-500 hover:text-amber-400 hover:bg-amber-500/10 border border-transparent hover:border-amber-500/20"
+                  )}>
+                    <ClockArrowDown className="h-3 w-3" strokeWidth={1.5} />
+                    {pendingCount > 0 && <span>{pendingCount}</span>}
                   </button>
                   <button onClick={clearCart} className="h-7 px-2.5 rounded-lg text-[10px] font-semibold text-slate-500 hover:text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 transition-all">
                     Hapus Semua
@@ -1865,9 +1879,9 @@ export default function PosPage() {
                 </div>
               )}
               {cart.length === 0 && pendingCount > 0 && (
-                <button onClick={() => setPendingListOpen(true)} className="relative h-7 px-2.5 rounded-lg text-[10px] font-semibold text-slate-500 hover:text-amber-400 hover:bg-amber-500/10 border border-transparent hover:border-amber-500/20 transition-all">
-                  <Clock className="h-3 w-3" strokeWidth={1.5} />
-                  <span className="ml-1">{pendingCount} pending</span>
+                <button onClick={() => setPendingListOpen(true)} className="relative flex items-center gap-1.5 h-7 px-2.5 rounded-lg text-[10px] font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/15 transition-all">
+                  <ClockArrowDown className="h-3 w-3" strokeWidth={1.5} />
+                  <span>{pendingCount} pending</span>
                 </button>
               )}
             </div>
@@ -1943,7 +1957,7 @@ export default function PosPage() {
               <div className="flex gap-2">
                 <Button onClick={handleHoldTransaction} variant="outline"
                   className="h-11 px-4 font-semibold text-sm rounded-xl border-white/[0.08] text-slate-300 hover:bg-white/[0.04] hover:text-white transition-all shrink-0">
-                  <Pause className="mr-1.5 h-4 w-4" strokeWidth={1.5} />
+                  <ClockArrowDown className="mr-1.5 h-4 w-4" strokeWidth={1.5} />
                   Tunda
                 </Button>
                 <Button onClick={openPaymentDialog} disabled={cart.length === 0}
@@ -1983,10 +1997,10 @@ export default function PosPage() {
       {isMobile && pendingCount > 0 && cart.length === 0 && (
         <button
           onClick={() => setPendingListOpen(true)}
-          className="md:hidden fixed bottom-20 right-4 z-50 flex items-center gap-2.5 h-12 pl-3.5 pr-4 rounded-2xl bg-white/[0.04] border border-white/[0.08] text-white shadow-2xl shadow-black/30 hover:bg-white/[0.06] active:scale-95 transition-all duration-150"
+          className="md:hidden fixed bottom-20 right-4 z-50 flex items-center gap-2.5 h-12 pl-3.5 pr-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 shadow-2xl shadow-black/30 hover:bg-amber-500/15 active:scale-95 transition-all duration-150"
         >
           <div className="relative">
-            <Clock className="h-5 w-5 text-amber-400" strokeWidth={1.5} />
+            <ClockArrowDown className="h-5 w-5" strokeWidth={1.5} />
             <span className="absolute -top-1.5 -right-1.5 min-w-4 h-4 rounded-full bg-amber-500 text-white text-[9px] font-bold flex items-center justify-center shadow-sm px-1">{pendingCount}</span>
           </div>
           <span className="text-xs font-semibold">Pending</span>
@@ -2032,9 +2046,14 @@ export default function PosPage() {
               </div>
               {cart.length > 0 && (
                 <div className="flex items-center gap-1.5">
-                  <button onClick={() => setPendingListOpen(true)} className="relative h-8 px-2.5 rounded-lg text-[11px] font-semibold text-slate-500 hover:text-amber-400 hover:bg-amber-500/10 border border-white/[0.06] hover:border-amber-500/20 transition-all">
-                    <Clock className="h-3.5 w-3.5" strokeWidth={1.5} />
-                    {pendingCount > 0 && <span className="ml-1">{pendingCount}</span>}
+                  <button onClick={() => setPendingListOpen(true)} className={cn(
+                    "relative flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-[11px] font-semibold transition-all",
+                    pendingCount > 0
+                      ? "text-amber-400 bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/15"
+                      : "text-slate-500 hover:text-amber-400 hover:bg-amber-500/10 border border-white/[0.06] hover:border-amber-500/20"
+                  )}>
+                    <ClockArrowDown className="h-3.5 w-3.5" strokeWidth={1.5} />
+                    {pendingCount > 0 && <span>{pendingCount}</span>}
                   </button>
                   <button onClick={clearCart} className="h-8 px-3 rounded-lg text-[11px] font-semibold text-slate-500 hover:text-red-400 hover:bg-red-500/10 border border-white/[0.06] hover:border-red-500/20 transition-all">
                     Hapus Semua
@@ -2042,8 +2061,8 @@ export default function PosPage() {
                 </div>
               )}
               {cart.length === 0 && pendingCount > 0 && (
-                <button onClick={() => setPendingListOpen(true)} className="h-8 px-3 rounded-lg text-[11px] font-semibold text-slate-500 hover:text-amber-400 hover:bg-amber-500/10 border border-white/[0.06] hover:border-amber-500/20 transition-all">
-                  <Clock className="h-3.5 w-3.5 mr-1" strokeWidth={1.5} />
+                <button onClick={() => setPendingListOpen(true)} className="flex items-center gap-1.5 h-8 px-3 rounded-lg text-[11px] font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/15 transition-all">
+                  <ClockArrowDown className="h-3.5 w-3.5" strokeWidth={1.5} />
                   {pendingCount} pending
                 </button>
               )}
@@ -2092,7 +2111,7 @@ export default function PosPage() {
                 </div>
                 <Button onClick={handleHoldTransaction} variant="outline"
                   className="h-12 px-3 font-semibold text-xs rounded-2xl border-white/[0.08] text-slate-300 hover:bg-white/[0.04] hover:text-white transition-all shrink-0">
-                  <Pause className="h-4 w-4" strokeWidth={1.5} />
+                  <ClockArrowDown className="h-4 w-4" strokeWidth={1.5} />
                 </Button>
                 <Button onClick={openPaymentDialog}
                   className="h-12 px-6 font-bold text-sm rounded-2xl theme-gradient hover:theme-hover text-white shadow-lg theme-shadow transition-all active:scale-[0.98] shrink-0">
@@ -2303,7 +2322,7 @@ export default function PosPage() {
         <ResponsiveDialogContent desktopClassName="max-w-md rounded-2xl">
           <ResponsiveDialogHeader>
             <ResponsiveDialogTitle className="text-sm font-bold text-white flex items-center gap-2">
-              <Clock className="h-4 w-4 text-amber-400" strokeWidth={1.5} /> Transaksi Pending
+              <ClockArrowDown className="h-4 w-4 text-amber-400" strokeWidth={1.5} /> Transaksi Pending
               {pendingCount > 0 && (
                 <Badge variant="secondary" className="ml-1 bg-amber-500/10 text-amber-400 border-amber-500/20 text-[10px] px-1.5">{pendingCount}</Badge>
               )}
@@ -2313,6 +2332,41 @@ export default function PosPage() {
             onResume={handleResumePending}
             onDelete={handleDeletePending}
           />
+        </ResponsiveDialogContent>
+      </ResponsiveDialog>
+
+      {/* Hold Note Dialog */}
+      <ResponsiveDialog open={holdNoteOpen} onOpenChange={setHoldNoteOpen}>
+        <ResponsiveDialogContent desktopClassName="max-w-sm rounded-2xl">
+          <ResponsiveDialogHeader>
+            <ResponsiveDialogTitle className="text-sm font-bold text-white flex items-center gap-2">
+              <MessageSquare className="h-4 w-4 text-amber-400" strokeWidth={1.5} /> Catatan Tunda
+            </ResponsiveDialogTitle>
+            <ResponsiveDialogDescription className="text-[11px] text-slate-500">
+              Tambahkan catatan opsional untuk transaksi ini
+            </ResponsiveDialogDescription>
+          </ResponsiveDialogHeader>
+          <div className="py-2">
+            <textarea
+              value={holdNote}
+              onChange={(e) => setHoldNote(e.target.value)}
+              placeholder="Contoh: customer minta ditunda, menunggu pembayaran..."
+              rows={3}
+              autoFocus
+              className="w-full bg-white/[0.04] border border-white/[0.08] text-white placeholder:text-slate-600 text-sm rounded-xl px-3.5 py-2.5 resize-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cyan-500/50 focus-visible:border-cyan-500/30 transition-all"
+            />
+          </div>
+          <ResponsiveDialogFooter className="gap-2">
+            <Button variant="ghost" onClick={() => { setHoldNoteOpen(false); setHoldNote('') }}
+              className="bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.06] text-xs rounded-xl">
+              Batal
+            </Button>
+            <Button onClick={confirmHoldTransaction}
+              className="theme-bg hover:theme-hover text-white text-xs rounded-xl font-medium">
+              <ClockArrowDown className="mr-1.5 h-3 w-3" strokeWidth={1.5} />
+              Tunda Transaksi
+            </Button>
+          </ResponsiveDialogFooter>
         </ResponsiveDialogContent>
       </ResponsiveDialog>
     </div>
@@ -2345,7 +2399,7 @@ function PendingListContent({
     return (
       <div className="text-center py-10">
         <div className="w-12 h-12 rounded-2xl bg-white/[0.06] flex items-center justify-center mx-auto mb-3">
-          <Clock className="h-5 w-5 text-slate-600" strokeWidth={1.5} />
+          <ClockArrowDown className="h-5 w-5 text-slate-600" strokeWidth={1.5} />
         </div>
         <p className="text-sm text-slate-400 font-medium">Belum ada transaksi pending</p>
         <p className="text-[11px] text-slate-600 mt-1">Tunda transaksi untuk melayani customer lain</p>
@@ -2370,7 +2424,7 @@ function PendingListContent({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="w-7 h-7 rounded-lg bg-amber-500/10 flex items-center justify-center">
-                  <Pause className="h-3.5 w-3.5 text-amber-400" strokeWidth={1.5} />
+                  <ClockArrowDown className="h-3.5 w-3.5 text-amber-400" strokeWidth={1.5} />
                 </div>
                 <div>
                   <p className="text-xs font-semibold text-slate-200">{totalItems} item</p>
@@ -2394,6 +2448,14 @@ function PendingListContent({
               )}
             </div>
 
+            {/* Note */}
+            {pending.note && (
+              <div className="flex items-start gap-1.5 px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.04]">
+                <MessageSquare className="h-3 w-3 text-slate-500 shrink-0 mt-0.5" strokeWidth={1.5} />
+                <p className="text-[11px] text-slate-400 leading-relaxed">{pending.note}</p>
+              </div>
+            )}
+
             {/* Customer */}
             {pending.customerName && (
               <p className="text-[10px] text-slate-500">👤 {pending.customerName}</p>
@@ -2403,7 +2465,7 @@ function PendingListContent({
             <div className="flex gap-2 pt-1">
               <Button size="sm" onClick={() => onResume(pending)}
                 className="flex-1 h-8 text-[11px] font-medium rounded-lg theme-bg hover:theme-hover text-white transition-colors">
-                <Play className="mr-1.5 h-3 w-3" strokeWidth={1.5} /> Lanjutkan
+                <ShoppingCart className="mr-1.5 h-3 w-3" strokeWidth={1.5} /> Lanjutkan
               </Button>
               <Button size="sm" variant="ghost" onClick={() => onDelete(pending.id!)}
                 className="h-8 px-3 text-[11px] text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors">

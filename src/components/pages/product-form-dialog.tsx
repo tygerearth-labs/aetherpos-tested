@@ -23,6 +23,7 @@ import {
   ChevronUp,
   AlertCircle,
   Copy,
+  X,
 } from 'lucide-react'
 import { formatCurrency, formatNumber } from '@/lib/format'
 
@@ -416,6 +417,39 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                   placeholder="Opsional — https://..."
                   className="bg-nebula border-white/[0.06] text-white placeholder:text-slate-600 h-10 text-sm rounded-lg focus-visible:theme-ring focus-visible:theme-border"
                 />
+                {form.image.trim() && (
+                  <div className="relative group rounded-xl overflow-hidden border border-white/[0.06] bg-nebula mt-2">
+                    <div
+                      className="relative w-full aspect-square max-w-[160px] bg-white/[0.02] flex items-center justify-center overflow-hidden"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={form.image.trim()}
+                        alt="Preview"
+                        className="w-full h-full object-contain p-2"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).style.display = 'none'
+                          ;(e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden')
+                        }}
+                        onLoad={(e) => {
+                          (e.target as HTMLImageElement).style.display = 'block'
+                          ;(e.target as HTMLImageElement).nextElementSibling?.classList.add('hidden')
+                        }}
+                      />
+                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 hidden">
+                        <Package className="h-6 w-6 text-slate-700" strokeWidth={1.5} />
+                        <span className="text-[10px] text-slate-600">Gagal memuat gambar</span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => updateField('image', '')}
+                      className="absolute top-1.5 right-1.5 h-5 w-5 rounded-full bg-black/50 backdrop-blur-sm text-white/70 hover:text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <X className="h-3 w-3" strokeWidth={2} />
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
