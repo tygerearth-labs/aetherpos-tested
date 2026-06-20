@@ -1,11 +1,13 @@
 'use client'
 
+import { useState } from 'react'
 import { SessionProvider, useSession } from 'next-auth/react'
 import { usePageStore } from '@/hooks/use-page-store'
 import { useSidebarStore } from '@/components/layout/sidebar'
 import Sidebar from '@/components/layout/sidebar'
 import MobileBottomNav from '@/components/layout/mobile-bottom-nav'
 import AuthView from '@/components/auth/auth-view'
+import LandingPage from '@/components/landing/landing-page'
 import DashboardPage from '@/components/pages/dashboard-page'
 import ProductsPage from '@/components/pages/products-page'
 import CustomersPage from '@/components/pages/customers-page'
@@ -24,6 +26,7 @@ function AppContent() {
   })
   const { currentPage } = usePageStore()
   const { collapsed } = useSidebarStore()
+  const [showAuth, setShowAuth] = useState(false)
 
   if (status === 'loading') {
     return (
@@ -37,7 +40,10 @@ function AppContent() {
   }
 
   if (!session) {
-    return <AuthView />
+    if (showAuth) {
+      return <AuthView />
+    }
+    return <LandingPage onGetStarted={() => setShowAuth(true)} />
   }
 
   const renderPage = () => {
