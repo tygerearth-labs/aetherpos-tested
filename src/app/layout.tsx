@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { Toaster } from "@/components/ui/sonner";
+import { ThemeProvider } from "@/components/shared/theme-provider";
+import { PwaRegister } from "@/components/pwa-register";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -13,11 +16,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AETHER — POS Modern untuk UMKM Indonesia",
-  description:
-    "Kelola stok, transaksi, pelanggan, dan laporan dalam satu platform. POS modern untuk coffee shop, retail, dan UMKM Indonesia.",
-  keywords: ["AETHER", "POS", "UMKM", "coffee shop", "retail", "Point of Sale", "Indonesia"],
-  authors: [{ name: "AETHER" }],
+  title: "AETHER",
+  description: "AETHER — High-performance POS for MSME. Modern, fast, and reliable point-of-sale system.",
+  manifest: "/manifest.json",
   icons: {
     icon: [
       { url: "/favicon.ico", sizes: "48x48" },
@@ -29,15 +30,17 @@ export const metadata: Metadata = {
     ],
   },
   openGraph: {
-    title: "AETHER — POS Modern untuk UMKM Indonesia",
-    description: "Kelola toko lebih cepat. Tumbuh lebih pasti.",
-    siteName: "AETHER",
+    title: "AETHER",
+    description: "High-performance POS for MSME",
     type: "website",
   },
-  twitter: {
-    card: "summary_large_image",
-    title: "AETHER — POS Modern untuk UMKM Indonesia",
-    description: "Kelola toko lebih cepat. Tumbuh lebih pasti.",
+  other: {
+    "mobile-web-app-capable": "yes",
+    "apple-mobile-web-app-capable": "yes",
+    "apple-mobile-web-app-status-bar-style": "black-translucent",
+    "apple-mobile-web-app-title": "AETHER",
+    "application-name": "AETHER",
+    "msapplication-TileColor": "#020617",
   },
 };
 
@@ -47,9 +50,20 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased bg-[#020617] text-white`}>
-        {children}
+    <html lang="en" className="dark" suppressHydrationWarning>
+        <head>
+          <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, viewport-fit=cover" />
+          <meta name="theme-color" content="#020617" />
+          <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+        </head>
+      <body
+        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-deep-space text-slate-100 overflow-x-hidden`}
+      >
+        <ThemeProvider>
+          {children}
+        </ThemeProvider>
+        <Toaster />
+        <PwaRegister />
       </body>
     </html>
   );
