@@ -287,10 +287,11 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
       <div className={`flex items-center shrink-0 h-14 border-b border-white/[0.04] ${
         isCompact ? 'justify-center gap-1 px-2' : 'gap-3 px-4'
       }`}>
-        <div className="relative h-7 w-7 rounded-lg shrink-0 flex items-center justify-center overflow-hidden">
-          <div className="absolute inset-0 aether-gradient opacity-80" />
-          <span className="relative text-[11px] font-black text-white tracking-wider" style={{ fontFamily: 'var(--font-geist-sans)' }}>A</span>
-        </div>
+        <img
+          src="/logo.png"
+          alt="AETHER"
+          className="h-7 w-7 rounded-lg shrink-0 object-contain"
+        />
         {!isCompact && (
           <div className="min-w-0 flex-1">
             <h1 className="text-[13px] font-bold text-white tracking-tight leading-none" style={{ fontFamily: 'var(--font-geist-sans)' }}>

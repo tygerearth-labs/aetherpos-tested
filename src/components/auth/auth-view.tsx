@@ -208,10 +208,7 @@ export default function AuthView() {
             transition={{ duration: 0.6, ease: [0.25, 0.4, 0.25, 1] }}
           >
             <div className="flex items-center gap-3 mb-3">
-              <div className="relative w-11 h-11 rounded-xl overflow-hidden flex items-center justify-center">
-                <div className="absolute inset-0 aether-gradient" />
-                <span className="relative text-[14px] font-black text-white tracking-wider" style={{ fontFamily: 'var(--font-geist-sans)' }}>A</span>
-              </div>
+              <img src="/logo.png" alt="AETHER" className="w-11 h-11 rounded-xl object-contain" />
               <div>
                 <h1 className="text-xl font-bold text-white tracking-tight" style={{ fontFamily: 'var(--font-geist-sans)' }}>
                   AETHER
@@ -328,10 +325,7 @@ export default function AuthView() {
             transition={{ duration: 0.5 }}
             className="lg:hidden flex items-center justify-center gap-3 mb-8"
           >
-            <div className="relative w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center">
-              <div className="absolute inset-0 aether-gradient" />
-              <span className="relative text-[12px] font-black text-white tracking-wider" style={{ fontFamily: 'var(--font-geist-sans)' }}>A</span>
-            </div>
+            <img src="/logo.png" alt="AETHER" className="w-10 h-10 rounded-xl object-contain" />
             <div>
               <h1 className="text-lg font-bold text-white tracking-tight" style={{ fontFamily: 'var(--font-geist-sans)' }}>
                 AETHER

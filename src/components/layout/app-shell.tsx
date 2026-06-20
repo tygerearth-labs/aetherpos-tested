@@ -29,10 +29,7 @@ function AppContent() {
     return (
       <div className="min-h-screen bg-deep-space flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
-          <div className="relative h-8 w-8 rounded-lg overflow-hidden">
-            <div className="absolute inset-0 aether-gradient animate-pulse" />
-            <span className="absolute inset-0 flex items-center justify-center text-[12px] font-black text-white tracking-wider" style={{ fontFamily: 'var(--font-geist-sans)' }}>A</span>
-          </div>
+          <img src="/logo.png" alt="AETHER" className="h-8 w-8 rounded-lg object-contain animate-pulse" />
           <span className="text-[10px] text-slate-600 uppercase tracking-[0.15em] font-medium">Initializing</span>
         </div>
       </div>
