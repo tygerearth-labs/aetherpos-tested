@@ -51,7 +51,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { localDB, type PendingTransaction } from '@/lib/local-db'
+import { localDB, type PendingTransaction, type OfflineTransaction } from '@/lib/local-db'
 import { syncAllData, getAllSyncTimes, syncSettingsFromServer, getCachedSettings } from '@/lib/sync-service'
 import { cn } from '@/lib/utils'
 import { useSession } from 'next-auth/react'
@@ -457,6 +457,7 @@ export default function PosPage() {
 
   // Pending Transactions
   const [pendingListOpen, setPendingListOpen] = useState(false)
+  const [offlineListOpen, setOfflineListOpen] = useState(false)
   const pendingCount = useLiveQuery(
     () => localDB.pendingTransactions.count(),
     []
@@ -519,7 +520,8 @@ export default function PosPage() {
               body: JSON.stringify({ transactions: pending }),
             })
             const data = await res.json()
-            if (res.ok && data.synced > 0) {
+            if (res.ok) {
+              let synced = 0
               for (const result of data.results || []) {
                 if (result.success) {
                   await localDB.transactions.update(result.localId, {
@@ -528,9 +530,23 @@ export default function PosPage() {
                     invoiceNumber: result.invoiceNumber,
                     serverTransactionId: result.serverId,
                   })
+                  synced++
+                } else {
+                  const existing = await localDB.transactions.get(result.localId)
+                  await localDB.transactions.update(result.localId, {
+                    retryCount: (existing?.retryCount || 0) + 1,
+                    lastError: result.error,
+                  })
                 }
               }
-              toast.success(`${data.synced} transaction(s) auto-synced!`)
+              if (synced > 0) {
+                toast.success(`${synced} transaction(s) auto-synced!`)
+                fetchProducts(productSearch, productPage, selectedCategoryId)
+                loadCustomersFromCache()
+              }
+              if (data.failed > 0) {
+                toast.warning(`${data.failed} transaksi gagal sync`, { description: 'Buka menu "Offline" untuk detail.' })
+              }
             }
           }
 
@@ -1418,6 +1434,24 @@ export default function PosPage() {
             'relative z-[1] pointer-events-none',
             'p-2.5 md:p-3'
           )}>
+            {/* Product Image */}
+            {product.image && (
+              <div className="relative w-full aspect-square max-h-[72px] md:max-h-[96px] mx-auto mb-2 md:mb-2.5 rounded-lg overflow-hidden bg-white/[0.03]">
+                <img
+                  src={product.image}
+                  alt={product.name}
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none'
+                    const next = e.currentTarget.nextElementSibling
+                    if (next) next.setAttribute('style', 'display:flex')
+                  }}
+                />
+                <div className="absolute inset-0 items-center justify-center bg-white/[0.02] hidden">
+                  <Package className="h-5 w-5 text-slate-700" strokeWidth={1.5} />
+                </div>
+              </div>
+            )}
             <div className="flex items-start justify-between gap-1 mb-1 md:mb-1.5">
               <p className="text-[11px] md:text-xs font-medium text-slate-200 truncate">{product.name}</p>
               {isVariantProduct && (
@@ -1549,6 +1583,34 @@ export default function PosPage() {
               'group flex items-center gap-2.5 rounded-xl aether-card transition-all duration-150',
               compact ? 'p-3' : 'p-2.5'
             )}>
+              {/* Product Image */}
+              {item.product.image ? (
+                <div className={cn(
+                  'shrink-0 relative rounded-lg overflow-hidden bg-white/[0.03]',
+                  compact ? 'w-11 h-11' : 'w-9 h-9'
+                )}>
+                  <img
+                    src={item.product.image}
+                    alt={item.product.name}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none'
+                      const fb = e.currentTarget.parentElement?.querySelector('.img-fallback')
+                      if (fb) fb.setAttribute('style', 'display:flex')
+                    }}
+                  />
+                  <div className="img-fallback absolute inset-0 items-center justify-center bg-white/[0.03] hidden">
+                    <Package className="h-3.5 w-3.5 text-slate-700" strokeWidth={1.5} />
+                  </div>
+                </div>
+              ) : (
+                <div className={cn(
+                  'shrink-0 rounded-lg bg-white/[0.03] flex items-center justify-center',
+                  compact ? 'w-11 h-11' : 'w-9 h-9'
+                )}>
+                  <Package className="h-3.5 w-3.5 text-slate-700" strokeWidth={1.5} />
+                </div>
+              )}
               {/* Product Info */}
               <div className="flex-1 min-w-0">
                 <p className={cn('font-semibold text-white truncate leading-tight', compact ? 'text-[13px]' : 'text-xs')}>{item.product.name}</p>
@@ -1672,9 +1734,9 @@ export default function PosPage() {
             {isOnline ? <Wifi className="h-3 w-3" strokeWidth={1.5} /> : <WifiOff className="h-3 w-3" strokeWidth={1.5} />}
           </div>
           {unsyncedCount > 0 && (
-            <button onClick={handleSync} disabled={isOnline}
-              className="flex items-center gap-1 px-2 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] font-medium shrink-0 disabled:opacity-40">
-              {isOnline ? <RefreshCw className="h-3 w-3 animate-spin" strokeWidth={1.5} /> : <RefreshCw className="h-3 w-3" strokeWidth={1.5} />}
+            <button onClick={() => setOfflineListOpen(true)}
+              className="flex items-center gap-1 px-2 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] font-medium shrink-0 hover:bg-amber-500/15 active:scale-95 transition-all">
+              <CloudOff className="h-3 w-3" strokeWidth={1.5} />
               {unsyncedCount}
             </button>
           )}
@@ -1782,9 +1844,10 @@ export default function PosPage() {
 
           {/* Unsynced */}
           {unsyncedCount > 0 && (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[11px] font-medium">
+            <button onClick={() => setOfflineListOpen(true)}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[11px] font-medium hover:bg-amber-500/15 transition-all cursor-pointer">
               <CloudOff className="h-3 w-3" strokeWidth={1.5} /><span>{unsyncedCount} pending</span>
-            </div>
+            </button>
           )}
 
           {/* Buttons */}
@@ -1808,10 +1871,10 @@ export default function PosPage() {
           </Button>
 
           {unsyncedCount > 0 && (
-            <Button onClick={handleSync} disabled={isOnline} variant="outline" size="sm"
-              className="bg-amber-600/20 border-amber-500/30 text-amber-400 hover:bg-amber-600/30 disabled:opacity-40 h-7 text-xs gap-1.5">
-              {isOnline ? <RefreshCw className="h-3 w-3 animate-spin" strokeWidth={1.5} /> : <RefreshCw className="h-3 w-3" strokeWidth={1.5} />}
-              Sync {unsyncedCount}
+            <Button onClick={() => setOfflineListOpen(true)} variant="outline" size="sm"
+              className="bg-amber-600/20 border-amber-500/30 text-amber-400 hover:bg-amber-600/30 h-7 text-xs gap-1.5">
+              <CloudOff className="h-3 w-3" strokeWidth={1.5} />
+              {unsyncedCount} Offline
             </Button>
           )}
         </div>
@@ -2317,6 +2380,30 @@ export default function PosPage() {
         </ResponsiveDialogContent>
       </ResponsiveDialog>
 
+      {/* Offline Transactions Sync Dialog */}
+      <ResponsiveDialog open={offlineListOpen} onOpenChange={setOfflineListOpen}>
+        <ResponsiveDialogContent desktopClassName="max-w-lg rounded-2xl">
+          <ResponsiveDialogHeader>
+            <ResponsiveDialogTitle className="text-sm font-bold text-white flex items-center gap-2">
+              <CloudOff className="h-4 w-4 text-amber-400" strokeWidth={1.5} /> Transaksi Offline
+              {unsyncedCount > 0 && (
+                <Badge variant="secondary" className="ml-1 bg-amber-500/10 text-amber-400 border-amber-500/20 text-[10px] px-1.5">{unsyncedCount}</Badge>
+              )}
+            </ResponsiveDialogTitle>
+            <ResponsiveDialogDescription className="text-[11px] text-slate-500">
+              Transaksi yang belum berhasil disinkronkan ke server
+            </ResponsiveDialogDescription>
+          </ResponsiveDialogHeader>
+          <OfflineSyncContent
+            isOnline={isOnline}
+            onSynced={() => {
+              fetchProducts(productSearch, productPage, selectedCategoryId)
+              loadCustomersFromCache()
+            }}
+          />
+        </ResponsiveDialogContent>
+      </ResponsiveDialog>
+
       {/* Pending Transactions List Dialog */}
       <ResponsiveDialog open={pendingListOpen} onOpenChange={setPendingListOpen}>
         <ResponsiveDialogContent desktopClassName="max-w-md rounded-2xl">
@@ -2435,11 +2522,22 @@ function PendingListContent({
             </div>
 
             {/* Items preview */}
-            <div className="flex flex-wrap gap-1">
+            <div className="flex flex-wrap gap-1.5">
               {items.slice(0, 4).map((item, idx) => (
-                <span key={idx} className="text-[10px] bg-white/[0.04] text-slate-400 px-2 py-0.5 rounded-md truncate max-w-[140px]">
-                  {item.variant ? `${item.product.name} (${item.variant.name})` : item.product.name} ×{item.qty}
-                </span>
+                <div key={idx} className="inline-flex items-center gap-1.5 bg-white/[0.04] text-slate-400 pl-1 pr-2 py-0.5 rounded-md truncate max-w-[180px]">
+                  {item.product.image ? (
+                    <div className="w-5 h-5 shrink-0 rounded overflow-hidden bg-white/[0.03]">
+                      <img src={item.product.image} alt="" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = 'none' }} />
+                    </div>
+                  ) : (
+                    <div className="w-5 h-5 shrink-0 rounded bg-white/[0.03] flex items-center justify-center">
+                      <Package className="h-2.5 w-2.5 text-slate-700" strokeWidth={1.5} />
+                    </div>
+                  )}
+                  <span className="text-[10px] truncate">
+                    {item.variant ? `${item.product.name} (${item.variant.name})` : item.product.name} ×{item.qty}
+                  </span>
+                </div>
               ))}
               {items.length > 4 && (
                 <span className="text-[10px] bg-white/[0.04] text-slate-500 px-2 py-0.5 rounded-md">
@@ -2475,6 +2573,247 @@ function PendingListContent({
           </div>
         )
       })}
+    </div>
+  )
+}
+
+// ==================== OFFLINE SYNC SUB-COMPONENT ====================
+
+function OfflineSyncContent({
+  isOnline,
+  onSynced,
+}: {
+  isOnline: boolean
+  onSynced: () => void
+}) {
+  const offlineList = useLiveQuery(
+    async () => {
+      const list = await localDB.transactions.where('isSynced').equals(0).toArray()
+      return list.sort((a, b) => b.createdAt - a.createdAt)
+    },
+    []
+  )
+  const [syncingIds, setSyncingIds] = useState<Set<number>>(new Set())
+  const [syncingAll, setSyncingAll] = useState(false)
+
+  const syncOne = async (tx: OfflineTransaction) => {
+    if (!tx.id || syncingIds.has(tx.id)) return
+    setSyncingIds(prev => new Set(prev).add(tx.id!))
+    try {
+      const res = await fetch('/api/transactions/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transactions: [tx] }),
+      })
+      const data = await res.json()
+      if (res.ok && data.results?.[0]?.success) {
+        await localDB.transactions.update(tx.id, {
+          isSynced: 1,
+          syncedAt: Date.now(),
+          invoiceNumber: data.results[0].invoiceNumber,
+          serverTransactionId: data.results[0].serverId,
+        })
+        toast.success('Transaksi berhasil disync!')
+        onSynced()
+      } else {
+        const error = data.results?.[0]?.error || data.error || 'Gagal sync'
+        await localDB.transactions.update(tx.id, {
+          retryCount: (tx.retryCount || 0) + 1,
+          lastError: error,
+        })
+        toast.error('Sync gagal', { description: error })
+      }
+    } catch {
+      await localDB.transactions.update(tx.id, {
+        retryCount: (tx.retryCount || 0) + 1,
+        lastError: 'Tidak ada koneksi internet',
+      })
+      toast.error('Sync gagal — tidak ada koneksi')
+    } finally {
+      setSyncingIds(prev => {
+        const next = new Set(prev)
+        next.delete(tx.id!)
+        return next
+      })
+    }
+  }
+
+  const syncAll = async () => {
+    if (!offlineList || offlineList.length === 0 || syncingAll) return
+    setSyncingAll(true)
+    try {
+      const res = await fetch('/api/transactions/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transactions: offlineList }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        let synced = 0
+        let failed = 0
+        for (const result of data.results || []) {
+          if (result.success) {
+            await localDB.transactions.update(result.localId, {
+              isSynced: 1,
+              syncedAt: Date.now(),
+              invoiceNumber: result.invoiceNumber,
+              serverTransactionId: result.serverId,
+            })
+            synced++
+          } else {
+            const existing = await localDB.transactions.get(result.localId)
+            await localDB.transactions.update(result.localId, {
+              retryCount: (existing?.retryCount || 0) + 1,
+              lastError: result.error,
+            })
+            failed++
+          }
+        }
+        if (synced > 0) {
+          toast.success(`${synced} transaksi berhasil disync!`)
+          onSynced()
+        }
+        if (failed > 0) {
+          toast.error(`${failed} transaksi gagal sync`, { description: 'Periksa stok produk.' })
+        }
+      } else {
+        toast.error('Sync gagal — server error')
+      }
+    } catch {
+      toast.error('Sync gagal — tidak ada koneksi internet')
+    } finally {
+      setSyncingAll(false)
+    }
+  }
+
+  const deleteOne = async (id: number) => {
+    await localDB.transactions.delete(id)
+    toast.success('Transaksi offline dihapus')
+  }
+
+  const deleteAll = async () => {
+    if (!offlineList) return
+    for (const tx of offlineList) {
+      if (tx.id) await localDB.transactions.delete(tx.id)
+    }
+    toast.success(`${offlineList.length} transaksi offline dihapus`)
+  }
+
+  const formatTime = (ts: number) => {
+    const d = new Date(ts)
+    return d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  }
+
+  const getTxInfo = (tx: OfflineTransaction) => {
+    const p = tx.payload
+    const invoice = (tx.invoiceNumber as string) || (p.invoiceNumber as string) || `OFF-${tx.createdAt.toString(36).toUpperCase()}`
+    const total = (p.total as number) || (p.subtotal as number) || 0
+    const items = (p.items as Array<{ product?: { name: string }; variant?: { name: string }; qty: number }>) || []
+    const itemCount = items.reduce((s, i) => s + (i.qty || 1), 0)
+    return { invoice, total, itemCount }
+  }
+
+  if (!offlineList) {
+    return (
+      <div className="flex items-center justify-center py-10">
+        <Loader2 className="h-5 w-5 text-slate-500 animate-spin" />
+      </div>
+    )
+  }
+
+  if (offlineList.length === 0) {
+    return (
+      <div className="text-center py-10">
+        <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center mx-auto mb-3">
+          <Check className="h-5 w-5 text-emerald-400" strokeWidth={1.5} />
+        </div>
+        <p className="text-sm text-slate-400 font-medium">Semua transaksi tersinkronisasi</p>
+        <p className="text-[11px] text-slate-600 mt-1">Tidak ada transaksi offline yang pending</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-3 py-2">
+      {/* Bulk Actions */}
+      <div className="flex gap-2">
+        <Button
+          size="sm"
+          onClick={syncAll}
+          disabled={syncingAll || !isOnline}
+          className="flex-1 h-9 text-xs font-medium rounded-xl theme-bg hover:theme-hover text-white transition-colors disabled:opacity-40"
+        >
+          {syncingAll ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : <RefreshCw className="mr-1.5 h-3 w-3" strokeWidth={1.5} />}
+          Sync Semua
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={deleteAll}
+          className="h-9 px-3 text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-xl transition-colors"
+        >
+          <Trash2 className="h-3 w-3" strokeWidth={1.5} />
+        </Button>
+      </div>
+
+      {!isOnline && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-red-500/10 border border-red-500/20">
+          <WifiOff className="h-3.5 w-3.5 text-red-400 shrink-0" strokeWidth={1.5} />
+          <p className="text-[11px] text-red-400 font-medium">Anda sedang offline. Sync hanya bisa dilakukan saat online.</p>
+        </div>
+      )}
+
+      {/* Transaction List */}
+      <div className="space-y-2 max-h-[50vh] overflow-y-auto">
+        {offlineList.map((tx) => {
+          const { invoice, total, itemCount } = getTxInfo(tx)
+          const isSyncing = syncingIds.has(tx.id!)
+
+          return (
+            <div key={tx.id} className="aether-card p-3.5 space-y-2.5">
+              {/* Header */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="w-7 h-7 rounded-lg bg-amber-500/10 flex items-center justify-center shrink-0">
+                    <CloudOff className="h-3.5 w-3.5 text-amber-400" strokeWidth={1.5} />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-slate-200 font-mono truncate">{invoice}</p>
+                    <p className="text-[10px] text-slate-500">{formatTime(tx.createdAt)} · {itemCount} item</p>
+                  </div>
+                </div>
+                <p className="text-sm font-bold text-white tabular-nums shrink-0 ml-2">{formatCurrency(total)}</p>
+              </div>
+
+              {/* Status Info */}
+              <div className="flex items-center gap-3 text-[10px]">
+                <span className="flex items-center gap-1 text-slate-500">
+                  <RefreshCw className="h-2.5 w-2.5" strokeWidth={1.5} />
+                  {tx.retryCount}x dicoba
+                </span>
+                {tx.lastError && (
+                  <span className="text-red-400/80 truncate max-w-[200px]" title={tx.lastError}>
+                    {tx.lastError}
+                  </span>
+                )}
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-2 pt-0.5">
+                <Button size="sm" onClick={() => syncOne(tx)} disabled={isSyncing || !isOnline}
+                  className="flex-1 h-8 text-[11px] font-medium rounded-lg theme-bg hover:theme-hover text-white transition-colors disabled:opacity-40">
+                  {isSyncing ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : <RefreshCw className="mr-1.5 h-3 w-3" strokeWidth={1.5} />}
+                  {isSyncing ? 'Syncing...' : 'Sync'}
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => deleteOne(tx.id!)}
+                  className="h-8 px-3 text-[11px] text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors">
+                  <Trash2 className="h-3 w-3" strokeWidth={1.5} />
+                </Button>
+              </div>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }

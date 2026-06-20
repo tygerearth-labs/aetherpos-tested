@@ -288,7 +288,12 @@ export function ReceiptDialog({
         <div className="r-center r-space-lg">
           {settings.receiptLogo && (
             <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '6px' }}>
-              <img src={settings.receiptLogo} alt="Logo" className="r-logo" crossOrigin="anonymous" />
+              <img
+                src={settings.receiptLogo}
+                alt="Logo"
+                className="r-logo"
+                onError={(e) => { e.currentTarget.style.display = 'none' }}
+              />
             </div>
           )}
           <p className="r-bold r-lg">{settings.receiptBusinessName}</p>
