@@ -26,7 +26,6 @@ interface AuthUser {
   email: string | null
   role: string
   outletId: string
-  outletIds: string[]
 }
 
 export async function getAuthUser(request: NextRequest): Promise<AuthUser | null> {
@@ -63,7 +62,6 @@ export async function getAuthUser(request: NextRequest): Promise<AuthUser | null
       email: (payload.email as string) || null,
       role: (payload.role as string) || null,
       outletId: (payload.outletId as string) || '',
-      outletIds: ((payload.outletIds as string[]) || []).filter(Boolean),
     }
   } catch (error) {
     // Log only in development to avoid noise in production

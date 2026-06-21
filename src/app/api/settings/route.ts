@@ -37,7 +37,6 @@ export async function GET(request: NextRequest) {
       receiptLogo: setting.receiptLogo,
       ppnEnabled: setting.ppnEnabled,
       ppnRate: setting.ppnRate,
-      manualItemDiscountEnabled: setting.manualItemDiscountEnabled,
       themePrimaryColor: setting.themePrimaryColor,
       telegramChatId: setting.telegramChatId,
       telegramBotToken: setting.telegramBotToken ? '••••••' : null,
@@ -115,7 +114,6 @@ export async function PUT(request: NextRequest) {
       ...(body.receiptLogo !== undefined && { receiptLogo: String(body.receiptLogo ?? '') }),
       ...(ppnEnabled !== undefined && { ppnEnabled }),
       ...(ppnRate !== undefined && { ppnRate }),
-      ...(typeof body.manualItemDiscountEnabled === 'boolean' && { manualItemDiscountEnabled: body.manualItemDiscountEnabled }),
       ...(body.themePrimaryColor !== undefined && { themePrimaryColor: String(body.themePrimaryColor) }),
       ...(body.telegramBotToken !== undefined && { telegramBotToken: body.telegramBotToken ? String(body.telegramBotToken) : null }),
       ...(body.telegramChatId !== undefined && { telegramChatId: body.telegramChatId ? String(body.telegramChatId) : null }),
@@ -167,7 +165,7 @@ export async function PUT(request: NextRequest) {
     const SETTINGS_KEYS = [
       'paymentMethods', 'loyaltyEnabled', 'loyaltyPointsPerAmount', 'loyaltyPointValue',
       'receiptBusinessName', 'receiptAddress', 'receiptPhone', 'receiptFooter', 'receiptLogo',
-      'ppnEnabled', 'ppnRate', 'manualItemDiscountEnabled',
+      'ppnEnabled', 'ppnRate',
       'themePrimaryColor', 'telegramBotToken', 'telegramChatId',
       'notifyOnTransaction', 'notifyOnCustomer', 'notifyDailyReport', 'notifyWeeklyReport', 'notifyMonthlyReport', 'notifyOnInsight',
     ] as const
@@ -215,7 +213,6 @@ export async function PUT(request: NextRequest) {
       receiptLogo: response.receiptLogo,
       ppnEnabled: response.ppnEnabled,
       ppnRate: response.ppnRate,
-      manualItemDiscountEnabled: response.manualItemDiscountEnabled,
       themePrimaryColor: response.themePrimaryColor,
       telegramChatId: response.telegramChatId,
       telegramBotToken: response.telegramBotToken ? '••••••' : null,

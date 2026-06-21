@@ -112,7 +112,6 @@ interface SettingsData {
   notifyWeeklyReport: boolean
   notifyMonthlyReport: boolean
   notifyOnInsight: boolean
-  manualItemDiscountEnabled: boolean
   outlet?: { id: string; name: string; address: string | null; phone: string | null }
 }
 
@@ -235,7 +234,6 @@ function SettingsTabs({ isOwner }: { isOwner: boolean }) {
             <div className="space-y-4 mt-4">
               <TaxTab />
               <PromoTab />
-              <PosSettingsTab />
             </div>
           )}
         </TabsContent>
@@ -577,84 +575,7 @@ function TaxTab() {
   )
 }
 
-// ==================== TAB 3: POS SETTINGS ====================
-
-function PosSettingsTab() {
-  const { settings, loading, saving, saveSettings } = useSettings()
-  const [edits, setEdits] = useState<Record<string, boolean> | null>(null)
-
-  const enabled = edits?.manualItemDiscountEnabled ?? settings?.manualItemDiscountEnabled ?? false
-  const dirty = edits !== null
-
-  const handleToggle = (v: boolean) => {
-    setEdits((prev) => ({ ...prev, manualItemDiscountEnabled: v }))
-  }
-
-  const handleSave = async () => {
-    const ok = await saveSettings({ manualItemDiscountEnabled: enabled })
-    if (ok) setEdits(null)
-  }
-
-  if (loading) {
-    return (
-      <Card className="bg-nebula border-white/[0.06]">
-        <CardContent className="p-4 space-y-3">
-          <Skeleton className="h-5 w-48 bg-white/[0.04]" />
-          <Skeleton className="h-16 bg-white/[0.04] rounded-lg" />
-        </CardContent>
-      </Card>
-    )
-  }
-
-  return (
-    <Card className="bg-nebula border-white/[0.06]">
-      <CardContent className="p-4 space-y-4">
-        <div>
-          <h2 className="text-sm font-semibold text-white">Diskon Manual Per Item</h2>
-          <p className="text-xs text-slate-400 mt-0.5">Izinkan kasir memberikan diskon pada setiap item di keranjang POS</p>
-        </div>
-
-        <div className="flex items-center justify-between p-3 rounded-lg border border-white/[0.06] bg-white/[0.03]">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg theme-bg-very-light flex items-center justify-center">
-              <Tag className="h-4 w-4 theme-text" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-slate-200">Aktifkan Diskon Manual Per Item</p>
-              <p className="text-[11px] text-slate-500">Kasir dapat menetapkan diskon nominal atau persentase pada setiap produk di keranjang</p>
-            </div>
-          </div>
-          <Switch
-            checked={enabled}
-            onCheckedChange={handleToggle}
-            className="theme-switch"
-          />
-        </div>
-
-        {enabled && (
-          <div className="rounded-lg border theme-border-light theme-bg-ultra-light p-3">
-            <p className="text-[11px] text-slate-300">
-              <span className="font-medium theme-text">Aktif:</span> Kasir dapat menetapkan diskon nominal atau persentase pada setiap produk di keranjang
-            </p>
-          </div>
-        )}
-
-        <div className="flex justify-end">
-          <Button
-            onClick={handleSave}
-            disabled={saving || !dirty}
-            className="theme-btn-primary h-9 text-xs"
-          >
-            {saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
-            Simpan
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-// ==================== TAB 4: OUTLET INFO ====================
+// ==================== TAB 3: OUTLET INFO ====================
 
 function OutletInfoTab() {
   const { settings, loading, saving, saveSettings, refetch } = useSettings()

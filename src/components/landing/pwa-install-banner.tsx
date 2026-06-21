@@ -13,21 +13,21 @@ export function PwaInstallBanner() {
   const [deferredPrompt, setDeferredPrompt] =
     useState<BeforeInstallPromptEvent | null>(null);
   const [show, setShow] = useState(false);
-  const [dismissed, setDismissed] = useState(() => {
-    if (typeof window === 'undefined') return false;
+  const [dismissed, setDismissed] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    // Check if previously dismissed (expires after 7 days)
     const dismissedAt = localStorage.getItem("pwa-banner-dismissed");
     if (dismissedAt) {
       const elapsed = Date.now() - parseInt(dismissedAt, 10);
-      if (elapsed < 7 * 24 * 60 * 60 * 1000) return true;
+      if (elapsed < 7 * 24 * 60 * 60 * 1000) {
+        setDismissed(true);
+        return;
+      }
     }
-    return false;
-  });
-  const [isMobile, setIsMobile] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    return /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 768;
-  });
 
-  useEffect(() => {
+    // Detect mobile
     const checkMobile = () => {
       setIsMobile(
         /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(

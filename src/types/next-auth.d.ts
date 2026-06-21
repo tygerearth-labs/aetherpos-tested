@@ -9,7 +9,6 @@ declare module 'next-auth' {
       email: string
       role: string
       outletId: string
-      outletIds?: string[]
     }
   }
 
@@ -27,6 +26,5 @@ declare module 'next-auth/jwt' {
     id: string
     role: string
     outletId: string
-    outletIds?: string[]
   }
 }

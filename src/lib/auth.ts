@@ -61,35 +61,6 @@ export const authOptions: NextAuthOptions = {
         token.role = user.role;
         token.outletId = user.outletId;
         token.name = user.name;
-
-        // Build outletIds list
-        const outletIds: string[] = [user.outletId];
-
-        if (user.role === 'OWNER') {
-          // OWNER: include all outlets linked by owner records with same email
-          const ownerRecords = await db.user.findMany({
-            where: { email: user.email!, role: 'OWNER' },
-            select: { outletId: true },
-          });
-          for (const rec of ownerRecords) {
-            if (!outletIds.includes(rec.outletId)) {
-              outletIds.push(rec.outletId);
-            }
-          }
-        } else {
-          // CREW: include outlets from UserOutlet records
-          const crewOutlets = await db.userOutlet.findMany({
-            where: { userId: user.id },
-            select: { outletId: true },
-          });
-          for (const rec of crewOutlets) {
-            if (!outletIds.includes(rec.outletId)) {
-              outletIds.push(rec.outletId);
-            }
-          }
-        }
-
-        token.outletIds = outletIds;
       }
       return token;
     },
@@ -99,7 +70,6 @@ export const authOptions: NextAuthOptions = {
         session.user.role = token.role;
         session.user.outletId = token.outletId;
         session.user.name = token.name;
-        session.user.outletIds = token.outletIds;
       }
       return session;
     },
