@@ -36,20 +36,12 @@ import {
   Database,
   ArrowDownToLine,
   LayoutGrid,
-  Store,
   Tag,
   Layers,
   ClockArrowDown,
   Clock,
   MessageSquare,
 } from 'lucide-react'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { localDB, type PendingTransaction, type OfflineTransaction } from '@/lib/local-db'
 import { syncAllData, getAllSyncTimes, syncSettingsFromServer, getCachedSettings } from '@/lib/sync-service'
@@ -58,6 +50,7 @@ import { useSession } from 'next-auth/react'
 import { usePageStore } from '@/hooks/use-page-store'
 import { PaymentDialog } from '@/components/pos/payment-dialog'
 import { ReceiptDialog } from '@/components/pos/receipt-dialog'
+import { OutletSwitcher, type OutletOption } from '@/components/shared/outlet-switcher'
 
 // ==================== TYPES ====================
 
@@ -101,6 +94,8 @@ interface CartItem {
   product: Product
   variant: ProductVariant | null
   qty: number
+  itemDiscount: number
+  itemDiscountType: 'NOMINAL' | 'PERCENTAGE'
 }
 
 interface VariantPickerState {
@@ -130,6 +125,7 @@ interface OutletSettings {
   themePrimaryColor: string
   ppnEnabled: boolean
   ppnRate: number
+  manualItemDiscountEnabled: boolean
 }
 
 interface OutletInfo {
@@ -137,14 +133,6 @@ interface OutletInfo {
   name: string
   address: string | null
   phone: string | null
-}
-
-interface UserOutlet {
-  id: string
-  name: string
-  address: string | null
-  phone: string | null
-  isPrimary: boolean
 }
 
 const PRODUCTS_PER_PAGE = 24
@@ -210,12 +198,13 @@ export default function PosPage() {
     themePrimaryColor: 'emerald',
     ppnEnabled: false,
     ppnRate: 11,
+    manualItemDiscountEnabled: false,
   })
 
   // Outlet info (from settings API)
   const [outletInfo, setOutletInfo] = useState<OutletInfo | null>(null)
-  const [userOutlets, setUserOutlets] = useState<UserOutlet[]>([])
-  const [outletsLoading, setOutletsLoading] = useState(false)
+  const [userOutlets, setUserOutlets] = useState<OutletOption[]>([])
+  const [outletsLoading, setOutletsLoading] = useState(true)
 
   const availablePaymentMethods = useMemo(() => {
     return settings.paymentMethods.split(',').map(m => m.trim().toUpperCase()).filter(Boolean) as Array<'CASH' | 'QRIS' | 'DEBIT' | 'TRANSFER'>
@@ -242,6 +231,7 @@ export default function PosPage() {
               themePrimaryColor: data.themePrimaryColor || 'emerald',
               ppnEnabled: data.ppnEnabled ?? false,
               ppnRate: data.ppnRate || 11,
+              manualItemDiscountEnabled: data.manualItemDiscountEnabled ?? false,
             })
             // Extract outlet info from settings response
             if (data.outlet) {
@@ -272,6 +262,7 @@ export default function PosPage() {
               themePrimaryColor: (cached.themePrimaryColor as string) || 'emerald',
               ppnEnabled: (cached.ppnEnabled as boolean) ?? false,
               ppnRate: (cached.ppnRate as number) || 11,
+              manualItemDiscountEnabled: (cached.manualItemDiscountEnabled as boolean) ?? false,
             })
             // Extract outlet info from cached settings
             const cachedOutlet = cached.outlet as { id: string; name: string; address: string | null; phone: string | null } | undefined
@@ -312,6 +303,7 @@ export default function PosPage() {
                 themePrimaryColor: data.themePrimaryColor || 'emerald',
                 ppnEnabled: data.ppnEnabled ?? false,
                 ppnRate: data.ppnRate || 11,
+                manualItemDiscountEnabled: data.manualItemDiscountEnabled ?? false,
               })
             }
           }
@@ -326,7 +318,7 @@ export default function PosPage() {
     const fetchOutlets = async () => {
       if (!isOnline) return
       try {
-        const res = await fetch('/api/outlets')
+        const res = await fetch('/api/auth/my-outlets')
         if (res.ok) {
           const data = await res.json()
           if (data.outlets && Array.isArray(data.outlets)) {
@@ -454,6 +446,11 @@ export default function PosPage() {
   const qtyInputRef = useRef<HTMLInputElement>(null)
   const [holdNote, setHoldNote] = useState('')
   const [holdNoteOpen, setHoldNoteOpen] = useState(false)
+
+  // Discount editing state
+  const [editingDiscountKey, setEditingDiscountKey] = useState<string | null>(null)
+  const [editingDiscountValue, setEditingDiscountValue] = useState('')
+  const [editingDiscountType, setEditingDiscountType] = useState<'NOMINAL' | 'PERCENTAGE'>('NOMINAL')
 
   // Pending Transactions
   const [pendingListOpen, setPendingListOpen] = useState(false)
@@ -856,7 +853,32 @@ export default function PosPage() {
   // Helper: get item display name
   const getItemDisplayName = (item: CartItem) => item.variant ? `${item.product.name} - ${item.variant.name}` : item.product.name
 
-  const subtotal = useMemo(() => cart.reduce((sum, item) => sum + getItemPrice(item) * item.qty, 0), [cart])
+  // Helper: calculate per-item discount amount
+  const getItemDiscountAmount = (item: CartItem) => {
+    if (item.itemDiscount <= 0) return 0
+    const lineTotal = getItemPrice(item) * item.qty
+    return item.itemDiscountType === 'PERCENTAGE'
+      ? Math.round(lineTotal * Math.min(item.itemDiscount, 100) / 100)
+      : Math.min(item.itemDiscount, lineTotal)
+  }
+
+  // Helper: update item discount
+  const updateItemDiscount = (productId: string, discount: number, type: 'NOMINAL' | 'PERCENTAGE', variantId?: string) => {
+    const key = getCartKey(productId, variantId || null)
+    setCart((prev) => prev.map((i) =>
+      getCartKey(i.product.id, i.variant?.id || null) === key
+        ? { ...i, itemDiscount: Math.max(0, discount), itemDiscountType: type }
+        : i
+    ))
+  }
+
+  const subtotal = useMemo(() => cart.reduce((sum, item) => {
+    const lineTotal = getItemPrice(item) * item.qty
+    const discount = item.itemDiscountType === 'PERCENTAGE'
+      ? Math.round(lineTotal * item.itemDiscount / 100)
+      : item.itemDiscount
+    return sum + Math.max(0, lineTotal - discount)
+  }, 0), [cart])
   const maxPointsToUse = selectedCustomer ? selectedCustomer.points : 0
   const pointsDiscount = pointsToUse * settings.loyaltyPointValue
   const ppnAmount = settings.ppnEnabled ? Math.round(subtotal * settings.ppnRate / 100) : 0
@@ -876,7 +898,7 @@ export default function PosPage() {
           return prev.map((item) => getCartKey(item.product.id, item.variant?.id || null) === key ? { ...item, qty: newQty } : item)
         }
         if (qty > variant.stock) { toast.warning('Stok tidak cukup'); return prev }
-        return [...prev, { product, variant, qty }]
+        return [...prev, { product, variant, qty, itemDiscount: 0, itemDiscountType: 'NOMINAL' as const }]
       })
     } else {
       if (product.stock <= 0) return
@@ -889,7 +911,7 @@ export default function PosPage() {
           return prev.map((item) => item.product.id === product.id && !item.variant ? { ...item, qty: newQty } : item)
         }
         if (qty > product.stock) { toast.warning('Stok tidak cukup'); return prev }
-        return [...prev, { product, variant: null, qty }]
+        return [...prev, { product, variant: null, qty, itemDiscount: 0, itemDiscountType: 'NOMINAL' as const }]
       })
     }
   }
@@ -940,6 +962,8 @@ export default function PosPage() {
           product: item.product,
           variant: item.variant,
           qty: item.qty,
+          itemDiscount: item.itemDiscount,
+          itemDiscountType: item.itemDiscountType,
         })),
         customerId: selectedCustomer?.id || null,
         customerName: selectedCustomer?.name || null,
@@ -969,6 +993,8 @@ export default function PosPage() {
             product: item.product,
             variant: item.variant,
             qty: item.qty,
+            itemDiscount: item.itemDiscount,
+            itemDiscountType: item.itemDiscountType,
           })),
           customerId: selectedCustomer?.id || null,
           customerName: selectedCustomer?.name || null,
@@ -983,8 +1009,12 @@ export default function PosPage() {
 
     // Load pending items into cart
     try {
-      const items = pending.items as Array<{ product: Product; variant: ProductVariant | null; qty: number }>
-      setCart(items)
+      const items = pending.items as Array<{ product: Product; variant: ProductVariant | null; qty: number; itemDiscount?: number; itemDiscountType?: 'NOMINAL' | 'PERCENTAGE' }>
+      setCart(items.map(i => ({
+        ...i,
+        itemDiscount: i.itemDiscount ?? 0,
+        itemDiscountType: i.itemDiscountType ?? 'NOMINAL',
+      })))
       if (pending.customerId && pending.customerName) {
         const customer = customers.find(c => c.id === pending.customerId)
         if (customer) {
@@ -1155,9 +1185,11 @@ export default function PosPage() {
           productName: item.product.name,
           price: getItemPrice(item),
           qty: item.qty,
-          subtotal: getItemPrice(item) * item.qty,
+          subtotal: getItemPrice(item) * item.qty - getItemDiscountAmount(item),
           variantId: item.variant?.id || null,
           variantName: item.variant?.name || null,
+          itemDiscount: item.itemDiscount,
+          itemDiscountType: item.itemDiscountType,
         })),
         subtotal,
         discount: pointsDiscount + promoDiscount,
@@ -1622,10 +1654,93 @@ export default function PosPage() {
                 <p className={cn('text-slate-500 mt-1', compact ? 'text-[11px]' : 'text-[10px]')}>
                   {formatCurrency(getItemPrice(item))} × {item.qty}
                 </p>
+                {/* Discount badge (not editing) */}
+                {settings.manualItemDiscountEnabled && item.itemDiscount > 0 && editingDiscountKey !== itemKey && (
+                  <div className="flex items-center gap-1 mt-0.5">
+                    <span className="text-[10px] text-amber-400 font-medium">
+                      {item.itemDiscountType === 'PERCENTAGE' ? `${item.itemDiscount}%` : formatCurrency(item.itemDiscount)} off
+                    </span>
+                  </div>
+                )}
+                {/* Inline discount editor */}
+                {settings.manualItemDiscountEnabled && editingDiscountKey === itemKey && (
+                  <div className="flex items-center gap-1.5 mt-1.5 pl-1">
+                    <button
+                      className={cn(
+                        'text-[9px] font-bold px-1.5 py-0.5 rounded-md border transition-all',
+                        editingDiscountType === 'NOMINAL'
+                          ? 'theme-bg-very-light theme-text theme-border-light'
+                          : 'text-slate-500 border-white/[0.06] hover:text-slate-300'
+                      )}
+                      onClick={() => setEditingDiscountType('NOMINAL')}
+                    >
+                      Rp
+                    </button>
+                    <button
+                      className={cn(
+                        'text-[9px] font-bold px-1.5 py-0.5 rounded-md border transition-all',
+                        editingDiscountType === 'PERCENTAGE'
+                          ? 'theme-bg-very-light theme-text theme-border-light'
+                          : 'text-slate-500 border-white/[0.06] hover:text-slate-300'
+                      )}
+                      onClick={() => setEditingDiscountType('PERCENTAGE')}
+                    >
+                      %
+                    </button>
+                    <input
+                      type="number"
+                      min="0"
+                      max={editingDiscountType === 'PERCENTAGE' ? '100' : String(getItemPrice(item) * item.qty)}
+                      value={editingDiscountValue}
+                      onChange={(e) => setEditingDiscountValue(e.target.value)}
+                      onBlur={() => {
+                        const val = Number(editingDiscountValue) || 0
+                        updateItemDiscount(item.product.id, val, editingDiscountType, item.variant?.id)
+                        setEditingDiscountKey(null)
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          const val = Number(editingDiscountValue) || 0
+                          updateItemDiscount(item.product.id, val, editingDiscountType, item.variant?.id)
+                          setEditingDiscountKey(null)
+                        }
+                        if (e.key === 'Escape') setEditingDiscountKey(null)
+                      }}
+                      autoFocus
+                      className="w-16 h-6 text-[11px] text-center font-medium bg-white/[0.04] border border-white/[0.08] rounded-md text-white outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      placeholder="0"
+                    />
+                    {item.itemDiscount > 0 && (
+                      <span className="text-[10px] text-amber-400 font-medium">
+                        -{formatCurrency(getItemDiscountAmount(item))}
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Item Total */}
               <p className={cn('font-bold theme-text shrink-0 tabular-nums', compact ? 'text-sm' : 'text-xs mr-1')}>{formatCurrency(itemTotal)}</p>
+
+              {/* Manual Discount Button */}
+              {settings.manualItemDiscountEnabled && (
+                <button
+                  className={cn(
+                    'flex items-center justify-center rounded-md shrink-0 transition-all active:scale-90',
+                    item.itemDiscount > 0
+                      ? 'h-6 w-6 text-amber-400 bg-amber-500/10 hover:bg-amber-500/20'
+                      : 'h-6 w-6 text-slate-600 hover:text-slate-400 hover:bg-white/[0.04]'
+                  )}
+                  onClick={() => {
+                    setEditingDiscountKey(itemKey)
+                    setEditingDiscountValue(item.itemDiscount > 0 ? String(item.itemDiscount) : '')
+                    setEditingDiscountType(item.itemDiscountType)
+                  }}
+                  title="Diskon item"
+                >
+                  <Tag className="h-3 w-3" strokeWidth={1.5} />
+                </button>
+              )}
 
               {/* Qty Controls */}
               <div className="flex items-center gap-0.5 shrink-0">
@@ -1680,9 +1795,19 @@ export default function PosPage() {
   }
 
   // Cart summary — shared totals display
+  const manualItemDiscountTotal = useMemo(() =>
+    cart.reduce((sum, item) => sum + getItemDiscountAmount(item), 0), [cart]
+  )
+
   const renderCartSummary = () => (
     <div className="space-y-1.5 text-xs">
       <div className="flex justify-between text-slate-400"><span>Subtotal</span><span className="text-slate-200 tabular-nums">{formatCurrency(subtotal)}</span></div>
+      {manualItemDiscountTotal > 0 && (
+        <div className="flex justify-between text-amber-400">
+          <span className="flex items-center gap-1.5"><Tag className="h-3 w-3" strokeWidth={1.5} /> Diskon Item</span>
+          <span className="tabular-nums">-{formatCurrency(manualItemDiscountTotal)}</span>
+        </div>
+      )}
       {settings.loyaltyEnabled && selectedCustomer && maxPointsToUse > 0 && (
         <div className="flex items-center justify-between">
           <span className="text-slate-400 flex items-center gap-1.5"><Coins className="h-3 w-3" strokeWidth={1.5} /> Pakai Poin</span>
@@ -1717,17 +1842,14 @@ export default function PosPage() {
       {/* Header — Mobile Compact */}
       <div className="md:hidden flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
-          {outletInfo ? (
-            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl aether-card text-[11px] font-semibold text-slate-300 min-w-0">
-              <Store className="h-3.5 w-3.5 theme-text shrink-0" strokeWidth={1.5} />
-              <span className="truncate">{outletInfo.name}</span>
-            </div>
-          ) : (
-            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl aether-card text-[11px] font-medium text-slate-600">
-              <Store className="h-3.5 w-3.5" strokeWidth={1.5} />
-              <span>No outlet</span>
-            </div>
-          )}
+          <OutletSwitcher
+            activeOutletId={outletInfo?.id}
+            outlets={userOutlets}
+            loading={outletsLoading}
+            variant="pos"
+            compact
+            className="min-w-0 max-w-[180px]"
+          />
           <div className={`flex items-center gap-1 px-2 py-1.5 rounded-xl text-[10px] font-medium border shrink-0 ${
             isOnline ? 'theme-bg-very-light theme-border-light theme-text' : 'bg-red-500/10 border-red-500/20 text-red-400'
           }`}>
@@ -1768,57 +1890,13 @@ export default function PosPage() {
             <p className="text-[11px] text-slate-500">Proses transaksi & terima pembayaran</p>
           </div>
 
-          {/* Outlet Selector */}
-          {userOutlets.length > 1 ? (
-            <Select
-              value={outletInfo?.id || ''}
-              onValueChange={(value) => {
-                const selectedOutlet = userOutlets.find(o => o.id === value)
-                if (selectedOutlet && selectedOutlet.id !== outletInfo?.id) {
-                  toast.info(`Switching to "${selectedOutlet.name}"...`, {
-                    description: 'Data will reload for the selected outlet.',
-                    duration: 3000,
-                  })
-                  setOutletInfo({
-                    id: selectedOutlet.id,
-                    name: selectedOutlet.name,
-                    address: selectedOutlet.address,
-                    phone: selectedOutlet.phone,
-                  })
-                }
-              }}
-            >
-              <SelectTrigger className="w-auto min-w-[180px] max-w-[220px] h-8 bg-nebula border-white/[0.08] text-slate-200 text-xs rounded-lg gap-1.5 pr-2">
-                <Store className="h-3.5 w-3.5 text-slate-500 shrink-0" strokeWidth={1.5} />
-                <SelectValue placeholder={outletsLoading ? 'Loading...' : 'Select outlet'} />
-              </SelectTrigger>
-              <SelectContent className="bg-nebula border-white/[0.08]">
-                {userOutlets.map((outlet) => (
-                  <SelectItem key={outlet.id} value={outlet.id} className="text-xs text-slate-200 focus:bg-white/[0.04] focus:text-white">
-                    <div className="flex items-center gap-2">
-                      <Store className="h-3.5 w-3.5 text-slate-500" strokeWidth={1.5} />
-                      <span>{outlet.name}</span>
-                      {outlet.isPrimary && (
-                        <span className="text-[9px] theme-bg-very-light theme-text border theme-border-light px-1.5 py-0.5 rounded-full font-medium">
-                          Primary
-                        </span>
-                      )}
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : outletInfo ? (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/[0.04] border border-white/[0.08] text-[11px] font-medium text-slate-400">
-              <Store className="h-3 w-3" strokeWidth={1.5} />
-              <span>{outletInfo.name}</span>
-            </div>
-          ) : !outletsLoading ? (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/[0.03] border border-white/[0.06] text-[11px] font-medium text-slate-600">
-              <Store className="h-3 w-3" strokeWidth={1.5} />
-              <span>No outlet</span>
-            </div>
-          ) : null}
+          <OutletSwitcher
+            activeOutletId={outletInfo?.id}
+            outlets={userOutlets}
+            loading={outletsLoading}
+            variant="pos"
+            className="min-w-[160px] max-w-[220px]"
+          />
         </div>
         <div className="flex items-center gap-1.5 flex-wrap">
           {/* Connection */}

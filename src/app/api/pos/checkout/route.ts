@@ -16,6 +16,8 @@ interface CheckoutItem {
   subtotal?: number
   variantId?: string
   variantName?: string
+  itemDiscount?: number
+  itemDiscountType?: string
 }
 
 export async function POST(request: NextRequest) {
@@ -190,6 +192,8 @@ export async function POST(request: NextRequest) {
           qty: item.qty,
           subtotal: item.price * item.qty,
           hpp: variant ? variant.hpp : product.hpp,
+          itemDiscount: item.itemDiscount || 0,
+          itemDiscountType: item.itemDiscountType || 'NOMINAL',
           transactionId: transaction.id,
         }
       })

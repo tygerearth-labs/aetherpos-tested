@@ -28,6 +28,8 @@ import {
   Command,
 } from 'lucide-react'
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { OutletSwitcher, type OutletOption } from '@/components/shared/outlet-switcher'
+
 import { motion, AnimatePresence } from 'framer-motion'
 import { create } from 'zustand'
 
@@ -106,6 +108,10 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
   const { plan, isSuspended } = usePlan()
   const router = useRouter()
 
+  // ---- Multi-outlet switcher ----
+  const [userOutlets, setUserOutlets] = useState<OutletOption[]>([])
+  const [outletsLoading, setOutletsLoading] = useState(true)
+
   // ---- Crew permission-based filtering ----
   const userRole = session?.user?.role || 'CREW'
   const isOwner = userRole === 'OWNER'
@@ -138,6 +144,28 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
   useEffect(() => {
     fetchPermissions()
   }, [fetchPermissions])
+
+  // Fetch user's outlets for multi-outlet switcher
+  useEffect(() => {
+    const fetchOutlets = async () => {
+      setOutletsLoading(true)
+      try {
+        const res = await fetch('/api/auth/my-outlets')
+        if (res.ok) {
+          const data = await res.json()
+          setUserOutlets((data.outlets || []).map((o: Record<string, unknown>) => ({
+            id: o.id as string,
+            name: o.name as string,
+            address: (o.address as string) || null,
+            phone: (o.phone as string) || null,
+            isPrimary: (o.isPrimary as boolean) || false,
+          })))
+        }
+      } catch { /* silent */ }
+      finally { setOutletsLoading(false) }
+    }
+    fetchOutlets()
+  }, [])
 
   // Page guard: redirect crew if they navigate to unauthorized page
   useEffect(() => {
@@ -323,6 +351,18 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
             <span className="text-[10px] font-medium">Command Menu</span>
             <span className="ml-auto text-[9px] font-mono text-slate-600 bg-white/[0.04] px-1.5 py-0.5 rounded">⌘K</span>
           </div>
+        </div>
+      )}
+
+      {/* Outlet Switcher */}
+      {!isCompact && (
+        <div className="px-3 pt-3">
+          <OutletSwitcher
+            activeOutletId={session?.user?.outletId as string | undefined}
+            outlets={userOutlets}
+            loading={outletsLoading}
+            variant="default"
+          />
         </div>
       )}
 

@@ -1,10 +1,7 @@
 /**
- * db.ts — Prisma Client (PostgreSQL via Neon)
+ * db.ts — Prisma Client (SQLite)
  *
  * SINGLE import point for all API routes.
- * Works with Neon (production/Vercel) and local PostgreSQL.
- *
- * Offline mode (POS) uses IndexedDB (Dexie) client-side — independent of this.
  */
 
 import { PrismaClient } from '@prisma/client'

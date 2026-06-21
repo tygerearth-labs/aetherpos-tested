@@ -52,7 +52,16 @@ import {
   Shield,
   Search,
   Users,
+  Store,
+  X,
 } from 'lucide-react'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 // ==================== TYPES ====================
 
@@ -139,6 +148,14 @@ function CrewManagement() {
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
 
+  // Outlet assignment
+  const [selectedCrewForOutlet, setSelectedCrewForOutlet] = useState<CrewMember | null>(null)
+  const [outletDialogOpen, setOutletDialogOpen] = useState(false)
+  const [crewOutlets, setCrewOutlets] = useState<Array<{ id: string; name: string; isPrimary: boolean }>>([])
+  const [allOutlets, setAllOutlets] = useState<Array<{ id: string; name: string }>>([])
+  const [outletsLoading, setOutletsLoading] = useState(false)
+  const [assigning, setAssigning] = useState(false)
+
   // Form
   const [formData, setFormData] = useState<CrewFormData>(DEFAULT_FORM)
   const [saving, setSaving] = useState(false)
@@ -164,6 +181,42 @@ function CrewManagement() {
   useEffect(() => {
     fetchCrew()
   }, [fetchCrew])
+
+  // Fetch outlet data when outlet dialog opens
+  useEffect(() => {
+    if (!outletDialogOpen || !selectedCrewForOutlet) return
+    const fetchOutletData = async () => {
+      setOutletsLoading(true)
+      setCrewOutlets([])
+      setAllOutlets([])
+      try {
+        const [crewRes, allRes] = await Promise.all([
+          fetch(`/api/outlet/crew/${selectedCrewForOutlet.id}/outlets`),
+          fetch('/api/outlets'),
+        ])
+        if (crewRes.ok) {
+          const data = await crewRes.json()
+          setCrewOutlets((data.outlets || []).map((o: Record<string, unknown>) => ({
+            id: o.id as string,
+            name: o.name as string,
+            isPrimary: (o.isPrimary as boolean) || false,
+          })))
+        }
+        if (allRes.ok) {
+          const data = await allRes.json()
+          setAllOutlets((data.outlets || []).map((o: Record<string, unknown>) => ({
+            id: o.id as string,
+            name: o.name as string,
+          })))
+        }
+      } catch {
+        toast.error('Gagal memuat data outlet')
+      } finally {
+        setOutletsLoading(false)
+      }
+    }
+    fetchOutletData()
+  }, [outletDialogOpen, selectedCrewForOutlet])
 
   // Filter crew by search
   const filteredCrew = crew.filter((c) => {
@@ -382,6 +435,9 @@ function CrewManagement() {
                         <TableHead className="text-slate-500 text-[11px] font-medium hidden sm:table-cell">Email</TableHead>
                         <TableHead className="text-slate-500 text-[11px] font-medium text-center">Role</TableHead>
                         <TableHead className="text-slate-500 text-[11px] font-medium text-center">Halaman Akses</TableHead>
+                        <ProGate feature="multiOutlet" inline>
+                          <TableHead className="text-slate-500 text-[11px] font-medium text-center hidden md:table-cell">Outlet</TableHead>
+                        </ProGate>
                         <TableHead className="text-slate-500 text-[11px] font-medium hidden lg:table-cell">Bergabung</TableHead>
                         <TableHead className="text-slate-500 text-[11px] font-medium text-right">Aksi</TableHead>
                       </TableRow>
@@ -431,6 +487,24 @@ function CrewManagement() {
                                 )}
                               </div>
                             </TableCell>
+                            <ProGate feature="multiOutlet" inline>
+                              <TableCell className="text-center py-2.5 px-3 hidden md:table-cell">
+                                <div className="flex items-center justify-center gap-1.5">
+                                  <Badge className="bg-white/[0.04] border border-white/[0.08] text-slate-300 text-[10px] font-medium hover:bg-white/[0.06]">
+                                    <Store className="h-3 w-3 mr-1" />
+                                    Outlet Utama
+                                  </Badge>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 w-6 p-0 text-slate-500 hover:text-slate-300"
+                                    onClick={() => { setSelectedCrewForOutlet(member); setOutletDialogOpen(true) }}
+                                  >
+                                    <Plus className="h-3 w-3" />
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </ProGate>
                             <TableCell className="py-2.5 px-3 hidden lg:table-cell">
                               <div className="flex items-center gap-1.5">
                                 <Calendar className="h-3 w-3 text-slate-500" />
@@ -692,9 +766,145 @@ function CrewManagement() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Outlet Assignment Dialog */}
+      <ResponsiveDialog open={outletDialogOpen} onOpenChange={(open) => { setOutletDialogOpen(open); if (!open) { setSelectedCrewForOutlet(null); setCrewOutlets([]) } }}>
+        <ResponsiveDialogContent className="p-4 max-w-md">
+          <ResponsiveDialogHeader>
+            <ResponsiveDialogTitle className="text-sm font-semibold text-white">
+              Kelola Outlet — {selectedCrewForOutlet?.name}
+            </ResponsiveDialogTitle>
+            <ResponsiveDialogDescription className="text-slate-400 text-xs">
+              Atur outlet mana saja yang dapat diakses oleh crew ini.
+            </ResponsiveDialogDescription>
+          </ResponsiveDialogHeader>
+
+          <div className="space-y-4 py-1">
+            {/* Current assignments */}
+            <div className="space-y-1.5">
+              <Label className="text-xs text-slate-400">Outlet Terdaftar</Label>
+              {outletsLoading ? (
+                <div className="flex items-center gap-2 py-3 justify-center">
+                  <Loader2 className="h-4 w-4 animate-spin text-slate-500" />
+                  <span className="text-xs text-slate-500">Memuat...</span>
+                </div>
+              ) : crewOutlets.length === 0 ? (
+                <p className="text-xs text-slate-500 py-2">Belum ada outlet</p>
+              ) : (
+                <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                  {crewOutlets.map((outlet) => (
+                    <div
+                      key={outlet.id}
+                      className="flex items-center justify-between px-3 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Store className="h-3.5 w-3.5 text-slate-500" />
+                        <span className="text-xs text-slate-200">{outlet.name}</span>
+                        {outlet.isPrimary && (
+                          <span className="text-[9px] theme-bg-very-light theme-text border theme-border-light px-1.5 py-0.5 rounded-full font-medium">
+                            Utama
+                          </span>
+                        )}
+                      </div>
+                      {!outlet.isPrimary && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 w-6 p-0 text-slate-500 hover:text-red-400 hover:bg-red-500/10"
+                          disabled={assigning}
+                          onClick={async () => {
+                            if (!selectedCrewForOutlet) return
+                            try {
+                              setAssigning(true)
+                              const res = await fetch(`/api/outlet/crew/${selectedCrewForOutlet.id}/unassign-outlet`, {
+                                method: 'DELETE',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ outletId: outlet.id }),
+                              })
+                              if (res.ok) {
+                                toast.success(`Crew dihapus dari outlet "${outlet.name}"`)
+                                setCrewOutlets((prev) => prev.filter((o) => o.id !== outlet.id))
+                              } else {
+                                const data = await res.json()
+                                toast.error(data.error || 'Gagal menghapus outlet')
+                              }
+                            } catch {
+                              toast.error('Gagal menghapus outlet')
+                            } finally {
+                              setAssigning(false)
+                            }
+                          }}
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Add outlet */}
+            {crewOutlets.length < allOutlets.length && (
+              <div className="space-y-1.5">
+                <Label className="text-xs text-slate-400">Tambah Outlet</Label>
+                <div className="flex items-center gap-2">
+                  <Select onValueChange={async (outletId) => {
+                    if (!selectedCrewForOutlet) return
+                    const outlet = allOutlets.find((o) => o.id === outletId)
+                    if (!outlet) return
+                    try {
+                      setAssigning(true)
+                      const res = await fetch(`/api/outlet/crew/${selectedCrewForOutlet.id}/assign-outlet`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ outletId }),
+                      })
+                      if (res.ok) {
+                        toast.success(`Crew ditambahkan ke outlet "${outlet.name}"`)
+                        setCrewOutlets((prev) => [...prev, { id: outlet.id, name: outlet.name, isPrimary: false }])
+                      } else {
+                        const data = await res.json()
+                        toast.error(data.error || 'Gagal menambah outlet')
+                      }
+                    } catch {
+                      toast.error('Gagal menambah outlet')
+                    } finally {
+                      setAssigning(false)
+                    }
+                  }}>
+                    <SelectTrigger className="flex-1 h-8 bg-white/[0.04] border-white/[0.08] text-slate-300 text-xs rounded-lg">
+                      <SelectValue placeholder="Pilih outlet..." />
+                    </SelectTrigger>
+                    <SelectContent className="bg-[#0d1117] border-white/[0.08]">
+                      {allOutlets
+                        .filter((o) => !crewOutlets.some((co) => co.id === o.id))
+                        .map((outlet) => (
+                          <SelectItem key={outlet.id} value={outlet.id} className="text-xs text-slate-200 focus:bg-white/[0.04] focus:text-white">
+                            {outlet.name}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                  {assigning && <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-500 shrink-0" />}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <ResponsiveDialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => { setOutletDialogOpen(false); setSelectedCrewForOutlet(null); setCrewOutlets([]) }}
+              className="bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.06] h-8 text-xs"
+            >
+              Tutup
+            </Button>
+          </ResponsiveDialogFooter>
+        </ResponsiveDialogContent>
+      </ResponsiveDialog>
     </div>
-  )
-}
+  )}
 
 // ==================== CREW ACCESS TAB (moved from Settings) ====================
 
