@@ -4,17 +4,14 @@ import { useState, useEffect, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
 import { toast } from 'sonner'
 import { formatCurrency } from '@/lib/format'
-import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
-import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import {
   ResponsiveDialog,
   ResponsiveDialogContent,
@@ -81,11 +78,12 @@ import {
   Link2,
   Unlink2,
   CircleHelp,
-  ExternalLink,
   MessageSquare,
-  UserCircle,
-  Bot,
   Lock,
+  Settings,
+  Bell,
+  UserCircle,
+  CreditCardIcon,
 } from 'lucide-react'
 
 // ==================== TYPES ====================
@@ -164,6 +162,74 @@ const THEME_COLORS = [
   { name: 'cyan', label: 'Cyan', classes: 'bg-cyan-500' },
 ]
 
+// ==================== REUSABLE UI PRIMITIVES ====================
+
+function SectionHeader({ title, description }: { title: string; description?: string }) {
+  return (
+    <div className="mb-4">
+      <h2 className="text-[15px] font-semibold text-white">{title}</h2>
+      {description && <p className="text-[13px] text-slate-400 mt-1">{description}</p>}
+    </div>
+  )
+}
+
+function SectionGroupLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-[11px] font-medium text-slate-500 uppercase tracking-wider mb-3">{children}</p>
+  )
+}
+
+function SettingsRow({ label, description, children }: { label: string; description?: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between py-4 px-6 hover:bg-white/[0.02] transition-colors">
+      <div className="pr-4">
+        <p className="text-[13px] text-slate-300">{label}</p>
+        {description && <p className="text-[12px] text-slate-500 mt-0.5">{description}</p>}
+      </div>
+      <div className="shrink-0">{children}</div>
+    </div>
+  )
+}
+
+function StripeInput({ className = '', ...props }: React.InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <input
+      className={`w-full bg-transparent border-b border-white/[0.08] focus:border-white/[0.20] outline-none px-0 py-2 text-[14px] text-white placeholder:text-slate-600 transition-colors duration-200 ${className}`}
+      {...props}
+    />
+  )
+}
+
+function StripeTextarea({ className = '', ...props }: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return (
+    <textarea
+      className={`w-full bg-transparent border-b border-white/[0.08] focus:border-white/[0.20] outline-none px-0 py-2 text-[14px] text-white placeholder:text-slate-600 transition-colors duration-200 resize-none ${className}`}
+      {...props}
+    />
+  )
+}
+
+function SaveButton({ onClick, disabled, saving, label = 'Simpan' }: { onClick: () => void; disabled: boolean; saving: boolean; label?: string }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className="text-[13px] font-medium text-slate-400 hover:text-white disabled:text-slate-600 disabled:cursor-not-allowed transition-colors duration-150 flex items-center gap-1.5"
+    >
+      {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+      {label}
+    </button>
+  )
+}
+
+function SectionBox({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+  return (
+    <div className={`border border-white/[0.06] rounded-xl divide-y divide-white/[0.06] ${className}`}>
+      {children}
+    </div>
+  )
+}
+
 // ==================== MAIN COMPONENT ====================
 
 export default function SettingsPage() {
@@ -171,88 +237,189 @@ export default function SettingsPage() {
   const isOwner = session?.user?.role === 'OWNER'
 
   return (
-    <div className="space-y-4 max-w-5xl mx-auto">
-      <div>
-        <h1 className="text-lg font-semibold text-white">Pengaturan</h1>
-        <p className="text-xs text-slate-400 mt-0.5">Konfigurasi outlet dan preferensi sistem</p>
+    <div className="max-w-5xl mx-auto">
+      {/* Page Header */}
+      <div className="mb-8">
+        <h1 className="text-[20px] font-semibold text-white tracking-tight">Settings</h1>
+        <p className="text-[13px] text-slate-400 mt-1">Manage your outlet settings and preferences</p>
       </div>
 
-      <SettingsTabs isOwner={isOwner} />
+      {/* Layout: Left Nav + Content */}
+      <div className="flex gap-8">
+        <SettingsNav isOwner={isOwner} />
+        <SettingsContent isOwner={isOwner} />
+      </div>
     </div>
   )
 }
 
-// ==================== TABS WRAPPER ====================
+// ==================== NAVIGATION ====================
 
-function SettingsTabs({ isOwner }: { isOwner: boolean }) {
-  const [activeTab, setActiveTab] = useState('plan')
+type SectionId = 'general' | 'payments' | 'plan' | 'notifications' | 'account'
 
-  const tabs = [
-    { value: 'plan', label: 'Plan & Langganan', icon: <Crown className="h-4 w-4" /> },
-    { value: 'outlet', label: 'Outlet & Struk', icon: <Store className="h-4 w-4" /> },
-    ...(isOwner ? [{ value: 'kasir', label: 'Pembayaran & Promo', icon: <Banknote className="h-4 w-4" /> }] : [{ value: 'kasir', label: 'Kasir', icon: <Banknote className="h-4 w-4" /> }]),
-    ...(isOwner ? [{ value: 'telegram', label: 'Telegram', icon: <Send className="h-4 w-4" /> }] : []),
-    { value: 'account', label: 'Akun', icon: <KeyRound className="h-4 w-4" /> },
-  ]
+interface NavItem {
+  id: SectionId
+  label: string
+  icon: React.ReactNode
+  ownerOnly?: boolean
+}
+
+const NAV_SECTIONS: NavItem[] = [
+  { id: 'general', label: 'General', icon: <Store className="h-4 w-4" /> },
+  { id: 'payments', label: 'Payments', icon: <CreditCardIcon className="h-4 w-4" /> },
+  { id: 'plan', label: 'Plan', icon: <Crown className="h-4 w-4" /> },
+  { id: 'notifications', label: 'Notifications', icon: <Bell className="h-4 w-4" />, ownerOnly: true },
+  { id: 'account', label: 'Account', icon: <UserCircle className="h-4 w-4" /> },
+]
+
+function SettingsNav({ isOwner }: { isOwner: boolean }) {
+  const [activeSection, setActiveSection] = useState<SectionId>('general')
+
+  // Expose activeSection to parent through a custom event or just keep it local
+  // We use a data attribute approach - the content area reads the hash
+  const handleNavClick = (id: SectionId) => {
+    setActiveSection(id)
+    // Scroll the target section into view
+    const el = document.getElementById(`settings-section-${id}`)
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }
+
+  // Observe which section is in view to update active nav
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            setActiveSection(entry.target.id.replace('settings-section-', '') as SectionId)
+          }
+        }
+      },
+      { rootMargin: '-80px 0px -60% 0px', threshold: 0 }
+    )
+
+    NAV_SECTIONS.forEach(({ id, ownerOnly }) => {
+      if (ownerOnly && !isOwner) return
+      const el = document.getElementById(`settings-section-${id}`)
+      if (el) observer.observe(el)
+    })
+
+    return () => observer.disconnect()
+  }, [isOwner])
+
+  const visibleSections = NAV_SECTIONS.filter((s) => !s.ownerOnly || isOwner)
 
   return (
-    <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-      {/* Horizontal scrollable tab bar - no scrollbar */}
-      <div className="overflow-x-auto scrollbar-hide -mx-1 px-1">
-        <TabsList className="inline-flex h-auto w-max gap-1 bg-transparent p-0">
-          {tabs.map((tab) => (
-            <TabsTrigger
-              key={tab.value}
-              value={tab.value}
-              className="theme-tab-trigger flex items-center gap-2 px-3 py-2.5 sm:py-2 rounded-lg text-xs font-medium whitespace-nowrap text-slate-500 hover:text-slate-300 hover:bg-white/[0.04]/80 transition-all duration-150 border border-transparent"
+    <>
+      {/* Desktop sidebar */}
+      <nav className="hidden md:block w-[200px] shrink-0 sticky top-4 self-start">
+        <div className="space-y-1">
+          {visibleSections.map((section) => (
+            <button
+              key={section.id}
+              onClick={() => handleNavClick(section.id)}
+              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-colors duration-150 ${
+                activeSection === section.id
+                  ? 'bg-white/[0.06] text-white'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.03]'
+              }`}
             >
-              {tab.icon}
-              {tab.label}
-            </TabsTrigger>
+              {section.icon}
+              {section.label}
+            </button>
           ))}
-        </TabsList>
-      </div>
+        </div>
+      </nav>
 
-      <div className="min-w-0">
-        <TabsContent value="plan">
-          <PlanTab />
-        </TabsContent>
-        <TabsContent value="outlet">
-          <OutletAndReceiptTab />
-          {isOwner && (
-            <div className="mt-4">
-              <ProGate feature="multiOutlet" label="Multi-Outlet" description="Kelola beberapa outlet dalam satu akun" minHeight="200px">
-                <MultiOutletTab />
-              </ProGate>
-            </div>
-          )}
-        </TabsContent>
-        <TabsContent value="kasir">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div className="min-w-0"><PaymentMethodsTab /></div>
-            <div className="min-w-0"><LoyaltyTab /></div>
+      {/* Mobile horizontal scrollable nav */}
+      <nav className="md:hidden w-full shrink-0 mb-4">
+        <div className="flex gap-1 overflow-x-auto pb-2 scrollbar-hide">
+          {visibleSections.map((section) => (
+            <button
+              key={section.id}
+              onClick={() => handleNavClick(section.id)}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-medium whitespace-nowrap transition-colors duration-150 ${
+                activeSection === section.id
+                  ? 'bg-white/[0.06] text-white'
+                  : 'text-slate-500 hover:text-slate-300 hover:bg-white/[0.03]'
+              }`}
+            >
+              {section.icon}
+              {section.label}
+            </button>
+          ))}
+        </div>
+      </nav>
+    </>
+  )
+}
+
+// ==================== CONTENT AREA ====================
+
+function SettingsContent({ isOwner }: { isOwner: boolean }) {
+  return (
+    <div className="flex-1 min-w-0 space-y-10">
+      {/* General Section */}
+      <section id="settings-section-general">
+        <SectionGroupLabel>General</SectionGroupLabel>
+        <OutletInfoTab />
+        <div className="mt-8">
+          <ThemeReceiptTab />
+        </div>
+        {isOwner && (
+          <div className="mt-8">
+            <ProGate feature="multiOutlet" label="Multi-Outlet" description="Kelola beberapa outlet dalam satu akun" minHeight="200px">
+              <MultiOutletTab />
+            </ProGate>
           </div>
-          {isOwner && (
-            <div className="space-y-4 mt-4">
+        )}
+      </section>
+
+      {/* Payments Section */}
+      <section id="settings-section-payments">
+        <SectionGroupLabel>Payments</SectionGroupLabel>
+        <PaymentMethodsTab />
+        <div className="mt-8">
+          <LoyaltyTab />
+        </div>
+        {isOwner && (
+          <>
+            <div className="mt-8">
               <TaxTab />
+            </div>
+            <div className="mt-8">
               <ManualDiscountTab />
+            </div>
+            <div className="mt-8">
               <PromoTab />
             </div>
-          )}
-        </TabsContent>
-        {isOwner && (
-          <TabsContent value="telegram">
-            <ProGate feature="apiAccess" label="Telegram Notifikasi" description="Kirim notifikasi otomatis via Telegram" minHeight="200px">
-              <TelegramTab />
-            </ProGate>
-          </TabsContent>
+          </>
         )}
-        <TabsContent value="account">
-          <AccountTab />
-        </TabsContent>
+      </section>
 
-      </div>
-    </Tabs>
+      {/* Plan Section */}
+      <section id="settings-section-plan">
+        <SectionGroupLabel>Plan</SectionGroupLabel>
+        <PlanTab />
+      </section>
+
+      {/* Notifications Section */}
+      {isOwner && (
+        <section id="settings-section-notifications">
+          <SectionGroupLabel>Notifications</SectionGroupLabel>
+          <ProGate feature="apiAccess" label="Telegram Notifikasi" description="Kirim notifikasi otomatis via Telegram" minHeight="200px">
+            <TelegramTab />
+          </ProGate>
+        </section>
+      )}
+
+      {/* Account Section */}
+      <section id="settings-section-account">
+        <SectionGroupLabel>Account</SectionGroupLabel>
+        <AccountTab />
+      </section>
+    </div>
   )
 }
 
@@ -321,346 +488,7 @@ function useSettings() {
   return { settings, setSettings, loading, saving, saveSettings, refetch: fetchSettings }
 }
 
-// ==================== TAB: OUTLET & RECEIPT (Combined) ====================
-
-function OutletAndReceiptTab() {
-  return (
-    <div className="space-y-4">
-      <OutletInfoTab />
-      <ThemeReceiptTab />
-    </div>
-  )
-}
-
-// ==================== TAB 1: PAYMENT METHODS ====================
-
-function PaymentMethodsTab() {
-  const { settings, loading, saving, saveSettings } = useSettings()
-  const [editedPaymentMethods, setEditedPaymentMethods] = useState<string | null>(null)
-
-  const paymentMethods = [
-    { key: 'CASH', label: 'Tunai (CASH)', icon: <Banknote className="h-5 w-5" />, desc: 'Pembayaran tunai langsung' },
-    { key: 'QRIS', label: 'QRIS', icon: <QrCode className="h-5 w-5" />, desc: 'Scan QR untuk pembayaran' },
-    { key: 'DEBIT', label: 'Debit/Credit', icon: <CreditCard className="h-5 w-5" />, desc: 'Kartu debit atau kredit' },
-    { key: 'TRANSFER', label: 'Transfer Bank', icon: <ArrowRightLeft className="h-5 w-5" />, desc: 'Transfer via mobile banking / ATM' },
-  ]
-
-  const currentPaymentMethods = editedPaymentMethods ?? settings?.paymentMethods ?? 'CASH,QRIS'
-  const currentEnabled = currentPaymentMethods.split(',').filter(Boolean)
-
-  const handleToggle = (key: string) => {
-    const isActive = currentEnabled.includes(key)
-    const updated = isActive
-      ? currentEnabled.filter((m) => m !== key)
-      : [...currentEnabled, key]
-    if (updated.length === 0) {
-      toast.error('Minimal satu metode pembayaran harus aktif')
-      return
-    }
-    setEditedPaymentMethods(updated.join(','))
-  }
-
-  const handleSave = async () => {
-    if (!settings) {
-      toast.error('Pengaturan belum dimuat, silakan tunggu')
-      return
-    }
-    const ok = await saveSettings({ paymentMethods: currentPaymentMethods })
-    if (ok) {
-      setEditedPaymentMethods(null)
-    }
-  }
-
-  if (loading) {
-    return (
-      <Card className="bg-nebula border-white/[0.06]">
-        <CardContent className="p-4 space-y-3">
-          <Skeleton className="h-5 w-36 bg-white/[0.04]" />
-          <div className="grid gap-3">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <Skeleton key={i} className="h-16 bg-white/[0.04] rounded-lg" />
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-    )
-  }
-
-  return (
-    <Card className="bg-nebula border-white/[0.06]">
-      <CardContent className="p-4 space-y-4">
-        <div>
-          <h2 className="text-sm font-semibold text-white">Metode Pembayaran</h2>
-          <p className="text-xs text-slate-400 mt-0.5">Pilih metode pembayaran yang tersedia di outlet Anda</p>
-        </div>
-
-        <div className="grid gap-3">
-          {paymentMethods.map((method) => {
-            const isActive = currentEnabled.includes(method.key)
-            return (
-              <div
-                key={method.key}
-                role="button"
-                tabIndex={0}
-                onClick={() => handleToggle(method.key)}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleToggle(method.key) } }}
-                className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer ${
-                  isActive
-                    ? 'theme-border-medium theme-bg-ultra-light hover:theme-hover-light'
-                    : 'border-white/[0.06] bg-white/[0.03] hover:bg-white/[0.04]'
-                }`}
-              >
-                <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                  isActive ? 'theme-bg-subtle theme-text' : 'bg-white/[0.04] text-slate-500'
-                }`}>
-                  {method.icon}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className={`text-sm font-semibold ${isActive ? 'theme-text' : 'text-slate-300'}`}>
-                    {method.label}
-                  </p>
-                  <p className="text-xs text-slate-500 mt-0.5">{method.desc}</p>
-                </div>
-                <Switch
-                  checked={isActive}
-                  onCheckedChange={() => handleToggle(method.key)}
-                  onClick={(e) => e.stopPropagation()}
-                  className="theme-switch"
-                />
-              </div>
-            )
-          })}
-        </div>
-
-        <div className="flex justify-end">
-          <Button
-            onClick={handleSave}
-            disabled={saving}
-            className="theme-btn-primary h-9 text-xs"
-          >
-            {saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
-            Simpan
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-// ==================== TAB 2: TAX / PPN ====================
-
-function TaxTab() {
-  const { settings, loading, saving, saveSettings } = useSettings()
-  const [edits, setEdits] = useState<Record<string, string | boolean> | null>(null)
-
-  const ppnEnabled = edits?.ppnEnabled ?? settings?.ppnEnabled ?? false
-  const ppnRate = edits?.ppnRate ?? (settings ? String(settings.ppnRate) : '11')
-  const dirty = edits !== null
-
-  const handleChange = (key: string, value: string | boolean) => {
-    setEdits((prev) => ({ ...prev, [key]: value }))
-  }
-
-  const handleSave = async () => {
-    if (!settings) {
-      toast.error('Pengaturan belum dimuat, silakan tunggu')
-      return
-    }
-    const ok = await saveSettings({
-      ppnEnabled: ppnEnabled as boolean,
-      ppnRate: Number(ppnRate),
-    })
-    if (ok) setEdits(null)
-  }
-
-  // Example calculation
-  const rate = Number(ppnRate) || 11
-  const exampleSubtotal = 100000
-  const exampleTax = Math.round(exampleSubtotal * rate / 100)
-  const exampleTotal = exampleSubtotal + exampleTax
-
-  if (loading) {
-    return (
-      <Card className="bg-nebula border-white/[0.06]">
-        <CardContent className="p-4 space-y-3">
-          <Skeleton className="h-5 w-36 bg-white/[0.04]" />
-          <Skeleton className="h-16 bg-white/[0.04] rounded-lg" />
-          <Skeleton className="h-9 bg-white/[0.04]" />
-        </CardContent>
-      </Card>
-    )
-  }
-
-  return (
-    <Card className="bg-nebula border-white/[0.06]">
-      <CardContent className="p-4 space-y-4">
-        <div>
-          <h2 className="text-sm font-semibold text-white">Pajak PPN</h2>
-          <p className="text-xs text-slate-400 mt-0.5">Atur Pajak Pertambahan Nilai untuk transaksi</p>
-        </div>
-
-        {/* Enable toggle */}
-        <div className="flex items-center justify-between p-3 rounded-lg border border-white/[0.06] bg-white/[0.03]">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg theme-bg-very-light flex items-center justify-center">
-              <ReceiptText className="h-4 w-4 theme-text" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-slate-200">Aktifkan PPN</p>
-              <p className="text-[11px] text-slate-500">Pajak otomatis ditambahkan ke setiap transaksi</p>
-            </div>
-          </div>
-          <Switch
-            checked={ppnEnabled}
-            onCheckedChange={(v) => handleChange('ppnEnabled', v)}
-            className="theme-switch"
-          />
-        </div>
-
-        {ppnEnabled && (
-          <>
-            <Separator className="bg-white/[0.04]" />
-
-            <div className="space-y-1.5">
-              <Label htmlFor="ppn-rate" className="text-xs text-slate-300">
-                Tarif PPN (%)
-              </Label>
-              <div className="relative">
-                <Input
-                  id="ppn-rate"
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="0.1"
-                  value={ppnRate}
-                  onChange={(e) => handleChange('ppnRate', e.target.value)}
-                  placeholder="11"
-                  className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm pr-10"
-                />
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500">%</span>
-              </div>
-              <p className="text-[10px] text-slate-600">Tarif PPN standar Indonesia: 11%</p>
-            </div>
-
-            {/* Example formula */}
-            <div className="rounded-lg border theme-border-light theme-bg-ultra-light p-3">
-              <p className="text-[11px] font-medium theme-text uppercase tracking-wider mb-1.5">Contoh Perhitungan</p>
-              <div className="space-y-1 text-xs text-slate-300">
-                <div className="flex justify-between">
-                  <span>Subtotal</span>
-                  <span className="font-medium">{formatCurrency(exampleSubtotal)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>PPN ({rate}%)</span>
-                  <span className="font-medium theme-text">+{formatCurrency(exampleTax)}</span>
-                </div>
-                <div className="flex justify-between border-t theme-border-light pt-1 mt-1">
-                  <span className="font-semibold text-slate-200">Total</span>
-                  <span className="font-bold theme-text">{formatCurrency(exampleTotal)}</span>
-                </div>
-              </div>
-            </div>
-          </>
-        )}
-
-        <div className="flex justify-end">
-          <Button
-            onClick={handleSave}
-            disabled={saving || !dirty}
-            className="theme-btn-primary h-9 text-xs"
-          >
-            {saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
-            Simpan
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-// ==================== MANUAL DISCOUNT TAB ====================
-
-function ManualDiscountTab() {
-  const { settings, loading, saving, saveSettings } = useSettings()
-
-  const enabled = settings?.manualDiscountEnabled ?? false
-
-  const handleToggle = async (value: boolean) => {
-    const ok = await saveSettings({
-      manualDiscountEnabled: value,
-    })
-    if (!ok) {
-      toast.error('Gagal menyimpan pengaturan diskon manual')
-    }
-  }
-
-  if (loading) {
-    return (
-      <Card className="bg-nebula border-white/[0.06]">
-        <CardContent className="p-4 space-y-3">
-          <Skeleton className="h-5 w-48 bg-white/[0.04]" />
-          <Skeleton className="h-16 bg-white/[0.04] rounded-lg" />
-        </CardContent>
-      </Card>
-    )
-  }
-
-  return (
-    <Card className="bg-nebula border-white/[0.06]">
-      <CardContent className="p-4 space-y-4">
-        <div>
-          <h2 className="text-sm font-semibold text-white">Diskon Manual per Item</h2>
-          <p className="text-xs text-slate-400 mt-0.5">Berikan diskon langsung pada produk di keranjang POS</p>
-        </div>
-
-        {/* Enable toggle */}
-        <div className="flex items-center justify-between p-3 rounded-lg border border-white/[0.06] bg-white/[0.03]">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg theme-bg-very-light flex items-center justify-center">
-              <Tag className="h-4 w-4 theme-text" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-slate-200">Aktifkan Diskon Manual</p>
-              <p className="text-[11px] text-slate-500">Kasir bisa set diskon per produk di keranjang POS</p>
-            </div>
-          </div>
-          <Switch
-            checked={enabled}
-            onCheckedChange={handleToggle}
-            disabled={saving}
-            className="theme-switch"
-          />
-        </div>
-
-        {enabled && (
-          <div className="rounded-lg border theme-border-light theme-bg-ultra-light p-3 space-y-2">
-            <p className="text-[11px] font-medium theme-text uppercase tracking-wider">Cara Kerja</p>
-            <ul className="space-y-1 text-xs text-slate-300">
-              <li className="flex items-start gap-1.5">
-                <Check className="h-3 w-3 theme-text shrink-0 mt-0.5" strokeWidth={1.5} />
-                <span>Saat menambahkan produk ke keranjang, setiap item akan memiliki kolom <span className="font-medium text-white">Diskon (%)</span></span>
-              </li>
-              <li className="flex items-start gap-1.5">
-                <Check className="h-3 w-3 theme-text shrink-0 mt-0.5" strokeWidth={1.5} />
-                <span>Masukkan persentase diskon (0-100%) untuk setiap produk</span>
-              </li>
-              <li className="flex items-start gap-1.5">
-                <Check className="h-3 w-3 theme-text shrink-0 mt-0.5" strokeWidth={1.5} />
-                <span>Diskon akan otomatis dihitung dan ditampilkan di ringkasan keranjang</span>
-              </li>
-              <li className="flex items-start gap-1.5">
-                <Check className="h-3 w-3 theme-text shrink-0 mt-0.5" strokeWidth={1.5} />
-                <span>Diskon manual akan tercatat di struk dan riwayat transaksi</span>
-              </li>
-            </ul>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
-// ==================== TAB 3: OUTLET INFO ====================
+// ==================== OUTLET INFO ====================
 
 function OutletInfoTab() {
   const { settings, loading, saving, saveSettings, refetch } = useSettings()
@@ -693,86 +521,139 @@ function OutletInfoTab() {
 
   if (loading) {
     return (
-      <Card className="bg-nebula border-white/[0.06]">
-        <CardContent className="p-4 space-y-3">
-          <Skeleton className="h-5 w-36 bg-white/[0.04]" />
-          <Skeleton className="h-9 bg-white/[0.04]" />
-          <Skeleton className="h-9 bg-white/[0.04]" />
-          <Skeleton className="h-9 bg-white/[0.04]" />
-        </CardContent>
-      </Card>
+      <div className="space-y-3">
+        <Skeleton className="h-4 w-32 bg-white/[0.04]" />
+        <SectionBox>
+          <div className="px-6 py-4"><Skeleton className="h-5 w-40 bg-white/[0.04]" /></div>
+          <div className="px-6 py-4"><Skeleton className="h-5 w-36 bg-white/[0.04]" /></div>
+          <div className="px-6 py-4"><Skeleton className="h-5 w-48 bg-white/[0.04]" /></div>
+        </SectionBox>
+      </div>
     )
   }
 
   return (
-    <Card className="bg-nebula border-white/[0.06]">
-      <CardContent className="p-4 space-y-4">
-        <div>
-          <h2 className="text-sm font-semibold text-white">Informasi Outlet</h2>
-          <p className="text-xs text-slate-400 mt-0.5">Detail informasi usaha Anda</p>
+    <div>
+      <SectionHeader title="Outlet & Struk" description="Basic details about your business" />
+      <SectionBox>
+        <div className="px-6 py-4">
+          <p className="text-[12px] text-slate-500 mb-2">Nama Outlet</p>
+          <StripeInput
+            value={outletName}
+            onChange={(e) => handleChange('outletName', e.target.value)}
+            placeholder="Masukkan nama outlet"
+          />
         </div>
-
-        <div className="space-y-4">
-          {/* Desktop: name + phone side by side, address full width below */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="outlet-name" className="text-xs text-slate-300">Nama Outlet</Label>
-              <Input
-                id="outlet-name"
-                value={outletName}
-                onChange={(e) => handleChange('outletName', e.target.value)}
-                placeholder="Masukkan nama outlet"
-                className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="outlet-phone" className="text-xs text-slate-300">Telepon</Label>
-              <Input
-                id="outlet-phone"
-                value={outletPhone}
-                onChange={(e) => handleChange('outletPhone', e.target.value)}
-                placeholder="Masukkan nomor telepon"
-                className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
-              />
-            </div>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="outlet-address" className="text-xs text-slate-300">Alamat</Label>
-            <Textarea
-              id="outlet-address"
-              value={outletAddress}
-              onChange={(e) => handleChange('outletAddress', e.target.value)}
-              placeholder="Masukkan alamat outlet"
-              rows={2}
-              className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 text-sm resize-none"
-            />
-          </div>
+        <div className="px-6 py-4">
+          <p className="text-[12px] text-slate-500 mb-2">Telepon</p>
+          <StripeInput
+            value={outletPhone}
+            onChange={(e) => handleChange('outletPhone', e.target.value)}
+            placeholder="Masukkan nomor telepon"
+          />
         </div>
-
-        <div className="flex justify-end">
-          <Button
-            onClick={handleSave}
-            disabled={saving || !dirty}
-            className="theme-btn-primary h-9 text-xs"
-          >
-            {saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
-            Simpan
-          </Button>
+        <div className="px-6 py-4">
+          <p className="text-[12px] text-slate-500 mb-2">Alamat</p>
+          <StripeTextarea
+            value={outletAddress}
+            onChange={(e) => handleChange('outletAddress', e.target.value)}
+            placeholder="Masukkan alamat outlet"
+            rows={2}
+          />
         </div>
-      </CardContent>
-    </Card>
+      </SectionBox>
+      <div className="flex justify-end mt-4">
+        <SaveButton onClick={handleSave} disabled={saving || !dirty} saving={saving} />
+      </div>
+    </div>
   )
 }
 
-// ==================== TAB 3: LOYALTY PROGRAM ====================
+// ==================== PAYMENT METHODS ====================
+
+function PaymentMethodsTab() {
+  const { settings, loading, saving, saveSettings } = useSettings()
+  const [editedPaymentMethods, setEditedPaymentMethods] = useState<string | null>(null)
+
+  const paymentMethods = [
+    { key: 'CASH', label: 'Tunai (CASH)', icon: <Banknote className="h-4 w-4" />, desc: 'Pembayaran tunai langsung' },
+    { key: 'QRIS', label: 'QRIS', icon: <QrCode className="h-4 w-4" />, desc: 'Scan QR untuk pembayaran' },
+    { key: 'DEBIT', label: 'Debit/Credit', icon: <CreditCard className="h-4 w-4" />, desc: 'Kartu debit atau kredit' },
+    { key: 'TRANSFER', label: 'Transfer Bank', icon: <ArrowRightLeft className="h-4 w-4" />, desc: 'Transfer via mobile banking / ATM' },
+  ]
+
+  const currentPaymentMethods = editedPaymentMethods ?? settings?.paymentMethods ?? 'CASH,QRIS'
+  const currentEnabled = currentPaymentMethods.split(',').filter(Boolean)
+
+  const handleToggle = (key: string) => {
+    const isActive = currentEnabled.includes(key)
+    const updated = isActive
+      ? currentEnabled.filter((m) => m !== key)
+      : [...currentEnabled, key]
+    if (updated.length === 0) {
+      toast.error('Minimal satu metode pembayaran harus aktif')
+      return
+    }
+    setEditedPaymentMethods(updated.join(','))
+  }
+
+  const handleSave = async () => {
+    if (!settings) {
+      toast.error('Pengaturan belum dimuat, silakan tunggu')
+      return
+    }
+    const ok = await saveSettings({ paymentMethods: currentPaymentMethods })
+    if (ok) {
+      setEditedPaymentMethods(null)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="space-y-3">
+        <Skeleton className="h-4 w-32 bg-white/[0.04]" />
+        <SectionBox>
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="px-6 py-4"><Skeleton className="h-5 w-full bg-white/[0.04]" /></div>
+          ))}
+        </SectionBox>
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <SectionHeader title="Metode Pembayaran" description="Pilih metode pembayaran yang tersedia di outlet Anda" />
+      <SectionBox>
+        {paymentMethods.map((method) => {
+          const isActive = currentEnabled.includes(method.key)
+          return (
+            <SettingsRow key={method.key} label={method.label} description={method.desc}>
+              <Switch
+                checked={isActive}
+                onCheckedChange={() => handleToggle(method.key)}
+                className="theme-switch"
+              />
+            </SettingsRow>
+          )
+        })}
+      </SectionBox>
+      <div className="flex justify-end mt-4">
+        <SaveButton onClick={handleSave} disabled={saving} saving={saving} />
+      </div>
+    </div>
+  )
+}
+
+// ==================== LOYALTY PROGRAM ====================
 
 function LoyaltyTab() {
   const { settings, loading, saving, saveSettings } = useSettings()
   const [edits, setEdits] = useState<Record<string, string | boolean> | null>(null)
 
-  const loyaltyEnabled = edits?.loyaltyEnabled ?? settings?.loyaltyEnabled ?? true
-  const pointsPerAmount = edits?.pointsPerAmount ?? (settings ? String(settings.loyaltyPointsPerAmount) : '10000')
-  const pointValue = edits?.pointValue ?? (settings ? String(settings.loyaltyPointValue) : '100')
+  const loyaltyEnabled = (edits?.loyaltyEnabled ?? settings?.loyaltyEnabled ?? true) as boolean
+  const pointsPerAmount = String(edits?.pointsPerAmount ?? (settings ? settings.loyaltyPointsPerAmount : 10000))
+  const pointValue = String(edits?.pointValue ?? (settings ? settings.loyaltyPointValue : 100))
   const dirty = edits !== null
 
   const handleChange = (key: string, value: string | boolean) => {
@@ -801,106 +682,253 @@ function LoyaltyTab() {
 
   if (loading) {
     return (
-      <Card className="bg-nebula border-white/[0.06]">
-        <CardContent className="p-4 space-y-3">
-          <Skeleton className="h-5 w-36 bg-white/[0.04]" />
-          <Skeleton className="h-9 bg-white/[0.04]" />
-          <Skeleton className="h-9 bg-white/[0.04]" />
-          <Skeleton className="h-9 bg-white/[0.04]" />
-        </CardContent>
-      </Card>
+      <div className="space-y-3">
+        <Skeleton className="h-4 w-32 bg-white/[0.04]" />
+        <SectionBox>
+          <div className="px-6 py-4"><Skeleton className="h-5 w-full bg-white/[0.04]" /></div>
+          <div className="px-6 py-4"><Skeleton className="h-5 w-full bg-white/[0.04]" /></div>
+          <div className="px-6 py-4"><Skeleton className="h-5 w-full bg-white/[0.04]" /></div>
+        </SectionBox>
+      </div>
     )
   }
 
   return (
-    <Card className="bg-nebula border-white/[0.06]">
-      <CardContent className="p-4 space-y-4">
-        <div>
-          <h2 className="text-sm font-semibold text-white">Program Loyalti</h2>
-          <p className="text-xs text-slate-400 mt-0.5">Konfigurasi poin loyalitas pelanggan</p>
-        </div>
-
-        {/* Enable toggle */}
-        <div className="flex items-center justify-between p-3 rounded-lg border border-white/[0.06] bg-white/[0.03]">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center">
-              <Star className="h-4 w-4 text-amber-400" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-slate-200">Aktifkan Program Loyalti</p>
-              <p className="text-[11px] text-slate-500">Pelanggan mendapat poin dari setiap transaksi</p>
-            </div>
-          </div>
+    <div>
+      <SectionHeader title="Program Loyalti" description="Konfigurasi poin loyalitas pelanggan" />
+      <SectionBox>
+        <SettingsRow label="Aktifkan Program Loyalti" description="Pelanggan mendapat poin dari setiap transaksi">
           <Switch
             checked={loyaltyEnabled}
             onCheckedChange={(v) => handleChange('loyaltyEnabled', v)}
             className="data-[state=checked]:bg-amber-500"
           />
-        </div>
+        </SettingsRow>
 
         {loyaltyEnabled && (
           <>
-            <Separator className="bg-white/[0.04]" />
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="points-per-amount" className="text-xs text-slate-300">
-                  Setiap Rp X = 1 poin
-                </Label>
-                <Input
-                  id="points-per-amount"
-                  type="number"
-                  min="1"
-                  value={pointsPerAmount}
-                  onChange={(e) => handleChange('pointsPerAmount', e.target.value)}
-                  placeholder="10000"
-                  className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="point-value" className="text-xs text-slate-300">
-                  1 poin = Rp X diskon
-                </Label>
-                <Input
-                  id="point-value"
-                  type="number"
-                  min="1"
-                  value={pointValue}
-                  onChange={(e) => handleChange('pointValue', e.target.value)}
-                  placeholder="100"
-                  className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
-                />
+            <div className="px-6 py-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                <div>
+                  <p className="text-[12px] text-slate-500 mb-2">Setiap Rp X = 1 poin</p>
+                  <StripeInput
+                    type="number"
+                    min="1"
+                    value={pointsPerAmount}
+                    onChange={(e) => handleChange('pointsPerAmount', e.target.value)}
+                    placeholder="10000"
+                  />
+                </div>
+                <div>
+                  <p className="text-[12px] text-slate-500 mb-2">1 poin = Rp X diskon</p>
+                  <StripeInput
+                    type="number"
+                    min="1"
+                    value={pointValue}
+                    onChange={(e) => handleChange('pointValue', e.target.value)}
+                    placeholder="100"
+                  />
+                </div>
               </div>
             </div>
-
-            {/* Example formula */}
-            <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
-              <p className="text-[11px] font-medium text-amber-400 uppercase tracking-wider mb-1.5">Contoh Perhitungan</p>
-              <p className="text-xs text-slate-300">
-                Belanja <span className="font-semibold text-amber-300">{formatCurrency(exampleSpend)}</span> ={' '}
-                <span className="font-semibold text-amber-300">{examplePoints} poin</span> ={' '}
-                <span className="font-semibold text-amber-300">{formatCurrency(exampleDiscount)} diskon</span>
-              </p>
+            <div className="px-6 py-4">
+              <div className="rounded-lg border border-amber-500/15 bg-amber-500/[0.03] p-4">
+                <p className="text-[11px] font-medium text-amber-400 uppercase tracking-wider mb-2">Contoh Perhitungan</p>
+                <p className="text-[13px] text-slate-300">
+                  Belanja <span className="font-semibold text-amber-300">{formatCurrency(exampleSpend)}</span> ={' '}
+                  <span className="font-semibold text-amber-300">{examplePoints} poin</span> ={' '}
+                  <span className="font-semibold text-amber-300">{formatCurrency(exampleDiscount)} diskon</span>
+                </p>
+              </div>
             </div>
           </>
         )}
-
-        <div className="flex justify-end">
-          <Button
-            onClick={handleSave}
-            disabled={saving || !dirty}
-            className="theme-btn-primary h-9 text-xs"
-          >
-            {saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
-            Simpan
-          </Button>
+      </SectionBox>
+      {loyaltyEnabled && (
+        <div className="flex justify-end mt-4">
+          <SaveButton onClick={handleSave} disabled={saving || !dirty} saving={saving} />
         </div>
-      </CardContent>
-    </Card>
+      )}
+    </div>
   )
 }
 
-// ==================== TAB 5: PROMO / DISKON ====================
+// ==================== TAX / PPN ====================
+
+function TaxTab() {
+  const { settings, loading, saving, saveSettings } = useSettings()
+  const [edits, setEdits] = useState<Record<string, string | boolean> | null>(null)
+
+  const ppnEnabled = (edits?.ppnEnabled ?? settings?.ppnEnabled ?? false) as boolean
+  const ppnRate = String(edits?.ppnRate ?? (settings ? settings.ppnRate : 11))
+  const dirty = edits !== null
+
+  const handleChange = (key: string, value: string | boolean) => {
+    setEdits((prev) => ({ ...prev, [key]: value }))
+  }
+
+  const handleSave = async () => {
+    if (!settings) {
+      toast.error('Pengaturan belum dimuat, silakan tunggu')
+      return
+    }
+    const ok = await saveSettings({
+      ppnEnabled: ppnEnabled as boolean,
+      ppnRate: Number(ppnRate),
+    })
+    if (ok) setEdits(null)
+  }
+
+  // Example calculation
+  const rate = Number(ppnRate) || 11
+  const exampleSubtotal = 100000
+  const exampleTax = Math.round(exampleSubtotal * rate / 100)
+  const exampleTotal = exampleSubtotal + exampleTax
+
+  if (loading) {
+    return (
+      <div className="space-y-3">
+        <Skeleton className="h-4 w-32 bg-white/[0.04]" />
+        <SectionBox>
+          <div className="px-6 py-4"><Skeleton className="h-5 w-full bg-white/[0.04]" /></div>
+        </SectionBox>
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <SectionHeader title="Pajak PPN" description="Atur Pajak Pertambahan Nilai untuk transaksi" />
+      <SectionBox>
+        <SettingsRow label="Aktifkan PPN" description="Pajak otomatis ditambahkan ke setiap transaksi">
+          <Switch
+            checked={ppnEnabled}
+            onCheckedChange={(v) => handleChange('ppnEnabled', v)}
+            className="theme-switch"
+          />
+        </SettingsRow>
+
+        {ppnEnabled && (
+          <>
+            <div className="px-6 py-4">
+              <div className="flex items-end gap-4">
+                <div className="flex-1">
+                  <p className="text-[12px] text-slate-500 mb-2">Tarif PPN (%)</p>
+                  <StripeInput
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.1"
+                    value={ppnRate}
+                    onChange={(e) => handleChange('ppnRate', e.target.value)}
+                    placeholder="11"
+                  />
+                </div>
+                <p className="text-[11px] text-slate-600 pb-2">Tarif PPN standar Indonesia: 11%</p>
+              </div>
+            </div>
+            <div className="px-6 py-4">
+              <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
+                <p className="text-[11px] font-medium text-slate-500 uppercase tracking-wider mb-2">Contoh Perhitungan</p>
+                <div className="space-y-1.5 text-[13px]">
+                  <div className="flex justify-between">
+                    <span className="text-slate-300">Subtotal</span>
+                    <span className="font-medium text-slate-200">{formatCurrency(exampleSubtotal)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-300">PPN ({rate}%)</span>
+                    <span className="font-medium theme-text">+{formatCurrency(exampleTax)}</span>
+                  </div>
+                  <div className="flex justify-between border-t border-white/[0.06] pt-1.5 mt-1.5">
+                    <span className="font-semibold text-white">Total</span>
+                    <span className="font-bold theme-text">{formatCurrency(exampleTotal)}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+      </SectionBox>
+      {ppnEnabled && (
+        <div className="flex justify-end mt-4">
+          <SaveButton onClick={handleSave} disabled={saving || !dirty} saving={saving} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ==================== MANUAL DISCOUNT ====================
+
+function ManualDiscountTab() {
+  const { settings, loading, saving, saveSettings } = useSettings()
+
+  const enabled = settings?.manualDiscountEnabled ?? false
+
+  const handleToggle = async (value: boolean) => {
+    const ok = await saveSettings({
+      manualDiscountEnabled: value,
+    })
+    if (!ok) {
+      toast.error('Gagal menyimpan pengaturan diskon manual')
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="space-y-3">
+        <Skeleton className="h-4 w-40 bg-white/[0.04]" />
+        <SectionBox>
+          <div className="px-6 py-4"><Skeleton className="h-5 w-full bg-white/[0.04]" /></div>
+        </SectionBox>
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <SectionHeader title="Diskon Manual per Item" description="Berikan diskon langsung pada produk di keranjang POS" />
+      <SectionBox>
+        <SettingsRow label="Aktifkan Diskon Manual" description="Kasir bisa set diskon per produk di keranjang POS">
+          <Switch
+            checked={enabled}
+            onCheckedChange={handleToggle}
+            disabled={saving}
+            className="theme-switch"
+          />
+        </SettingsRow>
+
+        {enabled && (
+          <div className="px-6 py-4">
+            <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4 space-y-2.5">
+              <p className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Cara Kerja</p>
+              <ul className="space-y-1.5 text-[13px] text-slate-300">
+                <li className="flex items-start gap-2">
+                  <Check className="h-3.5 w-3.5 theme-text shrink-0 mt-0.5" strokeWidth={1.5} />
+                  <span>Saat menambahkan produk ke keranjang, setiap item akan memiliki kolom <span className="font-medium text-white">Diskon (%)</span></span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <Check className="h-3.5 w-3.5 theme-text shrink-0 mt-0.5" strokeWidth={1.5} />
+                  <span>Masukkan persentase diskon (0-100%) untuk setiap produk</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <Check className="h-3.5 w-3.5 theme-text shrink-0 mt-0.5" strokeWidth={1.5} />
+                  <span>Diskon akan otomatis dihitung dan ditampilkan di ringkasan keranjang</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <Check className="h-3.5 w-3.5 theme-text shrink-0 mt-0.5" strokeWidth={1.5} />
+                  <span>Diskon manual akan tercatat di struk dan riwayat transaksi</span>
+                </li>
+              </ul>
+            </div>
+          </div>
+        )}
+      </SectionBox>
+    </div>
+  )
+}
+
+// ==================== PROMO / DISKON ====================
 
 function PromoTab() {
   const [promos, setPromos] = useState<Promo[]>([])
@@ -1030,300 +1058,291 @@ function PromoTab() {
   }
 
   return (
-    <Card className="bg-nebula border-white/[0.06]">
-      <CardContent className="p-4 space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-sm font-semibold text-white">Promo / Diskon</h2>
-            <p className="text-xs text-slate-400 mt-0.5">Kelola promo dan diskon untuk pelanggan</p>
-          </div>
-          <Button
-            onClick={openCreate}
-            className="theme-btn-primary h-8 text-xs"
-          >
-            <Plus className="mr-1.5 h-3.5 w-3.5" />
-            Tambah Promo
-          </Button>
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-[15px] font-semibold text-white">Promo</h2>
+          <p className="text-[13px] text-slate-400 mt-1">Kelola promo dan diskon untuk pelanggan</p>
         </div>
+        <button
+          onClick={openCreate}
+          className="text-[13px] font-medium text-slate-400 hover:text-white transition-colors duration-150 flex items-center gap-1.5"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          Tambah Promo
+        </button>
+      </div>
 
-        {loading ? (
-          <div className="space-y-2">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <Skeleton key={i} className="h-10 bg-white/[0.04] rounded" />
-            ))}
-          </div>
-        ) : promos.length === 0 ? (
-          <div className="py-8 text-center">
-            <Tag className="h-10 w-10 text-zinc-700 mx-auto mb-2" />
-            <p className="text-sm text-slate-500">Belum ada promo</p>
-            <p className="text-[11px] text-slate-600 mt-0.5">Tambahkan promo untuk menarik pelanggan</p>
-          </div>
-        ) : (
-          <div className="rounded-lg border border-white/[0.06] overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow className="border-white/[0.06] hover:bg-transparent">
-                  <TableHead className="text-slate-500 text-[11px] font-medium h-8">Nama</TableHead>
-                  <TableHead className="text-slate-500 text-[11px] font-medium h-8">Tipe</TableHead>
-                  <TableHead className="text-slate-500 text-[11px] font-medium h-8">Kategori</TableHead>
-                  <TableHead className="text-slate-500 text-[11px] font-medium h-8 text-right">Nilai</TableHead>
-                  <TableHead className="text-slate-500 text-[11px] font-medium h-8 text-right">Min. Belanja</TableHead>
-                  <TableHead className="text-slate-500 text-[11px] font-medium h-8 text-right">Maks Diskon</TableHead>
-                  <TableHead className="text-slate-500 text-[11px] font-medium h-8 text-center">Status</TableHead>
-                  <TableHead className="text-slate-500 text-[11px] font-medium h-8 text-right">Aksi</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {promos.map((promo) => (
-                  <TableRow key={promo.id} className="border-white/[0.06] hover:bg-white/[0.03]">
-                    <TableCell className="text-xs text-slate-200 font-medium py-2">{promo.name}</TableCell>
-                    <TableCell className="py-2">
-                      <Badge
-                        variant="outline"
-                        className={`text-[11px] ${
-                          promo.type === 'PERCENTAGE'
-                            ? 'bg-blue-500/10 border-blue-500/20 text-blue-400'
-                            : promo.type === 'BUY_X_GET_DISCOUNT'
-                              ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
-                              : 'theme-accent-bg theme-accent-border theme-accent-text'
-                        }`}
-                      >
-                        {promo.type === 'PERCENTAGE' ? 'Persentase' : promo.type === 'BUY_X_GET_DISCOUNT' ? 'Beli N Diskon' : 'Nominal'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-xs text-slate-400 py-2">
-                      {promo.categoryId ? (promo.categoryName || 'Kategori spesifik') : (
-                        <span className="text-slate-500">Semua</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-xs text-slate-200 text-right py-2">
-                      {promo.type === 'BUY_X_GET_DISCOUNT'
-                        ? `${promo.buyMinQty || 2} item → ${promo.discountType === 'PERCENTAGE' ? `${promo.value}%` : formatCurrency(promo.value)}`
-                        : promo.type === 'PERCENTAGE' ? `${promo.value}%` : formatCurrency(promo.value)}
-                    </TableCell>
-                    <TableCell className="text-xs text-slate-400 text-right py-2">
-                      {promo.minPurchase ? formatCurrency(promo.minPurchase) : '-'}
-                    </TableCell>
-                    <TableCell className="text-xs text-slate-400 text-right py-2">
-                      {promo.maxDiscount ? formatCurrency(promo.maxDiscount) : '-'}
-                    </TableCell>
-                    <TableCell className="text-center py-2">
-                      <Badge
-                        className={`text-[11px] ${
-                          promo.active
-                            ? 'theme-accent-bg theme-accent-border theme-accent-text'
-                            : 'bg-white/[0.04] border-white/[0.08] text-slate-500'
-                        }`}
-                      >
-                        {promo.active ? 'Aktif' : 'Nonaktif'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right py-2">
-                      <div className="flex items-center justify-end gap-0.5">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-slate-400 hover:text-white hover:bg-white/[0.04]"
-                          onClick={() => openEdit(promo)}
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-slate-400 hover:text-red-400 hover:bg-red-500/10"
-                          onClick={() => setDeleteId(promo.id)}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        )}
-
-        {/* Promo Form Dialog */}
-        <ResponsiveDialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <ResponsiveDialogContent className="bg-nebula border-white/[0.06] p-4">
-            <ResponsiveDialogHeader>
-              <ResponsiveDialogTitle className="text-sm font-semibold text-white">
-                {editPromo ? 'Edit Promo' : 'Tambah Promo Baru'}
-              </ResponsiveDialogTitle>
-            </ResponsiveDialogHeader>
-            <div className="space-y-4 py-1">
-              <div className="space-y-1.5">
-                <Label className="text-xs text-slate-300">Kategori (opsional)</Label>
-                <Select
-                  value={formData.categoryId}
-                  onValueChange={(v) => setFormData((p) => ({ ...p, categoryId: v }))}
-                >
-                  <SelectTrigger className="bg-white/[0.04] border-white/[0.08] text-white w-full h-9 text-sm">
-                    <SelectValue placeholder="Semua Kategori" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-nebula border-white/[0.06]">
-                    <SelectItem value="__all__">Semua Kategori</SelectItem>
-                    {categories.map((cat) => (
-                      <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-[10px] text-slate-500">Kosongkan untuk berlaku ke semua kategori</p>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs text-slate-300">Nama Promo</Label>
-                <Input
-                  value={formData.name}
-                  onChange={(e) => setFormData((p) => ({ ...p, name: e.target.value }))}
-                  placeholder="Contoh: Diskon Akhir Tahun"
-                  className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs text-slate-300">Tipe Diskon</Label>
-                <Select
-                  value={formData.type}
-                  onValueChange={(v) => setFormData((p) => ({ ...p, type: v }))}
-                >
-                  <SelectTrigger className="bg-white/[0.04] border-white/[0.08] text-white w-full h-9 text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="bg-nebula border-white/[0.06]">
-                    <SelectItem value="PERCENTAGE">Persentase (%)</SelectItem>
-                    <SelectItem value="NOMINAL">Nominal (Rp)</SelectItem>
-                    <SelectItem value="BUY_X_GET_DISCOUNT">Beli N Produk Diskon</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs text-slate-300">
-                  Nilai Diskon {formData.type === 'PERCENTAGE' || (formData.type === 'BUY_X_GET_DISCOUNT' && formData.discountType === 'PERCENTAGE') ? '(%)' : '(Rp)'}
-                </Label>
-                <Input
-                  type="number"
-                  min="0"
-                  value={formData.value}
-                  onChange={(e) => setFormData((p) => ({ ...p, value: e.target.value }))}
-                  placeholder={formData.type === 'PERCENTAGE' ? '10' : '50000'}
-                  className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs text-slate-300">Minimum Pembayaran (opsional)</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  value={formData.minPurchase}
-                  onChange={(e) => setFormData((p) => ({ ...p, minPurchase: e.target.value }))}
-                  placeholder="100000"
-                  className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
-                />
-              </div>
-              {(formData.type === 'PERCENTAGE' || formData.type === 'BUY_X_GET_DISCOUNT') && (
-                <div className="space-y-1.5">
-                  <Label className="text-xs text-slate-300">Maks Diskon (opsional)</Label>
-                  <Input
-                    type="number"
-                    min="0"
-                    value={formData.maxDiscount}
-                    onChange={(e) => setFormData((p) => ({ ...p, maxDiscount: e.target.value }))}
-                    placeholder="50000"
-                    className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
-                  />
-                </div>
-              )}
-              {formData.type === 'BUY_X_GET_DISCOUNT' && (
-                <>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs text-slate-300">Minimal Jumlah Item</Label>
-                    <Input
-                      type="number"
-                      min="2"
-                      value={formData.buyMinQty}
-                      onChange={(e) => setFormData((p) => ({ ...p, buyMinQty: e.target.value }))}
-                      placeholder="2"
-                      className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
-                    />
-                    <p className="text-[10px] text-slate-500">Minimal jumlah item di keranjang untuk mendapat diskon</p>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs text-slate-300">Tipe Diskon</Label>
-                    <Select
-                      value={formData.discountType}
-                      onValueChange={(v) => setFormData((p) => ({ ...p, discountType: v }))}
+      {loading ? (
+        <SectionBox>
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="px-6 py-3"><Skeleton className="h-5 w-full bg-white/[0.04]" /></div>
+          ))}
+        </SectionBox>
+      ) : promos.length === 0 ? (
+        <div className="border border-white/[0.06] rounded-xl py-12 text-center">
+          <Tag className="h-10 w-10 text-zinc-700 mx-auto mb-2" />
+          <p className="text-[13px] text-slate-500">Belum ada promo</p>
+          <p className="text-[11px] text-slate-600 mt-0.5">Tambahkan promo untuk menarik pelanggan</p>
+        </div>
+      ) : (
+        <div className="border border-white/[0.06] rounded-xl overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow className="border-white/[0.06] hover:bg-transparent">
+                <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider h-9">Nama</TableHead>
+                <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider h-9">Tipe</TableHead>
+                <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider h-9">Kategori</TableHead>
+                <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider h-9 text-right">Nilai</TableHead>
+                <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider h-9 text-right">Min. Belanja</TableHead>
+                <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider h-9 text-right">Maks Diskon</TableHead>
+                <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider h-9 text-center">Status</TableHead>
+                <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider h-9 text-right">Aksi</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {promos.map((promo) => (
+                <TableRow key={promo.id} className="border-white/[0.06] hover:bg-white/[0.02]">
+                  <TableCell className="text-[13px] text-slate-200 font-medium py-2.5">{promo.name}</TableCell>
+                  <TableCell className="py-2.5">
+                    <Badge
+                      variant="outline"
+                      className={`text-[11px] ${
+                        promo.type === 'PERCENTAGE'
+                          ? 'bg-blue-500/10 border-blue-500/20 text-blue-400'
+                          : promo.type === 'BUY_X_GET_DISCOUNT'
+                            ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+                            : 'theme-accent-bg theme-accent-border theme-accent-text'
+                      }`}
                     >
-                      <SelectTrigger className="bg-white/[0.04] border-white/[0.08] text-white w-full h-9 text-sm">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="bg-nebula border-white/[0.06]">
-                        <SelectItem value="PERCENTAGE">Persentase (%)</SelectItem>
-                        <SelectItem value="NOMINAL">Nominal (Rp)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </>
-              )}
-              <div className="flex items-center gap-2.5 pt-1">
-                <Switch
-                  checked={formData.active}
-                  onCheckedChange={(v) => setFormData((p) => ({ ...p, active: v }))}
-                  className="theme-switch"
-                />
-                <Label className="text-xs text-slate-300">Promo aktif</Label>
-              </div>
-            </div>
-            <ResponsiveDialogFooter>
-              <Button
-                variant="ghost"
-                onClick={() => setDialogOpen(false)}
-                className="bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.06] h-8 text-xs"
-              >
-                Batal
-              </Button>
-              <Button
-                onClick={handleSave}
-                disabled={saving || !formData.name || !formData.value}
-                className="theme-btn-primary h-8 text-xs"
-              >
-                {saving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-                {editPromo ? 'Perbarui' : 'Tambah'}
-              </Button>
-            </ResponsiveDialogFooter>
-          </ResponsiveDialogContent>
-        </ResponsiveDialog>
+                      {promo.type === 'PERCENTAGE' ? 'Persentase' : promo.type === 'BUY_X_GET_DISCOUNT' ? 'Beli N Diskon' : 'Nominal'}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-[13px] text-slate-400 py-2.5">
+                    {promo.categoryId ? (promo.categoryName || 'Kategori spesifik') : (
+                      <span className="text-slate-500">Semua</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-[13px] text-slate-200 text-right py-2.5">
+                    {promo.type === 'BUY_X_GET_DISCOUNT'
+                      ? `${promo.buyMinQty || 2} item → ${promo.discountType === 'PERCENTAGE' ? `${promo.value}%` : formatCurrency(promo.value)}`
+                      : promo.type === 'PERCENTAGE' ? `${promo.value}%` : formatCurrency(promo.value)}
+                  </TableCell>
+                  <TableCell className="text-[13px] text-slate-400 text-right py-2.5">
+                    {promo.minPurchase ? formatCurrency(promo.minPurchase) : '-'}
+                  </TableCell>
+                  <TableCell className="text-[13px] text-slate-400 text-right py-2.5">
+                    {promo.maxDiscount ? formatCurrency(promo.maxDiscount) : '-'}
+                  </TableCell>
+                  <TableCell className="text-center py-2.5">
+                    <Badge
+                      className={`text-[11px] ${
+                        promo.active
+                          ? 'theme-accent-bg theme-accent-border theme-accent-text'
+                          : 'bg-white/[0.04] border-white/[0.08] text-slate-500'
+                      }`}
+                    >
+                      {promo.active ? 'Aktif' : 'Nonaktif'}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-right py-2.5">
+                    <div className="flex items-center justify-end gap-0.5">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-slate-400 hover:text-white hover:bg-white/[0.04]"
+                        onClick={() => openEdit(promo)}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-slate-400 hover:text-red-400 hover:bg-red-500/10"
+                        onClick={() => setDeleteId(promo.id)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
 
-        {/* Delete Confirmation */}
-        <AlertDialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>
-          <AlertDialogContent className="bg-nebula border-white/[0.06]">
-            <AlertDialogHeader>
-              <AlertDialogTitle className="text-sm font-semibold text-white">Hapus Promo</AlertDialogTitle>
-              <AlertDialogDescription className="text-xs text-slate-400">
-                Apakah Anda yakin ingin menghapus promo ini? Tindakan ini tidak dapat dibatalkan.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel className="bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.06] h-8 text-xs">
-                Batal
-              </AlertDialogCancel>
-              <AlertDialogAction
-                onClick={handleDelete}
-                disabled={deleting}
-                className="bg-red-500 hover:bg-red-600 text-white h-8 text-xs"
+      {/* Promo Form Dialog */}
+      <ResponsiveDialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <ResponsiveDialogContent className="bg-[#0a0a0b] border-white/[0.08] p-6">
+          <ResponsiveDialogHeader>
+            <ResponsiveDialogTitle className="text-[15px] font-semibold text-white">
+              {editPromo ? 'Edit Promo' : 'Tambah Promo Baru'}
+            </ResponsiveDialogTitle>
+          </ResponsiveDialogHeader>
+          <div className="space-y-5 py-2">
+            <div>
+              <p className="text-[12px] text-slate-500 mb-2">Kategori (opsional)</p>
+              <Select
+                value={formData.categoryId}
+                onValueChange={(v) => setFormData((p) => ({ ...p, categoryId: v }))}
               >
-                {deleting && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-                Hapus
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      </CardContent>
-    </Card>
+                <SelectTrigger className="bg-white/[0.04] border-white/[0.08] text-white w-full h-9 text-[13px]">
+                  <SelectValue placeholder="Semua Kategori" />
+                </SelectTrigger>
+                <SelectContent className="bg-[#0a0a0b] border-white/[0.08]">
+                  <SelectItem value="__all__">Semua Kategori</SelectItem>
+                  {categories.map((cat) => (
+                    <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-slate-600 mt-1">Kosongkan untuk berlaku ke semua kategori</p>
+            </div>
+            <div>
+              <p className="text-[12px] text-slate-500 mb-2">Nama Promo</p>
+              <StripeInput
+                value={formData.name}
+                onChange={(e) => setFormData((p) => ({ ...p, name: e.target.value }))}
+                placeholder="Contoh: Diskon Akhir Tahun"
+              />
+            </div>
+            <div>
+              <p className="text-[12px] text-slate-500 mb-2">Tipe Diskon</p>
+              <Select
+                value={formData.type}
+                onValueChange={(v) => setFormData((p) => ({ ...p, type: v }))}
+              >
+                <SelectTrigger className="bg-white/[0.04] border-white/[0.08] text-white w-full h-9 text-[13px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#0a0a0b] border-white/[0.08]">
+                  <SelectItem value="PERCENTAGE">Persentase (%)</SelectItem>
+                  <SelectItem value="NOMINAL">Nominal (Rp)</SelectItem>
+                  <SelectItem value="BUY_X_GET_DISCOUNT">Beli N Produk Diskon</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <p className="text-[12px] text-slate-500 mb-2">
+                Nilai Diskon {formData.type === 'PERCENTAGE' || (formData.type === 'BUY_X_GET_DISCOUNT' && formData.discountType === 'PERCENTAGE') ? '(%)' : '(Rp)'}
+              </p>
+              <StripeInput
+                type="number"
+                min="0"
+                value={formData.value}
+                onChange={(e) => setFormData((p) => ({ ...p, value: e.target.value }))}
+                placeholder={formData.type === 'PERCENTAGE' ? '10' : '50000'}
+              />
+            </div>
+            <div>
+              <p className="text-[12px] text-slate-500 mb-2">Minimum Pembayaran (opsional)</p>
+              <StripeInput
+                type="number"
+                min="0"
+                value={formData.minPurchase}
+                onChange={(e) => setFormData((p) => ({ ...p, minPurchase: e.target.value }))}
+                placeholder="100000"
+              />
+            </div>
+            {(formData.type === 'PERCENTAGE' || formData.type === 'BUY_X_GET_DISCOUNT') && (
+              <div>
+                <p className="text-[12px] text-slate-500 mb-2">Maks Diskon (opsional)</p>
+                <StripeInput
+                  type="number"
+                  min="0"
+                  value={formData.maxDiscount}
+                  onChange={(e) => setFormData((p) => ({ ...p, maxDiscount: e.target.value }))}
+                  placeholder="50000"
+                />
+              </div>
+            )}
+            {formData.type === 'BUY_X_GET_DISCOUNT' && (
+              <>
+                <div>
+                  <p className="text-[12px] text-slate-500 mb-2">Minimal Jumlah Item</p>
+                  <StripeInput
+                    type="number"
+                    min="2"
+                    value={formData.buyMinQty}
+                    onChange={(e) => setFormData((p) => ({ ...p, buyMinQty: e.target.value }))}
+                    placeholder="2"
+                  />
+                  <p className="text-[11px] text-slate-600 mt-1">Minimal jumlah item di keranjang untuk mendapat diskon</p>
+                </div>
+                <div>
+                  <p className="text-[12px] text-slate-500 mb-2">Tipe Diskon</p>
+                  <Select
+                    value={formData.discountType}
+                    onValueChange={(v) => setFormData((p) => ({ ...p, discountType: v }))}
+                  >
+                    <SelectTrigger className="bg-white/[0.04] border-white/[0.08] text-white w-full h-9 text-[13px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-[#0a0a0b] border-white/[0.08]">
+                      <SelectItem value="PERCENTAGE">Persentase (%)</SelectItem>
+                      <SelectItem value="NOMINAL">Nominal (Rp)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </>
+            )}
+            <div className="flex items-center gap-2.5 pt-1">
+              <Switch
+                checked={formData.active}
+                onCheckedChange={(v) => setFormData((p) => ({ ...p, active: v }))}
+                className="theme-switch"
+              />
+              <span className="text-[13px] text-slate-300">Promo aktif</span>
+            </div>
+          </div>
+          <ResponsiveDialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setDialogOpen(false)}
+              className="bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.06] h-9 text-[13px]"
+            >
+              Batal
+            </Button>
+            <Button
+              onClick={handleSave}
+              disabled={saving || !formData.name || !formData.value}
+              className="theme-btn-primary h-9 text-[13px]"
+            >
+              {saving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+              {editPromo ? 'Perbarui' : 'Tambah'}
+            </Button>
+          </ResponsiveDialogFooter>
+        </ResponsiveDialogContent>
+      </ResponsiveDialog>
+
+      {/* Delete Confirmation */}
+      <AlertDialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>
+        <AlertDialogContent className="bg-[#0a0a0b] border-white/[0.08]">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-[15px] font-semibold text-white">Hapus Promo</AlertDialogTitle>
+            <AlertDialogDescription className="text-[13px] text-slate-400">
+              Apakah Anda yakin ingin menghapus promo ini? Tindakan ini tidak dapat dibatalkan.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.06] h-9 text-[13px]" />
+            <AlertDialogAction
+              onClick={handleDelete}
+              disabled={deleting}
+              className="bg-red-500 hover:bg-red-600 text-white h-9 text-[13px]"
+            >
+              {deleting && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+              Hapus
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
   )
 }
 
-// ==================== TAB 6: THEME & RECEIPT ====================
+// ==================== THEME & RECEIPT ====================
 
 function ThemeReceiptTab() {
   const { settings, loading, saving, saveSettings } = useSettings()
@@ -1356,63 +1375,37 @@ function ThemeReceiptTab() {
 
   if (loading) {
     return (
-      <div className="space-y-4">
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-          <div className="lg:col-span-3 space-y-4">
-            <Card className="bg-nebula border-white/[0.06]">
-              <CardContent className="p-4 space-y-3">
-                <Skeleton className="h-5 w-36 bg-white/[0.04]" />
-                <Skeleton className="h-9 bg-white/[0.04]" />
-              </CardContent>
-            </Card>
-            <Card className="bg-nebula border-white/[0.06]">
-              <CardContent className="p-4 space-y-3">
-                <Skeleton className="h-5 w-40 bg-white/[0.04]" />
-                <Skeleton className="h-9 bg-white/[0.04]" />
-                <Skeleton className="h-9 bg-white/[0.04]" />
-                <Skeleton className="h-9 bg-white/[0.04]" />
-                <Skeleton className="h-9 bg-white/[0.04]" />
-              </CardContent>
-            </Card>
-          </div>
-          <div className="lg:col-span-2">
-            <Card className="bg-nebula border-white/[0.06]">
-              <CardContent className="p-4 space-y-3">
-                <Skeleton className="h-5 w-36 bg-white/[0.04]" />
-                <Skeleton className="h-72 w-full bg-white/[0.04] rounded-lg" />
-              </CardContent>
-            </Card>
-          </div>
-        </div>
+      <div className="space-y-3">
+        <Skeleton className="h-4 w-32 bg-white/[0.04]" />
+        <SectionBox>
+          <div className="px-6 py-4"><Skeleton className="h-5 w-full bg-white/[0.04]" /></div>
+          <div className="px-6 py-4"><Skeleton className="h-5 w-full bg-white/[0.04]" /></div>
+        </SectionBox>
       </div>
     )
   }
 
   return (
-    <div className="space-y-4 min-w-0">
+    <div className="space-y-8 min-w-0">
       {/* Desktop: 2-col layout — form left (3/5), preview right (2/5) */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
         {/* Left column: Theme + Receipt Form */}
-        <div className="lg:col-span-3 space-y-4 min-w-0">
+        <div className="lg:col-span-3 space-y-8 min-w-0">
           {/* Theme Section */}
-          <Card className="bg-nebula border-white/[0.06]">
-            <CardContent className="p-4 space-y-4">
-              <div>
-                <h2 className="text-sm font-semibold text-white">Tema</h2>
-                <p className="text-xs text-slate-400 mt-0.5">Kustomisasi tampilan aplikasi</p>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label className="text-xs text-slate-300">Warna tema utama</Label>
-                <div className="flex items-center gap-2.5 flex-wrap">
+          <div>
+            <SectionHeader title="Tema Warna" description="Kustomisasi tampilan aplikasi" />
+            <SectionBox>
+              <div className="px-6 py-4">
+                <p className="text-[12px] text-slate-500 mb-3">Warna tema utama</p>
+                <div className="flex items-center gap-3 flex-wrap">
                   {THEME_COLORS.map((color) => {
                     const isSelected = themeColor === color.name
                     return (
                       <button
                         key={color.name}
                         onClick={() => handleChange('themeColor', color.name)}
-                        className={`relative w-8 h-8 rounded-full ${color.classes} flex items-center justify-center transition-colors ${
-                          isSelected ? 'ring-2 ring-offset-2 ring-offset-nebula ring-white/50 scale-110' : 'hover:scale-105'
+                        className={`relative w-8 h-8 rounded-full ${color.classes} flex items-center justify-center transition-all duration-150 ${
+                          isSelected ? 'ring-2 ring-offset-2 ring-offset-transparent ring-white/50 scale-110' : 'hover:scale-105'
                         }`}
                         title={color.label}
                       >
@@ -1422,256 +1415,230 @@ function ThemeReceiptTab() {
                   })}
                 </div>
               </div>
-            </CardContent>
-          </Card>
+            </SectionBox>
+          </div>
 
           {/* Receipt Section */}
-          <Card className="bg-nebula border-white/[0.06] overflow-hidden">
-            <CardContent className="p-4 space-y-4">
-              <div>
-                <h2 className="text-sm font-semibold text-white">Pengaturan Struk</h2>
-                <p className="text-xs text-slate-400 mt-0.5">Informasi yang ditampilkan pada struk belanja</p>
+          <div>
+            <SectionHeader title="Pengaturan Struk" description="Informasi yang ditampilkan pada struk belanja" />
+            <SectionBox>
+              <div className="px-6 py-4">
+                <p className="text-[12px] text-slate-500 mb-2">Nama Usaha</p>
+                <StripeInput
+                  value={receiptBusinessName}
+                  onChange={(e) => handleChange('receiptBusinessName', e.target.value)}
+                  placeholder="Masukkan nama usaha"
+                />
               </div>
-
-              <div className="grid gap-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="receipt-name" className="text-xs text-slate-300">Nama Usaha</Label>
-                  <Input
-                    id="receipt-name"
-                    value={receiptBusinessName}
-                    onChange={(e) => handleChange('receiptBusinessName', e.target.value)}
-                    placeholder="Masukkan nama usaha"
-                    className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
+              <div className="px-6 py-4">
+                <p className="text-[12px] text-slate-500 mb-2">Alamat</p>
+                <StripeTextarea
+                  value={receiptAddress}
+                  onChange={(e) => handleChange('receiptAddress', e.target.value)}
+                  placeholder="Masukkan alamat usaha"
+                  rows={2}
+                />
+              </div>
+              {/* Desktop: phone + footer side by side */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-white/[0.06]">
+                <div className="px-6 py-4">
+                  <p className="text-[12px] text-slate-500 mb-2">Telepon</p>
+                  <StripeInput
+                    value={receiptPhone}
+                    onChange={(e) => handleChange('receiptPhone', e.target.value)}
+                    placeholder="08xxxxxxxxxx"
                   />
                 </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="receipt-address" className="text-xs text-slate-300">Alamat</Label>
-                  <Textarea
-                    id="receipt-address"
-                    value={receiptAddress}
-                    onChange={(e) => handleChange('receiptAddress', e.target.value)}
-                    placeholder="Masukkan alamat usaha"
-                    rows={2}
-                    className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 text-sm resize-none"
+                <div className="px-6 py-4">
+                  <p className="text-[12px] text-slate-500 mb-2">Pesan Footer</p>
+                  <StripeInput
+                    value={receiptFooter}
+                    onChange={(e) => handleChange('receiptFooter', e.target.value)}
+                    placeholder="Terima kasih atas kunjungan Anda!"
                   />
                 </div>
-                {/* Desktop: phone + footer side by side */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="receipt-phone" className="text-xs text-slate-300">Telepon</Label>
-                    <Input
-                      id="receipt-phone"
-                      value={receiptPhone}
-                      onChange={(e) => handleChange('receiptPhone', e.target.value)}
-                      placeholder="08xxxxxxxxxx"
-                      className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="receipt-footer" className="text-xs text-slate-300">Pesan Footer</Label>
-                    <Input
-                      id="receipt-footer"
-                      value={receiptFooter}
-                      onChange={(e) => handleChange('receiptFooter', e.target.value)}
-                      placeholder="Terima kasih atas kunjungan Anda!"
-                      className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="receipt-logo" className="text-xs text-slate-300">Logo Outlet (Image URL)</Label>
-                  <div className="flex items-center gap-2">
-                    <Input
-                      id="receipt-logo"
-                      value={receiptLogo}
-                      onChange={(e) => handleChange('receiptLogo', e.target.value)}
-                      placeholder="https://example.com/logo.png"
-                      className="flex-1 min-w-0 bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
-                    />
-                    {receiptLogo && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="shrink-0 h-9 w-9 p-0 text-red-400 hover:text-red-300 hover:bg-red-500/10"
-                        onClick={() => handleChange('receiptLogo', '')}
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    )}
-                  </div>
+              </div>
+              <div className="px-6 py-4">
+                <p className="text-[12px] text-slate-500 mb-2">Logo Outlet (Image URL)</p>
+                <div className="flex items-center gap-2">
+                  <StripeInput
+                    value={receiptLogo}
+                    onChange={(e) => handleChange('receiptLogo', e.target.value)}
+                    placeholder="https://example.com/logo.png"
+                    className="flex-1 min-w-0"
+                  />
                   {receiptLogo && (
-                    <div className="mt-1 flex items-center gap-3 p-3 rounded-lg bg-white/[0.03] border border-white/[0.03]">
-                      <img
-                        src={receiptLogo}
-                        alt="Logo Preview"
-                        className="h-14 w-14 rounded-lg object-contain bg-white p-1"
-                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-                      />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium theme-text">Logo berhasil dimuat</p>
-                        <p className="text-[10px] text-slate-500 truncate mt-0.5">{receiptLogo}</p>
-                      </div>
-                    </div>
+                    <button
+                      type="button"
+                      className="shrink-0 text-slate-500 hover:text-red-400 transition-colors"
+                      onClick={() => handleChange('receiptLogo', '')}
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
                   )}
-                  <p className="text-[11px] text-slate-500">Masukkan URL gambar logo. Logo akan ditampilkan pada struk belanja.</p>
                 </div>
+                {receiptLogo && (
+                  <div className="mt-3 flex items-center gap-3 p-3 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+                    <img
+                      src={receiptLogo}
+                      alt="Logo Preview"
+                      className="h-14 w-14 rounded-lg object-contain bg-white p-1"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[12px] font-medium theme-text">Logo berhasil dimuat</p>
+                      <p className="text-[11px] text-slate-500 truncate mt-0.5">{receiptLogo}</p>
+                    </div>
+                  </div>
+                )}
+                <p className="text-[11px] text-slate-600 mt-1.5">Masukkan URL gambar logo. Logo akan ditampilkan pada struk belanja.</p>
               </div>
+            </SectionBox>
 
-              {/* Save Button — inside form card on desktop */}
-              <div className="flex justify-end pt-2">
-                <Button
-                  onClick={handleSave}
-                  disabled={saving || !dirty}
-                  className="theme-btn-primary h-9 text-xs"
-                >
-                  {saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
-                  Simpan
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+            {/* Save Button */}
+            <div className="flex justify-end mt-4">
+              <SaveButton onClick={handleSave} disabled={saving || !dirty} saving={saving} />
+            </div>
+          </div>
         </div>
 
         {/* Right column: Receipt Preview — sticky on desktop */}
         <div className="lg:col-span-2 min-w-0">
-          <Card className="bg-nebula border-white/[0.06] lg:sticky lg:top-4">
-            <CardContent className="p-4 space-y-3">
-              <div>
-                <h2 className="text-sm font-semibold text-white">Pratinjau Struk</h2>
-                <p className="text-xs text-slate-400 mt-0.5">Tampilan struk yang akan dicetak</p>
+          <div className="lg:sticky lg:top-4">
+            <div className="mb-4">
+              <h2 className="text-[15px] font-semibold text-white">Pratinjau Struk</h2>
+              <p className="text-[13px] text-slate-400 mt-1">Tampilan struk yang akan dicetak</p>
+            </div>
+
+            <div className="flex justify-center">
+              <div className="w-[260px] bg-white rounded-lg p-3 shadow-lg font-mono overflow-hidden">
+            <style dangerouslySetInnerHTML={{ __html: `
+              .r-center{text-align:center}.r-right{text-align:right}
+              .r-row{display:flex;justify-content:space-between;align-items:baseline}
+              .r-row-items{display:flex;align-items:baseline}
+              /* Thermal-printer optimized: pure black, no gray dithering */
+              .r-bold{font-weight:700}.r-semibold{font-weight:600}.r-medium{font-weight:500}
+              .r-space>*+*{margin-top:4px}.r-space-sm>*+*{margin-top:2px}.r-space-md>*+*{margin-top:6px}.r-space-lg>*+*{margin-top:8px}
+              .r-py{padding-top:6px;padding-bottom:6px}.r-my{margin-top:6px;margin-bottom:6px}
+              .r-sep{border:none;border-top:1px dashed #000;margin:6px 0}
+              .r-sep-double{border:none;border-top:2px dashed #000;margin:6px 0}
+              .r-label{color:#000;font-size:9.5px;font-weight:400}.r-value{color:#000;font-weight:600;font-size:10px}
+              .r-value-bold{color:#000;font-weight:700}.r-muted{color:#000;font-size:9px;font-weight:400}
+              .r-success{color:#000;font-weight:600}.r-warning{color:#000;font-weight:600}
+              .r-upper{text-transform:uppercase;letter-spacing:0.5px}
+              .r-lg{font-size:12px}.r-sm{font-size:9px}.r-xs{font-size:8.5px}
+              .r-w8{width:28px;text-align:center;flex-shrink:0}.r-w16{width:60px;text-align:right;flex-shrink:0}
+              .r-w20{width:72px;text-align:right;flex-shrink:0}.r-flex1{flex:1;min-width:0}.r-gap{gap:2px}
+              .r-logo{max-width:36px;max-height:36px;object-fit:contain}
+              .r-item-name{font-weight:600;font-size:10px;color:#000}
+              .r-item-variant{font-size:8.5px;color:#000;font-weight:400}
+              .r-item-price{font-size:9px;color:#000;font-weight:400}
+              .r-total-row{font-size:11px}.r-footer{color:#000;font-size:8.5px;font-weight:400}
+              .r-wrap{font-family:'Courier New',Courier,monospace;width:100%;color:#000;font-size:10px;line-height:1.5;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:auto}
+            ` }} />
+            <div className="r-wrap">
+              {/* Header */}
+              <div className="r-center r-space-lg">
+                {receiptLogo && (
+                  <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '6px' }}>
+                    <img src={receiptLogo} alt="Logo" className="r-logo" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                  </div>
+                )}
+                <p className="r-bold r-lg">{receiptBusinessName || 'Nama Usaha'}</p>
+                {receiptAddress && <p className="r-muted" style={{ whiteSpace: 'pre-line' }}>{receiptAddress}</p>}
+                {receiptPhone && <p className="r-muted">{receiptPhone}</p>}
               </div>
 
-              <div className="flex justify-center">
-                <div className="w-[260px] bg-white rounded-lg p-3 shadow-lg font-mono overflow-hidden">
-              <style dangerouslySetInnerHTML={{ __html: `
-                .r-center{text-align:center}.r-right{text-align:right}
-                .r-row{display:flex;justify-content:space-between;align-items:baseline}
-                .r-row-items{display:flex;align-items:baseline}
-                /* Thermal-printer optimized: pure black, no gray dithering */
-                .r-bold{font-weight:700}.r-semibold{font-weight:600}.r-medium{font-weight:500}
-                .r-space>*+*{margin-top:4px}.r-space-sm>*+*{margin-top:2px}.r-space-md>*+*{margin-top:6px}.r-space-lg>*+*{margin-top:8px}
-                .r-py{padding-top:6px;padding-bottom:6px}.r-my{margin-top:6px;margin-bottom:6px}
-                .r-sep{border:none;border-top:1px dashed #000;margin:6px 0}
-                .r-sep-double{border:none;border-top:2px dashed #000;margin:6px 0}
-                .r-label{color:#000;font-size:9.5px;font-weight:400}.r-value{color:#000;font-weight:600;font-size:10px}
-                .r-value-bold{color:#000;font-weight:700}.r-muted{color:#000;font-size:9px;font-weight:400}
-                .r-success{color:#000;font-weight:600}.r-warning{color:#000;font-weight:600}
-                .r-upper{text-transform:uppercase;letter-spacing:0.5px}
-                .r-lg{font-size:12px}.r-sm{font-size:9px}.r-xs{font-size:8.5px}
-                .r-w8{width:28px;text-align:center;flex-shrink:0}.r-w16{width:60px;text-align:right;flex-shrink:0}
-                .r-w20{width:72px;text-align:right;flex-shrink:0}.r-flex1{flex:1;min-width:0}.r-gap{gap:2px}
-                .r-logo{max-width:36px;max-height:36px;object-fit:contain}
-                .r-item-name{font-weight:600;font-size:10px;color:#000}
-                .r-item-variant{font-size:8.5px;color:#000;font-weight:400}
-                .r-item-price{font-size:9px;color:#000;font-weight:400}
-                .r-total-row{font-size:11px}.r-footer{color:#000;font-size:8.5px;font-weight:400}
-                .r-wrap{font-family:'Courier New',Courier,monospace;width:100%;color:#000;font-size:10px;line-height:1.5;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:auto}
-              ` }} />
-              <div className="r-wrap">
-                {/* Header */}
-                <div className="r-center r-space-lg">
-                  {receiptLogo && (
-                    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '6px' }}>
-                      <img src={receiptLogo} alt="Logo" className="r-logo" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
-                    </div>
-                  )}
-                  <p className="r-bold r-lg">{receiptBusinessName || 'Nama Usaha'}</p>
-                  {receiptAddress && <p className="r-muted" style={{ whiteSpace: 'pre-line' }}>{receiptAddress}</p>}
-                  {receiptPhone && <p className="r-muted">{receiptPhone}</p>}
-                </div>
+              <hr className="r-sep" />
 
-                <hr className="r-sep" />
+              {/* Transaction Info */}
+              <div className="r-space-sm">
+                <div className="r-row"><span className="r-label">No. Invoice</span><span className="r-value-bold">INV-001234</span></div>
+                <div className="r-row"><span className="r-label">Tanggal</span><span className="r-value">01/01/2025 12:00</span></div>
+                <div className="r-row"><span className="r-label">Customer</span><span className="r-value">Walk-in</span></div>
+              </div>
 
-                {/* Transaction Info */}
+              <hr className="r-sep" />
+
+              {/* Items Header */}
+              <div className="r-row-items r-py r-upper">
+                <span className="r-flex1 r-semibold r-sm">Item</span>
+                <span className="r-w8 r-semibold r-sm">Qty</span>
+                <span className="r-w20 r-semibold r-sm">Subtotal</span>
+              </div>
+              <hr className="r-sep" />
+
+              {/* Sample Items */}
+              <div className="r-space-md">
                 <div className="r-space-sm">
-                  <div className="r-row"><span className="r-label">No. Invoice</span><span className="r-value-bold">INV-001234</span></div>
-                  <div className="r-row"><span className="r-label">Tanggal</span><span className="r-value">01/01/2025 12:00</span></div>
-                  <div className="r-row"><span className="r-label">Customer</span><span className="r-value">Walk-in</span></div>
-                </div>
-
-                <hr className="r-sep" />
-
-                {/* Items Header */}
-                <div className="r-row-items r-py r-upper">
-                  <span className="r-flex1 r-semibold r-sm">Item</span>
-                  <span className="r-w8 r-semibold r-sm">Qty</span>
-                  <span className="r-w20 r-semibold r-sm">Subtotal</span>
-                </div>
-                <hr className="r-sep" />
-
-                {/* Sample Items */}
-                <div className="r-space-md">
-                  <div className="r-space-sm">
-                    <p className="r-item-name">Nasi Goreng Spesial</p>
-                    <div className="r-row-items r-gap">
-                      <span className="r-flex1 r-item-price">@ Rp15.000</span>
-                      <span className="r-w8 r-value">2</span>
-                      <span className="r-w20 r-value-bold">Rp30.000</span>
-                    </div>
-                  </div>
-                  <div className="r-space-sm">
-                    <p className="r-item-name">Es Teh Manis</p>
-                    <div className="r-row-items r-gap">
-                      <span className="r-flex1 r-item-price">@ Rp5.000</span>
-                      <span className="r-w8 r-value">2</span>
-                      <span className="r-w20 r-value-bold">Rp10.000</span>
-                    </div>
-                  </div>
-                  <div className="r-space-sm">
-                    <p className="r-item-name">Ayam Bakar Madu</p>
-                    <div className="r-row-items r-gap">
-                      <span className="r-flex1 r-item-price">@ Rp25.000</span>
-                      <span className="r-w8 r-value">1</span>
-                      <span className="r-w20 r-value-bold">Rp25.000</span>
-                    </div>
+                  <p className="r-item-name">Nasi Goreng Spesial</p>
+                  <div className="r-row-items r-gap">
+                    <span className="r-flex1 r-item-price">@ Rp15.000</span>
+                    <span className="r-w8 r-value">2</span>
+                    <span className="r-w20 r-value-bold">Rp30.000</span>
                   </div>
                 </div>
-
-                <hr className="r-sep" />
-
-                {/* Totals */}
                 <div className="r-space-sm">
-                  <div className="r-row"><span className="r-label">Subtotal</span><span className="r-value">Rp65.000</span></div>
+                  <p className="r-item-name">Es Teh Manis</p>
+                  <div className="r-row-items r-gap">
+                    <span className="r-flex1 r-item-price">@ Rp5.000</span>
+                    <span className="r-w8 r-value">2</span>
+                    <span className="r-w20 r-value-bold">Rp10.000</span>
+                  </div>
                 </div>
-
-                <hr className="r-sep-double" />
-
-                <div className="r-row r-total-row r-bold r-my">
-                  <span>TOTAL</span>
-                  <span>Rp65.000</span>
-                </div>
-
-                <hr className="r-sep" />
-
-                {/* Payment */}
                 <div className="r-space-sm">
-                  <div className="r-row"><span className="r-label">Pembayaran</span><span className="r-semibold r-upper r-sm">CASH</span></div>
-                  <div className="r-row"><span className="r-label">Dibayar</span><span className="r-value">Rp100.000</span></div>
-                  <div className="r-row r-bold"><span>Kembalian</span><span>Rp35.000</span></div>
+                  <p className="r-item-name">Ayam Bakar Madu</p>
+                  <div className="r-row-items r-gap">
+                    <span className="r-flex1 r-item-price">@ Rp25.000</span>
+                    <span className="r-w8 r-value">1</span>
+                    <span className="r-w20 r-value-bold">Rp25.000</span>
+                  </div>
                 </div>
+              </div>
 
-                <hr className="r-sep" />
+              <hr className="r-sep" />
 
-                {/* Footer */}
-                <div className="r-center r-py">
-                  <p className="r-footer">{receiptFooter || 'Terima kasih atas kunjungan Anda!'}</p>
-                </div>
-                </div>
+              {/* Totals */}
+              <div className="r-space-sm">
+                <div className="r-row"><span className="r-label">Subtotal</span><span className="r-value">Rp65.000</span></div>
+              </div>
+
+              <hr className="r-sep-double" />
+
+              <div className="r-row r-total-row r-bold r-my">
+                <span>TOTAL</span>
+                <span>Rp65.000</span>
+              </div>
+
+              <hr className="r-sep" />
+
+              {/* Payment */}
+              <div className="r-space-sm">
+                <div className="r-row"><span className="r-label">Pembayaran</span><span className="r-semibold r-upper r-sm">CASH</span></div>
+                <div className="r-row"><span className="r-label">Dibayar</span><span className="r-value">Rp100.000</span></div>
+                <div className="r-row r-bold"><span>Kembalian</span><span>Rp35.000</span></div>
+              </div>
+
+              <hr className="r-sep" />
+
+              {/* Footer */}
+              <div className="r-center r-py">
+                <p className="r-footer">{receiptFooter || 'Terima kasih atas kunjungan Anda!'}</p>
+              </div>
               </div>
             </div>
-          </CardContent>
-        </Card>
+            </div>
+          </div>
         </div>
       </div>
     </div>
   )
 }
 
-// ==================== TAB 7: TELEGRAM NOTIFICATION ====================
+// ==================== TELEGRAM NOTIFICATION ====================
 
 function TelegramTab() {
-  const { settings, loading, saving, saveSettings } = useSettings()
+  const { settings, loading, saving, saveSettings, setSettings } = useSettings()
   const [botToken, setBotToken] = useState('')
   const [chatId, setChatId] = useState('')
   const [showToken, setShowToken] = useState(false)
@@ -1788,14 +1755,14 @@ function TelegramTab() {
 
   if (loading) {
     return (
-      <Card className="bg-nebula border-white/[0.06]">
-        <CardContent className="p-4 space-y-3">
-          <Skeleton className="h-5 w-36 bg-white/[0.04]" />
-          <Skeleton className="h-9 bg-white/[0.04]" />
-          <Skeleton className="h-9 bg-white/[0.04]" />
-          <Skeleton className="h-12 bg-white/[0.04] rounded-lg" />
-        </CardContent>
-      </Card>
+      <div className="space-y-3">
+        <Skeleton className="h-4 w-32 bg-white/[0.04]" />
+        <SectionBox>
+          <div className="px-6 py-4"><Skeleton className="h-5 w-full bg-white/[0.04]" /></div>
+          <div className="px-6 py-4"><Skeleton className="h-5 w-full bg-white/[0.04]" /></div>
+          <div className="px-6 py-4"><Skeleton className="h-5 w-full bg-white/[0.04]" /></div>
+        </SectionBox>
+      </div>
     )
   }
 
@@ -1809,78 +1776,72 @@ function TelegramTab() {
   ]
 
   return (
-    <div className="space-y-4">
-      {/* Setup Instructions */}
-      <Card className="bg-sky-500/5 border-sky-500/15">
-        <CardContent className="p-4 space-y-3">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-sky-500/15 flex items-center justify-center shrink-0">
-              <CircleHelp className="h-4 w-4 text-sky-400" />
-            </div>
-            <h2 className="text-sm font-semibold text-white">Cara Setup Telegram Bot</h2>
-          </div>
+    <div className="space-y-8">
+      {/* Setup Instructions — clean callout */}
+      <div className="border border-sky-500/15 rounded-xl bg-sky-500/[0.03] p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <CircleHelp className="h-4 w-4 text-sky-400" />
+          <h2 className="text-[15px] font-semibold text-white">Cara Setup Telegram Bot</h2>
+        </div>
 
-          <div className="space-y-3">
-            <div className="flex gap-3">
-              <div className="w-6 h-6 rounded-full bg-sky-500/15 flex items-center justify-center shrink-0 mt-0.5">
-                <span className="text-[11px] font-bold text-sky-400">1</span>
-              </div>
-              <div className="min-w-0">
-                <p className="text-xs font-medium text-slate-200">Buat Bot Token dari BotFather</p>
-                <p className="text-[11px] text-slate-400 mt-0.5">
-                  Buka Telegram, cari <span className="text-sky-300 font-medium">@BotFather</span>. Kirim pesan <code className="bg-white/[0.04] px-1.5 py-0.5 rounded text-[10px] text-sky-300">/newbot</code>, ikuti instruksi, lalu copy <span className="text-slate-300">Bot Token</span> yang diberikan.
-                </p>
-              </div>
+        <div className="space-y-4">
+          <div className="flex gap-3">
+            <div className="w-6 h-6 rounded-full bg-sky-500/15 flex items-center justify-center shrink-0 mt-0.5">
+              <span className="text-[11px] font-bold text-sky-400">1</span>
             </div>
-
-            <div className="flex gap-3">
-              <div className="w-6 h-6 rounded-full bg-sky-500/15 flex items-center justify-center shrink-0 mt-0.5">
-                <span className="text-[11px] font-bold text-sky-400">2</span>
-              </div>
-              <div className="min-w-0">
-                <p className="text-xs font-medium text-slate-200">Dapatkan Chat ID</p>
-                <p className="text-[11px] text-slate-400 mt-0.5">
-                  Kirim pesan apapun ke bot yang baru dibuat. Lalu buka browser, akses:{' '}
-                  <code className="bg-white/[0.04] px-1.5 py-0.5 rounded text-[10px] text-sky-300 break-all">
-                    https://api.telegram.org/bot{'{TOKEN}'}/getUpdates
-                  </code>
-                  {' '}Cari <span className="text-slate-300">chat.id</span> di response JSON.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex gap-3">
-              <div className="w-6 h-6 rounded-full bg-sky-500/15 flex items-center justify-center shrink-0 mt-0.5">
-                <span className="text-[11px] font-bold text-sky-400">3</span>
-              </div>
-              <div className="min-w-0">
-                <p className="text-xs font-medium text-slate-200">Masukkan & Test Koneksi</p>
-                <p className="text-[11px] text-slate-400 mt-0.5">
-                  Paste <span className="text-slate-300">Bot Token</span> dan <span className="text-slate-300">Chat ID</span> di form bawah, lalu klik <span className="theme-text font-medium">Test Koneksi</span>. Jika berhasil, klik <span className="theme-text font-medium">Simpan</span>.
-                </p>
-              </div>
+            <div className="min-w-0">
+              <p className="text-[13px] font-medium text-slate-200">Buat Bot Token dari BotFather</p>
+              <p className="text-[12px] text-slate-400 mt-0.5">
+                Buka Telegram, cari <span className="text-sky-300 font-medium">@BotFather</span>. Kirim pesan <code className="bg-white/[0.04] px-1.5 py-0.5 rounded text-[11px] text-sky-300">/newbot</code>, ikuti instruksi, lalu copy <span className="text-slate-300">Bot Token</span> yang diberikan.
+              </p>
             </div>
           </div>
 
-          <div className="flex items-start gap-2 p-2.5 rounded-lg bg-white/[0.03] border border-white/[0.04]">
-            <MessageSquare className="h-3.5 w-3.5 text-amber-400 shrink-0 mt-0.5" />
-            <p className="text-[11px] text-slate-400">
-              <span className="text-amber-400 font-medium">Tips:</span> Pastikan bot sudah di-Start (klik Start di chat bot) sebelum test koneksi. Chat ID biasanya berupa angka (contoh: <span className="text-slate-300">123456789</span>).
-            </p>
+          <div className="flex gap-3">
+            <div className="w-6 h-6 rounded-full bg-sky-500/15 flex items-center justify-center shrink-0 mt-0.5">
+              <span className="text-[11px] font-bold text-sky-400">2</span>
+            </div>
+            <div className="min-w-0">
+              <p className="text-[13px] font-medium text-slate-200">Dapatkan Chat ID</p>
+              <p className="text-[12px] text-slate-400 mt-0.5">
+                Kirim pesan apapun ke bot yang baru dibuat. Lalu buka browser, akses:{' '}
+                <code className="bg-white/[0.04] px-1.5 py-0.5 rounded text-[11px] text-sky-300 break-all">
+                  https://api.telegram.org/bot{'{TOKEN}'}/getUpdates
+                </code>
+                {' '}Cari <span className="text-slate-300">chat.id</span> di response JSON.
+              </p>
+            </div>
           </div>
-        </CardContent>
-      </Card>
+
+          <div className="flex gap-3">
+            <div className="w-6 h-6 rounded-full bg-sky-500/15 flex items-center justify-center shrink-0 mt-0.5">
+              <span className="text-[11px] font-bold text-sky-400">3</span>
+            </div>
+            <div className="min-w-0">
+              <p className="text-[13px] font-medium text-slate-200">Masukkan & Test Koneksi</p>
+              <p className="text-[12px] text-slate-400 mt-0.5">
+                Paste <span className="text-slate-300">Bot Token</span> dan <span className="text-slate-300">Chat ID</span> di form bawah, lalu klik <span className="theme-text font-medium">Test Koneksi</span>. Jika berhasil, klik <span className="theme-text font-medium">Simpan</span>.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-start gap-2 mt-4 p-3 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+          <MessageSquare className="h-3.5 w-3.5 text-amber-400 shrink-0 mt-0.5" />
+          <p className="text-[12px] text-slate-400">
+            <span className="text-amber-400 font-medium">Tips:</span> Pastikan bot sudah di-Start (klik Start di chat bot) sebelum test koneksi. Chat ID biasanya berupa angka (contoh: <span className="text-slate-300">123456789</span>).
+          </p>
+        </div>
+      </div>
 
       {/* Connection + Notifications side by side on desktop */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Connection Card */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* Connection Section */}
         <div className="min-w-0">
-        <Card className="bg-nebula border-white/[0.06]">
-          <CardContent className="p-4 space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-sm font-semibold text-white">Koneksi Telegram</h2>
-              <p className="text-xs text-slate-400 mt-0.5">Hubungkan bot untuk notifikasi otomatis</p>
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-[15px] font-semibold text-white">Koneksi Telegram</h2>
+              <p className="text-[13px] text-slate-400 mt-1">Hubungkan bot untuk notifikasi otomatis</p>
             </div>
             <Badge
               className={`text-[11px] ${
@@ -1897,159 +1858,117 @@ function TelegramTab() {
             </Badge>
           </div>
 
-          <div className="space-y-3">
-            {/* Bot Token */}
-            <div className="space-y-1.5">
-              <Label htmlFor="bot-token" className="text-xs text-slate-300">Bot Token</Label>
+          <SectionBox>
+            <div className="px-6 py-4">
+              <p className="text-[12px] text-slate-500 mb-2">Bot Token</p>
               <div className="relative">
-                <Input
-                  id="bot-token"
+                <StripeInput
                   type={showToken ? 'text' : 'password'}
                   value={botToken}
                   onChange={(e) => { setBotToken(e.target.value); setDirty(true) }}
                   placeholder={settings?.telegramBotToken === '••••••' ? 'Token tersimpan (kosongkan untuk mengganti)' : 'Masukkan token dari @BotFather'}
-                  className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm pr-9"
                 />
                 <button
                   type="button"
                   onClick={() => setShowToken(!showToken)}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                  className="absolute right-0 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
                 >
                   {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
             </div>
-
-            {/* Chat ID */}
-            <div className="space-y-1.5">
-              <Label htmlFor="chat-id" className="text-xs text-slate-300">Chat ID</Label>
-              <Input
-                id="chat-id"
+            <div className="px-6 py-4">
+              <p className="text-[12px] text-slate-500 mb-2">Chat ID</p>
+              <StripeInput
                 value={chatId}
                 onChange={(e) => { setChatId(e.target.value); setDirty(true) }}
                 placeholder="Contoh: 123456789"
-                className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
               />
             </div>
-
-            {/* Test Connection Button */}
-            <Button
-              onClick={handleTestConnection}
-              disabled={testing || !botToken}
-              variant="outline"
-              className="w-full border-white/[0.08] text-slate-300 hover:bg-white/[0.04] hover:text-white h-9 text-xs"
-            >
-              {testing ? (
-                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Send className="mr-1.5 h-3.5 w-3.5" />
-              )}
-              Test Koneksi
-            </Button>
+            <div className="px-6 py-4">
+              <button
+                onClick={handleTestConnection}
+                disabled={testing || !botToken}
+                className="w-full text-[13px] font-medium border border-white/[0.08] rounded-lg py-2.5 text-slate-300 hover:bg-white/[0.04] hover:text-white disabled:text-slate-600 disabled:cursor-not-allowed transition-colors duration-150 flex items-center justify-center gap-1.5"
+              >
+                {testing ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Send className="h-3.5 w-3.5" />
+                )}
+                Test Koneksi
+              </button>
+            </div>
 
             {/* Test Result */}
             {testResult && (
-              <div className={`rounded-lg border p-3 ${
-                testResult.ok
-                  ? 'theme-bg-ultra-light theme-border-light'
-                  : 'bg-red-500/5 border-red-500/20'
-              }`}>
-                <div className="flex items-center gap-1.5">
-                  {testResult.ok ? (
-                    <Check className="h-4 w-4 theme-text" />
-                  ) : (
-                    <Unlink2 className="h-4 w-4 text-red-400" />
+              <div className="mx-6 mb-4 rounded-lg border p-3">
+                <div className={`rounded-lg border p-3 ${
+                  testResult.ok
+                    ? 'theme-bg-ultra-light theme-border-light'
+                    : 'bg-red-500/5 border-red-500/20'
+                }`}>
+                  <div className="flex items-center gap-1.5">
+                    {testResult.ok ? (
+                      <Check className="h-4 w-4 theme-text" />
+                    ) : (
+                      <Unlink2 className="h-4 w-4 text-red-400" />
+                    )}
+                    <p className={`text-[13px] font-medium ${testResult.ok ? 'theme-text' : 'text-red-400'}`}>
+                      {testResult.message}
+                    </p>
+                  </div>
+                  {testResult.botName && (
+                    <p className="text-[12px] text-slate-400 mt-1 ml-5.5">Bot: {testResult.botName}</p>
                   )}
-                  <p className={`text-xs font-medium ${testResult.ok ? 'theme-text' : 'text-red-400'}`}>
-                    {testResult.message}
-                  </p>
                 </div>
-                {testResult.botName && (
-                  <p className="text-[11px] text-slate-400 mt-1 ml-5.5">Bot: {testResult.botName}</p>
-                )}
               </div>
             )}
 
             {/* Status info */}
             {isConnected && (
-              <div className="flex items-center gap-2 text-[11px] text-slate-500">
+              <div className="px-6 py-3 flex items-center gap-2 text-[12px] text-slate-500">
                 <Link2 className="h-3.5 w-3.5" />
                 <span>Chat ID: {settings?.telegramChatId}</span>
               </div>
             )}
-          </div>
+          </SectionBox>
 
-          <div className="flex gap-2 justify-end">
+          <div className="flex gap-3 justify-end mt-4">
             {isConnected && (
-              <Button
+              <button
                 onClick={handleDisconnect}
-                variant="outline"
-                className="border-red-500/20 text-red-400 hover:bg-red-500/10 h-9 text-xs"
+                className="text-[13px] font-medium text-red-400 hover:text-red-300 transition-colors duration-150 flex items-center gap-1.5"
               >
-                <Unlink2 className="mr-1.5 h-3.5 w-3.5" />
+                <Unlink2 className="h-3.5 w-3.5" />
                 Putuskan
-              </Button>
+              </button>
             )}
-            <Button
-              onClick={handleSave}
-              disabled={saving || !dirty}
-              className="theme-btn-primary h-9 text-xs"
-            >
-              {saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
-              Simpan
-            </Button>
+            <SaveButton onClick={handleSave} disabled={saving || !dirty} saving={saving} />
           </div>
-        </CardContent>
-      </Card>
-      </div>
+        </div>
 
-      {/* Notification Toggles */}
-      <div className="min-w-0">
-      <Card className="bg-nebula border-white/[0.06]">
-        <CardContent className="p-4 space-y-4">
-          <div>
-            <h2 className="text-sm font-semibold text-white">Jenis Notifikasi</h2>
-            <p className="text-xs text-slate-400 mt-0.5">Pilih event yang ingin dikirim via Telegram</p>
-          </div>
-
-          <div className="space-y-2">
+        {/* Notification Toggles */}
+        <div className="min-w-0">
+          <SectionHeader title="Jenis Notifikasi" description="Pilih event yang ingin dikirim via Telegram" />
+          <SectionBox>
             {notificationToggles.map((item) => (
-              <div
-                key={item.key}
-                className="flex items-center justify-between p-2.5 rounded-lg border border-white/[0.06] bg-white/[0.02]"
-              >
-                <div className="min-w-0">
-                  <p className="text-xs font-medium text-slate-200">{item.label}</p>
-                  <p className="text-[11px] text-slate-500">{item.desc}</p>
-                </div>
+              <SettingsRow key={item.key} label={item.label} description={item.desc}>
                 <Switch
                   checked={!!settings?.[item.key]}
                   onCheckedChange={(v) => handleToggle(item.key, v)}
                   className="theme-switch"
                 />
-              </div>
+              </SettingsRow>
             ))}
-          </div>
-
-          <div className="flex justify-end">
-            <Button
-              onClick={handleSave}
-              disabled={saving || !dirty}
-              className="theme-btn-primary h-9 text-xs"
-            >
-              {saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
-              Simpan Notifikasi
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-      </div>
+          </SectionBox>
+        </div>
       </div>
     </div>
   )
 }
 
-// ==================== TAB 7: PLAN & LANGGANAN ====================
+// ==================== PLAN & LANGGANAN ====================
 
 /** Fictional pricing data for display */
 const PLAN_PRICING: Record<AccountType, { price: string; period: string; description: string }> = {
@@ -2095,8 +2014,8 @@ function UsageRing({ label, used, limit, icon }: { label: string; used: number; 
         </div>
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-xs text-slate-300 font-medium">{label}</p>
-        <p className={`text-[11px] ${isAtLimit ? 'text-red-400' : isNearLimit ? 'text-amber-400' : 'text-slate-500'}`}>
+        <p className="text-[13px] text-slate-300 font-medium">{label}</p>
+        <p className={`text-[12px] ${isAtLimit ? 'text-red-400' : isNearLimit ? 'text-amber-400' : 'text-slate-500'}`}>
           {unlimited ? 'Unlimited' : `${used} / ${limit}`}
         </p>
       </div>
@@ -2110,20 +2029,13 @@ function PlanTab() {
 
   if (isLoading) {
     return (
-      <div className="space-y-4">
-        <Card className="bg-nebula border-white/[0.06]">
-          <CardContent className="p-4 space-y-3">
-            <Skeleton className="h-5 w-36 bg-white/[0.04]" />
-            <Skeleton className="h-40 bg-white/[0.04] rounded-lg" />
-            <Skeleton className="h-24 bg-white/[0.04] rounded-lg" />
-          </CardContent>
-        </Card>
-        <Card className="bg-nebula border-white/[0.06]">
-          <CardContent className="p-4 space-y-3">
-            <Skeleton className="h-5 w-48 bg-white/[0.04]" />
-            <Skeleton className="h-48 bg-white/[0.04] rounded-lg" />
-          </CardContent>
-        </Card>
+      <div className="space-y-3">
+        <Skeleton className="h-4 w-32 bg-white/[0.04]" />
+        <SectionBox>
+          <div className="px-6 py-4"><Skeleton className="h-5 w-full bg-white/[0.04]" /></div>
+          <div className="px-6 py-4"><Skeleton className="h-5 w-full bg-white/[0.04]" /></div>
+          <div className="px-6 py-4"><Skeleton className="h-5 w-full bg-white/[0.04]" /></div>
+        </SectionBox>
       </div>
     )
   }
@@ -2168,386 +2080,370 @@ function PlanTab() {
   }
 
   return (
-    <div className="space-y-4">
-      {/* ===== SECTION 1: Current Plan Card ===== */}
-      <Card className="bg-nebula border-white/[0.06]">
-        <CardContent className="p-4 space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-sm font-semibold text-white">Plan & Langganan</h2>
-              <p className="text-xs text-slate-400 mt-0.5">Informasi paket langganan outlet Anda</p>
-            </div>
-            <div className="flex items-center gap-2">
-              {plan?.isSuspended ? (
-                <Badge className="bg-red-500/10 border-red-500/20 text-red-400 text-xs font-semibold px-2.5 py-1">
-                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-400 mr-1.5" />
-                  Ditangguhkan
-                </Badge>
-              ) : (
-                <Badge className={`${getPlanBadgeClass(currentPlan)} text-xs font-semibold px-2.5 py-1`}>
-                  {getPlanLabel(currentPlan)}
-                </Badge>
-              )}
+    <div className="space-y-8">
+      {/* ===== SECTION 1: Current Plan ===== */}
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <SectionHeader title="Langganan" description="Informasi paket langganan outlet Anda" />
+          <div className="shrink-0 ml-4 flex items-center gap-2">
+            {plan?.isSuspended ? (
+              <Badge className="bg-red-500/10 border-red-500/20 text-red-400 text-[13px] font-semibold px-2.5 py-1">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-400 mr-1.5" />
+                Ditangguhkan
+              </Badge>
+            ) : (
+              <Badge className={`${getPlanBadgeClass(currentPlan)} text-[13px] font-semibold px-2.5 py-1`}>
+                {getPlanLabel(currentPlan)}
+              </Badge>
+            )}
+          </div>
+        </div>
+
+        {/* Suspended warning */}
+        {plan?.isSuspended && (
+          <Alert className="border-red-500/20 bg-red-500/5 p-4 mb-4">
+            <AlertDescription className="text-[13px] text-red-400">
+              Akun Anda saat ini ditangguhkan. Hubungi admin untuk informasi lebih lanjut.
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* Account & Plan Info */}
+        {planData && (
+          <SectionBox className="mb-6">
+            <SettingsRow label="Nama Outlet">
+              <span className="text-[13px] font-medium text-slate-200">{planData.outletName || '-'}</span>
+            </SettingsRow>
+            <SettingsRow label="Tipe Plan">
+              <span className={`text-[13px] font-medium ${planAccent[currentPlan].text}`}>{getPlanLabel(currentPlan)}</span>
+            </SettingsRow>
+            <SettingsRow label="Status">
+              <Badge className={`text-[11px] px-1.5 py-0 ${plan?.isSuspended ? 'bg-red-500/10 border-red-500/20 text-red-400' : 'theme-bg-very-light theme-border-light theme-text'}`}>
+                {plan?.isSuspended ? 'Ditangguhkan' : 'Aktif'}
+              </Badge>
+            </SettingsRow>
+            <SettingsRow label="Harga">
+              <span className="text-[13px] font-medium text-slate-200">
+                {PLAN_PRICING[currentPlan].price}{PLAN_PRICING[currentPlan].period && <span className="text-slate-500 font-normal">{PLAN_PRICING[currentPlan].period}</span>}
+              </span>
+            </SettingsRow>
+          </SectionBox>
+        )}
+
+        {/* Usage Stats with Circular Rings */}
+        {features && usage && (
+          <div className="space-y-3 mb-6">
+            <SectionGroupLabel>Penggunaan Saat Ini</SectionGroupLabel>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+              <UsageRing
+                label="Produk"
+                used={usage.products}
+                limit={features.maxProducts}
+                icon={<Tag className="h-4 w-4" />}
+              />
+              <UsageRing
+                label="Kategori"
+                used={usage.categories}
+                limit={features.maxCategories}
+                icon={<Palette className="h-4 w-4" />}
+              />
+              <UsageRing
+                label="Crew"
+                used={usage.crew}
+                limit={features.maxCrew}
+                icon={<KeyRound className="h-4 w-4" />}
+              />
+              <UsageRing
+                label="Pelanggan"
+                used={usage.customers}
+                limit={features.maxCustomers}
+                icon={<Star className="h-4 w-4" />}
+              />
+              <UsageRing
+                label="Transaksi"
+                used={usage.transactions}
+                limit={features.maxTransactionsPerMonth}
+                icon={<Receipt className="h-4 w-4" />}
+              />
             </div>
           </div>
+        )}
 
-          {/* Suspended warning */}
-          {plan?.isSuspended && (
-            <Alert className="border-red-500/20 bg-red-500/5 p-3">
-              <AlertDescription className="text-xs text-red-400">
-                Akun Anda saat ini ditangguhkan. Hubungi admin untuk informasi lebih lanjut.
-              </AlertDescription>
-            </Alert>
-          )}
-
-          {/* Account & Plan Info */}
-          {planData && (
-            <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-slate-400">Nama Outlet</span>
-                <span className="text-xs font-medium text-slate-200">{planData.outletName || '-'}</span>
+        {/* ===== SECTION 2: Upgrade CTAs ===== */}
+        {currentPlan === 'free' && !plan?.isSuspended && (
+          <div className={`rounded-xl border theme-border-light theme-bg-ultra-light p-5`}>
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 rounded-lg theme-bg-very-light flex items-center justify-center shrink-0 mt-0.5">
+                <Zap className="h-4 w-4 theme-text" />
               </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-slate-400">Tipe Plan</span>
-                <span className={`text-xs font-medium ${planAccent[currentPlan].text}`}>{getPlanLabel(currentPlan)}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-slate-400">Status</span>
-                <Badge className={`text-[10px] px-1.5 py-0 ${plan?.isSuspended ? 'bg-red-500/10 border-red-500/20 text-red-400' : 'theme-bg-very-light theme-border-light theme-text'}`}>
-                  {plan?.isSuspended ? 'Ditangguhkan' : 'Aktif'}
-                </Badge>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-slate-400">Harga</span>
-                <span className="text-xs font-medium text-slate-200">
-                  {PLAN_PRICING[currentPlan].price}{PLAN_PRICING[currentPlan].period && <span className="text-slate-500 font-normal">{PLAN_PRICING[currentPlan].period}</span>}
-                </span>
-              </div>
-            </div>
-          )}
-
-          {/* Usage Stats with Circular Rings */}
-          {features && usage && (
-            <div className="space-y-3">
-              <p className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Penggunaan Saat Ini</p>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                <UsageRing
-                  label="Produk"
-                  used={usage.products}
-                  limit={features.maxProducts}
-                  icon={<Tag className="h-4 w-4" />}
-                />
-                <UsageRing
-                  label="Kategori"
-                  used={usage.categories}
-                  limit={features.maxCategories}
-                  icon={<Palette className="h-4 w-4" />}
-                />
-                <UsageRing
-                  label="Crew"
-                  used={usage.crew}
-                  limit={features.maxCrew}
-                  icon={<KeyRound className="h-4 w-4" />}
-                />
-                <UsageRing
-                  label="Pelanggan"
-                  used={usage.customers}
-                  limit={features.maxCustomers}
-                  icon={<Star className="h-4 w-4" />}
-                />
-                <UsageRing
-                  label="Transaksi"
-                  used={usage.transactions}
-                  limit={features.maxTransactionsPerMonth}
-                  icon={<Receipt className="h-4 w-4" />}
-                />
-              </div>
-            </div>
-          )}
-
-          {/* ===== SECTION 2: Upgrade CTAs ===== */}
-          {currentPlan === 'free' && !plan?.isSuspended && (
-            <div className="space-y-3">
-              {/* Upgrade to Pro */}
-              <div className={`rounded-lg border theme-border-light theme-bg-ultra-light p-3`}>
-                <div className="flex items-start gap-2.5">
-                  <div className="w-8 h-8 rounded-lg theme-bg-very-light flex items-center justify-center shrink-0 mt-0.5">
-                    <Zap className="h-4 w-4 theme-text" />
-                  </div>
-                  <div className="flex-1 min-w-0 space-y-2">
-                    <div>
-                      <p className="text-xs font-semibold theme-text">Upgrade ke Pro</p>
-                      <p className="text-[11px] text-slate-400 mt-0.5">
-                        Unlimited produk, export Excel, API access, foto produk, dan banyak lagi.
-                      </p>
-                      <p className="text-xs font-semibold theme-text mt-1">
-                        {PLAN_PRICING.pro.price}<span className="theme-text/60 font-normal">{PLAN_PRICING.pro.period}</span>
-                      </p>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        onClick={() => handleUpgrade('pro')}
-                        size="sm"
-                        className="theme-btn-primary h-7 text-[11px]"
-                      >
-                        Upgrade ke Pro
-                        <ArrowUpRight className="ml-1 h-3 w-3" />
-                      </Button>
-                      <Button
-                        onClick={() => handleUpgrade('enterprise')}
-                        variant="outline"
-                        size="sm"
-                        className="border-white/[0.08] text-slate-300 hover:bg-white/[0.04] h-7 text-[11px]"
-                      >
-                        Upgrade ke Enterprise
-                      </Button>
-                    </div>
-                  </div>
+              <div className="flex-1 min-w-0 space-y-2">
+                <div>
+                  <p className="text-[14px] font-semibold theme-text">Upgrade ke Pro</p>
+                  <p className="text-[12px] text-slate-400 mt-1">
+                    Unlimited produk, export Excel, API access, foto produk, dan banyak lagi.
+                  </p>
+                  <p className="text-[14px] font-semibold theme-text mt-2">
+                    {PLAN_PRICING.pro.price}<span className="theme-text/60 font-normal">{PLAN_PRICING.pro.period}</span>
+                  </p>
                 </div>
-              </div>
-            </div>
-          )}
-
-          {currentPlan === 'pro' && !plan?.isSuspended && (
-            <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
-              <div className="flex items-start gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center shrink-0 mt-0.5">
-                  <Crown className="h-4 w-4 text-amber-400" />
-                </div>
-                <div className="flex-1 min-w-0 space-y-2">
-                  <div>
-                    <p className="text-xs font-semibold text-amber-300">Upgrade ke Enterprise</p>
-                    <p className="text-[11px] text-slate-400 mt-0.5">
-                      Multi-outlet management untuk bisnis yang berkembang dengan kontrol penuh.
-                    </p>
-                    <p className="text-xs font-semibold text-amber-400 mt-1">
-                      {PLAN_PRICING.enterprise.price}<span className="text-amber-400/60 font-normal">{PLAN_PRICING.enterprise.period}</span>
-                    </p>
-                  </div>
+                <div className="flex gap-2">
+                  <Button
+                    onClick={() => handleUpgrade('pro')}
+                    size="sm"
+                    className="theme-btn-primary h-8 text-[12px]"
+                  >
+                    Upgrade ke Pro
+                    <ArrowUpRight className="ml-1 h-3 w-3" />
+                  </Button>
                   <Button
                     onClick={() => handleUpgrade('enterprise')}
+                    variant="outline"
                     size="sm"
-                    className="bg-amber-500 hover:bg-amber-600 text-white h-7 text-[11px]"
+                    className="border-white/[0.08] text-slate-300 hover:bg-white/[0.04] h-8 text-[12px]"
                   >
                     Upgrade ke Enterprise
-                    <ArrowUpRight className="ml-1 h-3 w-3" />
                   </Button>
                 </div>
               </div>
             </div>
-          )}
+          </div>
+        )}
 
-          {currentPlan === 'enterprise' && !plan?.isSuspended && (
-            <div className={`rounded-lg border ${planAccent.enterprise.border} ${planAccent.enterprise.bg} p-3`}>
-              <div className="flex items-center gap-2.5">
-                <div className={`w-8 h-8 rounded-lg ${planAccent.enterprise.icon} flex items-center justify-center shrink-0`}>
-                  <Crown className="h-4 w-4" />
-                </div>
+        {currentPlan === 'pro' && !plan?.isSuspended && (
+          <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.03] p-5">
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center shrink-0 mt-0.5">
+                <Crown className="h-4 w-4 text-amber-400" />
+              </div>
+              <div className="flex-1 min-w-0 space-y-2">
                 <div>
-                  <p className="text-xs font-semibold text-amber-300">Current Plan — Semua fitur terbuka</p>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
-                    Anda memiliki akses penuh ke semua fitur Aether POS termasuk multi-outlet.
+                  <p className="text-[14px] font-semibold text-amber-300">Upgrade ke Enterprise</p>
+                  <p className="text-[12px] text-slate-400 mt-1">
+                    Multi-outlet management untuk bisnis yang berkembang dengan kontrol penuh.
+                  </p>
+                  <p className="text-[14px] font-semibold text-amber-400 mt-2">
+                    {PLAN_PRICING.enterprise.price}<span className="text-amber-400/60 font-normal">{PLAN_PRICING.enterprise.period}</span>
                   </p>
                 </div>
+                <Button
+                  onClick={() => handleUpgrade('enterprise')}
+                  size="sm"
+                  className="bg-amber-500 hover:bg-amber-600 text-white h-8 text-[12px]"
+                >
+                  Upgrade ke Enterprise
+                  <ArrowUpRight className="ml-1 h-3 w-3" />
+                </Button>
               </div>
             </div>
-          )}
+          </div>
+        )}
 
-          {/* ===== SECTION 3: Manage Subscription ===== */}
-          <Separator className="bg-white/[0.04]" />
+        {currentPlan === 'enterprise' && !plan?.isSuspended && (
+          <div className={`rounded-xl border ${planAccent.enterprise.border} ${planAccent.enterprise.bg} p-5`}>
+            <div className="flex items-center gap-3">
+              <div className={`w-8 h-8 rounded-lg ${planAccent.enterprise.icon} flex items-center justify-center shrink-0`}>
+                <Crown className="h-4 w-4" />
+              </div>
+              <div>
+                <p className="text-[14px] font-semibold text-amber-300">Current Plan — Semua fitur terbuka</p>
+                <p className="text-[12px] text-slate-400 mt-1">
+                  Anda memiliki akses penuh ke semua fitur Aether POS termasuk multi-outlet.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ===== SECTION 3: Manage Subscription ===== */}
+        <div className="border-t border-white/[0.06] pt-5 mt-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs font-medium text-slate-300">Kelola Langganan</p>
-              <p className="text-[11px] text-slate-500 mt-0.5">Upgrade, downgrade, atau perubahan plan lainnya</p>
+              <p className="text-[13px] font-medium text-slate-300">Kelola Langganan</p>
+              <p className="text-[12px] text-slate-500 mt-0.5">Upgrade, downgrade, atau perubahan plan lainnya</p>
             </div>
             <Button
               onClick={handleContactAdmin}
               variant="outline"
               size="sm"
-              className="border-white/[0.08] text-slate-300 hover:bg-white/[0.04] h-8 text-xs gap-1.5"
+              className="border-white/[0.08] text-slate-300 hover:bg-white/[0.04] h-8 text-[12px] gap-1.5"
             >
               <Send className="h-3.5 w-3.5" />
               Hubungi Admin
             </Button>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       {/* ===== SECTION 4: Plan Comparison ===== */}
-      <Card className="bg-nebula border-white/[0.06]">
-        <CardContent className="p-4 space-y-4">
-          <div>
-            <h2 className="text-sm font-semibold text-white">Perbandingan Plan</h2>
-            <p className="text-xs text-slate-400 mt-0.5">Bandingkan fitur dari setiap paket langganan</p>
-          </div>
+      <div>
+        <SectionHeader title="Perbandingan Plan" description="Bandingkan fitur dari setiap paket langganan" />
 
-          {/* Pricing Cards Row */}
-          <div className="grid grid-cols-3 gap-2 sm:gap-3">
-            {planKeys.map((key) => {
-              const pricing = PLAN_PRICING[key]
-              const isCurrent = key === currentPlan
-              const accent = planAccent[key]
-              return (
-                <div
-                  key={key}
-                  className={`rounded-lg border p-3 text-center space-y-1.5 transition-colors ${
-                    isCurrent
-                      ? `${accent.border} ${accent.bg}`
-                      : 'border-white/[0.06] bg-white/[0.04]/20 hover:bg-white/[0.04]/40'
-                  }`}
-                >
-                  <Badge className={`${getPlanBadgeClass(key)} text-[10px] font-semibold px-2 py-0`}>
+        {/* Pricing Cards Row */}
+        <div className="grid grid-cols-3 gap-3 mb-6">
+          {planKeys.map((key) => {
+            const pricing = PLAN_PRICING[key]
+            const isCurrent = key === currentPlan
+            const accent = planAccent[key]
+            return (
+              <div
+                key={key}
+                className={`rounded-xl border p-4 text-center space-y-2 transition-colors ${
+                  isCurrent
+                    ? `${accent.border} ${accent.bg}`
+                    : 'border-white/[0.06] hover:bg-white/[0.02]'
+                }`}
+              >
+                <Badge className={`${getPlanBadgeClass(key)} text-[11px] font-semibold px-2 py-0`}>
+                  {getPlanLabel(key)}
+                </Badge>
+                <div>
+                  <p className={`text-[14px] font-bold ${isCurrent ? accent.text : 'text-slate-200'}`}>
+                    {pricing.price}
+                  </p>
+                  {pricing.period && (
+                    <p className="text-[11px] text-slate-500">{pricing.period}</p>
+                  )}
+                </div>
+                {isCurrent && (
+                  <span className="text-[11px] theme-text font-medium">Plan Anda</span>
+                )}
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Desktop Table */}
+        <div className="hidden md:block border border-white/[0.06] rounded-xl overflow-hidden max-h-[420px] overflow-y-auto">
+          <Table>
+            <TableHeader>
+              <TableRow className="border-white/[0.06] hover:bg-transparent bg-white/[0.02] sticky top-0 z-10">
+                <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider h-9 w-[180px]">Fitur</TableHead>
+                {planKeys.map((key) => (
+                  <TableHead key={key} className="text-center text-[11px] font-medium h-9">
+                    <div className="flex flex-col items-center gap-1">
+                      <Badge className={`${getPlanBadgeClass(key)} text-[10px] font-semibold px-2 py-0`}>
+                        {getPlanLabel(key)}
+                      </Badge>
+                      {key === currentPlan && (
+                        <span className="text-[9px] theme-text font-medium">Plan Anda</span>
+                      )}
+                    </div>
+                  </TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {comparisonRows.map((row, idx) => (
+                <TableRow key={row.key} className={`border-white/[0.06] hover:bg-transparent ${idx % 2 === 0 ? 'bg-white/[0.01]' : ''}`}>
+                  <TableCell className="text-[13px] text-slate-300 font-medium py-2.5">{row.label}</TableCell>
+                  {planKeys.map((key) => {
+                    const planFeatures = PLANS[key]
+                    const value = planFeatures[row.key]
+                    const display = row.format(value as number & boolean)
+                    const isCurrentPlan = key === currentPlan
+                    const isBoolean = typeof value === 'boolean'
+                    const isUnlimitedValue = typeof value === 'number' && value === -1
+
+                    return (
+                      <TableCell key={key} className={`text-center py-2.5 ${isCurrentPlan ? 'bg-white/[0.02]' : ''}`}>
+                        {isBoolean ? (
+                          value ? (
+                            <Check className="h-4 w-4 theme-text mx-auto" />
+                          ) : (
+                            <X className="h-3.5 w-3.5 text-slate-600 mx-auto" />
+                          )
+                        ) : (
+                          <span className={`text-[13px] font-medium ${isUnlimitedValue ? 'theme-text' : isCurrentPlan ? 'text-slate-200' : 'text-slate-400'}`}>
+                            {display}
+                          </span>
+                        )}
+                      </TableCell>
+                    )
+                  })}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+
+        {/* Mobile Cards */}
+        <div className="md:hidden space-y-3 max-h-[520px] overflow-y-auto">
+          {planKeys.map((key) => {
+            const planFeatures = PLANS[key]
+            const isCurrentPlan = key === currentPlan
+            const accent = planAccent[key]
+
+            return (
+              <div
+                key={key}
+                className={`rounded-xl border p-4 space-y-3 transition-colors ${
+                  isCurrentPlan
+                    ? `${accent.border} ${accent.bg}`
+                    : 'border-white/[0.06] bg-white/[0.02]'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <Badge className={`${getPlanBadgeClass(key)} text-[11px] font-semibold px-2 py-0`}>
                     {getPlanLabel(key)}
                   </Badge>
-                  <div>
-                    <p className={`text-sm font-bold ${isCurrent ? accent.text : 'text-slate-200'}`}>
-                      {pricing.price}
-                    </p>
-                    {pricing.period && (
-                      <p className="text-[10px] text-slate-500">{pricing.period}</p>
-                    )}
-                  </div>
-                  {isCurrent && (
-                    <span className="text-[9px] theme-text font-medium">Plan Anda</span>
+                  {isCurrentPlan && (
+                    <span className="text-[11px] theme-text font-medium">Plan Anda</span>
                   )}
                 </div>
-              )
-            })}
-          </div>
+                <p className={`text-[14px] font-bold ${isCurrentPlan ? accent.text : 'text-slate-200'}`}>
+                  {PLAN_PRICING[key].price}{PLAN_PRICING[key].period && <span className="text-slate-500 font-normal text-[12px]">{PLAN_PRICING[key].period}</span>}
+                </p>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                  {comparisonRows.map((row) => {
+                    const value = planFeatures[row.key]
+                    const display = row.format(value as number & boolean)
+                    const isBoolean = typeof value === 'boolean'
+                    const isUnlimitedValue = typeof value === 'number' && value === -1
 
-          {/* Desktop Table */}
-          <div className="hidden md:block rounded-lg border border-white/[0.06] overflow-hidden max-h-[420px] overflow-y-auto">
-            <Table>
-              <TableHeader>
-                <TableRow className="border-white/[0.06] hover:bg-transparent bg-white/[0.02] sticky top-0 z-10">
-                  <TableHead className="text-slate-500 text-[11px] font-medium h-9 w-[180px]">Fitur</TableHead>
-                  {planKeys.map((key) => (
-                    <TableHead key={key} className="text-center text-[11px] font-medium h-9">
-                      <div className="flex flex-col items-center gap-1">
-                        <Badge className={`${getPlanBadgeClass(key)} text-[10px] font-semibold px-2 py-0`}>
-                          {getPlanLabel(key)}
-                        </Badge>
-                        {key === currentPlan && (
-                          <span className="text-[9px] theme-text font-medium">Plan Anda</span>
+                    return (
+                      <div key={row.key} className="flex items-center justify-between py-0.5">
+                        <span className="text-[11px] text-slate-500">{row.label}</span>
+                        {isBoolean ? (
+                          value ? (
+                            <Check className="h-3.5 w-3.5 theme-text" />
+                          ) : (
+                            <X className="h-3 w-3 text-slate-600" />
+                          )
+                        ) : (
+                          <span className={`text-[11px] font-medium ${isUnlimitedValue ? 'theme-text' : 'text-slate-300'}`}>
+                            {display}
+                          </span>
                         )}
                       </div>
-                    </TableHead>
-                  ))}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {comparisonRows.map((row, idx) => (
-                  <TableRow key={row.key} className={`border-white/[0.06] hover:bg-transparent ${idx % 2 === 0 ? 'bg-nebula/50' : ''}`}>
-                    <TableCell className="text-xs text-slate-300 font-medium py-2">{row.label}</TableCell>
-                    {planKeys.map((key) => {
-                      const planFeatures = PLANS[key]
-                      const value = planFeatures[row.key]
-                      const display = row.format(value as number & boolean)
-                      const isCurrentPlan = key === currentPlan
-                      const isBoolean = typeof value === 'boolean'
-                      const isUnlimitedValue = typeof value === 'number' && value === -1
-
-                      return (
-                        <TableCell key={key} className={`text-center py-2 ${isCurrentPlan ? 'theme-bg-ultra-light' : ''}`}>
-                          {isBoolean ? (
-                            value ? (
-                              <Check className="h-4 w-4 theme-text mx-auto" />
-                            ) : (
-                              <X className="h-3.5 w-3.5 text-slate-600 mx-auto" />
-                            )
-                          ) : (
-                            <span className={`text-xs font-medium ${isUnlimitedValue ? 'theme-text' : isCurrentPlan ? 'text-slate-200' : 'text-slate-400'}`}>
-                              {display}
-                            </span>
-                          )}
-                        </TableCell>
-                      )
-                    })}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-
-          {/* Mobile Cards */}
-          <div className="md:hidden space-y-3 max-h-[520px] overflow-y-auto">
-            {planKeys.map((key) => {
-              const planFeatures = PLANS[key]
-              const isCurrentPlan = key === currentPlan
-              const accent = planAccent[key]
-
-              return (
-                <div
-                  key={key}
-                  className={`rounded-lg border p-3 space-y-2.5 transition-colors ${
-                    isCurrentPlan
-                      ? `${accent.border} ${accent.bg}`
-                      : 'border-white/[0.06] bg-white/[0.02]'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <Badge className={`${getPlanBadgeClass(key)} text-[11px] font-semibold px-2 py-0`}>
-                      {getPlanLabel(key)}
-                    </Badge>
-                    {isCurrentPlan && (
-                      <span className="text-[10px] theme-text font-medium">Plan Anda</span>
-                    )}
-                  </div>
-                  <p className={`text-sm font-bold ${isCurrentPlan ? accent.text : 'text-slate-200'}`}>
-                    {PLAN_PRICING[key].price}{PLAN_PRICING[key].period && <span className="text-slate-500 font-normal text-xs">{PLAN_PRICING[key].period}</span>}
-                  </p>
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-                    {comparisonRows.map((row) => {
-                      const value = planFeatures[row.key]
-                      const display = row.format(value as number & boolean)
-                      const isBoolean = typeof value === 'boolean'
-                      const isUnlimitedValue = typeof value === 'number' && value === -1
-
-                      return (
-                        <div key={row.key} className="flex items-center justify-between py-0.5">
-                          <span className="text-[11px] text-slate-500">{row.label}</span>
-                          {isBoolean ? (
-                            value ? (
-                              <Check className="h-3.5 w-3.5 theme-text" />
-                            ) : (
-                              <X className="h-3 w-3 text-slate-600" />
-                            )
-                          ) : (
-                            <span className={`text-[11px] font-medium ${isUnlimitedValue ? 'theme-text' : 'text-slate-300'}`}>
-                              {display}
-                            </span>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                  {!isCurrentPlan && (key === 'pro' || key === 'enterprise') && (
-                    <Button
-                      onClick={() => handleUpgrade(key)}
-                      variant="outline"
-                      size="sm"
-                      className="w-full border-white/[0.08] text-slate-300 hover:bg-white/[0.04] h-7 text-[11px]"
-                    >
-                      Upgrade ke {getPlanLabel(key)}
-                      <ArrowUpRight className="ml-1 h-3 w-3" />
-                    </Button>
-                  )}
-                  {isCurrentPlan && (
-                    <div className="text-center pt-0.5">
-                      <span className="text-[11px] theme-text font-medium">✓ Plan aktif</span>
-                    </div>
-                  )}
+                    )
+                  })}
                 </div>
-              )
-            })}
-          </div>
-        </CardContent>
-      </Card>
+                {!isCurrentPlan && (key === 'pro' || key === 'enterprise') && (
+                  <Button
+                    onClick={() => handleUpgrade(key)}
+                    variant="outline"
+                    size="sm"
+                    className="w-full border-white/[0.08] text-slate-300 hover:bg-white/[0.04] h-8 text-[12px]"
+                  >
+                    Upgrade ke {getPlanLabel(key)}
+                    <ArrowUpRight className="ml-1 h-3 w-3" />
+                  </Button>
+                )}
+                {isCurrentPlan && (
+                  <div className="text-center pt-0.5">
+                    <span className="text-[11px] theme-text font-medium">✓ Plan aktif</span>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </div>
     </div>
   )
 }
 
-// ==================== TAB 8: ACCOUNT SECURITY ====================
+// ==================== ACCOUNT ====================
 
 function AccountTab() {
   const { data: session } = useSession()
@@ -2629,159 +2525,123 @@ function AccountTab() {
   }
 
   return (
-    <div className="space-y-4">
-      {/* Current Account Info */}
-      <Card className="bg-nebula border-white/[0.06]">
-        <CardContent className="p-4 space-y-3">
-          <div>
-            <h2 className="text-sm font-semibold text-white">Informasi Akun</h2>
-            <p className="text-xs text-slate-400 mt-0.5">Detail akun yang sedang digunakan</p>
-          </div>
+    <div className="space-y-8">
+      {/* Account Info */}
+      <div>
+        <SectionHeader title="Akun" description="Detail akun yang sedang digunakan" />
+        <SectionBox>
+          <SettingsRow label="Nama">
+            <span className="text-[13px] font-medium text-slate-200">{session?.user?.name || '-'}</span>
+          </SettingsRow>
+          <SettingsRow label="Email">
+            <span className="text-[13px] font-medium text-slate-200">{session?.user?.email || '-'}</span>
+          </SettingsRow>
+          <SettingsRow label="Peran">
+            <Badge
+              variant="outline"
+              className={`text-[11px] px-1.5 py-0 ${
+                session?.user?.role === 'OWNER'
+                  ? 'bg-amber-500/10 border-amber-500/15 text-amber-400'
+                  : 'bg-white/[0.04] border-white/[0.08] text-slate-500'
+              }`}
+            >
+              {session?.user?.role === 'OWNER' ? 'Owner' : 'Crew'}
+            </Badge>
+          </SettingsRow>
+        </SectionBox>
+      </div>
 
-          <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-slate-400">Nama</span>
-              <span className="text-xs font-medium text-slate-200">{session?.user?.name || '-'}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-slate-400">Email</span>
-              <span className="text-xs font-medium text-slate-200">{session?.user?.email || '-'}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-slate-400">Peran</span>
-              <Badge
-                variant="outline"
-                className={`text-[11px] px-1.5 py-0 ${
-                  session?.user?.role === 'OWNER'
-                    ? 'bg-amber-500/10 border-amber-500/15 text-amber-400'
-                    : 'bg-white/[0.04] border-white/[0.08] text-slate-500'
-                }`}
+      {/* Change Email + Password side by side on desktop */}
+      <div>
+        <SectionHeader title="Keamanan" description="Ubah email dan password akun Anda" />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {/* Change Email */}
+          <div className="min-w-0">
+            <div className="border border-white/[0.06] rounded-xl p-6 space-y-5">
+              <div>
+                <p className="text-[12px] text-slate-500 mb-2">Email Baru</p>
+                <StripeInput
+                  type="email"
+                  value={newEmail}
+                  onChange={(e) => setNewEmail(e.target.value)}
+                  placeholder="email@contoh.com"
+                />
+              </div>
+              <div>
+                <p className="text-[12px] text-slate-500 mb-2">Konfirmasi Password</p>
+                <StripeInput
+                  type="password"
+                  value={emailPassword}
+                  onChange={(e) => setEmailPassword(e.target.value)}
+                  placeholder="Masukkan password saat ini"
+                />
+              </div>
+              <button
+                onClick={handleChangeEmail}
+                disabled={changingEmail || !newEmail || !emailPassword}
+                className="text-[13px] font-medium text-slate-400 hover:text-white disabled:text-slate-600 disabled:cursor-not-allowed transition-colors duration-150 flex items-center gap-1.5"
               >
-                {session?.user?.role === 'OWNER' ? 'Owner' : 'Crew'}
-              </Badge>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Email + Password side by side on desktop */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Change Email */}
-        <div className="min-w-0">
-        <Card className="bg-nebula border-white/[0.06]">
-          <CardContent className="p-4 space-y-4">
-            <div>
-              <h2 className="text-sm font-semibold text-white">Ganti Email</h2>
-            <p className="text-xs text-slate-400 mt-0.5">Ubah email akun Anda</p>
-          </div>
-
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="new-email" className="text-xs text-slate-300">Email Baru</Label>
-              <Input
-                id="new-email"
-                type="email"
-                value={newEmail}
-                onChange={(e) => setNewEmail(e.target.value)}
-                placeholder="email@contoh.com"
-                className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="email-password" className="text-xs text-slate-300">Konfirmasi Password</Label>
-              <Input
-                id="email-password"
-                type="password"
-                value={emailPassword}
-                onChange={(e) => setEmailPassword(e.target.value)}
-                placeholder="Masukkan password saat ini"
-                className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
-              />
+                {changingEmail ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Save className="h-3.5 w-3.5" />
+                )}
+                Ganti Email
+              </button>
             </div>
           </div>
 
-          <Button
-            onClick={handleChangeEmail}
-            disabled={changingEmail || !newEmail || !emailPassword}
-            className="theme-btn-primary h-9 text-xs"
-          >
-            {changingEmail ? (
-              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Save className="mr-1.5 h-3.5 w-3.5" />
-            )}
-            Ganti Email
-          </Button>
-        </CardContent>
-      </Card>
+          {/* Change Password */}
+          <div className="min-w-0">
+            <div className="border border-white/[0.06] rounded-xl p-6 space-y-5">
+              <div>
+                <p className="text-[12px] text-slate-500 mb-2">Password Saat Ini</p>
+                <StripeInput
+                  type="password"
+                  value={currentPwd}
+                  onChange={(e) => setCurrentPwd(e.target.value)}
+                  placeholder="Masukkan password saat ini"
+                />
+              </div>
+              <div>
+                <p className="text-[12px] text-slate-500 mb-2">Password Baru</p>
+                <StripeInput
+                  type="password"
+                  value={newPwd}
+                  onChange={(e) => setNewPwd(e.target.value)}
+                  placeholder="Minimal 6 karakter"
+                />
+              </div>
+              <div>
+                <p className="text-[12px] text-slate-500 mb-2">Konfirmasi Password Baru</p>
+                <StripeInput
+                  type="password"
+                  value={confirmPwd}
+                  onChange={(e) => setConfirmPwd(e.target.value)}
+                  placeholder="Ulangi password baru"
+                />
+              </div>
+              <button
+                onClick={handleChangePassword}
+                disabled={changingPwd || !currentPwd || !newPwd || !confirmPwd || newPwd !== confirmPwd || newPwd.length < 6}
+                className="text-[13px] font-medium text-slate-400 hover:text-white disabled:text-slate-600 disabled:cursor-not-allowed transition-colors duration-150 flex items-center gap-1.5"
+              >
+                {changingPwd ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <KeyRound className="h-3.5 w-3.5" />
+                )}
+                Ganti Password
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
-
-      {/* Change Password */}
-      <div className="min-w-0">
-      <Card className="bg-nebula border-white/[0.06]">
-        <CardContent className="p-4 space-y-4">
-          <div>
-            <h2 className="text-sm font-semibold text-white">Ganti Password</h2>
-            <p className="text-xs text-slate-400 mt-0.5">Ubah password akun Anda</p>
-          </div>
-
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="current-password" className="text-xs text-slate-300">Password Saat Ini</Label>
-              <Input
-                id="current-password"
-                type="password"
-                value={currentPwd}
-                onChange={(e) => setCurrentPwd(e.target.value)}
-                placeholder="Masukkan password saat ini"
-                className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="new-password" className="text-xs text-slate-300">Password Baru</Label>
-              <Input
-                id="new-password"
-                type="password"
-                value={newPwd}
-                onChange={(e) => setNewPwd(e.target.value)}
-                placeholder="Minimal 6 karakter"
-                className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="confirm-password" className="text-xs text-slate-300">Konfirmasi Password Baru</Label>
-              <Input
-                id="confirm-password"
-                type="password"
-                value={confirmPwd}
-                onChange={(e) => setConfirmPwd(e.target.value)}
-                placeholder="Ulangi password baru"
-                className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
-              />
-            </div>
-          </div>
-
-          <Button
-            onClick={handleChangePassword}
-            disabled={changingPwd || !currentPwd || !newPwd || !confirmPwd || newPwd !== confirmPwd || newPwd.length < 6}
-            className="theme-btn-primary h-9 text-xs"
-          >
-            {changingPwd ? (
-              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <KeyRound className="mr-1.5 h-3.5 w-3.5" />
-            )}
-            Ganti Password
-          </Button>
-        </CardContent>
-      </Card>
-      </div>
-    </div>
     </div>
   )
 }
 
-// ==================== TAB 9: MULTI-OUTLET (PLACEHOLDER) ====================
+// ==================== MULTI-OUTLET ====================
 
 function MultiOutletTab() {
   const { settings, loading } = useSettings()
@@ -2867,12 +2727,12 @@ function MultiOutletTab() {
 
   if (loading || outletsLoading) {
     return (
-      <Card className="bg-nebula border-white/[0.06]">
-        <CardContent className="p-4 space-y-3">
-          <Skeleton className="h-5 w-36 bg-white/[0.04]" />
-          <Skeleton className="h-20 bg-white/[0.04] rounded-lg" />
-        </CardContent>
-      </Card>
+      <div className="space-y-3">
+        <Skeleton className="h-4 w-32 bg-white/[0.04]" />
+        <SectionBox>
+          <div className="px-6 py-4"><Skeleton className="h-5 w-full bg-white/[0.04]" /></div>
+        </SectionBox>
+      </div>
     )
   }
 
@@ -2880,151 +2740,128 @@ function MultiOutletTab() {
 
   if (!isEnterprise) {
     return (
-      <Card className="bg-nebula border-white/[0.06]">
-        <CardContent className="p-4 space-y-4">
-          <div>
-            <h2 className="text-sm font-semibold text-white">Outlet Cabang</h2>
-            <p className="text-xs text-slate-400 mt-0.5">Kelola beberapa outlet dalam satu akun</p>
-          </div>
-
-          <div className="rounded-lg border theme-border-light theme-bg-ultra-light p-3 space-y-2">
-            <div className="flex items-center gap-2">
-              <Building2 className="h-4 w-4 theme-text" />
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold theme-text">Outlet Utama (Aktif)</p>
-                <p className="text-[11px] text-slate-400">{settings?.outlet?.name || '-'}</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
-            <p className="text-[11px] text-slate-500 text-center">
-              Multi-outlet tersedia untuk akun <span className="text-amber-400 font-medium">Enterprise</span>. Upgrade untuk mengakses fitur ini.
-            </p>
-          </div>
-        </CardContent>
-      </Card>
+      <div>
+        <SectionHeader title="Outlet Cabang" description="Kelola beberapa outlet dalam satu akun" />
+        <SectionBox>
+          <SettingsRow label="Outlet Utama (Aktif)">
+            <span className="text-[13px] font-medium text-slate-200">{settings?.outlet?.name || '-'}</span>
+          </SettingsRow>
+        </SectionBox>
+        <div className="border border-white/[0.06] rounded-xl p-4 mt-4">
+          <p className="text-[12px] text-slate-500 text-center">
+            Multi-outlet tersedia untuk akun <span className="text-amber-400 font-medium">Enterprise</span>. Upgrade untuk mengakses fitur ini.
+          </p>
+        </div>
+      </div>
     )
   }
 
   return (
-    <div className="space-y-4">
-      <Card className="bg-nebula border-white/[0.06]">
-        <CardContent className="p-4 space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-sm font-semibold text-white">Outlet Cabang</h2>
-              <p className="text-xs text-slate-400 mt-0.5">
-                {outlets.length} outlet terdaftar
-              </p>
-            </div>
-            {canAddMore && (
-              <Button disabled
-                className="theme-btn-primary h-8 text-xs opacity-50 cursor-not-allowed flex items-center gap-1.5">
-                <Plus className="h-3.5 w-3.5" />
-                Tambah Cabang
-                <Lock className="h-3 w-3 ml-1" />
-              </Button>
-            )}
-          </div>
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <SectionHeader title="Outlet Cabang" description={`${outlets.length} outlet terdaftar`} />
+        {canAddMore && (
+          <Button disabled
+            className="theme-btn-primary h-8 text-[12px] opacity-50 cursor-not-allowed flex items-center gap-1.5 shrink-0">
+            <Plus className="h-3.5 w-3.5" />
+            Tambah Cabang
+            <Lock className="h-3 w-3 ml-1" />
+          </Button>
+        )}
+      </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-            {outlets.map((outlet) => (
-              <div key={outlet.id}
-                className={`rounded-lg border p-3 space-y-1.5 transition-colors ${
-                  outlet.isPrimary
-                    ? 'theme-border-light theme-bg-ultra-light'
-                    : 'border-white/[0.06] bg-white/[0.02] hover:border-white/[0.08]'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Building2 className={`h-4 w-4 shrink-0 ${outlet.isPrimary ? 'theme-text' : 'text-slate-500'}`} />
-                    <div className="min-w-0">
-                      <p className={`text-xs font-semibold truncate ${outlet.isPrimary ? 'theme-text' : 'text-slate-200'}`}>
-                        {outlet.name}
-                        {outlet.isPrimary && <span className="ml-1.5 text-[10px] font-normal theme-text">(Utama)</span>}
-                      </p>
-                      {outlet.address && <p className="text-[11px] text-slate-500 truncate">{outlet.address}</p>}
-                    </div>
-                  </div>
-                  {!outlet.isPrimary && (
-                    <Button variant="ghost" size="icon"
-                      className="h-7 w-7 text-slate-500 hover:text-red-400 hover:bg-red-500/10 shrink-0"
-                      onClick={() => setDeleteId(outlet.id)}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  )}
-                </div>
-                <div className="flex gap-3 text-[10px] text-slate-500">
-                  {outlet.userCount > 0 && <span>{outlet.userCount} crew</span>}
-                  {outlet.productCount > 0 && <span>{outlet.productCount} produk</span>}
-                  {outlet.customerCount > 0 && <span>{outlet.customerCount} customer</span>}
-                  <span>{outlet.transactionCount} transaksi</span>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {outlets.map((outlet) => (
+          <div key={outlet.id}
+            className={`rounded-xl border p-4 space-y-2 transition-colors ${
+              outlet.isPrimary
+                ? 'theme-border-light theme-bg-ultra-light'
+                : 'border-white/[0.06] hover:border-white/[0.10]'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 min-w-0">
+                <Building2 className={`h-4 w-4 shrink-0 ${outlet.isPrimary ? 'theme-text' : 'text-slate-500'}`} />
+                <div className="min-w-0">
+                  <p className={`text-[13px] font-semibold truncate ${outlet.isPrimary ? 'theme-text' : 'text-slate-200'}`}>
+                    {outlet.name}
+                    {outlet.isPrimary && <span className="ml-1.5 text-[11px] font-normal theme-text">(Utama)</span>}
+                  </p>
+                  {outlet.address && <p className="text-[12px] text-slate-500 truncate">{outlet.address}</p>}
                 </div>
               </div>
-            ))}
-          </div>
-
-          {outlets.length === 0 && (
-            <div className="py-6 text-center">
-              <Building2 className="h-8 w-8 text-zinc-700 mx-auto mb-2" />
-              <p className="text-sm text-slate-500">Belum ada outlet cabang</p>
-              <p className="text-[11px] text-slate-600">Tambahkan outlet cabang untuk memperluas bisnis Anda</p>
+              {!outlet.isPrimary && (
+                <Button variant="ghost" size="icon"
+                  className="h-7 w-7 text-slate-500 hover:text-red-400 hover:bg-red-500/10 shrink-0"
+                  onClick={() => setDeleteId(outlet.id)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              )}
             </div>
-          )}
-
-          <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-2.5">
-            <p className="text-[10px] text-amber-400 text-center">
-              🔒 Fitur <span className="font-medium">Tambah Cabang</span> sedang dalam pengembangan. Segera hadir!
-            </p>
+            <div className="flex gap-3 text-[11px] text-slate-500">
+              {outlet.userCount > 0 && <span>{outlet.userCount} crew</span>}
+              {outlet.productCount > 0 && <span>{outlet.productCount} produk</span>}
+              {outlet.customerCount > 0 && <span>{outlet.customerCount} customer</span>}
+              <span>{outlet.transactionCount} transaksi</span>
+            </div>
           </div>
-        </CardContent>
-      </Card>
+        ))}
+      </div>
+
+      {outlets.length === 0 && (
+        <div className="border border-white/[0.06] rounded-xl py-12 text-center">
+          <Building2 className="h-10 w-10 text-zinc-700 mx-auto mb-2" />
+          <p className="text-[13px] text-slate-500">Belum ada outlet cabang</p>
+          <p className="text-[11px] text-slate-600">Tambahkan outlet cabang untuk memperluas bisnis Anda</p>
+        </div>
+      )}
+
+      <div className="border border-amber-500/20 bg-amber-500/[0.03] rounded-xl p-3 mt-4">
+        <p className="text-[12px] text-amber-400 text-center">
+          🔒 Fitur <span className="font-medium">Tambah Cabang</span> sedang dalam pengembangan. Segera hadir!
+        </p>
+      </div>
 
       {/* Add Outlet Dialog */}
       <ResponsiveDialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <ResponsiveDialogContent className="bg-nebula border-white/[0.06] p-4">
+        <ResponsiveDialogContent className="bg-[#0a0a0b] border-white/[0.08] p-6">
           <ResponsiveDialogHeader>
-            <ResponsiveDialogTitle className="text-sm font-semibold text-white">Tambah Outlet Cabang</ResponsiveDialogTitle>
+            <ResponsiveDialogTitle className="text-[15px] font-semibold text-white">Tambah Outlet Cabang</ResponsiveDialogTitle>
           </ResponsiveDialogHeader>
-          <div className="space-y-3 py-2">
-            <div className="space-y-1.5">
-              <Label className="text-xs text-slate-300">Nama Outlet *</Label>
-              <Input
+          <div className="space-y-5 py-2">
+            <div>
+              <p className="text-[12px] text-slate-500 mb-2">Nama Outlet *</p>
+              <StripeInput
                 value={formData.name}
                 onChange={(e) => setFormData((p) => ({ ...p, name: e.target.value }))}
                 placeholder="Contoh: Toko Cabang Pondok Indah"
-                className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
               />
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs text-slate-300">Alamat</Label>
-              <Input
+            <div>
+              <p className="text-[12px] text-slate-500 mb-2">Alamat</p>
+              <StripeInput
                 value={formData.address}
                 onChange={(e) => setFormData((p) => ({ ...p, address: e.target.value }))}
                 placeholder="Jl. Merdeka No. 10"
-                className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
               />
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs text-slate-300">Telepon</Label>
-              <Input
+            <div>
+              <p className="text-[12px] text-slate-500 mb-2">Telepon</p>
+              <StripeInput
                 value={formData.phone}
                 onChange={(e) => setFormData((p) => ({ ...p, phone: e.target.value }))}
                 placeholder="081234567890"
-                className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
               />
             </div>
           </div>
           <ResponsiveDialogFooter>
             <Button type="button" variant="ghost" onClick={() => setDialogOpen(false)}
-              className="bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.06] h-8 text-xs">
+              className="bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.06] h-9 text-[13px]">
               Batal
             </Button>
             <Button onClick={handleCreate} disabled={saving || !formData.name.trim()}
-              className="theme-btn-primary h-8 text-xs">
+              className="theme-btn-primary h-9 text-[13px]">
               {saving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
               Tambah Outlet
             </Button>
@@ -3034,17 +2871,17 @@ function MultiOutletTab() {
 
       {/* Delete Confirmation */}
       <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
-        <AlertDialogContent className="bg-nebula border-white/[0.06]">
+        <AlertDialogContent className="bg-[#0a0a0b] border-white/[0.08]">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-sm font-semibold text-white">Hapus Outlet</AlertDialogTitle>
-            <AlertDialogDescription className="text-xs text-slate-400">
+            <AlertDialogTitle className="text-[15px] font-semibold text-white">Hapus Outlet</AlertDialogTitle>
+            <AlertDialogDescription className="text-[13px] text-slate-400">
               Apakah Anda yakin ingin menghapus outlet ini? Semua data (produk, customer, transaksi, crew) akan dihapus permanen.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.06] h-8 text-xs" />
+            <AlertDialogCancel className="bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.06] h-9 text-[13px]" />
             <AlertDialogAction onClick={handleDelete} disabled={deleting}
-              className="bg-red-500 hover:bg-red-600 text-white h-8 text-xs">
+              className="bg-red-500 hover:bg-red-600 text-white h-9 text-[13px]">
               {deleting && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
               Hapus
             </AlertDialogAction>
