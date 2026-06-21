@@ -29,6 +29,7 @@ import {
   Coins,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   Wifi,
   WifiOff,
   RefreshCw,
@@ -1665,6 +1666,134 @@ export default function PosPage() {
     </div>
   )
 
+  // Cart items — mobile card-style layout (dedicated, not shared)
+  const renderCartItemsMobile = () => {
+    if (cart.length === 0) return null
+    return (
+      <div className="space-y-3 pb-4">
+        {cart.map((item) => {
+          const itemKey = getCartKey(item.product.id, item.variant?.id || null)
+          const itemTotal = getEffectivePrice(item) * item.qty
+          return (
+            <div key={itemKey} className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
+              {/* Top: Image + Name + Delete */}
+              <div className="flex items-center gap-3 mb-3">
+                {/* Image */}
+                {item.product.image ? (
+                  <div className="w-12 h-12 rounded-xl bg-white/[0.03] shrink-0 overflow-hidden relative">
+                    <img
+                      src={item.product.image}
+                      alt={item.product.name}
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none'
+                        const fb = e.currentTarget.parentElement?.querySelector('.img-fb')
+                        if (fb) fb.setAttribute('style', 'display:flex')
+                      }}
+                    />
+                    <div className="img-fb absolute inset-0 items-center justify-center bg-white/[0.03] hidden">
+                      <Package className="h-5 w-5 text-slate-600" strokeWidth={1.5} />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="w-12 h-12 rounded-xl bg-white/[0.03] flex items-center justify-center shrink-0">
+                    <Package className="h-5 w-5 text-slate-600" strokeWidth={1.5} />
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="text-[14px] font-semibold text-white truncate">{item.product.name}</p>
+                  {item.variant && (
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-violet-500/10 border border-violet-500/15 mt-1">
+                      <span className="text-[10px] font-medium text-violet-400">{item.variant.name}</span>
+                    </span>
+                  )}
+                </div>
+                <button
+                  onClick={() => removeFromCart(item.product.id, item.variant?.id)}
+                  className="h-9 w-9 flex items-center justify-center rounded-xl text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-all active:scale-95"
+                >
+                  <Trash2 className="h-4 w-4" strokeWidth={1.5} />
+                </button>
+              </div>
+
+              {/* Bottom: Price + Qty + Total */}
+              <div className="flex items-center justify-between gap-3">
+                {/* Price info */}
+                <div className="min-w-0">
+                  {editingPriceId === itemKey ? (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-slate-500">Rp</span>
+                      <input
+                        ref={priceInputRef}
+                        type="number"
+                        min="0"
+                        value={editingPriceValue}
+                        onChange={(e) => setEditingPriceValue(e.target.value)}
+                        onBlur={confirmEditPrice}
+                        onKeyDown={(e) => { if (e.key === 'Enter') confirmEditPrice(); if (e.key === 'Escape') cancelEditPrice() }}
+                        className="flex-1 h-8 text-sm font-bold bg-white/[0.04] border border-amber-500/25 text-amber-400 rounded-lg outline-none text-right min-w-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      />
+                    </div>
+                  ) : settings.manualDiscountEnabled ? (
+                    <button onClick={() => startEditPrice(itemKey, getEffectivePrice(item))} className="text-left">
+                      {item.customPrice != null && (
+                        <span className="block text-[11px] text-slate-500 line-through">{formatCurrency(getItemPrice(item))}</span>
+                      )}
+                      <div className="flex items-center gap-1">
+                        <span className={cn('text-[13px] font-medium', item.customPrice != null ? 'text-amber-400' : 'text-slate-300')}>@{formatCurrency(getEffectivePrice(item))}</span>
+                        <Pencil className="h-3 w-3 text-slate-500" strokeWidth={1.5} />
+                      </div>
+                    </button>
+                  ) : (
+                    <span className="text-[13px] text-slate-400">@{formatCurrency(getItemPrice(item))}</span>
+                  )}
+                  <span className="text-[11px] text-slate-500 mt-0.5 block">× {item.qty} item</span>
+                </div>
+
+                {/* Qty stepper — LARGE touch targets */}
+                <div className="flex items-center gap-1">
+                  <button
+                    className="h-10 w-10 rounded-xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/[0.08] active:scale-95 transition-all"
+                    onClick={() => updateQty(item.product.id, item.qty - 1, item.variant?.id)}
+                  >
+                    <Minus className="h-4 w-4" strokeWidth={1.5} />
+                  </button>
+                  {editingQtyId === itemKey ? (
+                    <input
+                      ref={qtyInputRef}
+                      type="number"
+                      min="0"
+                      max={getItemStock(item)}
+                      value={editingQtyValue}
+                      onChange={(e) => setEditingQtyValue(e.target.value)}
+                      onBlur={confirmEditQty}
+                      onKeyDown={(e) => { if (e.key === 'Enter') confirmEditQty(); if (e.key === 'Escape') cancelEditQty() }}
+                      className="w-12 h-10 text-[15px] font-bold text-white text-center bg-white/[0.04] border border-white/[0.08] rounded-xl outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    />
+                  ) : (
+                    <span
+                      className="w-12 text-center text-[15px] font-bold text-white cursor-pointer hover:theme-text transition-colors"
+                      onClick={() => startEditQty(itemKey, item.qty)}
+                    >{item.qty}</span>
+                  )}
+                  <button
+                    className="h-10 w-10 rounded-xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/[0.08] active:scale-95 transition-all"
+                    onClick={() => updateQty(item.product.id, item.qty + 1, item.variant?.id)}
+                  >
+                    <Plus className="h-4 w-4" strokeWidth={1.5} />
+                  </button>
+                </div>
+
+                {/* Total */}
+                <p className="text-[15px] font-bold theme-text shrink-0 tabular-nums">{formatCurrency(itemTotal)}</p>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
+
   // Cart items list — shared between desktop and mobile
   const renderCartItems = (compact = false) => {
     if (cart.length === 0) return null
@@ -1751,7 +1880,7 @@ export default function PosPage() {
                       )}>
                         {formatCurrency(getEffectivePrice(item))} × {item.qty}
                       </span>
-                      <Pencil className="h-2.5 w-2.5 text-slate-600 opacity-0 group-hover/price:opacity-100 transition-opacity" strokeWidth={2} />
+                      <Pencil className="h-2.5 w-2.5 text-slate-600 opacity-60 hover:opacity-100 transition-opacity" strokeWidth={2} />
                     </button>
                   )
                 ) : (
@@ -1768,9 +1897,9 @@ export default function PosPage() {
               <div className="flex items-center gap-0.5 shrink-0">
                 <button className={cn(
                   'flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-200 hover:bg-white/[0.04] transition-all active:scale-90',
-                  compact ? 'h-9 w-9' : 'h-7 w-7'
+                  compact ? 'h-9 w-9' : 'h-8 w-8'
                 )} onClick={() => updateQty(item.product.id, item.qty - 1, item.variant?.id)}>
-                  <Minus className={compact ? 'h-4 w-4' : 'h-3 w-3'} strokeWidth={1.5} />
+                  <Minus className={compact ? 'h-4 w-4' : 'h-3.5 w-3.5'} strokeWidth={1.5} />
                 </button>
                 {editingQtyId === itemKey ? (
                   <input
@@ -1784,28 +1913,28 @@ export default function PosPage() {
                     onKeyDown={(e) => { if (e.key === 'Enter') confirmEditQty(); if (e.key === 'Escape') cancelEditQty() }}
                     className={cn(
                       'text-white text-center font-bold bg-white/[0.04] border border-white/[0.08] rounded-lg outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none',
-                      compact ? 'text-sm w-14 h-9' : 'text-xs w-8 h-7'
+                      compact ? 'text-sm w-14 h-9' : 'text-xs w-10 h-8'
                     )}
                   />
                 ) : (
                   <span
-                    className={cn('text-white text-center font-bold cursor-pointer hover:theme-text transition-colors', compact ? 'text-sm w-8' : 'text-xs w-6')}
+                    className={cn('text-white text-center font-bold cursor-pointer hover:theme-text transition-colors', compact ? 'text-sm w-8' : 'text-xs w-8')}
                     onClick={() => startEditQty(itemKey, item.qty)}
                     title="Klik untuk edit qty"
                   >{item.qty}</span>
                 )}
                 <button className={cn(
                   'flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-200 hover:bg-white/[0.04] transition-all active:scale-90',
-                  compact ? 'h-9 w-9' : 'h-7 w-7'
+                  compact ? 'h-9 w-9' : 'h-8 w-8'
                 )} onClick={() => updateQty(item.product.id, item.qty + 1, item.variant?.id)}>
-                  <Plus className={compact ? 'h-4 w-4' : 'h-3 w-3'} strokeWidth={1.5} />
+                  <Plus className={compact ? 'h-4 w-4' : 'h-3.5 w-3.5'} strokeWidth={1.5} />
                 </button>
               </div>
 
               {/* Delete */}
               <button className={cn(
-                'flex items-center justify-center rounded-md text-slate-700 hover:text-red-400 hover:bg-red-500/10 transition-all shrink-0',
-                compact ? 'h-6 w-6' : 'h-6 w-6 opacity-0 group-hover:opacity-100'
+                'flex items-center justify-center rounded-md text-slate-600 hover:text-red-400 hover:bg-red-500/10 transition-all shrink-0',
+                compact ? 'h-6 w-6' : 'h-7 w-7'
               )} onClick={() => removeFromCart(item.product.id, item.variant?.id)}>
                 <Trash2 className="h-3 w-3" strokeWidth={1.5} />
               </button>
@@ -2051,9 +2180,9 @@ export default function PosPage() {
       </div>
 
       {/* Desktop Layout */}
-      <div className="hidden md:grid md:grid-cols-5 gap-3 flex-1 min-h-0">
+      <div className="hidden lg:grid lg:grid-cols-5 gap-3 flex-1 min-h-0">
         {/* Products - Left (3/5) */}
-        <div className="md:col-span-3 flex flex-col min-h-0">
+        <div className="lg:col-span-3 flex flex-col min-h-0">
           {/* Search */}
           <div className="relative mb-3 shrink-0">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" strokeWidth={1.5} />
@@ -2082,7 +2211,7 @@ export default function PosPage() {
         </div>
 
         {/* Cart - Right (2/5) — CLEAN DESIGN: no inline payment */}
-        <div className="md:col-span-2 flex flex-col h-full bg-deep-space border border-white/[0.06] rounded-2xl overflow-hidden shadow-2xl shadow-black/20">
+        <div className="lg:col-span-2 flex flex-col h-full bg-deep-space border border-white/[0.06] rounded-2xl overflow-hidden shadow-2xl shadow-black/20">
           {/* Cart Header */}
           <div className="px-4 py-3 border-b border-white/[0.06] bg-gradient-to-b from-nebula/50 to-transparent shrink-0">
             <div className="flex items-center justify-between">
@@ -2226,8 +2355,74 @@ export default function PosPage() {
         <div className="pb-8">{renderPagination()}</div>
       </div>
 
+      {/* Tablet Layout — Product grid + Sticky Cart Bar (md to < lg) */}
+      <div className="hidden md:flex lg:hidden flex-col flex-1 min-h-0 overflow-hidden">
+        {/* Search */}
+        <div className="relative mb-3 shrink-0">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" strokeWidth={1.5} />
+          <Input
+            placeholder="Scan barcode atau cari produk..."
+            value={productSearch}
+            onChange={(e) => handleSearchChange(e.target.value)}
+            onKeyDown={handleSearchKeyDown}
+            className="pl-10 h-10 text-sm bg-nebula/80 border-white/[0.06] text-white placeholder:text-slate-500 rounded-xl"
+          />
+        </div>
+
+        {/* Category Chips */}
+        <div className="shrink-0">{renderCategoryChips()}</div>
+
+        {/* Product Grid — scrollable */}
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pt-2 pb-24">
+          <div className="grid grid-cols-3 xl:grid-cols-4 gap-2.5 pb-2">
+            {renderProductGrid()}
+          </div>
+          {renderPagination()}
+        </div>
+
+        {/* Sticky Cart Bar at bottom (tablet) */}
+        {cart.length > 0 ? (
+          <div className="fixed bottom-16 left-0 right-0 z-30 px-4 pb-safe">
+            <div className="max-w-2xl mx-auto rounded-2xl border border-white/[0.08] bg-deep-space/95 backdrop-blur-xl shadow-2xl shadow-black/40 p-3">
+              <button onClick={() => setMobileCartOpen(true)} className="w-full flex items-center gap-3">
+                <div className="relative">
+                  <ShoppingCart className="h-5 w-5 theme-text" strokeWidth={1.5} />
+                  <span className="absolute -top-2 -right-2 h-5 w-5 rounded-full bg-theme-600 text-white text-[10px] font-bold flex items-center justify-center">
+                    {cart.reduce((s, i) => s + i.qty, 0)}
+                  </span>
+                </div>
+                <div className="flex-1 text-left">
+                  <p className="text-[13px] font-semibold text-white">{cart.length} produk dalam keranjang</p>
+                  <p className="text-[11px] text-slate-400">{formatCurrency(subtotal)}{promoDiscount > 0 ? ` · -${formatCurrency(promoDiscount)}` : ''}{manualDiscountTotal > 0 ? ` · -${formatCurrency(manualDiscountTotal)}` : ''}</p>
+                </div>
+                <div className="text-right mr-1">
+                  <p className="text-lg font-black text-white tabular-nums">{formatCurrency(total)}</p>
+                </div>
+                <ChevronUp className="h-5 w-5 text-slate-400 shrink-0" strokeWidth={1.5} />
+              </button>
+            </div>
+          </div>
+        ) : pendingCount > 0 ? (
+          <div className="fixed bottom-16 left-0 right-0 z-30 px-4 pb-safe">
+            <div className="max-w-2xl mx-auto rounded-2xl border border-amber-500/20 bg-deep-space/95 backdrop-blur-xl shadow-2xl shadow-black/40 p-3">
+              <button onClick={() => setPendingListOpen(true)} className="w-full flex items-center gap-3">
+                <div className="relative">
+                  <ClockArrowDown className="h-5 w-5 text-amber-400" strokeWidth={1.5} />
+                  <span className="absolute -top-2 -right-2 min-w-[18px] h-[18px] rounded-full bg-amber-500 text-white text-[9px] font-bold flex items-center justify-center px-0.5">{pendingCount}</span>
+                </div>
+                <div className="flex-1 text-left">
+                  <p className="text-[13px] font-semibold text-white">{pendingCount} transaksi pending</p>
+                  <p className="text-[11px] text-slate-400">Tap untuk melihat</p>
+                </div>
+                <ChevronUp className="h-5 w-5 text-slate-400 shrink-0" strokeWidth={1.5} />
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </div>
+
       {/* Floating Pending Button — Mobile only */}
-      {isMobile && pendingCount > 0 && cart.length === 0 && (
+      {pendingCount > 0 && cart.length === 0 && (
         <button
           onClick={() => setPendingListOpen(true)}
           className="md:hidden fixed bottom-20 right-4 z-50 flex items-center gap-2.5 h-12 pl-3.5 pr-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 shadow-2xl shadow-black/30 hover:bg-amber-500/15 active:scale-95 transition-all duration-150"
@@ -2240,11 +2435,11 @@ export default function PosPage() {
         </button>
       )}
 
-      {/* Floating Cart Button — Mobile only */}
+      {/* Floating Cart Button — Mobile + Tablet */}
       {cart.length > 0 && (
         <button
           onClick={() => setMobileCartOpen(true)}
-          className="md:hidden fixed bottom-20 right-4 z-50 flex items-center gap-3 h-14 pl-4 pr-5 rounded-2xl theme-gradient text-white shadow-2xl theme-shadow hover:theme-shadow active:scale-95 transition-all duration-150"
+          className="lg:hidden fixed bottom-20 right-4 z-50 flex items-center gap-3 h-[56px] pl-4 pr-5 rounded-2xl theme-gradient text-white shadow-2xl shadow-black/40 ring-1 ring-white/10 hover:ring-white/20 active:scale-95 transition-all duration-150"
         >
           <div className="relative">
             <ShoppingCart className="h-5 w-5" strokeWidth={1.5} />
@@ -2252,14 +2447,14 @@ export default function PosPage() {
           </div>
           <div className="flex flex-col items-start leading-tight">
             <span className="text-[10px] font-medium theme-text-dim">{cart.length} produk</span>
-            <span className="text-sm font-bold">{formatCurrency(total)}</span>
+            <span className="text-[15px] font-black tabular-nums">{formatCurrency(total)}</span>
           </div>
         </button>
       )}
 
       {/* ── Mobile Cart Sheet ── */}
       <Sheet open={mobileCartOpen} onOpenChange={(open) => { if (!open) setMobileCartOpen(false) }}>
-        <SheetContent side="bottom" className="bg-deep-space border-white/[0.06] rounded-t-[28px] h-[88vh] max-h-[88vh] overflow-hidden flex flex-col px-0 gap-0">
+        <SheetContent side="bottom" className="bg-deep-space border-white/[0.06] rounded-t-[28px] h-[92vh] max-h-[92vh] overflow-hidden flex flex-col px-0 gap-0">
           {/* Drag handle */}
           <div className="flex justify-center pt-3 pb-1 shrink-0">
             <div className="w-10 h-1 rounded-full bg-white/[0.06]" />
@@ -2302,8 +2497,8 @@ export default function PosPage() {
             </div>
           </div>
 
-          {/* Customer selector — compact */}
-          <div className="shrink-0 px-5 pb-2">{renderCustomerSelector(true)}</div>
+          {/* Customer selector */}
+          <div className="shrink-0 px-5 pb-3">{renderCustomerSelector(true)}</div>
 
           {/* Scrollable items */}
           <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5">
@@ -2316,39 +2511,58 @@ export default function PosPage() {
                 <p className="text-[11px] text-slate-600 mt-1">Pilih produk untuk memulai</p>
               </div>
             ) : (
-              renderCartItems(true)
+              renderCartItemsMobile()
             )}
           </div>
 
           {/* Sticky footer: Summary + Tunda / Proses Bayar */}
           {cart.length > 0 && (
-            <div className="shrink-0 border-t border-white/[0.06] bg-gradient-to-t from-deep-space to-nebula/50 px-5 pt-3.5 pb-[max(0.75rem,env(safe-area-inset-bottom))] space-y-3">
-              {/* Discount info (compact) */}
-              {(pointsDiscount > 0 || promoDiscount > 0 || ppnAmount > 0) && (
-                <div className="flex flex-wrap gap-x-3 gap-y-1">
-                  {pointsDiscount > 0 && (
-                    <span className="text-[11px] theme-text font-medium flex items-center gap-1"><Coins className="h-3 w-3" strokeWidth={1.5} /> -{formatCurrency(pointsDiscount)}</span>
-                  )}
-                  {promoDiscount > 0 && selectedPromo && (
-                    <span className="text-[11px] text-amber-400 font-medium flex items-center gap-1"><Tag className="h-3 w-3" strokeWidth={1.5} /> -{formatCurrency(promoDiscount)}</span>
-                  )}
-                  {ppnAmount > 0 && (
-                    <span className="text-[11px] text-sky-300 font-medium">PPN: +{formatCurrency(ppnAmount)}</span>
-                  )}
+            <div className="shrink-0 border-t border-white/[0.06] bg-deep-space px-5 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] space-y-3">
+              {/* HPP warning */}
+              {hasBelowHpp && (
+                <div className="flex items-center gap-2 p-2.5 rounded-xl bg-red-500/10 border border-red-500/20">
+                  <AlertTriangle className="h-4 w-4 text-red-400 shrink-0" strokeWidth={2} />
+                  <span className="text-[12px] text-red-400 font-medium">Harga di bawah HPP! Kerugian: -{formatCurrency(belowHppTotalLoss)}</span>
                 </div>
               )}
-              <div className="flex items-center gap-3">
-                <div className="flex-1 min-w-0">
-                  <p className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold leading-tight">Total</p>
-                  <p className="text-2xl font-black text-white leading-tight tabular-nums">{formatCurrency(total)}</p>
+              {/* Summary lines */}
+              <div className="space-y-2 text-[13px]">
+                <div className="flex justify-between text-slate-400">
+                  <span>Subtotal</span>
+                  <span className="text-slate-200 tabular-nums font-medium">{formatCurrency(subtotal)}</span>
                 </div>
+                {(pointsDiscount > 0 || promoDiscount > 0 || manualDiscountTotal > 0) && (
+                  <div className="flex flex-wrap gap-x-3 gap-y-1">
+                    {manualDiscountTotal > 0 && (
+                      <span className="text-[12px] text-amber-400 font-medium flex items-center gap-1"><Tag className="h-3 w-3" strokeWidth={1.5} /> Diskon Manual -{formatCurrency(manualDiscountTotal)}</span>
+                    )}
+                    {pointsDiscount > 0 && (
+                      <span className="text-[12px] theme-text font-medium flex items-center gap-1"><Coins className="h-3 w-3" strokeWidth={1.5} /> -{formatCurrency(pointsDiscount)}</span>
+                    )}
+                    {promoDiscount > 0 && selectedPromo && (
+                      <span className="text-[12px] text-amber-400 font-medium flex items-center gap-1"><Tag className="h-3 w-3" strokeWidth={1.5} /> {selectedPromo.name} -{formatCurrency(promoDiscount)}</span>
+                    )}
+                    {ppnAmount > 0 && (
+                      <span className="text-[12px] text-sky-300 font-medium">PPN +{formatCurrency(ppnAmount)}</span>
+                    )}
+                  </div>
+                )}
+                <div className="border-t border-white/[0.04] pt-2" />
+                <div className="flex justify-between items-baseline">
+                  <span className="text-sm font-bold text-white">Total</span>
+                  <span className="text-xl font-black text-white tabular-nums">{formatCurrency(total)}</span>
+                </div>
+              </div>
+              {/* Action buttons */}
+              <div className="flex gap-2.5 pt-1">
                 <Button onClick={handleHoldTransaction} variant="outline"
-                  className="h-12 px-3 font-semibold text-xs rounded-2xl border-white/[0.08] text-slate-300 hover:bg-white/[0.04] hover:text-white transition-all shrink-0">
-                  <ClockArrowDown className="h-4 w-4" strokeWidth={1.5} />
+                  className="h-12 px-4 font-semibold text-xs rounded-2xl border-white/[0.08] text-slate-300 hover:bg-white/[0.04] hover:text-white transition-all shrink-0">
+                  <ClockArrowDown className="mr-1.5 h-4 w-4" strokeWidth={1.5} />
+                  Tunda
                 </Button>
                 <Button onClick={openPaymentDialog} disabled={hasBelowHpp}
                   className={cn(
-                    'h-12 px-6 font-bold text-sm rounded-2xl shadow-lg theme-shadow transition-all active:scale-[0.98] shrink-0',
+                    'flex-1 h-12 font-bold text-sm rounded-2xl shadow-lg theme-shadow transition-all active:scale-[0.98]',
                     hasBelowHpp
                       ? 'bg-white/[0.04] text-slate-500 cursor-not-allowed border border-white/[0.06]'
                       : 'theme-gradient hover:theme-hover text-white'
@@ -2356,7 +2570,7 @@ export default function PosPage() {
                   {hasBelowHpp ? (
                     <><AlertTriangle className="mr-1.5 h-4 w-4" strokeWidth={1.5} /> Harga di bawah HPP</>
                   ) : (
-                    <>Proses Bayar <ChevronRight className="ml-1.5 h-4 w-4" strokeWidth={1.5} /></>
+                    <><Check className="mr-1.5 h-4 w-4" strokeWidth={1.5} /> Proses Bayar</>
                   )}
                 </Button>
               </div>
