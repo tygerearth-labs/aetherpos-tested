@@ -1,12 +1,12 @@
 // ==================== AETHER POS SCHEMA ====================
-// Uses DATABASE_URL — PostgreSQL (Neon) for production
+// SQLite for local development
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -30,6 +30,7 @@ model Outlet {
   promos          Promo[]
   crewPermissions CrewPermission[]
   productVariants ProductVariant[]
+  userOutlets     UserOutlet[]
 }
 
 // ==================== USER ====================
@@ -47,8 +48,22 @@ model User {
   transactions    Transaction[]
   auditLogs       AuditLog[]
   crewPermission  CrewPermission?
+  userOutlets     UserOutlet[]
 
   @@unique([email, outletId])
+}
+
+// ==================== USER OUTLET (Multi-outlet for crew) ====================
+model UserOutlet {
+  id       String @id @default(cuid())
+  userId   String
+  outletId String
+  role     String @default("CREW") // Role at this specific outlet
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  outlet Outlet @relation(fields: [outletId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, outletId])
 }
 
 // ==================== CATEGORY ====================
@@ -161,16 +176,18 @@ model Transaction {
 
 // ==================== TRANSACTION ITEM ====================
 model TransactionItem {
-  id             String      @id @default(cuid())
-  productId      String?
-  variantId      String?
-  productName    String
-  variantName    String?
-  price          Float
-  qty            Int
-  subtotal       Float
-  hpp            Float
-  transactionId  String
+  id               String      @id @default(cuid())
+  productId        String?
+  variantId        String?
+  productName      String
+  variantName      String?
+  price            Float
+  qty              Int
+  subtotal         Float
+  hpp              Float
+  itemDiscount     Float       @default(0)   // Manual discount per item
+  itemDiscountType String     @default("NOMINAL") // NOMINAL or PERCENTAGE
+  transactionId    String
 
   product     Product?        @relation(fields: [productId], references: [id], onDelete: SetNull)
   variant     ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
@@ -229,6 +246,9 @@ model OutletSetting {
   // PPN / Tax
   ppnEnabled      Boolean @default(false)  // Enable PPN tax
   ppnRate         Float   @default(11)     // PPN percentage (default 11% for Indonesia)
+
+  // POS: Manual item discount
+  manualItemDiscountEnabled Boolean @default(false) // Allow cashier to set discount per cart item
 
   // Theme
   themePrimaryColor String @default("emerald") // tailwind color name: emerald, blue, violet, rose, amber
