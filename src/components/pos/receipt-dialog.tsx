@@ -51,7 +51,7 @@ interface CartItem {
   product: Product
   variant: ProductVariant | null
   qty: number
-  manualDiscount: number
+  customPrice: number | null
 }
 
 interface CheckoutResult {
@@ -113,6 +113,7 @@ export interface ReceiptDialogProps {
 // ==================== HELPERS ====================
 
 const getItemPrice = (item: CartItem) => item.variant ? item.variant.price : item.product.price
+const getItemEffectivePrice = (item: CartItem) => item.customPrice != null ? item.customPrice : getItemPrice(item)
 const getCartKey = (productId: string, variantId: string | null) => variantId ? `${productId}_${variantId}` : productId
 
 const RECEIPT_CSS = `
@@ -185,12 +186,13 @@ function generateWhatsAppReceiptText(props: {
 
   for (const item of cart) {
     const name = item.variant ? `${item.product.name} (${item.variant.name})` : item.product.name
-    const itemSubtotal = getItemPrice(item) * item.qty
-    const itemDiscountAmount = Math.round(itemSubtotal * item.manualDiscount / 100)
+    const effPrice = getItemEffectivePrice(item)
+    const effSubtotal = effPrice * item.qty
     text += `${name}\n`
-    text += `  @${formatCurrency(getItemPrice(item))} × ${item.qty} = ${formatCurrency(itemSubtotal)}\n`
-    if (item.manualDiscount > 0) {
-      text += `  💸 Diskon ${item.manualDiscount}%: -${formatCurrency(itemDiscountAmount)}\n`
+    if (item.customPrice != null) {
+      text += `  ~~@${formatCurrency(getItemPrice(item))}~~ → @${formatCurrency(effPrice)} × ${item.qty} = ${formatCurrency(effSubtotal)}\n`
+    } else {
+      text += `  @${formatCurrency(effPrice)} × ${item.qty} = ${formatCurrency(effSubtotal)}\n`
     }
   }
 
@@ -335,22 +337,21 @@ export function ReceiptDialog({
         {/* Items */}
         <div className="r-space-md">
           {cart.map((item) => {
-            const itemSubtotal = getItemPrice(item) * item.qty
-            const itemDiscountAmount = Math.round(itemSubtotal * item.manualDiscount / 100)
-            const finalSubtotal = itemSubtotal - itemDiscountAmount
+            const effPrice = getItemEffectivePrice(item)
+            const effSubtotal = effPrice * item.qty
             return (
             <div key={getCartKey(item.product.id, item.variant?.id || null)} className="r-space-sm">
               <p className="r-item-name">{item.product.name}</p>
               {item.variant && <p className="r-item-variant">{item.variant.name}</p>}
               <div className="r-row-items r-gap">
-                <span className="r-flex1 r-item-price">@ {formatCurrency(getItemPrice(item))}</span>
+                <span className="r-flex1 r-item-price">@ {formatCurrency(effPrice)}</span>
                 <span className="r-w8 r-value">{item.qty}</span>
-                <span className="r-w20 r-value-bold">{formatCurrency(finalSubtotal)}</span>
+                <span className="r-w20 r-value-bold">{formatCurrency(effSubtotal)}</span>
               </div>
-              {item.manualDiscount > 0 && (
+              {item.customPrice != null && (
                 <div className="r-row-items r-gap" style={{ paddingLeft: '28px' }}>
-                  <span className="r-flex1 r-item-price" style={{ color: '#b45309' }}>diskon {item.manualDiscount}%</span>
-                  <span className="r-w20" style={{ color: '#b45309', fontWeight: 600, fontSize: '9px', textAlign: 'right' }}>-{formatCurrency(itemDiscountAmount)}</span>
+                  <span className="r-flex1 r-item-price" style={{ color: '#b45309', textDecoration: 'line-through' }}>@ {formatCurrency(getItemPrice(item))}</span>
+                  <span className="r-w20" style={{ color: '#b45309', fontWeight: 600, fontSize: '9px', textAlign: 'right' }}>diskon: -{formatCurrency((getItemPrice(item) - effPrice) * item.qty)}</span>
                 </div>
               )}
             </div>

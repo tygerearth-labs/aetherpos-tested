@@ -42,6 +42,8 @@ import {
   ClockArrowDown,
   Clock,
   MessageSquare,
+  Pencil,
+  AlertTriangle,
 } from 'lucide-react'
 import {
   Select,
@@ -101,7 +103,7 @@ interface CartItem {
   product: Product
   variant: ProductVariant | null
   qty: number
-  manualDiscount: number // Manual discount in percentage (0-100)
+  customPrice: number | null // Override unit price (null = use original)
 }
 
 interface VariantPickerState {
@@ -458,6 +460,10 @@ export default function PosPage() {
   const [editingQtyId, setEditingQtyId] = useState<string | null>(null)
   const [editingQtyValue, setEditingQtyValue] = useState('')
   const qtyInputRef = useRef<HTMLInputElement>(null)
+  // Price editing state
+  const [editingPriceId, setEditingPriceId] = useState<string | null>(null)
+  const [editingPriceValue, setEditingPriceValue] = useState('')
+  const priceInputRef = useRef<HTMLInputElement>(null)
   const [holdNote, setHoldNote] = useState('')
   const [holdNoteOpen, setHoldNoteOpen] = useState(false)
 
@@ -492,6 +498,30 @@ export default function PosPage() {
     setEditingQtyId(null)
     setEditingQtyValue('')
   }
+
+  // ── Inline Price Edit Handlers ──
+  const startEditPrice = (itemKey: string, currentPrice: number) => {
+    setEditingPriceId(itemKey)
+    setEditingPriceValue(String(currentPrice))
+  }
+
+  const confirmEditPrice = () => {
+    if (!editingPriceId) return
+    const val = parseInt(editingPriceValue, 10)
+    updateItemPrice(editingPriceId, isNaN(val) || val < 0 ? null : val)
+    setEditingPriceId(null)
+  }
+
+  const cancelEditPrice = () => {
+    setEditingPriceId(null)
+  }
+
+  // Auto-focus price input when editing starts
+  useEffect(() => {
+    if (editingPriceId) {
+      setTimeout(() => priceInputRef.current?.select(), 50)
+    }
+  }, [editingPriceId])
 
   // Online/offline detection
   useEffect(() => {
@@ -862,10 +892,46 @@ export default function PosPage() {
   // Helper: get item display name
   const getItemDisplayName = (item: CartItem) => item.variant ? `${item.product.name} - ${item.variant.name}` : item.product.name
 
+  // Helper: get effective unit price for a cart item (customPrice if set, else original)
+  const getEffectivePrice = (item: CartItem) => item.customPrice != null ? item.customPrice : getItemPrice(item)
+  // Helper: get HPP for a cart item (variant hpp if variant, else product hpp)
+  const getItemHpp = (item: CartItem) => item.variant ? item.variant.hpp : item.product.hpp
+
+  // Check if any item has custom price below HPP (cost price)
+  const belowHppItems = useMemo(() => {
+    const result: Array<{ name: string; customPrice: number; hpp: number; loss: number }> = []
+    for (const item of cart) {
+      if (item.customPrice != null && item.customPrice < getItemHpp(item)) {
+        result.push({
+          name: getItemDisplayName(item),
+          customPrice: item.customPrice,
+          hpp: getItemHpp(item),
+          loss: Math.round((getItemHpp(item) - item.customPrice) * item.qty),
+        })
+      }
+    }
+    return result
+  }, [cart])
+
+  const hasBelowHpp = belowHppItems.length > 0
+  const belowHppTotalLoss = belowHppItems.reduce((s, i) => s + i.loss, 0)
+
+  // Show warning toast when price drops below HPP
+  const prevBelowHppRef = useRef<boolean>(false)
+  useEffect(() => {
+    if (hasBelowHpp && !prevBelowHppRef.current) {
+      toast.warning(
+        `⚠️ Harga di bawah HPP untuk ${belowHppItems.length} item! Rugi: -${formatCurrency(belowHppTotalLoss)}`,
+        { duration: 4000, id: 'below-hpp-warning' }
+      )
+    }
+    prevBelowHppRef.current = hasBelowHpp
+  }, [hasBelowHpp, belowHppItems.length, belowHppTotalLoss])
+
   const manualDiscountTotal = useMemo(() => cart.reduce((sum, item) => {
-    const itemPrice = getItemPrice(item)
-    const itemSubtotal = itemPrice * item.qty
-    return sum + Math.round(itemSubtotal * item.manualDiscount / 100)
+    const origPrice = getItemPrice(item)
+    const effPrice = getEffectivePrice(item)
+    return sum + Math.round((origPrice - effPrice) * item.qty)
   }, 0), [cart])
 
   const subtotal = useMemo(() => cart.reduce((sum, item) => sum + getItemPrice(item) * item.qty, 0), [cart])
@@ -888,7 +954,7 @@ export default function PosPage() {
           return prev.map((item) => getCartKey(item.product.id, item.variant?.id || null) === key ? { ...item, qty: newQty } : item)
         }
         if (qty > variant.stock) { toast.warning('Stok tidak cukup'); return prev }
-        return [...prev, { product, variant, qty, manualDiscount: 0 }]
+        return [...prev, { product, variant, qty, customPrice: null }]
       })
     } else {
       if (product.stock <= 0) return
@@ -901,7 +967,7 @@ export default function PosPage() {
           return prev.map((item) => item.product.id === product.id && !item.variant ? { ...item, qty: newQty } : item)
         }
         if (qty > product.stock) { toast.warning('Stok tidak cukup'); return prev }
-        return [...prev, { product, variant: null, qty, manualDiscount: 0 }]
+        return [...prev, { product, variant: null, qty, customPrice: null }]
       })
     }
   }
@@ -914,10 +980,14 @@ export default function PosPage() {
     setCart((prev) => prev.map((i) => (getCartKey(i.product.id, i.variant?.id || null) === key ? { ...i, qty: newQty } : i)))
   }
 
-  const updateItemDiscount = (productId: string, discountPercent: number, variantId?: string) => {
+  const updateItemPrice = (productId: string, newPrice: number | null, variantId?: string) => {
     const key = getCartKey(productId, variantId || null)
-    const clampedDiscount = Math.max(0, Math.min(100, discountPercent))
-    setCart((prev) => prev.map((i) => (getCartKey(i.product.id, i.variant?.id || null) === key ? { ...i, manualDiscount: clampedDiscount } : i)))
+    const item = cart.find((i) => getCartKey(i.product.id, i.variant?.id || null) === key)
+    if (!item) return
+    const originalPrice = getItemPrice(item)
+    // If same as original, clear custom price
+    const finalPrice = newPrice === null || newPrice >= originalPrice ? null : newPrice
+    setCart((prev) => prev.map((i) => (getCartKey(i.product.id, i.variant?.id || null) === key ? { ...i, customPrice: finalPrice } : i)))
   }
 
   const removeFromCart = (productId: string, variantId?: string) => {
@@ -958,7 +1028,7 @@ export default function PosPage() {
           product: item.product,
           variant: item.variant,
           qty: item.qty,
-          manualDiscount: item.manualDiscount,
+          customPrice: item.customPrice,
         })),
         customerId: selectedCustomer?.id || null,
         customerName: selectedCustomer?.name || null,
@@ -988,7 +1058,7 @@ export default function PosPage() {
             product: item.product,
             variant: item.variant,
             qty: item.qty,
-            manualDiscount: item.manualDiscount,
+            customPrice: item.customPrice,
           })),
           customerId: selectedCustomer?.id || null,
           customerName: selectedCustomer?.name || null,
@@ -1003,8 +1073,8 @@ export default function PosPage() {
 
     // Load pending items into cart
     try {
-      const items = pending.items as Array<{ product: Product; variant: ProductVariant | null; qty: number; manualDiscount?: number }>
-      setCart(items.map(item => ({ ...item, manualDiscount: item.manualDiscount || 0 })))
+      const items = pending.items as Array<{ product: Product; variant: ProductVariant | null; qty: number; customPrice?: number | null }>
+      setCart(items.map(item => ({ ...item, customPrice: item.customPrice ?? null })))
       if (pending.customerId && pending.customerName) {
         const customer = customers.find(c => c.id === pending.customerId)
         if (customer) {
@@ -1178,7 +1248,7 @@ export default function PosPage() {
           subtotal: getItemPrice(item) * item.qty,
           variantId: item.variant?.id || null,
           variantName: item.variant?.name || null,
-          itemDiscount: Math.round(getItemPrice(item) * item.qty * item.manualDiscount / 100),
+          itemDiscount: item.customPrice != null ? Math.round((getItemPrice(item) - item.customPrice) * item.qty) : 0,
         })),
         subtotal,
         discount: manualDiscountTotal + pointsDiscount + promoDiscount,
@@ -1283,6 +1353,10 @@ export default function PosPage() {
   // Open payment dialog — replaces old openCheckoutDialog
   const openPaymentDialog = () => {
     if (cart.length === 0) return
+    if (hasBelowHpp) {
+      toast.error('Harga diskon di bawah HPP. Sesuaikan harga atau konfirmasi owner.', { duration: 3000, id: 'below-hpp-block' })
+      return
+    }
     setCheckoutResult(null)
     setPaidAmount('')
     setPaymentDialogOpen(true)
@@ -1598,7 +1672,7 @@ export default function PosPage() {
       <div className={compact ? 'space-y-2 pb-2' : 'space-y-1.5'}>
         {cart.map((item) => {
           const itemKey = getCartKey(item.product.id, item.variant?.id || null)
-          const itemTotal = getItemPrice(item) * item.qty
+          const itemTotal = getEffectivePrice(item) * item.qty
           return (
             <div key={itemKey} className={cn(
               'group flex items-center gap-2.5 rounded-xl aether-card transition-all duration-150',
@@ -1640,32 +1714,50 @@ export default function PosPage() {
                     <span className="text-[9px] font-medium text-violet-400 leading-tight">{item.variant.name}</span>
                   </span>
                 )}
-                <p className={cn('text-slate-500 mt-1', compact ? 'text-[11px]' : 'text-[10px]')}>
-                  {formatCurrency(getItemPrice(item))} × {item.qty}
-                </p>
-                {settings.manualDiscountEnabled && (
-                  <div className="flex items-center gap-1 mt-1">
-                    <Tag className="h-2.5 w-2.5 text-amber-400 shrink-0" strokeWidth={1.5} />
-                    <span className={cn('text-[10px] shrink-0', item.manualDiscount > 0 ? 'text-amber-400' : 'text-slate-500')}>Diskon:</span>
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      value={item.manualDiscount || ''}
-                      placeholder="0"
-                      onChange={(e) => updateItemDiscount(item.product.id, Number(e.target.value) || 0, item.variant?.id)}
-                      className={cn(
-                        'w-12 h-5 text-right text-[10px] bg-white/[0.04] border border-white/[0.08] rounded-md outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none',
-                        item.manualDiscount > 0 ? 'text-amber-400 border-amber-500/20' : 'text-white placeholder:text-slate-600'
+                {/* Price — editable when manual discount enabled */}
+                {settings.manualDiscountEnabled ? (
+                  editingPriceId === itemKey ? (
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <span className="text-[10px] text-slate-500">Rp</span>
+                      <input
+                        ref={priceInputRef}
+                        type="number"
+                        min="0"
+                        value={editingPriceValue}
+                        onChange={(e) => setEditingPriceValue(e.target.value)}
+                        onBlur={confirmEditPrice}
+                        onKeyDown={(e) => { if (e.key === 'Enter') confirmEditPrice(); if (e.key === 'Escape') cancelEditPrice() }}
+                        className={cn(
+                          'flex-1 h-6 text-xs font-bold bg-white/[0.04] border border-amber-500/25 text-amber-400 rounded-md outline-none text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none',
+                          compact ? 'min-w-0' : 'min-w-0'
+                        )}
+                      />
+                      <span className={cn('text-slate-600', compact ? 'text-[11px]' : 'text-[10px]')}>× {item.qty}</span>
+                    </div>
+                  ) : (
+                    <button
+                      className="flex items-center gap-1.5 mt-1 group/price"
+                      onClick={() => startEditPrice(itemKey, getEffectivePrice(item))}
+                    >
+                      {item.customPrice != null && (
+                        <span className={cn('line-through text-slate-600', compact ? 'text-[10px]' : 'text-[9px]')}>
+                          {formatCurrency(getItemPrice(item))}
+                        </span>
                       )}
-                    />
-                    <span className="text-[10px] text-slate-500">%</span>
-                    {item.manualDiscount > 0 && (
-                      <span className="text-[10px] text-amber-400 font-medium tabular-nums ml-auto">
-                        -{formatCurrency(Math.round(getItemPrice(item) * item.qty * item.manualDiscount / 100))}
+                      <span className={cn(
+                        'font-medium tabular-nums',
+                        compact ? 'text-[11px]' : 'text-[10px]',
+                        item.customPrice != null ? 'text-amber-400' : 'text-slate-500'
+                      )}>
+                        {formatCurrency(getEffectivePrice(item))} × {item.qty}
                       </span>
-                    )}
-                  </div>
+                      <Pencil className="h-2.5 w-2.5 text-slate-600 opacity-0 group-hover/price:opacity-100 transition-opacity" strokeWidth={2} />
+                    </button>
+                  )
+                ) : (
+                  <p className={cn('text-slate-500 mt-1', compact ? 'text-[11px]' : 'text-[10px]')}>
+                    {formatCurrency(getItemPrice(item))} × {item.qty}
+                  </p>
                 )}
               </div>
 
@@ -1727,6 +1819,33 @@ export default function PosPage() {
   // Cart summary — shared totals display
   const renderCartSummary = () => (
     <div className="space-y-1.5 text-xs">
+      {/* Below-HPP warning banner */}
+      {hasBelowHpp && (
+        <div className="flex items-start gap-2 p-2.5 rounded-xl bg-red-500/10 border border-red-500/20">
+          <AlertTriangle className="h-3.5 w-3.5 text-red-400 shrink-0 mt-0.5" strokeWidth={2} />
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] font-bold text-red-400 leading-tight">
+              Harga di bawah HPP!
+            </p>
+            <div className="mt-1 space-y-0.5">
+              {belowHppItems.map((item) => (
+                <div key={item.name} className="flex items-center justify-between text-[10px]">
+                  <span className="text-red-300 truncate">{item.name}</span>
+                  <span className="text-red-400 font-medium tabular-nums shrink-0 ml-2">
+                    {formatCurrency(item.customPrice)} &lt; HPP {formatCurrency(item.hpp)}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <p className="text-[10px] text-red-300/80 mt-1 font-medium">
+              Total kerugian: -{formatCurrency(belowHppTotalLoss)}
+            </p>
+            <p className="text-[10px] text-red-400/60 mt-0.5">
+              Pembayaran dinonaktifkan. Sesuaikan harga atau konfirmasi owner.
+            </p>
+          </div>
+        </div>
+      )}
       <div className="flex justify-between text-slate-400"><span>Subtotal</span><span className="text-slate-200 tabular-nums">{formatCurrency(subtotal)}</span></div>
       {settings.loyaltyEnabled && selectedCustomer && maxPointsToUse > 0 && (
         <div className="flex items-center justify-between">
@@ -2074,14 +2193,14 @@ export default function PosPage() {
                   <ClockArrowDown className="mr-1.5 h-4 w-4" strokeWidth={1.5} />
                   Tunda
                 </Button>
-                <Button onClick={openPaymentDialog} disabled={cart.length === 0}
+                <Button onClick={openPaymentDialog} disabled={cart.length === 0 || hasBelowHpp}
                   className={`flex-1 h-11 font-bold text-sm rounded-xl transition-all ${
-                    cart.length > 0
+                    cart.length > 0 && !hasBelowHpp
                       ? 'theme-gradient hover:theme-hover text-white shadow-lg theme-shadow hover:theme-shadow active:scale-[0.99]'
                       : 'bg-white/[0.04] text-slate-500 cursor-not-allowed'
                   }`}>
                   <Check className="mr-1.5 h-4 w-4" strokeWidth={1.5} />
-                  Proses Bayar
+                  {hasBelowHpp ? 'Harga di bawah HPP' : 'Proses Bayar'}
                 </Button>
               </div>
             </div>
@@ -2227,9 +2346,18 @@ export default function PosPage() {
                   className="h-12 px-3 font-semibold text-xs rounded-2xl border-white/[0.08] text-slate-300 hover:bg-white/[0.04] hover:text-white transition-all shrink-0">
                   <ClockArrowDown className="h-4 w-4" strokeWidth={1.5} />
                 </Button>
-                <Button onClick={openPaymentDialog}
-                  className="h-12 px-6 font-bold text-sm rounded-2xl theme-gradient hover:theme-hover text-white shadow-lg theme-shadow transition-all active:scale-[0.98] shrink-0">
-                  Proses Bayar <ChevronRight className="ml-1.5 h-4 w-4" strokeWidth={1.5} />
+                <Button onClick={openPaymentDialog} disabled={hasBelowHpp}
+                  className={cn(
+                    'h-12 px-6 font-bold text-sm rounded-2xl shadow-lg theme-shadow transition-all active:scale-[0.98] shrink-0',
+                    hasBelowHpp
+                      ? 'bg-white/[0.04] text-slate-500 cursor-not-allowed border border-white/[0.06]'
+                      : 'theme-gradient hover:theme-hover text-white'
+                  )}>
+                  {hasBelowHpp ? (
+                    <><AlertTriangle className="mr-1.5 h-4 w-4" strokeWidth={1.5} /> Harga di bawah HPP</>
+                  ) : (
+                    <>Proses Bayar <ChevronRight className="ml-1.5 h-4 w-4" strokeWidth={1.5} /></>
+                  )}
                 </Button>
               </div>
             </div>

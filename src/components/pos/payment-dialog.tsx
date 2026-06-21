@@ -56,7 +56,7 @@ interface CartItem {
   product: Product
   variant: ProductVariant | null
   qty: number
-  manualDiscount: number
+  customPrice: number | null
 }
 
 interface CheckoutResult {
@@ -111,6 +111,7 @@ export interface PaymentDialogProps {
 // ==================== HELPERS ====================
 
 const getItemPrice = (item: CartItem) => item.variant ? item.variant.price : item.product.price
+const getItemEffectivePrice = (item: CartItem) => item.customPrice != null ? item.customPrice : getItemPrice(item)
 const getItemDisplayName = (item: CartItem) => item.variant ? `${item.product.name} - ${item.variant.name}` : item.product.name
 const getCartKey = (productId: string, variantId: string | null) => variantId ? `${productId}_${variantId}` : productId
 
@@ -207,7 +208,8 @@ export function PaymentDialog({
                 <div className="space-y-1.5 max-h-40 overflow-y-auto">
                   {cart.map((item) => {
                     const itemSubtotal = getItemPrice(item) * item.qty
-                    const itemDiscountAmount = Math.round(itemSubtotal * item.manualDiscount / 100)
+                    const effSubtotal = getItemEffectivePrice(item) * item.qty
+                    const hasCustomPrice = item.customPrice != null
                     return (
                     <div
                       key={getCartKey(item.product.id, item.variant?.id || null)}
@@ -216,17 +218,14 @@ export function PaymentDialog({
                         <span className="text-slate-300 truncate">
                           {getItemDisplayName(item)}
                           <span className="text-slate-500 ml-1">×{item.qty}</span>
+                          {hasCustomPrice && (
+                            <span className="ml-1 text-amber-400">@{formatCurrency(item.customPrice!)}</span>
+                          )}
                         </span>
-                        <span className="text-slate-200 font-medium shrink-0 tabular-nums">
-                          {formatCurrency(itemSubtotal)}
+                        <span className={cn('font-medium shrink-0 tabular-nums', hasCustomPrice ? 'text-amber-400' : 'text-slate-200')}>
+                          {formatCurrency(effSubtotal)}
                         </span>
                       </div>
-                      {item.manualDiscount > 0 && (
-                        <div className="flex items-center justify-between text-[10px] gap-2 text-amber-400">
-                          <span className="truncate pl-2">Diskon {item.manualDiscount}%</span>
-                          <span className="shrink-0 tabular-nums">-{formatCurrency(itemDiscountAmount)}</span>
-                        </div>
-                      )}
                     </div>
                     )
                   })}
