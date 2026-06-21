@@ -39,6 +39,9 @@ self.addEventListener('fetch', (event) => {
   // Skip non-GET requests
   if (request.method !== 'GET') return;
 
+  // Skip non-http(s) schemes (chrome-extension, moz-extension, etc.)
+  if (!url.protocol.startsWith('http')) return;
+
   // Network-first for API calls
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(
@@ -60,6 +63,9 @@ self.addEventListener('fetch', (event) => {
     );
     return;
   }
+
+  // Skip non-http(s) schemes for cache-first too
+  if (!url.protocol.startsWith('http')) return;
 
   // Cache-first for static assets (JS, CSS, images, fonts)
   if (

@@ -7,6 +7,7 @@ import { notifyInsight } from '@/lib/notify'
 import { runInsightEngine } from '@/lib/insight-engine'
 import { getPlanFeatures, isUnlimited } from '@/lib/plan-config'
 import { safeJson, safeJsonError } from '@/lib/safe-response'
+import { ensureMigrated } from '@/lib/db-migrate'
 
 interface CheckoutItem {
   productId: string
@@ -27,6 +28,9 @@ export async function POST(request: NextRequest) {
     }
     const userId = user.id
     const outletId = user.outletId
+
+    // Auto-migrate: ensure new columns exist (e.g. itemDiscount)
+    await ensureMigrated()
 
     const body = await request.json()
     const {
