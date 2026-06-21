@@ -169,6 +169,7 @@ model TransactionItem {
   price          Float
   qty            Int
   subtotal       Float
+  itemDiscount   Float       @default(0)  // Manual per-item discount amount (nominal Rp)
   hpp            Float
   transactionId  String
 
@@ -229,6 +230,9 @@ model OutletSetting {
   // PPN / Tax
   ppnEnabled      Boolean @default(false)  // Enable PPN tax
   ppnRate         Float   @default(11)     // PPN percentage (default 11% for Indonesia)
+
+  // Manual per-item discount toggle for POS Terminal
+  manualDiscountEnabled Boolean @default(false) // Enable/disable manual discount per item in cart
 
   // Theme
   themePrimaryColor String @default("emerald") // tailwind color name: emerald, blue, violet, rose, amber

@@ -37,6 +37,7 @@ export async function GET(request: NextRequest) {
       receiptLogo: setting.receiptLogo,
       ppnEnabled: setting.ppnEnabled,
       ppnRate: setting.ppnRate,
+      manualDiscountEnabled: setting.manualDiscountEnabled,
       themePrimaryColor: setting.themePrimaryColor,
       telegramChatId: setting.telegramChatId,
       telegramBotToken: setting.telegramBotToken ? '••••••' : null,
@@ -101,6 +102,9 @@ export async function PUT(request: NextRequest) {
     }
     const ppnRate = ppnRateRaw
 
+    // Manual discount toggle
+    const manualDiscountEnabled = typeof body.manualDiscountEnabled === 'boolean' ? body.manualDiscountEnabled : undefined
+
     const settingsData = {
       outletId: user.outletId,
       ...(body.paymentMethods !== undefined && { paymentMethods: String(body.paymentMethods) }),
@@ -114,6 +118,7 @@ export async function PUT(request: NextRequest) {
       ...(body.receiptLogo !== undefined && { receiptLogo: String(body.receiptLogo ?? '') }),
       ...(ppnEnabled !== undefined && { ppnEnabled }),
       ...(ppnRate !== undefined && { ppnRate }),
+      ...(manualDiscountEnabled !== undefined && { manualDiscountEnabled }),
       ...(body.themePrimaryColor !== undefined && { themePrimaryColor: String(body.themePrimaryColor) }),
       ...(body.telegramBotToken !== undefined && { telegramBotToken: body.telegramBotToken ? String(body.telegramBotToken) : null }),
       ...(body.telegramChatId !== undefined && { telegramChatId: body.telegramChatId ? String(body.telegramChatId) : null }),
@@ -165,7 +170,7 @@ export async function PUT(request: NextRequest) {
     const SETTINGS_KEYS = [
       'paymentMethods', 'loyaltyEnabled', 'loyaltyPointsPerAmount', 'loyaltyPointValue',
       'receiptBusinessName', 'receiptAddress', 'receiptPhone', 'receiptFooter', 'receiptLogo',
-      'ppnEnabled', 'ppnRate',
+      'ppnEnabled', 'ppnRate', 'manualDiscountEnabled',
       'themePrimaryColor', 'telegramBotToken', 'telegramChatId',
       'notifyOnTransaction', 'notifyOnCustomer', 'notifyDailyReport', 'notifyWeeklyReport', 'notifyMonthlyReport', 'notifyOnInsight',
     ] as const
@@ -213,6 +218,7 @@ export async function PUT(request: NextRequest) {
       receiptLogo: response.receiptLogo,
       ppnEnabled: response.ppnEnabled,
       ppnRate: response.ppnRate,
+      manualDiscountEnabled: response.manualDiscountEnabled,
       themePrimaryColor: response.themePrimaryColor,
       telegramChatId: response.telegramChatId,
       telegramBotToken: response.telegramBotToken ? '••••••' : null,

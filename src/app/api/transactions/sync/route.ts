@@ -12,6 +12,7 @@ interface SyncTransactionItem {
   subtotal: number
   variantId?: string | null
   variantName?: string | null
+  itemDiscount?: number
 }
 
 interface SyncTransaction {
@@ -190,6 +191,7 @@ export async function POST(request: NextRequest) {
                 price: item.price,
                 qty: item.qty,
                 subtotal: item.subtotal,
+                itemDiscount: item.itemDiscount || 0,
                 hpp: itemHpp,
                 transactionId: transaction.id,
               }

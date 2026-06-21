@@ -85,6 +85,7 @@ import {
   MessageSquare,
   UserCircle,
   Bot,
+  Lock,
 } from 'lucide-react'
 
 // ==================== TYPES ====================
@@ -104,6 +105,7 @@ interface SettingsData {
   themePrimaryColor: string
   ppnEnabled: boolean
   ppnRate: number
+  manualDiscountEnabled: boolean
   telegramChatId: string | null
   telegramBotToken: string | null
   notifyOnTransaction: boolean
@@ -233,6 +235,7 @@ function SettingsTabs({ isOwner }: { isOwner: boolean }) {
           {isOwner && (
             <div className="space-y-4 mt-4">
               <TaxTab />
+              <ManualDiscountTab />
               <PromoTab />
             </div>
           )}
@@ -570,6 +573,88 @@ function TaxTab() {
             Simpan
           </Button>
         </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+// ==================== MANUAL DISCOUNT TAB ====================
+
+function ManualDiscountTab() {
+  const { settings, loading, saving, saveSettings } = useSettings()
+
+  const enabled = settings?.manualDiscountEnabled ?? false
+
+  const handleToggle = async (value: boolean) => {
+    const ok = await saveSettings({
+      manualDiscountEnabled: value,
+    })
+    if (!ok) {
+      toast.error('Gagal menyimpan pengaturan diskon manual')
+    }
+  }
+
+  if (loading) {
+    return (
+      <Card className="bg-nebula border-white/[0.06]">
+        <CardContent className="p-4 space-y-3">
+          <Skeleton className="h-5 w-48 bg-white/[0.04]" />
+          <Skeleton className="h-16 bg-white/[0.04] rounded-lg" />
+        </CardContent>
+      </Card>
+    )
+  }
+
+  return (
+    <Card className="bg-nebula border-white/[0.06]">
+      <CardContent className="p-4 space-y-4">
+        <div>
+          <h2 className="text-sm font-semibold text-white">Diskon Manual per Item</h2>
+          <p className="text-xs text-slate-400 mt-0.5">Berikan diskon langsung pada produk di keranjang POS</p>
+        </div>
+
+        {/* Enable toggle */}
+        <div className="flex items-center justify-between p-3 rounded-lg border border-white/[0.06] bg-white/[0.03]">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg theme-bg-very-light flex items-center justify-center">
+              <Tag className="h-4 w-4 theme-text" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-slate-200">Aktifkan Diskon Manual</p>
+              <p className="text-[11px] text-slate-500">Kasir bisa set diskon per produk di keranjang POS</p>
+            </div>
+          </div>
+          <Switch
+            checked={enabled}
+            onCheckedChange={handleToggle}
+            disabled={saving}
+            className="theme-switch"
+          />
+        </div>
+
+        {enabled && (
+          <div className="rounded-lg border theme-border-light theme-bg-ultra-light p-3 space-y-2">
+            <p className="text-[11px] font-medium theme-text uppercase tracking-wider">Cara Kerja</p>
+            <ul className="space-y-1 text-xs text-slate-300">
+              <li className="flex items-start gap-1.5">
+                <Check className="h-3 w-3 theme-text shrink-0 mt-0.5" strokeWidth={1.5} />
+                <span>Saat menambahkan produk ke keranjang, setiap item akan memiliki kolom <span className="font-medium text-white">Diskon (%)</span></span>
+              </li>
+              <li className="flex items-start gap-1.5">
+                <Check className="h-3 w-3 theme-text shrink-0 mt-0.5" strokeWidth={1.5} />
+                <span>Masukkan persentase diskon (0-100%) untuk setiap produk</span>
+              </li>
+              <li className="flex items-start gap-1.5">
+                <Check className="h-3 w-3 theme-text shrink-0 mt-0.5" strokeWidth={1.5} />
+                <span>Diskon akan otomatis dihitung dan ditampilkan di ringkasan keranjang</span>
+              </li>
+              <li className="flex items-start gap-1.5">
+                <Check className="h-3 w-3 theme-text shrink-0 mt-0.5" strokeWidth={1.5} />
+                <span>Diskon manual akan tercatat di struk dan riwayat transaksi</span>
+              </li>
+            </ul>
+          </div>
+        )}
       </CardContent>
     </Card>
   )
@@ -2834,10 +2919,11 @@ function MultiOutletTab() {
               </p>
             </div>
             {canAddMore && (
-              <Button onClick={() => { setFormData({ name: '', address: '', phone: '' }); setDialogOpen(true) }}
-                className="theme-btn-primary h-8 text-xs">
-                <Plus className="mr-1.5 h-3.5 w-3.5" />
+              <Button disabled
+                className="theme-btn-primary h-8 text-xs opacity-50 cursor-not-allowed flex items-center gap-1.5">
+                <Plus className="h-3.5 w-3.5" />
                 Tambah Cabang
+                <Lock className="h-3 w-3 ml-1" />
               </Button>
             )}
           </div>
@@ -2889,10 +2975,9 @@ function MultiOutletTab() {
             </div>
           )}
 
-          <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-2.5">
-            <p className="text-[10px] text-slate-500 text-center">
-              💡 Gunakan email & password yang sama untuk login ke outlet cabang.
-              Setiap outlet cabang memiliki data & transaksi terpisah.
+          <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-2.5">
+            <p className="text-[10px] text-amber-400 text-center">
+              🔒 Fitur <span className="font-medium">Tambah Cabang</span> sedang dalam pengembangan. Segera hadir!
             </p>
           </div>
         </CardContent>

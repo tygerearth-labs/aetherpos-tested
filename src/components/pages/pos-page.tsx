@@ -101,6 +101,7 @@ interface CartItem {
   product: Product
   variant: ProductVariant | null
   qty: number
+  manualDiscount: number // Manual discount in percentage (0-100)
 }
 
 interface VariantPickerState {
@@ -130,6 +131,7 @@ interface OutletSettings {
   themePrimaryColor: string
   ppnEnabled: boolean
   ppnRate: number
+  manualDiscountEnabled: boolean
 }
 
 interface OutletInfo {
@@ -210,6 +212,7 @@ export default function PosPage() {
     themePrimaryColor: 'emerald',
     ppnEnabled: false,
     ppnRate: 11,
+    manualDiscountEnabled: false,
   })
 
   // Outlet info (from settings API)
@@ -242,6 +245,7 @@ export default function PosPage() {
               themePrimaryColor: data.themePrimaryColor || 'emerald',
               ppnEnabled: data.ppnEnabled ?? false,
               ppnRate: data.ppnRate || 11,
+              manualDiscountEnabled: data.manualDiscountEnabled ?? false,
             })
             // Extract outlet info from settings response
             if (data.outlet) {
@@ -272,6 +276,7 @@ export default function PosPage() {
               themePrimaryColor: (cached.themePrimaryColor as string) || 'emerald',
               ppnEnabled: (cached.ppnEnabled as boolean) ?? false,
               ppnRate: (cached.ppnRate as number) || 11,
+              manualDiscountEnabled: (cached.manualDiscountEnabled as boolean) ?? false,
             })
             // Extract outlet info from cached settings
             const cachedOutlet = cached.outlet as { id: string; name: string; address: string | null; phone: string | null } | undefined
@@ -312,6 +317,7 @@ export default function PosPage() {
                 themePrimaryColor: data.themePrimaryColor || 'emerald',
                 ppnEnabled: data.ppnEnabled ?? false,
                 ppnRate: data.ppnRate || 11,
+                manualDiscountEnabled: data.manualDiscountEnabled ?? false,
               })
             }
           }
@@ -856,11 +862,17 @@ export default function PosPage() {
   // Helper: get item display name
   const getItemDisplayName = (item: CartItem) => item.variant ? `${item.product.name} - ${item.variant.name}` : item.product.name
 
+  const manualDiscountTotal = useMemo(() => cart.reduce((sum, item) => {
+    const itemPrice = getItemPrice(item)
+    const itemSubtotal = itemPrice * item.qty
+    return sum + Math.round(itemSubtotal * item.manualDiscount / 100)
+  }, 0), [cart])
+
   const subtotal = useMemo(() => cart.reduce((sum, item) => sum + getItemPrice(item) * item.qty, 0), [cart])
   const maxPointsToUse = selectedCustomer ? selectedCustomer.points : 0
   const pointsDiscount = pointsToUse * settings.loyaltyPointValue
   const ppnAmount = settings.ppnEnabled ? Math.round(subtotal * settings.ppnRate / 100) : 0
-  const total = Math.max(0, subtotal - pointsDiscount - promoDiscount + ppnAmount)
+  const total = Math.max(0, subtotal - manualDiscountTotal - pointsDiscount - promoDiscount + ppnAmount)
   const change = paymentMethod === 'CASH' ? Math.max(0, Number(paidAmount) - total) : 0
 
   const addToCart = (product: Product, qty: number = 1, variant?: ProductVariant) => {
@@ -876,7 +888,7 @@ export default function PosPage() {
           return prev.map((item) => getCartKey(item.product.id, item.variant?.id || null) === key ? { ...item, qty: newQty } : item)
         }
         if (qty > variant.stock) { toast.warning('Stok tidak cukup'); return prev }
-        return [...prev, { product, variant, qty }]
+        return [...prev, { product, variant, qty, manualDiscount: 0 }]
       })
     } else {
       if (product.stock <= 0) return
@@ -889,7 +901,7 @@ export default function PosPage() {
           return prev.map((item) => item.product.id === product.id && !item.variant ? { ...item, qty: newQty } : item)
         }
         if (qty > product.stock) { toast.warning('Stok tidak cukup'); return prev }
-        return [...prev, { product, variant: null, qty }]
+        return [...prev, { product, variant: null, qty, manualDiscount: 0 }]
       })
     }
   }
@@ -900,6 +912,12 @@ export default function PosPage() {
     const item = cart.find((i) => getCartKey(i.product.id, i.variant?.id || null) === key)
     if (item && newQty > getItemStock(item)) { toast.warning('Stok tidak cukup'); return }
     setCart((prev) => prev.map((i) => (getCartKey(i.product.id, i.variant?.id || null) === key ? { ...i, qty: newQty } : i)))
+  }
+
+  const updateItemDiscount = (productId: string, discountPercent: number, variantId?: string) => {
+    const key = getCartKey(productId, variantId || null)
+    const clampedDiscount = Math.max(0, Math.min(100, discountPercent))
+    setCart((prev) => prev.map((i) => (getCartKey(i.product.id, i.variant?.id || null) === key ? { ...i, manualDiscount: clampedDiscount } : i)))
   }
 
   const removeFromCart = (productId: string, variantId?: string) => {
@@ -940,6 +958,7 @@ export default function PosPage() {
           product: item.product,
           variant: item.variant,
           qty: item.qty,
+          manualDiscount: item.manualDiscount,
         })),
         customerId: selectedCustomer?.id || null,
         customerName: selectedCustomer?.name || null,
@@ -969,6 +988,7 @@ export default function PosPage() {
             product: item.product,
             variant: item.variant,
             qty: item.qty,
+            manualDiscount: item.manualDiscount,
           })),
           customerId: selectedCustomer?.id || null,
           customerName: selectedCustomer?.name || null,
@@ -983,8 +1003,8 @@ export default function PosPage() {
 
     // Load pending items into cart
     try {
-      const items = pending.items as Array<{ product: Product; variant: ProductVariant | null; qty: number }>
-      setCart(items)
+      const items = pending.items as Array<{ product: Product; variant: ProductVariant | null; qty: number; manualDiscount?: number }>
+      setCart(items.map(item => ({ ...item, manualDiscount: item.manualDiscount || 0 })))
       if (pending.customerId && pending.customerName) {
         const customer = customers.find(c => c.id === pending.customerId)
         if (customer) {
@@ -1158,9 +1178,10 @@ export default function PosPage() {
           subtotal: getItemPrice(item) * item.qty,
           variantId: item.variant?.id || null,
           variantName: item.variant?.name || null,
+          itemDiscount: Math.round(getItemPrice(item) * item.qty * item.manualDiscount / 100),
         })),
         subtotal,
-        discount: pointsDiscount + promoDiscount,
+        discount: manualDiscountTotal + pointsDiscount + promoDiscount,
         pointsUsed: pointsToUse,
         taxAmount: ppnAmount,
         total,
@@ -1622,6 +1643,30 @@ export default function PosPage() {
                 <p className={cn('text-slate-500 mt-1', compact ? 'text-[11px]' : 'text-[10px]')}>
                   {formatCurrency(getItemPrice(item))} × {item.qty}
                 </p>
+                {settings.manualDiscountEnabled && (
+                  <div className="flex items-center gap-1 mt-1">
+                    <Tag className="h-2.5 w-2.5 text-amber-400 shrink-0" strokeWidth={1.5} />
+                    <span className={cn('text-[10px] shrink-0', item.manualDiscount > 0 ? 'text-amber-400' : 'text-slate-500')}>Diskon:</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={item.manualDiscount || ''}
+                      placeholder="0"
+                      onChange={(e) => updateItemDiscount(item.product.id, Number(e.target.value) || 0, item.variant?.id)}
+                      className={cn(
+                        'w-12 h-5 text-right text-[10px] bg-white/[0.04] border border-white/[0.08] rounded-md outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none',
+                        item.manualDiscount > 0 ? 'text-amber-400 border-amber-500/20' : 'text-white placeholder:text-slate-600'
+                      )}
+                    />
+                    <span className="text-[10px] text-slate-500">%</span>
+                    {item.manualDiscount > 0 && (
+                      <span className="text-[10px] text-amber-400 font-medium tabular-nums ml-auto">
+                        -{formatCurrency(Math.round(getItemPrice(item) * item.qty * item.manualDiscount / 100))}
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Item Total */}
@@ -1697,6 +1742,12 @@ export default function PosPage() {
         <div className="flex justify-between text-amber-400">
           <span className="flex items-center gap-1.5"><Tag className="h-3 w-3" strokeWidth={1.5} /> {selectedPromo.name}</span>
           <span className="tabular-nums">-{formatCurrency(promoDiscount)}</span>
+        </div>
+      )}
+      {manualDiscountTotal > 0 && (
+        <div className="flex justify-between text-amber-400">
+          <span className="flex items-center gap-1.5"><Tag className="h-3 w-3" strokeWidth={1.5} /> Diskon Manual</span>
+          <span className="tabular-nums">-{formatCurrency(manualDiscountTotal)}</span>
         </div>
       )}
       {ppnAmount > 0 && (
@@ -2198,6 +2249,7 @@ export default function PosPage() {
         subtotal={subtotal}
         pointsDiscount={pointsDiscount}
         promoDiscount={promoDiscount}
+        manualDiscountTotal={manualDiscountTotal}
         ppnAmount={ppnAmount}
         total={total}
         selectedCustomer={selectedCustomer}
@@ -2226,6 +2278,7 @@ export default function PosPage() {
         subtotal={subtotal}
         pointsDiscount={pointsDiscount}
         promoDiscount={promoDiscount}
+        manualDiscountTotal={manualDiscountTotal}
         ppnAmount={ppnAmount}
         total={total}
         paymentMethod={paymentMethod}
