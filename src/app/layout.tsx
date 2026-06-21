@@ -16,8 +16,30 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AETHER",
-  description: "AETHER — High-performance POS for MSME. Modern, fast, and reliable point-of-sale system.",
+  metadataBase: new URL("https://aethergo.id"),
+  title: {
+    default: "AETHER POS — Software Kasir Modern & Gratis untuk UMKM Indonesia",
+    template: "%s | AETHER POS",
+  },
+  description:
+    "AETHER POS — Sistem Point of Sale modern untuk UMKM Indonesia. Kelola stok, transaksi, pelanggan, dan laporan dalam satu platform. Gratis 6 bulan. Cocok untuk coffee shop, retail, dan toko.",
+  keywords: [
+    "POS",
+    "point of sale",
+    "software kasir",
+    "kasir online",
+    "kasir gratis",
+    "UMKM",
+    "coffee shop POS",
+    "retail POS",
+    "sistem kasir",
+    "aplikasi kasir",
+    "kasir toko",
+    "manajemen stok",
+    "AETHER POS",
+    "kasir Indonesia",
+    "POS Indonesia",
+  ],
   manifest: "/manifest.json",
   icons: {
     icon: [
@@ -29,18 +51,48 @@ export const metadata: Metadata = {
       { url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
     ],
   },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-video-preview": -1,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+    },
+  },
   openGraph: {
-    title: "AETHER",
-    description: "High-performance POS for MSME",
+    title: "AETHER POS — Software Kasir Modern & Gratis untuk UMKM",
+    description:
+      "Kelola toko lebih cepat, tumbuh lebih pasti. POS modern untuk coffee shop, retail, dan UMKM Indonesia. Gratis 6 bulan.",
     type: "website",
+    siteName: "AETHER POS",
+    locale: "id_ID",
+    images: [
+      {
+        url: "/og-image.png",
+        width: 1200,
+        height: 630,
+        alt: "AETHER POS — Software Kasir Modern untuk UMKM Indonesia",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "AETHER POS — Software Kasir Modern & Gratis untuk UMKM",
+    description:
+      "Kelola toko lebih cepat, tumbuh lebih pasti. POS modern untuk coffee shop, retail, dan UMKM Indonesia.",
+    images: ["/og-image.png"],
   },
   other: {
     "mobile-web-app-capable": "yes",
     "apple-mobile-web-app-capable": "yes",
     "apple-mobile-web-app-status-bar-style": "black-translucent",
     "apple-mobile-web-app-title": "AETHER",
-    "application-name": "AETHER",
+    "application-name": "AETHER POS",
     "msapplication-TileColor": "#020617",
+    "google-site-verification": "VsWEaPz4cbLVlP1Q1v0m1E445vTDMRvNlvLB0HrymZ8",
   },
 };
 
@@ -50,10 +102,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark" suppressHydrationWarning>
+    <html lang="id" className="dark" suppressHydrationWarning>
         <head>
           <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, viewport-fit=cover" />
           <meta name="theme-color" content="#020617" />
+          <meta name="google-site-verification" content="VsWEaPz4cbLVlP1Q1v0m1E445vTDMRvNlvLB0HrymZ8" />
+          <link rel="canonical" href="https://aethergo.id" />
           <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         </head>
       <body

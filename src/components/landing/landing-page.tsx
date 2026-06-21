@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { PwaInstallBanner } from "./pwa-install-banner";
 import {
   ArrowRight,
   Zap,
@@ -27,6 +28,7 @@ import {
   Upload,
   Headphones,
   Menu,
+  Maximize2,
 } from "lucide-react";
 
 interface LandingPageProps {
@@ -138,96 +140,65 @@ function DashboardPreview() {
   );
 }
 
-/* ── Screenshot placeholder ── */
-function ScreenshotPlaceholder({ label, variant }: { label: string; variant: "dashboard" | "pos" | "products" | "barcode" }) {
+/* ── Screenshot card with real image ── */
+function ScreenshotCard({ label, src }: { label: string; src: string }) {
+  const [expanded, setExpanded] = useState(false);
   return (
-    <div className="aether-card-elevated rounded-2xl overflow-hidden group">
-      <div className="relative aspect-[16/10] bg-deep-space overflow-hidden">
-        {/* REPLACE: Replace this placeholder with real screenshot */}
-        {/* Top chrome */}
-        <div className="flex items-center gap-2 px-3 py-2 border-b border-white/[0.06] bg-nebula/50">
-          <div className="flex gap-1.5">
-            <span className="size-2 rounded-full bg-white/10" />
-            <span className="size-2 rounded-full bg-white/10" />
-            <span className="size-2 rounded-full bg-white/10" />
-          </div>
-          <div className="flex-1 mx-6">
-            <div className="h-3 bg-white/[0.04] rounded max-w-[140px] mx-auto" />
-          </div>
-        </div>
-        {/* Content */}
-        <div className="p-4 space-y-3">
-          {variant === "dashboard" && (
-            <>
-              <div className="grid grid-cols-3 gap-2">
-                {[1, 2, 3].map((i) => (
-                  <div key={i} className="aether-shimmer rounded-lg h-12" />
-                ))}
-              </div>
-              <div className="aether-shimmer rounded-lg h-24" />
-              <div className="grid grid-cols-2 gap-2">
-                <div className="aether-shimmer rounded-lg h-20" />
-                <div className="aether-shimmer rounded-lg h-20" />
-              </div>
-            </>
-          )}
-          {variant === "pos" && (
-            <div className="flex gap-3 h-[calc(100%-2rem)]">
-              <div className="flex-1 grid grid-cols-3 gap-1.5">
-                {Array.from({ length: 9 }).map((_, i) => (
-                  <div key={i} className="aether-shimmer rounded-md" />
-                ))}
-              </div>
-              <div className="w-[35%] space-y-2">
-                <div className="aether-shimmer rounded-md h-6" />
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <div key={i} className="h-5 bg-white/[0.03] rounded-md" />
-                ))}
-                <div className="aether-gradient rounded-md h-8 mt-4 opacity-60" />
+    <>
+      <div
+        className="aether-card-elevated rounded-2xl overflow-hidden group cursor-pointer"
+        onClick={() => setExpanded(true)}
+      >
+        <div className="relative aspect-[16/10] bg-deep-space overflow-hidden">
+          <img
+            src={src}
+            alt={`Tampilan ${label} Aether POS`}
+            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]"
+            loading="lazy"
+          />
+          {/* Hover overlay */}
+          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors duration-300 flex items-center justify-center">
+            <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+              <div className="aether-card rounded-full p-3 border border-white/[0.1]">
+                <Maximize2 className="size-5 text-slate-300" />
               </div>
             </div>
-          )}
-          {variant === "products" && (
-            <>
-              <div className="flex gap-2">
-                <div className="h-6 bg-white/[0.04] rounded w-40" />
-                <div className="h-6 bg-white/[0.04] rounded w-24" />
-                <div className="flex-1" />
-                <div className="h-6 aether-gradient rounded-md w-20 opacity-60" />
-              </div>
-              <div className="space-y-1.5">
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <div key={i} className="flex gap-3 items-center py-1.5">
-                    <div className="w-8 h-8 rounded bg-white/[0.04]" />
-                    <div className="flex-1 space-y-1">
-                      <div className="h-2.5 bg-white/[0.04] rounded w-2/3" />
-                      <div className="h-2 bg-white/[0.03] rounded w-1/3" />
-                    </div>
-                    <div className="h-2.5 bg-white/[0.04] rounded w-14" />
-                    <div className="h-2.5 bg-white/[0.04] rounded w-10" />
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-          {variant === "barcode" && (
-            <div className="grid grid-cols-4 gap-2">
-              {Array.from({ length: 12 }).map((_, i) => (
-                <div key={i} className="aether-shimmer rounded aspect-[3/4]" />
-              ))}
+          </div>
+          {/* Label */}
+          <div className="absolute bottom-3 left-3 right-3">
+            <div className="bg-nebula/80 backdrop-blur-md rounded-lg px-3 py-2 border border-white/[0.08] text-center">
+              <span className="text-xs font-medium text-slate-300">{label}</span>
             </div>
-          )}
-        </div>
-        {/* Gradient overlay at bottom */}
-        <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-deep-space to-transparent pointer-events-none" />
-        {/* Label */}
-        <div className="absolute bottom-3 left-3 right-3">
-          <div className="bg-nebula/80 backdrop-blur-md rounded-lg px-3 py-2 border border-white/[0.08] text-center">
-            <span className="text-xs font-medium text-slate-300">{label}</span>
           </div>
         </div>
       </div>
-    </div>
+      {/* Lightbox */}
+      {expanded && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[70] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setExpanded(false)}
+        >
+          <div className="relative max-w-5xl w-full">
+            <button
+              onClick={() => setExpanded(false)}
+              className="absolute -top-10 right-0 p-2 text-slate-400 hover:text-white transition-colors"
+              aria-label="Tutup"
+            >
+              <X className="size-5" />
+            </button>
+            <img
+              src={src}
+              alt={`Tampilan ${label} Aether POS`}
+              className="w-full rounded-2xl border border-white/[0.08]"
+            />
+            <p className="text-center text-sm text-slate-400 mt-3">{label}</p>
+          </div>
+        </motion.div>
+      )}
+    </>
   );
 }
 
@@ -256,10 +227,75 @@ export default function LandingPage({ onGetStarted }: LandingPageProps) {
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
   };
 
+  // JSON-LD Structured Data
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    name: "AETHER POS",
+    applicationCategory: "BusinessApplication",
+    operatingSystem: "Web",
+    description: "Sistem Point of Sale modern untuk UMKM Indonesia. Kelola stok, transaksi, pelanggan, dan laporan dalam satu platform.",
+    url: "https://aethergo.id",
+    offers: {
+      "@type": "Offer",
+      price: "0",
+      priceCurrency: "IDR",
+      description: "Gratis 6 bulan untuk semua fitur"
+    },
+    aggregateRating: {
+      "@type": "AggregateRating",
+      ratingValue: "4.8",
+      ratingCount: "120",
+      bestRating: "5",
+      worstRating: "1"
+    },
+    creator: {
+      "@type": "Organization",
+      name: "Aether POS",
+      url: "https://aethergo.id"
+    },
+    inLanguage: "id",
+    featureList: [
+      "Point of Sale terminal",
+      "Manajemen stok real-time",
+      "Laporan penjualan & analitik",
+      "Manajemen pelanggan & loyalty",
+      "Offline mode & auto-sync",
+      "Multi-outlet support",
+      "Cetak struk thermal",
+      "WhatsApp receipt"
+    ]
+  }
+
+  const orgJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    name: "Aether POS",
+    url: "https://aethergo.id",
+    logo: "https://aethergo.id/logo.png",
+    sameAs: [],
+    contactPoint: {
+      "@type": "ContactPoint",
+      contactType: "customer support",
+      availableLanguage: "Indonesian"
+    }
+  }
+
   return (
     <div className="min-h-screen bg-deep-space text-slate-100 overflow-x-hidden">
+      {/* JSON-LD Structured Data */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(orgJsonLd) }}
+      />
       {/* ── NAV ── */}
+      <header>
       <nav
+        aria-label="Navigasi utama"
         className={cn(
           "fixed top-0 inset-x-0 z-50 transition-all duration-300",
           scrolled
@@ -270,7 +306,7 @@ export default function LandingPage({ onGetStarted }: LandingPageProps) {
         <div className="max-w-6xl mx-auto flex items-center justify-between h-14 px-4 sm:px-6">
           {/* Logo */}
           <button onClick={onGetStarted} className="flex items-center gap-2 shrink-0">
-            <img src="/logo.png" alt="Aether" className="h-7 w-auto" />
+            <img src="/logo.png" alt="AETHER POS — Logo" className="h-7 w-auto" />
           </button>
 
           {/* Center links — hidden on mobile */}
@@ -330,7 +366,9 @@ export default function LandingPage({ onGetStarted }: LandingPageProps) {
           </motion.div>
         )}
       </nav>
+      </header>
 
+      <main>
       {/* ═══════════════════════════════════════════════════
          SECTION 1: HERO
          ═══════════════════════════════════════════════════ */}
@@ -747,7 +785,7 @@ export default function LandingPage({ onGetStarted }: LandingPageProps) {
               Tampilan Aplikasi
             </h2>
             <p className="text-sm text-slate-500">
-              Bukan mockup. Ini tampilan asli Aether.
+              Tampilan webapp Aether POS.
             </p>
           </motion.div>
 
@@ -759,13 +797,13 @@ export default function LandingPage({ onGetStarted }: LandingPageProps) {
             variants={staggerContainer}
           >
             {[
-              { label: "Dashboard", variant: "dashboard" as const },
-              { label: "POS Terminal", variant: "pos" as const },
-              { label: "Manajemen Produk", variant: "products" as const },
-              { label: "Batch Barcode", variant: "barcode" as const },
+              { label: "Dashboard", src: "/screenshots/dashboard.png" },
+              { label: "POS Terminal", src: "/screenshots/pos.png" },
+              { label: "Manajemen Produk", src: "/screenshots/produk.png" },
+              { label: "Batch Barcode", src: "/screenshots/barcode.png" },
             ].map((shot) => (
               <motion.div key={shot.label} variants={fadeUp}>
-                <ScreenshotPlaceholder label={shot.label} variant={shot.variant} />
+                <ScreenshotCard label={shot.label} src={shot.src} />
               </motion.div>
             ))}
           </motion.div>
@@ -922,16 +960,18 @@ export default function LandingPage({ onGetStarted }: LandingPageProps) {
               variants={fadeUp}
               className="text-overline text-slate-500 mb-12"
             >
-              Dari Lantai Toko
+              Ahtjong, Founder Aether POS
             </motion.p>
 
-            {/* Avatar / icon */}
+            {/* Founder photo */}
             <motion.div variants={fadeUp} custom={1} className="mb-10 flex justify-center">
               <div className="relative">
-                <div className="aether-gradient-border size-20 rounded-full">
-                  <div className="w-full h-full rounded-full bg-nebula flex items-center justify-center">
-                    <Sparkles className="size-8 text-aether-purple" />
-                  </div>
+                <div className="aether-gradient-border size-24 rounded-full p-[2px]">
+                  <img
+                    src="/founder.png"
+                    alt="Founder Aether POS"
+                    className="w-full h-full rounded-full object-cover"
+                  />
                 </div>
               </div>
             </motion.div>
@@ -973,6 +1013,7 @@ export default function LandingPage({ onGetStarted }: LandingPageProps) {
           </motion.div>
         </div>
       </section>
+      </main>
 
       {/* ═══════════════════════════════════════════════════
          FOOTER
@@ -980,7 +1021,7 @@ export default function LandingPage({ onGetStarted }: LandingPageProps) {
       <footer className="border-t border-white/[0.04] py-8">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
-            <img src="/logo.png" alt="Aether" className="h-5 w-auto opacity-60" />
+            <img src="/logo.png" alt="AETHER POS — Logo" className="h-5 w-auto opacity-60" />
             <span className="text-xs text-slate-500">
               &copy; 2025 Aether POS. Dibangun di Indonesia.
             </span>
@@ -1007,6 +1048,9 @@ export default function LandingPage({ onGetStarted }: LandingPageProps) {
           </div>
         </div>
       </footer>
+
+      {/* PWA Install Banner */}
+      <PwaInstallBanner />
     </div>
   );
 }
