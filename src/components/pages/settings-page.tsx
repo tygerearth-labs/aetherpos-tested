@@ -163,28 +163,32 @@ const THEME_COLORS = [
 ]
 
 // ==================== REUSABLE UI PRIMITIVES ====================
+// Design Language: Linear × Stripe × Mercury — Dark Minimal Enterprise Fintech
 
 function SectionHeader({ title, description }: { title: string; description?: string }) {
   return (
-    <div className="mb-4">
-      <h2 className="text-[15px] font-semibold text-white">{title}</h2>
-      {description && <p className="text-[13px] text-slate-400 mt-1">{description}</p>}
+    <div className="mb-5">
+      <h2 className="text-[15px] font-semibold text-white tracking-tight">{title}</h2>
+      {description && <p className="text-[13px] text-slate-500 mt-1 leading-relaxed">{description}</p>}
     </div>
   )
 }
 
 function SectionGroupLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-[11px] font-medium text-slate-500 uppercase tracking-wider mb-3">{children}</p>
+    <div className="flex items-center gap-3 mb-4">
+      <div className="w-1.5 h-1.5 rounded-full aether-gradient" />
+      <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-[0.14em]">{children}</p>
+    </div>
   )
 }
 
 function SettingsRow({ label, description, children }: { label: string; description?: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between py-4 px-6 hover:bg-white/[0.02] transition-colors">
+    <div className="flex items-center justify-between py-3.5 px-5 group hover:bg-white/[0.015] transition-colors duration-150">
       <div className="pr-4">
-        <p className="text-[13px] text-slate-300">{label}</p>
-        {description && <p className="text-[12px] text-slate-500 mt-0.5">{description}</p>}
+        <p className="text-[13px] text-slate-300 font-medium">{label}</p>
+        {description && <p className="text-[12px] text-slate-500 mt-0.5 leading-relaxed">{description}</p>}
       </div>
       <div className="shrink-0">{children}</div>
     </div>
@@ -194,7 +198,7 @@ function SettingsRow({ label, description, children }: { label: string; descript
 function StripeInput({ className = '', ...props }: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
-      className={`w-full bg-transparent border-b border-white/[0.08] focus:border-white/[0.20] outline-none px-0 py-2 text-[14px] text-white placeholder:text-slate-600 transition-colors duration-200 ${className}`}
+      className={`w-full bg-white/[0.02] border border-white/[0.06] rounded-lg px-3.5 py-2.5 text-[13px] text-white placeholder:text-slate-600 outline-none focus:border-white/[0.14] focus:bg-white/[0.03] focus:ring-1 focus:ring-white/[0.04] transition-all duration-200 ${className}`}
       {...props}
     />
   )
@@ -203,7 +207,7 @@ function StripeInput({ className = '', ...props }: React.InputHTMLAttributes<HTM
 function StripeTextarea({ className = '', ...props }: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return (
     <textarea
-      className={`w-full bg-transparent border-b border-white/[0.08] focus:border-white/[0.20] outline-none px-0 py-2 text-[14px] text-white placeholder:text-slate-600 transition-colors duration-200 resize-none ${className}`}
+      className={`w-full bg-white/[0.02] border border-white/[0.06] rounded-lg px-3.5 py-2.5 text-[13px] text-white placeholder:text-slate-600 outline-none focus:border-white/[0.14] focus:bg-white/[0.03] focus:ring-1 focus:ring-white/[0.04] transition-all duration-200 resize-none ${className}`}
       {...props}
     />
   )
@@ -214,7 +218,7 @@ function SaveButton({ onClick, disabled, saving, label = 'Simpan' }: { onClick: 
     <button
       onClick={onClick}
       disabled={disabled}
-      className="text-[13px] font-medium text-slate-400 hover:text-white disabled:text-slate-600 disabled:cursor-not-allowed transition-colors duration-150 flex items-center gap-1.5"
+      className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-[13px] font-medium bg-white/[0.06] text-white hover:bg-white/[0.10] disabled:bg-white/[0.03] disabled:text-slate-600 disabled:cursor-not-allowed border border-white/[0.06] hover:border-white/[0.10] transition-all duration-200"
     >
       {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
       {label}
@@ -224,7 +228,7 @@ function SaveButton({ onClick, disabled, saving, label = 'Simpan' }: { onClick: 
 
 function SectionBox({ children, className = '' }: { children: React.ReactNode; className?: string }) {
   return (
-    <div className={`border border-white/[0.06] rounded-xl divide-y divide-white/[0.06] ${className}`}>
+    <div className={`bg-[#0c0d10] rounded-xl border border-white/[0.05] divide-y divide-white/[0.04] shadow-[0_1px_2px_rgba(0,0,0,0.3)] ${className}`}>
       {children}
     </div>
   )
@@ -237,15 +241,22 @@ export default function SettingsPage() {
   const isOwner = session?.user?.role === 'OWNER'
 
   return (
-    <div className="max-w-5xl mx-auto">
-      {/* Page Header */}
-      <div className="mb-8">
-        <h1 className="text-[20px] font-semibold text-white tracking-tight">Settings</h1>
-        <p className="text-[13px] text-slate-400 mt-1">Manage your outlet settings and preferences</p>
+    <div className="max-w-[960px] mx-auto">
+      {/* Page Header — Stripe-style */}
+      <div className="mb-10">
+        <div className="flex items-center gap-3 mb-2">
+          <div className="w-8 h-8 rounded-lg bg-white/[0.04] border border-white/[0.06] flex items-center justify-center">
+            <Settings className="h-4 w-4 text-slate-400" strokeWidth={1.5} />
+          </div>
+          <div>
+            <h1 className="text-[18px] font-semibold text-white tracking-tight">Settings</h1>
+          </div>
+        </div>
+        <p className="text-[13px] text-slate-500 ml-11">Manage your outlet configuration and preferences</p>
       </div>
 
       {/* Layout: Left Nav + Content */}
-      <div className="flex gap-8">
+      <div className="flex gap-10">
         <SettingsNav isOwner={isOwner} />
         <SettingsContent isOwner={isOwner} />
       </div>
@@ -265,11 +276,11 @@ interface NavItem {
 }
 
 const NAV_SECTIONS: NavItem[] = [
-  { id: 'general', label: 'General', icon: <Store className="h-4 w-4" /> },
-  { id: 'payments', label: 'Payments', icon: <CreditCardIcon className="h-4 w-4" /> },
-  { id: 'plan', label: 'Plan', icon: <Crown className="h-4 w-4" /> },
-  { id: 'notifications', label: 'Notifications', icon: <Bell className="h-4 w-4" />, ownerOnly: true },
-  { id: 'account', label: 'Account', icon: <UserCircle className="h-4 w-4" /> },
+  { id: 'general', label: 'General', icon: <Store className="h-[15px] w-[15px]" strokeWidth={1.5} /> },
+  { id: 'payments', label: 'Payments', icon: <CreditCardIcon className="h-[15px] w-[15px]" strokeWidth={1.5} /> },
+  { id: 'plan', label: 'Plan', icon: <Crown className="h-[15px] w-[15px]" strokeWidth={1.5} /> },
+  { id: 'notifications', label: 'Notifications', icon: <Bell className="h-[15px] w-[15px]" strokeWidth={1.5} />, ownerOnly: true },
+  { id: 'account', label: 'Account', icon: <UserCircle className="h-[15px] w-[15px]" strokeWidth={1.5} /> },
 ]
 
 function SettingsNav({ isOwner }: { isOwner: boolean }) {
@@ -312,17 +323,17 @@ function SettingsNav({ isOwner }: { isOwner: boolean }) {
 
   return (
     <>
-      {/* Desktop sidebar */}
-      <nav className="hidden md:block w-[200px] shrink-0 sticky top-4 self-start">
-        <div className="space-y-1">
+      {/* Desktop sidebar — Linear-style sticky nav */}
+      <nav className="hidden md:block w-[180px] shrink-0 sticky top-6 self-start">
+        <div className="bg-[#0c0d10] rounded-xl border border-white/[0.05] p-1.5 shadow-[0_1px_2px_rgba(0,0,0,0.3)]">
           {visibleSections.map((section) => (
             <button
               key={section.id}
               onClick={() => handleNavClick(section.id)}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-colors duration-150 ${
+              className={`w-full flex items-center gap-2.5 px-3 py-[9px] rounded-lg text-[13px] font-medium transition-all duration-150 ${
                 activeSection === section.id
-                  ? 'bg-white/[0.06] text-white'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.03]'
+                  ? 'bg-white/[0.06] text-white shadow-[0_0_0_1px_rgba(255,255,255,0.04)]'
+                  : 'text-slate-500 hover:text-slate-300 hover:bg-white/[0.03]'
               }`}
             >
               {section.icon}
@@ -332,17 +343,17 @@ function SettingsNav({ isOwner }: { isOwner: boolean }) {
         </div>
       </nav>
 
-      {/* Mobile horizontal scrollable nav */}
-      <nav className="md:hidden w-full shrink-0 mb-4">
-        <div className="flex gap-1 overflow-x-auto pb-2 scrollbar-hide">
+      {/* Mobile horizontal scrollable nav — pill style */}
+      <nav className="md:hidden w-full shrink-0 mb-5">
+        <div className="flex gap-1.5 overflow-x-auto pb-2 scrollbar-hide">
           {visibleSections.map((section) => (
             <button
               key={section.id}
               onClick={() => handleNavClick(section.id)}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-medium whitespace-nowrap transition-colors duration-150 ${
+              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[12px] font-medium whitespace-nowrap transition-all duration-150 ${
                 activeSection === section.id
-                  ? 'bg-white/[0.06] text-white'
-                  : 'text-slate-500 hover:text-slate-300 hover:bg-white/[0.03]'
+                  ? 'bg-white/[0.07] text-white border border-white/[0.08]'
+                  : 'text-slate-500 hover:text-slate-300 border border-transparent hover:bg-white/[0.03]'
               }`}
             >
               {section.icon}
@@ -359,16 +370,16 @@ function SettingsNav({ isOwner }: { isOwner: boolean }) {
 
 function SettingsContent({ isOwner }: { isOwner: boolean }) {
   return (
-    <div className="flex-1 min-w-0 space-y-10">
+    <div className="flex-1 min-w-0 space-y-12">
       {/* General Section */}
       <section id="settings-section-general">
         <SectionGroupLabel>General</SectionGroupLabel>
         <OutletInfoTab />
-        <div className="mt-8">
+        <div className="mt-10">
           <ThemeReceiptTab />
         </div>
         {isOwner && (
-          <div className="mt-8">
+          <div className="mt-10">
             <ProGate feature="multiOutlet" label="Multi-Outlet" description="Kelola beberapa outlet dalam satu akun" minHeight="200px">
               <MultiOutletTab />
             </ProGate>
@@ -380,18 +391,18 @@ function SettingsContent({ isOwner }: { isOwner: boolean }) {
       <section id="settings-section-payments">
         <SectionGroupLabel>Payments</SectionGroupLabel>
         <PaymentMethodsTab />
-        <div className="mt-8">
+        <div className="mt-10">
           <LoyaltyTab />
         </div>
         {isOwner && (
           <>
-            <div className="mt-8">
+            <div className="mt-10">
               <TaxTab />
             </div>
-            <div className="mt-8">
+            <div className="mt-10">
               <ManualDiscountTab />
             </div>
-            <div className="mt-8">
+            <div className="mt-10">
               <PromoTab />
             </div>
           </>
@@ -521,12 +532,12 @@ function OutletInfoTab() {
 
   if (loading) {
     return (
-      <div className="space-y-3">
-        <Skeleton className="h-4 w-32 bg-white/[0.04]" />
+      <div className="space-y-4">
+        <Skeleton className="h-4 w-36 bg-white/[0.03]" />
         <SectionBox>
-          <div className="px-6 py-4"><Skeleton className="h-5 w-40 bg-white/[0.04]" /></div>
-          <div className="px-6 py-4"><Skeleton className="h-5 w-36 bg-white/[0.04]" /></div>
-          <div className="px-6 py-4"><Skeleton className="h-5 w-48 bg-white/[0.04]" /></div>
+          <div className="p-5"><Skeleton className="h-5 w-40 bg-white/[0.03]" /></div>
+          <div className="p-5"><Skeleton className="h-5 w-36 bg-white/[0.03]" /></div>
+          <div className="p-5"><Skeleton className="h-5 w-48 bg-white/[0.03]" /></div>
         </SectionBox>
       </div>
     )
@@ -536,24 +547,24 @@ function OutletInfoTab() {
     <div>
       <SectionHeader title="Outlet & Struk" description="Basic details about your business" />
       <SectionBox>
-        <div className="px-6 py-4">
-          <p className="text-[12px] text-slate-500 mb-2">Nama Outlet</p>
+        <div className="p-5">
+          <p className="text-[12px] text-slate-500 mb-2 font-medium">Nama Outlet</p>
           <StripeInput
             value={outletName}
             onChange={(e) => handleChange('outletName', e.target.value)}
             placeholder="Masukkan nama outlet"
           />
         </div>
-        <div className="px-6 py-4">
-          <p className="text-[12px] text-slate-500 mb-2">Telepon</p>
+        <div className="p-5">
+          <p className="text-[12px] text-slate-500 mb-2 font-medium">Telepon</p>
           <StripeInput
             value={outletPhone}
             onChange={(e) => handleChange('outletPhone', e.target.value)}
             placeholder="Masukkan nomor telepon"
           />
         </div>
-        <div className="px-6 py-4">
-          <p className="text-[12px] text-slate-500 mb-2">Alamat</p>
+        <div className="p-5">
+          <p className="text-[12px] text-slate-500 mb-2 font-medium">Alamat</p>
           <StripeTextarea
             value={outletAddress}
             onChange={(e) => handleChange('outletAddress', e.target.value)}
@@ -610,11 +621,11 @@ function PaymentMethodsTab() {
 
   if (loading) {
     return (
-      <div className="space-y-3">
-        <Skeleton className="h-4 w-32 bg-white/[0.04]" />
+      <div className="space-y-4">
+        <Skeleton className="h-4 w-36 bg-white/[0.03]" />
         <SectionBox>
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="px-6 py-4"><Skeleton className="h-5 w-full bg-white/[0.04]" /></div>
+            <div key={i} className="p-5"><Skeleton className="h-5 w-full bg-white/[0.03]" /></div>
           ))}
         </SectionBox>
       </div>
@@ -682,12 +693,12 @@ function LoyaltyTab() {
 
   if (loading) {
     return (
-      <div className="space-y-3">
-        <Skeleton className="h-4 w-32 bg-white/[0.04]" />
+      <div className="space-y-4">
+        <Skeleton className="h-4 w-36 bg-white/[0.03]" />
         <SectionBox>
-          <div className="px-6 py-4"><Skeleton className="h-5 w-full bg-white/[0.04]" /></div>
-          <div className="px-6 py-4"><Skeleton className="h-5 w-full bg-white/[0.04]" /></div>
-          <div className="px-6 py-4"><Skeleton className="h-5 w-full bg-white/[0.04]" /></div>
+          <div className="p-5"><Skeleton className="h-5 w-full bg-white/[0.03]" /></div>
+          <div className="p-5"><Skeleton className="h-5 w-full bg-white/[0.03]" /></div>
+          <div className="p-5"><Skeleton className="h-5 w-full bg-white/[0.03]" /></div>
         </SectionBox>
       </div>
     )
@@ -707,10 +718,10 @@ function LoyaltyTab() {
 
         {loyaltyEnabled && (
           <>
-            <div className="px-6 py-4">
+            <div className="p-5">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                 <div>
-                  <p className="text-[12px] text-slate-500 mb-2">Setiap Rp X = 1 poin</p>
+                  <p className="text-[12px] text-slate-500 mb-2 font-medium">Setiap Rp X = 1 poin</p>
                   <StripeInput
                     type="number"
                     min="1"
@@ -720,7 +731,7 @@ function LoyaltyTab() {
                   />
                 </div>
                 <div>
-                  <p className="text-[12px] text-slate-500 mb-2">1 poin = Rp X diskon</p>
+                  <p className="text-[12px] text-slate-500 mb-2 font-medium">1 poin = Rp X diskon</p>
                   <StripeInput
                     type="number"
                     min="1"
@@ -731,9 +742,9 @@ function LoyaltyTab() {
                 </div>
               </div>
             </div>
-            <div className="px-6 py-4">
-              <div className="rounded-lg border border-amber-500/15 bg-amber-500/[0.03] p-4">
-                <p className="text-[11px] font-medium text-amber-400 uppercase tracking-wider mb-2">Contoh Perhitungan</p>
+            <div className="p-5">
+              <div className="rounded-lg border border-amber-500/10 bg-amber-500/[0.03] p-4">
+                <p className="text-[11px] font-semibold text-amber-400/70 uppercase tracking-[0.12em] mb-2.5">Contoh Perhitungan</p>
                 <p className="text-[13px] text-slate-300">
                   Belanja <span className="font-semibold text-amber-300">{formatCurrency(exampleSpend)}</span> ={' '}
                   <span className="font-semibold text-amber-300">{examplePoints} poin</span> ={' '}
@@ -787,10 +798,10 @@ function TaxTab() {
 
   if (loading) {
     return (
-      <div className="space-y-3">
-        <Skeleton className="h-4 w-32 bg-white/[0.04]" />
+      <div className="space-y-4">
+        <Skeleton className="h-4 w-36 bg-white/[0.03]" />
         <SectionBox>
-          <div className="px-6 py-4"><Skeleton className="h-5 w-full bg-white/[0.04]" /></div>
+          <div className="p-5"><Skeleton className="h-5 w-full bg-white/[0.03]" /></div>
         </SectionBox>
       </div>
     )
@@ -810,10 +821,10 @@ function TaxTab() {
 
         {ppnEnabled && (
           <>
-            <div className="px-6 py-4">
+            <div className="p-5">
               <div className="flex items-end gap-4">
                 <div className="flex-1">
-                  <p className="text-[12px] text-slate-500 mb-2">Tarif PPN (%)</p>
+                  <p className="text-[12px] text-slate-500 mb-2 font-medium">Tarif PPN (%)</p>
                   <StripeInput
                     type="number"
                     min="0"
@@ -827,9 +838,9 @@ function TaxTab() {
                 <p className="text-[11px] text-slate-600 pb-2">Tarif PPN standar Indonesia: 11%</p>
               </div>
             </div>
-            <div className="px-6 py-4">
-              <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
-                <p className="text-[11px] font-medium text-slate-500 uppercase tracking-wider mb-2">Contoh Perhitungan</p>
+            <div className="p-5">
+              <div className="rounded-lg border border-white/[0.05] bg-white/[0.015] p-4">
+                <p className="text-[11px] font-semibold text-slate-500/80 uppercase tracking-[0.12em] mb-2.5">Contoh Perhitungan</p>
                 <div className="space-y-1.5 text-[13px]">
                   <div className="flex justify-between">
                     <span className="text-slate-300">Subtotal</span>
@@ -876,10 +887,10 @@ function ManualDiscountTab() {
 
   if (loading) {
     return (
-      <div className="space-y-3">
-        <Skeleton className="h-4 w-40 bg-white/[0.04]" />
+      <div className="space-y-4">
+        <Skeleton className="h-4 w-44 bg-white/[0.03]" />
         <SectionBox>
-          <div className="px-6 py-4"><Skeleton className="h-5 w-full bg-white/[0.04]" /></div>
+          <div className="p-5"><Skeleton className="h-5 w-full bg-white/[0.03]" /></div>
         </SectionBox>
       </div>
     )
@@ -899,9 +910,9 @@ function ManualDiscountTab() {
         </SettingsRow>
 
         {enabled && (
-          <div className="px-6 py-4">
-            <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4 space-y-2.5">
-              <p className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Cara Kerja</p>
+          <div className="p-5">
+            <div className="rounded-lg border border-white/[0.05] bg-white/[0.015] p-4 space-y-2.5">
+              <p className="text-[11px] font-semibold text-slate-500/80 uppercase tracking-[0.12em]">Cara Kerja</p>
               <ul className="space-y-1.5 text-[13px] text-slate-300">
                 <li className="flex items-start gap-2">
                   <Check className="h-3.5 w-3.5 theme-text shrink-0 mt-0.5" strokeWidth={1.5} />
@@ -1076,33 +1087,35 @@ function PromoTab() {
       {loading ? (
         <SectionBox>
           {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="px-6 py-3"><Skeleton className="h-5 w-full bg-white/[0.04]" /></div>
+            <div key={i} className="p-5"><Skeleton className="h-5 w-full bg-white/[0.03]" /></div>
           ))}
         </SectionBox>
       ) : promos.length === 0 ? (
-        <div className="border border-white/[0.06] rounded-xl py-12 text-center">
-          <Tag className="h-10 w-10 text-zinc-700 mx-auto mb-2" />
-          <p className="text-[13px] text-slate-500">Belum ada promo</p>
-          <p className="text-[11px] text-slate-600 mt-0.5">Tambahkan promo untuk menarik pelanggan</p>
+        <div className="bg-[#0c0d10] rounded-xl border border-white/[0.05] py-14 text-center">
+          <div className="w-12 h-12 rounded-xl bg-white/[0.03] border border-white/[0.05] flex items-center justify-center mx-auto mb-3">
+            <Tag className="h-5 w-5 text-slate-600" />
+          </div>
+          <p className="text-[13px] text-slate-400 font-medium">Belum ada promo</p>
+          <p className="text-[12px] text-slate-600 mt-0.5">Tambahkan promo untuk menarik pelanggan</p>
         </div>
       ) : (
-        <div className="border border-white/[0.06] rounded-xl overflow-x-auto">
+        <div className="bg-[#0c0d10] rounded-xl border border-white/[0.05] overflow-x-auto shadow-[0_1px_2px_rgba(0,0,0,0.3)]">
           <Table>
             <TableHeader>
-              <TableRow className="border-white/[0.06] hover:bg-transparent">
-                <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider h-9">Nama</TableHead>
-                <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider h-9">Tipe</TableHead>
-                <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider h-9">Kategori</TableHead>
-                <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider h-9 text-right">Nilai</TableHead>
-                <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider h-9 text-right">Min. Belanja</TableHead>
-                <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider h-9 text-right">Maks Diskon</TableHead>
-                <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider h-9 text-center">Status</TableHead>
-                <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider h-9 text-right">Aksi</TableHead>
+              <TableRow className="border-white/[0.04] hover:bg-transparent">
+                <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-[0.1em] h-9">Nama</TableHead>
+                <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-[0.1em] h-9">Tipe</TableHead>
+                <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-[0.1em] h-9">Kategori</TableHead>
+                <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-[0.1em] h-9 text-right">Nilai</TableHead>
+                <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-[0.1em] h-9 text-right">Min. Belanja</TableHead>
+                <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-[0.1em] h-9 text-right">Maks Diskon</TableHead>
+                <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-[0.1em] h-9 text-center">Status</TableHead>
+                <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-[0.1em] h-9 text-right">Aksi</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {promos.map((promo) => (
-                <TableRow key={promo.id} className="border-white/[0.06] hover:bg-white/[0.02]">
+                <TableRow key={promo.id} className="border-white/[0.04] hover:bg-white/[0.015]">
                   <TableCell className="text-[13px] text-slate-200 font-medium py-2.5">{promo.name}</TableCell>
                   <TableCell className="py-2.5">
                     <Badge
@@ -1174,7 +1187,7 @@ function PromoTab() {
 
       {/* Promo Form Dialog */}
       <ResponsiveDialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <ResponsiveDialogContent className="bg-[#0a0a0b] border-white/[0.08] p-6">
+        <ResponsiveDialogContent className="bg-[#0c0d10] border-white/[0.06] p-6 shadow-xl">
           <ResponsiveDialogHeader>
             <ResponsiveDialogTitle className="text-[15px] font-semibold text-white">
               {editPromo ? 'Edit Promo' : 'Tambah Promo Baru'}
@@ -1182,15 +1195,15 @@ function PromoTab() {
           </ResponsiveDialogHeader>
           <div className="space-y-5 py-2">
             <div>
-              <p className="text-[12px] text-slate-500 mb-2">Kategori (opsional)</p>
+              <p className="text-[12px] text-slate-500 mb-2 font-medium">Kategori (opsional)</p>
               <Select
                 value={formData.categoryId}
                 onValueChange={(v) => setFormData((p) => ({ ...p, categoryId: v }))}
               >
-                <SelectTrigger className="bg-white/[0.04] border-white/[0.08] text-white w-full h-9 text-[13px]">
+                <SelectTrigger className="bg-white/[0.03] border-white/[0.06] text-white w-full h-10 text-[13px] rounded-lg">
                   <SelectValue placeholder="Semua Kategori" />
                 </SelectTrigger>
-                <SelectContent className="bg-[#0a0a0b] border-white/[0.08]">
+                <SelectContent className="bg-[#0c0d10] border-white/[0.06]">
                   <SelectItem value="__all__">Semua Kategori</SelectItem>
                   {categories.map((cat) => (
                     <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
@@ -1200,7 +1213,7 @@ function PromoTab() {
               <p className="text-[11px] text-slate-600 mt-1">Kosongkan untuk berlaku ke semua kategori</p>
             </div>
             <div>
-              <p className="text-[12px] text-slate-500 mb-2">Nama Promo</p>
+              <p className="text-[12px] text-slate-500 mb-2 font-medium">Nama Promo</p>
               <StripeInput
                 value={formData.name}
                 onChange={(e) => setFormData((p) => ({ ...p, name: e.target.value }))}
@@ -1208,15 +1221,15 @@ function PromoTab() {
               />
             </div>
             <div>
-              <p className="text-[12px] text-slate-500 mb-2">Tipe Diskon</p>
+              <p className="text-[12px] text-slate-500 mb-2 font-medium">Tipe Diskon</p>
               <Select
                 value={formData.type}
                 onValueChange={(v) => setFormData((p) => ({ ...p, type: v }))}
               >
-                <SelectTrigger className="bg-white/[0.04] border-white/[0.08] text-white w-full h-9 text-[13px]">
+                <SelectTrigger className="bg-white/[0.03] border-white/[0.06] text-white w-full h-10 text-[13px] rounded-lg">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-[#0a0a0b] border-white/[0.08]">
+                <SelectContent className="bg-[#0c0d10] border-white/[0.06]">
                   <SelectItem value="PERCENTAGE">Persentase (%)</SelectItem>
                   <SelectItem value="NOMINAL">Nominal (Rp)</SelectItem>
                   <SelectItem value="BUY_X_GET_DISCOUNT">Beli N Produk Diskon</SelectItem>
@@ -1224,7 +1237,7 @@ function PromoTab() {
               </Select>
             </div>
             <div>
-              <p className="text-[12px] text-slate-500 mb-2">
+              <p className="text-[12px] text-slate-500 mb-2 font-medium">
                 Nilai Diskon {formData.type === 'PERCENTAGE' || (formData.type === 'BUY_X_GET_DISCOUNT' && formData.discountType === 'PERCENTAGE') ? '(%)' : '(Rp)'}
               </p>
               <StripeInput
@@ -1236,7 +1249,7 @@ function PromoTab() {
               />
             </div>
             <div>
-              <p className="text-[12px] text-slate-500 mb-2">Minimum Pembayaran (opsional)</p>
+              <p className="text-[12px] text-slate-500 mb-2 font-medium">Minimum Pembayaran (opsional)</p>
               <StripeInput
                 type="number"
                 min="0"
@@ -1247,7 +1260,7 @@ function PromoTab() {
             </div>
             {(formData.type === 'PERCENTAGE' || formData.type === 'BUY_X_GET_DISCOUNT') && (
               <div>
-                <p className="text-[12px] text-slate-500 mb-2">Maks Diskon (opsional)</p>
+                <p className="text-[12px] text-slate-500 mb-2 font-medium">Maks Diskon (opsional)</p>
                 <StripeInput
                   type="number"
                   min="0"
@@ -1260,7 +1273,7 @@ function PromoTab() {
             {formData.type === 'BUY_X_GET_DISCOUNT' && (
               <>
                 <div>
-                  <p className="text-[12px] text-slate-500 mb-2">Minimal Jumlah Item</p>
+                  <p className="text-[12px] text-slate-500 mb-2 font-medium">Minimal Jumlah Item</p>
                   <StripeInput
                     type="number"
                     min="2"
@@ -1271,15 +1284,15 @@ function PromoTab() {
                   <p className="text-[11px] text-slate-600 mt-1">Minimal jumlah item di keranjang untuk mendapat diskon</p>
                 </div>
                 <div>
-                  <p className="text-[12px] text-slate-500 mb-2">Tipe Diskon</p>
+                  <p className="text-[12px] text-slate-500 mb-2 font-medium">Tipe Diskon</p>
                   <Select
                     value={formData.discountType}
                     onValueChange={(v) => setFormData((p) => ({ ...p, discountType: v }))}
                   >
-                    <SelectTrigger className="bg-white/[0.04] border-white/[0.08] text-white w-full h-9 text-[13px]">
+                    <SelectTrigger className="bg-white/[0.03] border-white/[0.06] text-white w-full h-10 text-[13px] rounded-lg">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent className="bg-[#0a0a0b] border-white/[0.08]">
+                    <SelectContent className="bg-[#0c0d10] border-white/[0.06]">
                       <SelectItem value="PERCENTAGE">Persentase (%)</SelectItem>
                       <SelectItem value="NOMINAL">Nominal (Rp)</SelectItem>
                     </SelectContent>
@@ -1318,7 +1331,7 @@ function PromoTab() {
 
       {/* Delete Confirmation */}
       <AlertDialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>
-        <AlertDialogContent className="bg-[#0a0a0b] border-white/[0.08]">
+        <AlertDialogContent className="bg-[#0c0d10] border-white/[0.06]">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-[15px] font-semibold text-white">Hapus Promo</AlertDialogTitle>
             <AlertDialogDescription className="text-[13px] text-slate-400">
@@ -1326,7 +1339,7 @@ function PromoTab() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.06] h-9 text-[13px]" />
+            <AlertDialogCancel className="bg-white/[0.04] border-white/[0.06] text-slate-300 hover:bg-white/[0.06] h-9 text-[13px]" />
             <AlertDialogAction
               onClick={handleDelete}
               disabled={deleting}
@@ -1375,11 +1388,11 @@ function ThemeReceiptTab() {
 
   if (loading) {
     return (
-      <div className="space-y-3">
-        <Skeleton className="h-4 w-32 bg-white/[0.04]" />
+      <div className="space-y-4">
+        <Skeleton className="h-4 w-36 bg-white/[0.03]" />
         <SectionBox>
-          <div className="px-6 py-4"><Skeleton className="h-5 w-full bg-white/[0.04]" /></div>
-          <div className="px-6 py-4"><Skeleton className="h-5 w-full bg-white/[0.04]" /></div>
+          <div className="p-5"><Skeleton className="h-5 w-full bg-white/[0.03]" /></div>
+          <div className="p-5"><Skeleton className="h-5 w-full bg-white/[0.03]" /></div>
         </SectionBox>
       </div>
     )
@@ -1395,8 +1408,8 @@ function ThemeReceiptTab() {
           <div>
             <SectionHeader title="Tema Warna" description="Kustomisasi tampilan aplikasi" />
             <SectionBox>
-              <div className="px-6 py-4">
-                <p className="text-[12px] text-slate-500 mb-3">Warna tema utama</p>
+              <div className="p-5">
+                <p className="text-[12px] text-slate-500 mb-3 font-medium">Warna tema utama</p>
                 <div className="flex items-center gap-3 flex-wrap">
                   {THEME_COLORS.map((color) => {
                     const isSelected = themeColor === color.name
@@ -1422,16 +1435,16 @@ function ThemeReceiptTab() {
           <div>
             <SectionHeader title="Pengaturan Struk" description="Informasi yang ditampilkan pada struk belanja" />
             <SectionBox>
-              <div className="px-6 py-4">
-                <p className="text-[12px] text-slate-500 mb-2">Nama Usaha</p>
+              <div className="p-5">
+                <p className="text-[12px] text-slate-500 mb-2 font-medium">Nama Usaha</p>
                 <StripeInput
                   value={receiptBusinessName}
                   onChange={(e) => handleChange('receiptBusinessName', e.target.value)}
                   placeholder="Masukkan nama usaha"
                 />
               </div>
-              <div className="px-6 py-4">
-                <p className="text-[12px] text-slate-500 mb-2">Alamat</p>
+              <div className="p-5">
+                <p className="text-[12px] text-slate-500 mb-2 font-medium">Alamat</p>
                 <StripeTextarea
                   value={receiptAddress}
                   onChange={(e) => handleChange('receiptAddress', e.target.value)}
@@ -1440,17 +1453,17 @@ function ThemeReceiptTab() {
                 />
               </div>
               {/* Desktop: phone + footer side by side */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-white/[0.06]">
-                <div className="px-6 py-4">
-                  <p className="text-[12px] text-slate-500 mb-2">Telepon</p>
+              <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-white/[0.04]">
+                <div className="p-5">
+                  <p className="text-[12px] text-slate-500 mb-2 font-medium">Telepon</p>
                   <StripeInput
                     value={receiptPhone}
                     onChange={(e) => handleChange('receiptPhone', e.target.value)}
                     placeholder="08xxxxxxxxxx"
                   />
                 </div>
-                <div className="px-6 py-4">
-                  <p className="text-[12px] text-slate-500 mb-2">Pesan Footer</p>
+                <div className="p-5">
+                  <p className="text-[12px] text-slate-500 mb-2 font-medium">Pesan Footer</p>
                   <StripeInput
                     value={receiptFooter}
                     onChange={(e) => handleChange('receiptFooter', e.target.value)}
@@ -1458,8 +1471,8 @@ function ThemeReceiptTab() {
                   />
                 </div>
               </div>
-              <div className="px-6 py-4">
-                <p className="text-[12px] text-slate-500 mb-2">Logo Outlet (Image URL)</p>
+              <div className="p-5">
+                <p className="text-[12px] text-slate-500 mb-2 font-medium">Logo Outlet (Image URL)</p>
                 <div className="flex items-center gap-2">
                   <StripeInput
                     value={receiptLogo}
@@ -1470,19 +1483,19 @@ function ThemeReceiptTab() {
                   {receiptLogo && (
                     <button
                       type="button"
-                      className="shrink-0 text-slate-500 hover:text-red-400 transition-colors"
+                      className="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-all duration-150"
                       onClick={() => handleChange('receiptLogo', '')}
                     >
-                      <X className="h-4 w-4" />
+                      <X className="h-3.5 w-3.5" />
                     </button>
                   )}
                 </div>
                 {receiptLogo && (
-                  <div className="mt-3 flex items-center gap-3 p-3 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+                  <div className="mt-3 flex items-center gap-3 p-3 rounded-lg bg-white/[0.015] border border-white/[0.04]">
                     <img
                       src={receiptLogo}
                       alt="Logo Preview"
-                      className="h-14 w-14 rounded-lg object-contain bg-white p-1"
+                      className="h-12 w-12 rounded-lg object-contain bg-white p-1"
                       onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
                     />
                     <div className="flex-1 min-w-0">
@@ -1755,12 +1768,12 @@ function TelegramTab() {
 
   if (loading) {
     return (
-      <div className="space-y-3">
-        <Skeleton className="h-4 w-32 bg-white/[0.04]" />
+      <div className="space-y-4">
+        <Skeleton className="h-4 w-36 bg-white/[0.03]" />
         <SectionBox>
-          <div className="px-6 py-4"><Skeleton className="h-5 w-full bg-white/[0.04]" /></div>
-          <div className="px-6 py-4"><Skeleton className="h-5 w-full bg-white/[0.04]" /></div>
-          <div className="px-6 py-4"><Skeleton className="h-5 w-full bg-white/[0.04]" /></div>
+          <div className="p-5"><Skeleton className="h-5 w-full bg-white/[0.03]" /></div>
+          <div className="p-5"><Skeleton className="h-5 w-full bg-white/[0.03]" /></div>
+          <div className="p-5"><Skeleton className="h-5 w-full bg-white/[0.03]" /></div>
         </SectionBox>
       </div>
     )
@@ -1778,10 +1791,12 @@ function TelegramTab() {
   return (
     <div className="space-y-8">
       {/* Setup Instructions — clean callout */}
-      <div className="border border-sky-500/15 rounded-xl bg-sky-500/[0.03] p-5">
-        <div className="flex items-center gap-2 mb-4">
-          <CircleHelp className="h-4 w-4 text-sky-400" />
-          <h2 className="text-[15px] font-semibold text-white">Cara Setup Telegram Bot</h2>
+      <div className="bg-[#0c0d10] rounded-xl border border-sky-500/10 p-5 shadow-[0_1px_2px_rgba(0,0,0,0.3)]">
+        <div className="flex items-center gap-2.5 mb-4">
+          <div className="w-7 h-7 rounded-lg bg-sky-500/10 flex items-center justify-center shrink-0">
+            <CircleHelp className="h-3.5 w-3.5 text-sky-400" strokeWidth={1.5} />
+          </div>
+          <h2 className="text-[14px] font-semibold text-white">Cara Setup Telegram Bot</h2>
         </div>
 
         <div className="space-y-4">
@@ -1859,8 +1874,8 @@ function TelegramTab() {
           </div>
 
           <SectionBox>
-            <div className="px-6 py-4">
-              <p className="text-[12px] text-slate-500 mb-2">Bot Token</p>
+            <div className="p-5">
+              <p className="text-[12px] text-slate-500 mb-2 font-medium">Bot Token</p>
               <div className="relative">
                 <StripeInput
                   type={showToken ? 'text' : 'password'}
@@ -1877,19 +1892,19 @@ function TelegramTab() {
                 </button>
               </div>
             </div>
-            <div className="px-6 py-4">
-              <p className="text-[12px] text-slate-500 mb-2">Chat ID</p>
+            <div className="p-5">
+              <p className="text-[12px] text-slate-500 mb-2 font-medium">Chat ID</p>
               <StripeInput
                 value={chatId}
                 onChange={(e) => { setChatId(e.target.value); setDirty(true) }}
                 placeholder="Contoh: 123456789"
               />
             </div>
-            <div className="px-6 py-4">
+            <div className="p-5">
               <button
                 onClick={handleTestConnection}
                 disabled={testing || !botToken}
-                className="w-full text-[13px] font-medium border border-white/[0.08] rounded-lg py-2.5 text-slate-300 hover:bg-white/[0.04] hover:text-white disabled:text-slate-600 disabled:cursor-not-allowed transition-colors duration-150 flex items-center justify-center gap-1.5"
+                className="w-full text-[13px] font-medium border border-white/[0.06] rounded-lg py-2.5 text-slate-300 hover:bg-white/[0.04] hover:text-white disabled:text-slate-600 disabled:cursor-not-allowed transition-all duration-150 flex items-center justify-center gap-1.5"
               >
                 {testing ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -2029,12 +2044,12 @@ function PlanTab() {
 
   if (isLoading) {
     return (
-      <div className="space-y-3">
-        <Skeleton className="h-4 w-32 bg-white/[0.04]" />
+      <div className="space-y-4">
+        <Skeleton className="h-4 w-36 bg-white/[0.03]" />
         <SectionBox>
-          <div className="px-6 py-4"><Skeleton className="h-5 w-full bg-white/[0.04]" /></div>
-          <div className="px-6 py-4"><Skeleton className="h-5 w-full bg-white/[0.04]" /></div>
-          <div className="px-6 py-4"><Skeleton className="h-5 w-full bg-white/[0.04]" /></div>
+          <div className="p-5"><Skeleton className="h-5 w-full bg-white/[0.03]" /></div>
+          <div className="p-5"><Skeleton className="h-5 w-full bg-white/[0.03]" /></div>
+          <div className="p-5"><Skeleton className="h-5 w-full bg-white/[0.03]" /></div>
         </SectionBox>
       </div>
     )
@@ -2287,10 +2302,10 @@ function PlanTab() {
             return (
               <div
                 key={key}
-                className={`rounded-xl border p-4 text-center space-y-2 transition-colors ${
+                className={`rounded-xl border p-4 text-center space-y-2.5 transition-all duration-150 ${
                   isCurrent
                     ? `${accent.border} ${accent.bg}`
-                    : 'border-white/[0.06] hover:bg-white/[0.02]'
+                    : 'border-white/[0.05] hover:bg-white/[0.015] hover:border-white/[0.08]'
                 }`}
               >
                 <Badge className={`${getPlanBadgeClass(key)} text-[11px] font-semibold px-2 py-0`}>
@@ -2313,11 +2328,11 @@ function PlanTab() {
         </div>
 
         {/* Desktop Table */}
-        <div className="hidden md:block border border-white/[0.06] rounded-xl overflow-hidden max-h-[420px] overflow-y-auto">
+        <div className="hidden md:block bg-[#0c0d10] rounded-xl border border-white/[0.05] overflow-hidden max-h-[420px] overflow-y-auto shadow-[0_1px_2px_rgba(0,0,0,0.3)]">
           <Table>
             <TableHeader>
-              <TableRow className="border-white/[0.06] hover:bg-transparent bg-white/[0.02] sticky top-0 z-10">
-                <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider h-9 w-[180px]">Fitur</TableHead>
+              <TableRow className="border-white/[0.04] hover:bg-transparent bg-white/[0.015] sticky top-0 z-10">
+                <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-[0.1em] h-9 w-[180px]">Fitur</TableHead>
                 {planKeys.map((key) => (
                   <TableHead key={key} className="text-center text-[11px] font-medium h-9">
                     <div className="flex flex-col items-center gap-1">
@@ -2554,12 +2569,12 @@ function AccountTab() {
       {/* Change Email + Password side by side on desktop */}
       <div>
         <SectionHeader title="Keamanan" description="Ubah email dan password akun Anda" />
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Change Email */}
           <div className="min-w-0">
-            <div className="border border-white/[0.06] rounded-xl p-6 space-y-5">
+            <div className="bg-[#0c0d10] rounded-xl border border-white/[0.05] p-5 space-y-5 shadow-[0_1px_2px_rgba(0,0,0,0.3)]">
               <div>
-                <p className="text-[12px] text-slate-500 mb-2">Email Baru</p>
+                <p className="text-[12px] text-slate-500 mb-2 font-medium">Email Baru</p>
                 <StripeInput
                   type="email"
                   value={newEmail}
@@ -2568,7 +2583,7 @@ function AccountTab() {
                 />
               </div>
               <div>
-                <p className="text-[12px] text-slate-500 mb-2">Konfirmasi Password</p>
+                <p className="text-[12px] text-slate-500 mb-2 font-medium">Konfirmasi Password</p>
                 <StripeInput
                   type="password"
                   value={emailPassword}
@@ -2579,7 +2594,7 @@ function AccountTab() {
               <button
                 onClick={handleChangeEmail}
                 disabled={changingEmail || !newEmail || !emailPassword}
-                className="text-[13px] font-medium text-slate-400 hover:text-white disabled:text-slate-600 disabled:cursor-not-allowed transition-colors duration-150 flex items-center gap-1.5"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-[13px] font-medium bg-white/[0.06] text-white hover:bg-white/[0.10] disabled:bg-white/[0.03] disabled:text-slate-600 disabled:cursor-not-allowed border border-white/[0.06] hover:border-white/[0.10] transition-all duration-200"
               >
                 {changingEmail ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -2593,9 +2608,9 @@ function AccountTab() {
 
           {/* Change Password */}
           <div className="min-w-0">
-            <div className="border border-white/[0.06] rounded-xl p-6 space-y-5">
+            <div className="bg-[#0c0d10] rounded-xl border border-white/[0.05] p-5 space-y-5 shadow-[0_1px_2px_rgba(0,0,0,0.3)]">
               <div>
-                <p className="text-[12px] text-slate-500 mb-2">Password Saat Ini</p>
+                <p className="text-[12px] text-slate-500 mb-2 font-medium">Password Saat Ini</p>
                 <StripeInput
                   type="password"
                   value={currentPwd}
@@ -2604,7 +2619,7 @@ function AccountTab() {
                 />
               </div>
               <div>
-                <p className="text-[12px] text-slate-500 mb-2">Password Baru</p>
+                <p className="text-[12px] text-slate-500 mb-2 font-medium">Password Baru</p>
                 <StripeInput
                   type="password"
                   value={newPwd}
@@ -2613,7 +2628,7 @@ function AccountTab() {
                 />
               </div>
               <div>
-                <p className="text-[12px] text-slate-500 mb-2">Konfirmasi Password Baru</p>
+                <p className="text-[12px] text-slate-500 mb-2 font-medium">Konfirmasi Password Baru</p>
                 <StripeInput
                   type="password"
                   value={confirmPwd}
@@ -2624,7 +2639,7 @@ function AccountTab() {
               <button
                 onClick={handleChangePassword}
                 disabled={changingPwd || !currentPwd || !newPwd || !confirmPwd || newPwd !== confirmPwd || newPwd.length < 6}
-                className="text-[13px] font-medium text-slate-400 hover:text-white disabled:text-slate-600 disabled:cursor-not-allowed transition-colors duration-150 flex items-center gap-1.5"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-[13px] font-medium bg-white/[0.06] text-white hover:bg-white/[0.10] disabled:bg-white/[0.03] disabled:text-slate-600 disabled:cursor-not-allowed border border-white/[0.06] hover:border-white/[0.10] transition-all duration-200"
               >
                 {changingPwd ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -2727,10 +2742,10 @@ function MultiOutletTab() {
 
   if (loading || outletsLoading) {
     return (
-      <div className="space-y-3">
-        <Skeleton className="h-4 w-32 bg-white/[0.04]" />
+      <div className="space-y-4">
+        <Skeleton className="h-4 w-36 bg-white/[0.03]" />
         <SectionBox>
-          <div className="px-6 py-4"><Skeleton className="h-5 w-full bg-white/[0.04]" /></div>
+          <div className="p-5"><Skeleton className="h-5 w-full bg-white/[0.03]" /></div>
         </SectionBox>
       </div>
     )
@@ -2810,10 +2825,12 @@ function MultiOutletTab() {
       </div>
 
       {outlets.length === 0 && (
-        <div className="border border-white/[0.06] rounded-xl py-12 text-center">
-          <Building2 className="h-10 w-10 text-zinc-700 mx-auto mb-2" />
-          <p className="text-[13px] text-slate-500">Belum ada outlet cabang</p>
-          <p className="text-[11px] text-slate-600">Tambahkan outlet cabang untuk memperluas bisnis Anda</p>
+        <div className="bg-[#0c0d10] rounded-xl border border-white/[0.05] py-14 text-center">
+          <div className="w-12 h-12 rounded-xl bg-white/[0.03] border border-white/[0.05] flex items-center justify-center mx-auto mb-3">
+            <Building2 className="h-5 w-5 text-slate-600" />
+          </div>
+          <p className="text-[13px] text-slate-400 font-medium">Belum ada outlet cabang</p>
+          <p className="text-[12px] text-slate-600 mt-0.5">Tambahkan outlet cabang untuk memperluas bisnis Anda</p>
         </div>
       )}
 
@@ -2825,13 +2842,13 @@ function MultiOutletTab() {
 
       {/* Add Outlet Dialog */}
       <ResponsiveDialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <ResponsiveDialogContent className="bg-[#0a0a0b] border-white/[0.08] p-6">
+        <ResponsiveDialogContent className="bg-[#0c0d10] border-white/[0.06] p-6 shadow-xl">
           <ResponsiveDialogHeader>
             <ResponsiveDialogTitle className="text-[15px] font-semibold text-white">Tambah Outlet Cabang</ResponsiveDialogTitle>
           </ResponsiveDialogHeader>
           <div className="space-y-5 py-2">
             <div>
-              <p className="text-[12px] text-slate-500 mb-2">Nama Outlet *</p>
+              <p className="text-[12px] text-slate-500 mb-2 font-medium">Nama Outlet *</p>
               <StripeInput
                 value={formData.name}
                 onChange={(e) => setFormData((p) => ({ ...p, name: e.target.value }))}
@@ -2839,7 +2856,7 @@ function MultiOutletTab() {
               />
             </div>
             <div>
-              <p className="text-[12px] text-slate-500 mb-2">Alamat</p>
+              <p className="text-[12px] text-slate-500 mb-2 font-medium">Alamat</p>
               <StripeInput
                 value={formData.address}
                 onChange={(e) => setFormData((p) => ({ ...p, address: e.target.value }))}
@@ -2847,7 +2864,7 @@ function MultiOutletTab() {
               />
             </div>
             <div>
-              <p className="text-[12px] text-slate-500 mb-2">Telepon</p>
+              <p className="text-[12px] text-slate-500 mb-2 font-medium">Telepon</p>
               <StripeInput
                 value={formData.phone}
                 onChange={(e) => setFormData((p) => ({ ...p, phone: e.target.value }))}
@@ -2871,7 +2888,7 @@ function MultiOutletTab() {
 
       {/* Delete Confirmation */}
       <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
-        <AlertDialogContent className="bg-[#0a0a0b] border-white/[0.08]">
+        <AlertDialogContent className="bg-[#0c0d10] border-white/[0.06]">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-[15px] font-semibold text-white">Hapus Outlet</AlertDialogTitle>
             <AlertDialogDescription className="text-[13px] text-slate-400">
@@ -2879,7 +2896,7 @@ function MultiOutletTab() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.06] h-9 text-[13px]" />
+            <AlertDialogCancel className="bg-white/[0.04] border-white/[0.06] text-slate-300 hover:bg-white/[0.06] h-9 text-[13px]" />
             <AlertDialogAction onClick={handleDelete} disabled={deleting}
               className="bg-red-500 hover:bg-red-600 text-white h-9 text-[13px]">
               {deleting && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
