@@ -3,14 +3,13 @@
   "version": "0.2.0",
   "private": true,
   "scripts": {
-    "postinstall": "prisma generate",
-    "dev": "next dev -p 3000",
-    "build": "prisma generate && prisma db push; next build",
-    "start": "next start",
-    "lint": "eslint .",
-    "db:push": "prisma db push",
-    "db:push:deploy": "prisma db push"
-  },
+  "postinstall": "prisma generate",
+  "dev": "next dev -p 3000",
+  "build": "prisma generate && prisma migrate deploy && next build",
+  "start": "next start",
+  "lint": "eslint .",
+  "db:push": "prisma db push" 
+},
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
