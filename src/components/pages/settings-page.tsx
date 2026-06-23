@@ -85,7 +85,6 @@ import {
   MessageSquare,
   UserCircle,
   Bot,
-  Lock,
 } from 'lucide-react'
 
 // ==================== TYPES ====================
@@ -2919,11 +2918,11 @@ function MultiOutletTab() {
               </p>
             </div>
             {canAddMore && (
-              <Button disabled
-                className="theme-btn-primary h-8 text-xs opacity-50 cursor-not-allowed flex items-center gap-1.5">
+              <Button
+                onClick={() => setDialogOpen(true)}
+                className="theme-btn-primary h-8 text-xs flex items-center gap-1.5">
                 <Plus className="h-3.5 w-3.5" />
                 Tambah Cabang
-                <Lock className="h-3 w-3 ml-1" />
               </Button>
             )}
           </div>
@@ -2975,11 +2974,7 @@ function MultiOutletTab() {
             </div>
           )}
 
-          <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-2.5">
-            <p className="text-[10px] text-amber-400 text-center">
-              🔒 Fitur <span className="font-medium">Tambah Cabang</span> sedang dalam pengembangan. Segera hadir!
-            </p>
-          </div>
+          
         </CardContent>
       </Card>
 
