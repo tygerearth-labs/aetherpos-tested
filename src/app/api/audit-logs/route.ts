@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/get-auth'
 import { parsePagination, buildDateFilter } from '@/lib/api-helpers'
+import { getOwnerOutlets } from '@/lib/multi-outlet'
 import { safeJson, safeJsonError } from '@/lib/safe-response'
 
 export async function GET(request: NextRequest) {
@@ -10,11 +11,10 @@ export async function GET(request: NextRequest) {
     if (!user) {
       return unauthorized()
     }
-    // Security: Only OWNER can view full audit logs (contain sensitive user actions)
+    // Security: Only OWNER can view full audit logs
     if (user.role !== 'OWNER') {
       return safeJsonError('Hanya pemilik yang dapat melihat audit log', 403)
     }
-    const outletId = user.outletId
 
     const { searchParams } = request.nextUrl
     const { limit, skip } = parsePagination(searchParams)
@@ -23,8 +23,30 @@ export async function GET(request: NextRequest) {
     const dateFrom = searchParams.get('from') || ''
     const dateTo = searchParams.get('to') || ''
     const search = searchParams.get('search') || ''
+    const outletFilter = searchParams.get('outletId') || ''
 
-    const where: Record<string, unknown> = { outletId }
+    // Multi-outlet support
+    let effectiveOutletIds: string[]
+    let outlets: { id: string; name: string }[] = []
+
+    if (user.email) {
+      const multiOutlet = await getOwnerOutlets(db, user.email, user.outletId)
+      if (multiOutlet) {
+        outlets = multiOutlet.outlets
+        if (outletFilter && multiOutlet.outletIds.includes(outletFilter)) {
+          effectiveOutletIds = [outletFilter]
+        } else {
+          effectiveOutletIds = multiOutlet.outletIds
+        }
+      } else {
+        effectiveOutletIds = [user.outletId]
+        outlets = [{ id: user.outletId, name: 'Outlet Saat Ini' }]
+      }
+    } else {
+      effectiveOutletIds = [user.outletId]
+    }
+
+    const where: Record<string, unknown> = { outletId: { in: effectiveOutletIds } }
 
     if (action && action !== 'ALL') {
       where.action = action
@@ -55,6 +77,9 @@ export async function GET(request: NextRequest) {
           user: {
             select: { name: true, email: true },
           },
+          outlet: {
+            select: { name: true },
+          },
         },
       }),
       db.auditLog.count({ where }),
@@ -66,6 +91,7 @@ export async function GET(request: NextRequest) {
       entityType: log.entityType,
       entityId: log.entityId,
       details: log.details,
+      outletName: log.outlet?.name ?? null,
       createdAt: log.createdAt,
       user: log.user
         ? { name: log.user.name, email: log.user.email }
@@ -75,6 +101,7 @@ export async function GET(request: NextRequest) {
     return safeJson({
       logs,
       totalPages: Math.ceil(total / limit),
+      ...(outlets.length > 1 ? { outlets } : {}),
     })
   } catch (error) {
     console.error('Audit logs GET error:', error)

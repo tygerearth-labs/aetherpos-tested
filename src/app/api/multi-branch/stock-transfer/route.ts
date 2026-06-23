@@ -15,7 +15,7 @@ async function getOwnerOutletIds(email: string): Promise<string[]> {
   return owners.map(o => o.outletId)
 }
 
-// ── GET: List stock transfers ──
+// ── GET: List stock transfers OR fetch products by outlet ──
 export async function GET(request: NextRequest) {
   try {
     const user = await getAuthUser(request)
@@ -37,6 +37,59 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = request.nextUrl
+
+    // ── Mode: fetch products for a specific outlet ──
+    const mode = searchParams.get('mode')
+    if (mode === 'products') {
+      const targetOutletId = searchParams.get('outletId')
+      if (!targetOutletId) return safeJsonError('outletId is required', 400)
+      if (!outletIds.includes(targetOutletId)) return safeJsonError('Outlet not found', 403)
+
+      const search = searchParams.get('search') || ''
+      const toOutletId = searchParams.get('toOutletId') || ''
+      const where: Record<string, unknown> = { outletId: targetOutletId, stock: { gt: 0 } }
+      if (search) {
+        where.OR = [
+          { name: { contains: search } },
+          { sku: { contains: search } },
+          { barcode: { contains: search } },
+        ]
+      }
+
+      const products = await db.product.findMany({
+        where,
+        select: {
+          id: true,
+          name: true,
+          sku: true,
+          barcode: true,
+          stock: true,
+          price: true,
+          category: { select: { name: true } },
+        },
+        orderBy: { name: 'asc' },
+        take: 100,
+      })
+
+      // If a toOutletId is provided, also fetch destination stock for comparison
+      let toStockMap: Map<string, number> | null = null
+      if (toOutletId && outletIds.includes(toOutletId)) {
+        const toProducts = await db.product.findMany({
+          where: { outletId: toOutletId },
+          select: { name: true, stock: true },
+        })
+        toStockMap = new Map(toProducts.map(p => [p.name, p.stock]))
+      }
+
+      const mappedProducts = products.map(p => ({
+        ...p,
+        toStock: toStockMap?.get(p.name) ?? 0,
+      }))
+
+      return safeJson({ products: mappedProducts })
+    }
+
+    // ── Default mode: list transfers ──
     const { limit, skip } = parsePagination(searchParams)
     const statusFilter = searchParams.get('status') || ''
 
@@ -94,7 +147,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// ── POST: Create stock transfer request ──
+// ── POST: Create stock transfer(s) ──
 export async function POST(request: NextRequest) {
   try {
     const user = await getAuthUser(request)
@@ -116,84 +169,88 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const {
-      fromOutletId,
-      toOutletId,
-      productId,
-      variantId,
-      productName,
-      variantName,
-      quantity,
-      reason,
-    } = body
 
-    // Validate required fields
-    if (!fromOutletId || !toOutletId || !productName || !quantity) {
-      return safeJsonError('fromOutletId, toOutletId, productName, and quantity are required', 400)
+    // Support both single item (legacy) and items array
+    const items = body.items
+      ? body.items as Array<{
+          productId: string
+          productName: string
+          quantity: number
+        }>
+      : [{
+          productId: body.productId || '',
+          productName: body.productName,
+          quantity: body.quantity,
+          variantId: body.variantId,
+          variantName: body.variantName,
+        }]
+
+    const { fromOutletId, toOutletId, reason } = body
+
+    if (!fromOutletId || !toOutletId || items.length === 0) {
+      return safeJsonError('fromOutletId, toOutletId, and at least one item are required', 400)
     }
 
-    if (quantity <= 0) {
-      return safeJsonError('Quantity must be greater than 0', 400)
+    for (const item of items) {
+      if (!item.productName || !item.quantity || item.quantity <= 0) {
+        return safeJsonError(`Invalid item: ${item.productName || 'unknown'} — name and quantity (>0) required`, 400)
+      }
     }
 
     if (fromOutletId === toOutletId) {
       return safeJsonError('Source and destination outlets must be different', 400)
     }
 
-    // Validate both outlets belong to the owner
     if (!outletIds.includes(fromOutletId) || !outletIds.includes(toOutletId)) {
       return safeJsonError('One or both outlets do not belong to your account', 403)
     }
 
-    // Validate sufficient stock at fromOutlet
-    if (variantId) {
-      const variant = await db.productVariant.findFirst({
-        where: { id: variantId, outletId: fromOutletId, productId },
-      })
-      if (!variant) {
-        return safeJsonError('Variant not found in the source outlet', 404)
-      }
-      if (variant.stock < quantity) {
-        return safeJsonError(`Insufficient stock. Available: ${variant.stock}`, 400)
-      }
-    } else if (productId) {
-      const product = await db.product.findFirst({
-        where: { id: productId, outletId: fromOutletId },
-      })
-      if (!product) {
-        return safeJsonError('Product not found in the source outlet', 404)
-      }
-      if (product.stock < quantity) {
-        return safeJsonError(`Insufficient stock. Available: ${product.stock}`, 400)
+    // Validate stock for all items
+    for (const item of items) {
+      if (item.variantId) {
+        const variant = await db.productVariant.findFirst({
+          where: { id: item.variantId, outletId: fromOutletId, productId: item.productId },
+        })
+        if (!variant) return safeJsonError(`Variant "${item.productName}" not found in source outlet`, 404)
+        if (variant.stock < item.quantity) return safeJsonError(`Insufficient stock for "${item.productName}". Available: ${variant.stock}`, 400)
+      } else if (item.productId) {
+        const product = await db.product.findFirst({
+          where: { id: item.productId, outletId: fromOutletId },
+        })
+        if (!product) return safeJsonError(`Product "${item.productName}" not found in source outlet`, 404)
+        if (product.stock < item.quantity) return safeJsonError(`Insufficient stock for "${item.productName}". Available: ${product.stock}`, 400)
       }
     }
 
-    // Create the stock transfer with status PENDING
-    const transfer = await db.stockTransfer.create({
-      data: {
-        productId: productId || null,
-        variantId: variantId || null,
-        productName,
-        variantName: variantName || null,
-        quantity,
-        fromOutletId,
-        toOutletId,
-        status: 'PENDING',
-        reason: reason || null,
-        outletId: user.outletId,
-        userId: user.id,
-      },
-    })
+    // Create transfers for all items
+    const transfers = await db.$transaction(
+      items.map((item) =>
+        db.stockTransfer.create({
+          data: {
+            productId: item.productId || null,
+            variantId: (item as { variantId?: string }).variantId || null,
+            productName: item.productName,
+            variantName: (item as { variantName?: string }).variantName || null,
+            quantity: item.quantity,
+            fromOutletId,
+            toOutletId,
+            status: 'PENDING',
+            reason: reason || null,
+            outletId: user.outletId,
+            userId: user.id,
+          },
+        })
+      )
+    )
 
-    // Audit log
+    // Audit log (one entry for the batch)
     await safeAuditLog({
       action: 'CREATE',
       entityType: 'STOCK_TRANSFER',
-      entityId: transfer.id,
+      entityId: transfers[0].id,
       details: JSON.stringify({
-        productName,
-        variantName,
-        quantity,
+        itemCount: items.length,
+        items: items.map((i) => ({ productName: i.productName, quantity: i.quantity })),
         fromOutletId,
         toOutletId,
         reason,
@@ -202,7 +259,7 @@ export async function POST(request: NextRequest) {
       userId: user.id,
     })
 
-    return safeJsonCreated({ transfer })
+    return safeJsonCreated({ transfers, count: transfers.length })
   } catch (error) {
     console.error('[/api/multi-branch/stock-transfer] POST error:', error)
     return safeJsonError('Failed to create stock transfer')
@@ -291,7 +348,7 @@ export async function PUT(request: NextRequest) {
           data: { stock: { decrement: existing.quantity } },
         })
 
-        // Add to toOutlet variant (find by product name/variant name)
+        // Add to toOutlet variant
         const toVariant = await db.productVariant.findFirst({
           where: {
             outletId: existing.toOutletId,

@@ -1,11 +1,11 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSession } from 'next-auth/react'
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
 import { formatCurrency, formatDate, formatNumber } from '@/lib/format'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import {
@@ -55,9 +56,6 @@ import {
   Package,
   Users,
   ArrowRightLeft,
-  ClipboardList,
-  FileText,
-  UserCog,
   Plus,
   Search,
   Check,
@@ -66,23 +64,15 @@ import {
   Store,
   TrendingUp,
   AlertTriangle,
-  Shield,
-  Calendar,
-  Clock,
-  Eye,
   RefreshCw,
   ArrowRight,
   Building2,
   Loader2,
   Ban,
-  Hash,
-  CreditCard,
-  ShoppingCart,
-  Pencil,
-  RotateCcw,
-  SlidersHorizontal,
-  User,
-  Banknote,
+  Minus,
+  MapPin,
+  FileText,
+  ChevronUp,
 } from 'lucide-react'
 
 // ============================== TYPES ==============================
@@ -139,53 +129,51 @@ interface StockTransferListResponse {
   totalPages: number
 }
 
-interface Transaction {
-  id: string
-  invoiceNumber: string
-  createdAt: string
-  outletName: string
-  cashierName: string
-  paymentMethod: string
-  total: number
-  voidStatus?: string
-}
-
-interface TransactionListResponse {
-  transactions: Transaction[]
-  totalPages: number
-  outlets: { id: string; name: string }[]
-}
-
-interface AuditLog {
-  id: string
-  action: string
-  entityType: string
-  entityName?: string | null
-  details?: string | null
-  outletName: string
-  userName: string
-  createdAt: string
-}
-
-interface AuditLogListResponse {
-  logs: AuditLog[]
-  totalPages: number
-  outlets: { id: string; name: string }[]
-}
-
-interface CrewMember {
+interface MBCustomer {
   id: string
   name: string
-  email: string
-  role: string
+  whatsapp: string
+  totalSpend: number
+  points: number
+  outletId: string
   outletName: string
-  joinDate: string
-  permissions?: string[]
+  transactionCount: number
+  createdAt: string
 }
 
-interface CrewListResponse {
-  crew: CrewMember[]
+interface MBCustomerOutletStat {
+  outletId: string
+  outletName: string
+  totalCustomers: number
+  totalSpend: number
+  newThisMonth: number
+}
+
+interface MBCustomerResponse {
+  customers: MBCustomer[]
+  totalPages: number
+  outletStats: MBCustomerOutletStat[]
+  topCustomers: { id: string; name: string; totalSpend: number; outletId: string; outletName: string; transactionCount: number }[]
+  combined: { totalCustomers: number; totalSpend: number; newThisMonth: number }
   outlets: { id: string; name: string }[]
+}
+
+interface TransferProduct {
+  id: string
+  name: string
+  sku: string
+  barcode: string
+  stock: number
+  price: number
+  category?: { name: string } | null
+  toStock?: number
+}
+
+interface SelectedItem {
+  productId: string
+  productName: string
+  quantity: number
+  maxStock: number
 }
 
 // ============================== CONSTANTS ==============================
@@ -224,76 +212,6 @@ const TRANSFER_STATUS_CONFIG: Record<
   },
 }
 
-const ACTION_TYPES = [
-  'CREATE',
-  'SALE',
-  'RESTOCK',
-  'UPDATE',
-  'DELETE',
-  'TRANSFER',
-  'ADJUSTMENT',
-  'VOID',
-]
-
-const ACTION_LABELS: Record<string, string> = {
-  CREATE: 'Dibuat',
-  SALE: 'Penjualan',
-  RESTOCK: 'Restock',
-  UPDATE: 'Diperbarui',
-  DELETE: 'Dihapus',
-  TRANSFER: 'Transfer',
-  ADJUSTMENT: 'Penyesuaian',
-  VOID: 'Pembatalan',
-}
-
-const ENTITY_TYPES = [
-  'PRODUCT',
-  'TRANSACTION',
-  'STOCK_TRANSFER',
-  'USER',
-  'OUTLET',
-  'CATEGORY',
-  'CUSTOMER',
-  'PROMO',
-  'SETTINGS',
-]
-
-const ENTITY_LABELS: Record<string, string> = {
-  PRODUCT: 'Produk',
-  TRANSACTION: 'Transaksi',
-  STOCK_TRANSFER: 'Transfer Stok',
-  USER: 'User/Crew',
-  OUTLET: 'Outlet',
-  CATEGORY: 'Kategori',
-  CUSTOMER: 'Customer',
-  PROMO: 'Promo',
-  SETTINGS: 'Pengaturan',
-}
-
-const PAYMENT_METHOD_ICONS: Record<string, React.ElementType> = {
-  CASH: Banknote,
-  QRIS: Hash,
-  TRANSFER: CreditCard,
-  CARD: CreditCard,
-}
-
-function getPaymentIcon(method: string): React.ElementType {
-  return PAYMENT_METHOD_ICONS[method.toUpperCase()] || Receipt
-}
-
-const PAYMENT_METHOD_LABELS: Record<string, string> = {
-  CASH: 'Tunai',
-  QRIS: 'QRIS',
-  TRANSFER: 'Transfer',
-  CARD: 'Kartu',
-  DEBIT: 'Debit',
-  CREDIT: 'Kredit',
-}
-
-function getPaymentLabel(method: string): string {
-  return PAYMENT_METHOD_LABELS[method.toUpperCase()] || method
-}
-
 // Animation variants
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -325,49 +243,6 @@ function TransferStatusBadge({ status }: { status: string }) {
     >
       <span className={`w-1.5 h-1.5 rounded-full ${config.dotColor}`} />
       {config.label}
-    </Badge>
-  )
-}
-
-function RoleBadge({ role }: { role: string }) {
-  if (role === 'OWNER') {
-    return (
-      <Badge className="bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] px-1.5 py-0">
-        <Shield className="h-2.5 w-2.5 mr-0.5" />
-        Owner
-      </Badge>
-    )
-  }
-  return (
-    <Badge className="bg-slate-500/10 border border-slate-500/20 text-slate-400 text-[10px] px-1.5 py-0">
-      <User className="h-2.5 w-2.5 mr-0.5" />
-      Crew
-    </Badge>
-  )
-}
-
-function ActionBadge({ action }: { action: string }) {
-  const colorMap: Record<string, { color: string; bg: string; border: string; icon: React.ElementType }> = {
-    CREATE: { color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20', icon: Plus },
-    SALE: { color: 'text-sky-400', bg: 'bg-sky-500/10', border: 'border-sky-500/20', icon: ShoppingCart },
-    RESTOCK: { color: 'text-amber-400', bg: 'bg-amber-500/10', border: 'border-amber-500/20', icon: Package },
-    UPDATE: { color: 'text-violet-400', bg: 'bg-violet-500/10', border: 'border-violet-500/20', icon: Pencil },
-    DELETE: { color: 'text-red-400', bg: 'bg-red-500/10', border: 'border-red-500/20', icon: Ban },
-    TRANSFER: { color: 'text-cyan-400', bg: 'bg-cyan-500/10', border: 'border-cyan-500/20', icon: ArrowRightLeft },
-    ADJUSTMENT: { color: 'text-zinc-300', bg: 'bg-zinc-500/10', border: 'border-zinc-500/20', icon: SlidersHorizontal },
-    VOID: { color: 'text-red-400', bg: 'bg-red-500/10', border: 'border-red-500/20', icon: Ban },
-  }
-  const config = colorMap[action] || {
-    color: 'text-zinc-400',
-    bg: 'bg-zinc-500/10',
-    border: 'border-zinc-500/20',
-    icon: RotateCcw,
-  }
-  const Icon = config.icon
-  return (
-    <Badge className={`${config.bg} border ${config.border} ${config.color} text-[10px] gap-1 px-1.5 py-0`}>
-      <Icon className="h-2.5 w-2.5" />
-      {ACTION_LABELS[action] || action}
     </Badge>
   )
 }
@@ -478,16 +353,6 @@ function TableRowsSkeleton({ rows = 5, cols = 5 }: { rows?: number; cols?: numbe
     <div className="space-y-2">
       {Array.from({ length: rows }).map((_, rowIdx) => (
         <Skeleton key={rowIdx} className="h-12 bg-nebula rounded-lg" />
-      ))}
-    </div>
-  )
-}
-
-function CardGridSkeleton({ count = 4 }: { count?: number }) {
-  return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-      {Array.from({ length: count }).map((_, i) => (
-        <Skeleton key={i} className="h-28 bg-nebula rounded-xl" />
       ))}
     </div>
   )
@@ -758,7 +623,7 @@ function RingkasanTab() {
 
 // ============================== TAB 2: TRANSFER STOK ==============================
 
-function TransferStokTab({ outlets }: { outlets: { id: string; name: string }[] }) {
+function TransferStokTab({ outlets }: { outlets: { id: string; name: string; isPrimary?: boolean }[] }) {
   const [transfers, setTransfers] = useState<StockTransfer[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
@@ -769,13 +634,16 @@ function TransferStokTab({ outlets }: { outlets: { id: string; name: string }[] 
   // Create transfer dialog state
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [form, setForm] = useState({
-    fromOutletId: '',
-    toOutletId: '',
-    productName: '',
-    quantity: '',
-    reason: '',
-  })
+  const [fromOutletId, setFromOutletId] = useState('')
+  const [toOutletId, setToOutletId] = useState('')
+  const [reason, setReason] = useState('')
+
+  // Product list state
+  const [products, setProducts] = useState<TransferProduct[]>([])
+  const [productsLoading, setProductsLoading] = useState(false)
+  const [productSearch, setProductSearch] = useState('')
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [selectedItems, setSelectedItems] = useState<SelectedItem[]>([])
 
   // Confirm dialog state
   const [confirmAction, setConfirmAction] = useState<{
@@ -785,6 +653,13 @@ function TransferStokTab({ outlets }: { outlets: { id: string; name: string }[] 
     description: string
   } | null>(null)
   const [actionLoading, setActionLoading] = useState(false)
+
+  // Race condition guard: only the latest fetch updates state
+  const fetchIdRef = useRef(0)
+
+  // Ref to pass toOutletId to the debounced search effect without triggering it
+  const toOutletIdRef = useRef(toOutletId)
+  useEffect(() => { toOutletIdRef.current = toOutletId }, [toOutletId])
 
   const fetchTransfers = useCallback(async () => {
     setLoading(true)
@@ -813,21 +688,128 @@ function TransferStokTab({ outlets }: { outlets: { id: string; name: string }[] 
     fetchTransfers()
   }, [fetchTransfers])
 
-  const resetForm = useCallback(() => {
-    setForm({ fromOutletId: '', toOutletId: '', productName: '', quantity: '', reason: '' })
-  }, [])
-
-  const handleCreateTransfer = async () => {
-    if (!form.fromOutletId || !form.toOutletId || !form.productName || !form.quantity) {
-      toast.error('Lengkapi semua field yang wajib diisi')
+  // Fetch products when fromOutletId or productSearch changes
+  const fetchProducts = useCallback(async (outletId: string, search: string, toId?: string) => {
+    if (!outletId) {
+      setProducts([])
       return
     }
-    if (form.fromOutletId === form.toOutletId) {
+    const currentFetchId = ++fetchIdRef.current
+    setProductsLoading(true)
+    try {
+      const params = new URLSearchParams({ mode: 'products', outletId })
+      if (search) params.set('search', search)
+      if (toId) params.set('toOutletId', toId)
+      const res = await fetch(`/api/multi-branch/stock-transfer?${params}`)
+      if (currentFetchId !== fetchIdRef.current) return // stale fetch — discard
+      if (res.ok) {
+        const json = await res.json()
+        setProducts(json.products || [])
+      } else {
+        toast.error('Gagal memuat produk')
+      }
+    } catch {
+      if (currentFetchId !== fetchIdRef.current) return
+      toast.error('Gagal memuat produk')
+    } finally {
+      if (currentFetchId === fetchIdRef.current) {
+        setProductsLoading(false)
+      }
+    }
+  }, [])
+
+  // Fetch products immediately when source or destination outlet changes
+  useEffect(() => {
+    if (fromOutletId) {
+      fetchProducts(fromOutletId, productSearch, toOutletId)
+    } else {
+      setProducts([])
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fromOutletId, toOutletId, fetchProducts])
+
+  // Debounced search for products (only triggers on search input, not outlet changes)
+  useEffect(() => {
+    if (!fromOutletId) return
+    const timer = setTimeout(() => {
+      fetchProducts(fromOutletId, productSearch, toOutletIdRef.current)
+    }, 300)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productSearch, fromOutletId, fetchProducts])
+
+  const resetForm = useCallback(() => {
+    setFromOutletId('')
+    setToOutletId('')
+    setReason('')
+    setProducts([])
+    setProductSearch('')
+    setSelectedIds(new Set())
+    setSelectedItems([])
+  }, [])
+
+  // Helper: outlet badge
+  const outletBadge = (outletId: string) => {
+    const outlet = outlets.find((o) => o.id === outletId)
+    if (!outlet) return null
+    if (outlet.isPrimary) {
+      return <Badge className="bg-amber-500/10 text-amber-400 border-amber-500/20 text-[10px] px-1.5 py-0 h-4">Utama</Badge>
+    }
+    return <Badge className="bg-cyan-500/10 text-cyan-400 border-cyan-500/20 text-[10px] px-1.5 py-0 h-4">Cabang</Badge>
+  }
+
+  // Toggle product checkbox
+  const toggleProduct = (product: TransferProduct) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(product.id)) {
+        next.delete(product.id)
+        setSelectedItems((items) => items.filter((i) => i.productId !== product.id))
+      } else {
+        next.add(product.id)
+        setSelectedItems((items) => [...items, {
+          productId: product.id,
+          productName: product.name,
+          quantity: 1,
+          maxStock: product.stock,
+        }])
+      }
+      return next
+    })
+  }
+
+  // Update quantity for a selected item
+  const updateQuantity = (productId: string, delta: number) => {
+    setSelectedItems((items) =>
+      items.map((item) => {
+        if (item.productId !== productId) return item
+        const newQty = Math.max(1, Math.min(item.maxStock, item.quantity + delta))
+        return { ...item, quantity: newQty }
+      })
+    )
+  }
+
+  // Remove a selected item
+  const removeSelectedItem = (productId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      next.delete(productId)
+      return next
+    })
+    setSelectedItems((items) => items.filter((i) => i.productId !== productId))
+  }
+
+  const handleCreateTransfer = async () => {
+    if (!fromOutletId || !toOutletId) {
+      toast.error('Pilih outlet asal dan tujuan')
+      return
+    }
+    if (fromOutletId === toOutletId) {
       toast.error('Outlet asal dan tujuan tidak boleh sama')
       return
     }
-    if (Number(form.quantity) <= 0) {
-      toast.error('Jumlah harus lebih dari 0')
+    if (selectedItems.length === 0) {
+      toast.error('Pilih minimal satu produk untuk ditransfer')
       return
     }
 
@@ -837,11 +819,14 @@ function TransferStokTab({ outlets }: { outlets: { id: string; name: string }[] 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          fromOutletId: form.fromOutletId,
-          toOutletId: form.toOutletId,
-          productName: form.productName,
-          quantity: Number(form.quantity),
-          reason: form.reason || undefined,
+          fromOutletId,
+          toOutletId,
+          reason: reason || undefined,
+          items: selectedItems.map((item) => ({
+            productId: item.productId,
+            productName: item.productName,
+            quantity: item.quantity,
+          })),
         }),
       })
       if (res.ok) {
@@ -884,7 +869,10 @@ function TransferStokTab({ outlets }: { outlets: { id: string; name: string }[] 
     }
   }
 
-  const toOutletOptions = outlets.filter((o) => o.id !== form.fromOutletId)
+  const toOutletOptions = outlets.filter((o) => o.id !== fromOutletId)
+
+  const fromOutlet = outlets.find((o) => o.id === fromOutletId)
+  const toOutlet = outlets.find((o) => o.id === toOutletId)
 
   return (
     <div className="space-y-4">
@@ -1159,8 +1147,8 @@ function TransferStokTab({ outlets }: { outlets: { id: string; name: string }[] 
       <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
 
       {/* Create Transfer Dialog */}
-      <ResponsiveDialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-        <ResponsiveDialogContent className="sm:max-w-md">
+      <ResponsiveDialog open={createDialogOpen} onOpenChange={(open) => { if (!open) { resetForm() }; setCreateDialogOpen(open) }}>
+        <ResponsiveDialogContent className="sm:max-w-lg max-h-[90vh] flex flex-col">
           <ResponsiveDialogHeader>
             <ResponsiveDialogTitle className="text-white text-base">
               Buat Transfer Stok
@@ -1169,12 +1157,14 @@ function TransferStokTab({ outlets }: { outlets: { id: string; name: string }[] 
               Pindahkan stok produk dari satu outlet ke outlet lain
             </ResponsiveDialogDescription>
           </ResponsiveDialogHeader>
-          <div className="space-y-4 py-2">
+
+          <div className="flex-1 overflow-y-auto space-y-4 py-2 pr-1">
+            {/* From Outlet */}
             <div className="space-y-2">
               <Label className="text-xs text-slate-300">Dari Outlet <span className="text-red-400">*</span></Label>
               <Select
-                value={form.fromOutletId}
-                onValueChange={(v) => setForm((f) => ({ ...f, fromOutletId: v, toOutletId: '' }))}
+                value={fromOutletId}
+                onValueChange={(v) => { setFromOutletId(v); setToOutletId(''); setSelectedIds(new Set()); setSelectedItems([]) }}
               >
                 <SelectTrigger className="bg-white/[0.04] border-white/[0.08] text-white h-9 text-xs">
                   <SelectValue placeholder="Pilih outlet asal" />
@@ -1182,6 +1172,7 @@ function TransferStokTab({ outlets }: { outlets: { id: string; name: string }[] 
                 <SelectContent className="bg-[#0F172A] border-white/[0.08]">
                   {outlets.map((outlet) => (
                     <SelectItem key={outlet.id} value={outlet.id} className="text-slate-200 focus:bg-white/[0.06] text-xs">
+                      <span className="mr-1.5">{outlet.isPrimary ? '🏷️' : '🏢'}</span>
                       {outlet.name}
                     </SelectItem>
                   ))}
@@ -1189,19 +1180,21 @@ function TransferStokTab({ outlets }: { outlets: { id: string; name: string }[] 
               </Select>
             </div>
 
+            {/* To Outlet */}
             <div className="space-y-2">
               <Label className="text-xs text-slate-300">Ke Outlet <span className="text-red-400">*</span></Label>
               <Select
-                value={form.toOutletId}
-                onValueChange={(v) => setForm((f) => ({ ...f, toOutletId: v }))}
-                disabled={!form.fromOutletId}
+                value={toOutletId}
+                onValueChange={(v) => setToOutletId(v)}
+                disabled={!fromOutletId}
               >
                 <SelectTrigger className="bg-white/[0.04] border-white/[0.08] text-white h-9 text-xs">
-                  <SelectValue placeholder={form.fromOutletId ? 'Pilih outlet tujuan' : 'Pilih outlet asal dahulu'} />
+                  <SelectValue placeholder={fromOutletId ? 'Pilih outlet tujuan' : 'Pilih outlet asal dahulu'} />
                 </SelectTrigger>
                 <SelectContent className="bg-[#0F172A] border-white/[0.08]">
                   {toOutletOptions.map((outlet) => (
                     <SelectItem key={outlet.id} value={outlet.id} className="text-slate-200 focus:bg-white/[0.06] text-xs">
+                      <span className="mr-1.5">{outlet.isPrimary ? '🏷️' : '🏢'}</span>
                       {outlet.name}
                     </SelectItem>
                   ))}
@@ -1209,42 +1202,185 @@ function TransferStokTab({ outlets }: { outlets: { id: string; name: string }[] 
               </Select>
             </div>
 
-            <div className="space-y-2">
-              <Label className="text-xs text-slate-300">Nama Produk <span className="text-red-400">*</span></Label>
-              <Input
-                value={form.productName}
-                onChange={(e) => setForm((f) => ({ ...f, productName: e.target.value }))}
-                placeholder="Masukkan nama produk"
-                className="bg-white/[0.04] border-white/[0.08] text-white h-9 text-xs placeholder:text-slate-500"
-              />
-            </div>
+            {/* Direction indicator */}
+            {fromOutletId && toOutletId && (
+              <div className="flex items-center justify-center gap-3 py-2">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm">{fromOutlet?.isPrimary ? '🏷️' : '🏢'}</span>
+                  <span className="text-xs text-slate-300">{fromOutlet?.name}</span>
+                  {outletBadge(fromOutletId)}
+                </div>
+                <ArrowRight className="h-4 w-4 text-slate-500" />
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm">{toOutlet?.isPrimary ? '🏷️' : '🏢'}</span>
+                  <span className="text-xs text-slate-300">{toOutlet?.name}</span>
+                  {outletBadge(toOutletId)}
+                </div>
+              </div>
+            )}
 
-            <div className="space-y-2">
-              <Label className="text-xs text-slate-300">Jumlah <span className="text-red-400">*</span></Label>
-              <Input
-                type="number"
-                min="1"
-                value={form.quantity}
-                onChange={(e) => setForm((f) => ({ ...f, quantity: e.target.value }))}
-                placeholder="Masukkan jumlah"
-                className="bg-white/[0.04] border-white/[0.08] text-white h-9 text-xs placeholder:text-slate-500"
-              />
-            </div>
+            {/* Product search */}
+            {fromOutletId && (
+              <div className="space-y-2">
+                <Label className="text-xs text-slate-300">Cari Produk</Label>
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500 pointer-events-none" />
+                  <Input
+                    value={productSearch}
+                    onChange={(e) => setProductSearch(e.target.value)}
+                    placeholder="Cari nama atau SKU produk..."
+                    className="bg-white/[0.04] border-white/[0.08] text-white h-9 text-xs placeholder:text-slate-500 pl-8"
+                  />
+                </div>
+              </div>
+            )}
 
+            {/* Product list with checkboxes */}
+            {fromOutletId && (
+              <div className="space-y-2">
+                <Label className="text-xs text-slate-300">
+                  Daftar Produk
+                  <span className="text-slate-500 font-normal ml-1">
+                    ({products.length} produk)
+                  </span>
+                </Label>
+                {toOutletId && (
+                  <div className="flex items-center gap-3 text-[10px] text-slate-500 px-1">
+                    <span className="flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500/40" />
+                      Stok {fromOutlet?.name || 'Asal'}
+                    </span>
+                    <ArrowRight className="h-2.5 w-2.5" />
+                    <span className="flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full bg-sky-500/40" />
+                      Stok {toOutlet?.name || 'Tujuan'}
+                    </span>
+                  </div>
+                )}
+                <ScrollArea className="h-48 rounded-md border border-white/[0.06]">
+                  {productsLoading ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+                    </div>
+                  ) : products.length === 0 ? (
+                    <div className="flex items-center justify-center py-8">
+                      <p className="text-xs text-slate-500">Tidak ada produk ditemukan</p>
+                    </div>
+                  ) : (
+                    <div className="p-1 space-y-0.5">
+                      {products.map((product) => (
+                        <label
+                          key={product.id}
+                          className="flex items-center gap-2.5 px-2 py-2 rounded-md hover:bg-white/[0.04] cursor-pointer transition-colors"
+                        >
+                          <Checkbox
+                            checked={selectedIds.has(product.id)}
+                            onCheckedChange={() => toggleProduct(product)}
+                            className="border-white/[0.15] data-[state=checked]:bg-cyan-500 data-[state=checked]:border-cyan-500 h-3.5 w-3.5"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs text-white font-medium truncate">{product.name}</p>
+                            <p className="text-[10px] text-slate-500">
+                              {product.sku}{product.category ? ` · ${product.category.name}` : ''}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2.5 shrink-0">
+                            <div className="text-right">
+                              <span className={`text-[11px] font-medium ${product.stock > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                {formatNumber(product.stock)}
+                              </span>
+                              <p className="text-[9px] text-slate-600">asal</p>
+                            </div>
+                            {toOutletId && (
+                              <>
+                                <Separator orientation="vertical" className="h-6 bg-white/[0.06]" />
+                                <div className="text-right">
+                                  <span className={`text-[11px] font-medium ${product.toStock && product.toStock > 0 ? 'text-sky-400' : 'text-red-400/60'}`}>
+                                    {formatNumber(product.toStock ?? 0)}
+                                  </span>
+                                  <p className="text-[9px] text-slate-600">tujuan</p>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </ScrollArea>
+              </div>
+            )}
+
+            {/* Selected items */}
+            {selectedItems.length > 0 && (
+              <div className="space-y-2">
+                <Label className="text-xs text-slate-300">
+                  Produk Dipilih
+                  <span className="text-cyan-400 font-medium ml-1">({selectedItems.length})</span>
+                </Label>
+                <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                  {selectedItems.map((item) => (
+                    <div
+                      key={item.productId}
+                      className="flex items-center gap-2 px-2.5 py-2 rounded-md bg-white/[0.03] border border-white/[0.06]"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs text-white font-medium truncate">{item.productName}</p>
+                        <p className="text-[10px] text-slate-500">Max: {formatNumber(item.maxStock)}</p>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-6 w-6 p-0 border-white/[0.1] text-slate-400 hover:text-white hover:bg-white/[0.08]"
+                          onClick={() => updateQuantity(item.productId, -1)}
+                          disabled={item.quantity <= 1}
+                        >
+                          <Minus className="h-3 w-3" />
+                        </Button>
+                        <span className="text-xs text-white font-medium w-8 text-center tabular-nums">
+                          {item.quantity}
+                        </span>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-6 w-6 p-0 border-white/[0.1] text-slate-400 hover:text-white hover:bg-white/[0.08]"
+                          onClick={() => updateQuantity(item.productId, 1)}
+                          disabled={item.quantity >= item.maxStock}
+                        >
+                          <ChevronUp className="h-3 w-3" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 w-6 p-0 text-red-400/60 hover:text-red-400 hover:bg-red-500/10 ml-0.5"
+                          onClick={() => removeSelectedItem(item.productId)}
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Reason */}
             <div className="space-y-2">
               <Label className="text-xs text-slate-300">
                 Alasan <span className="text-slate-500 font-normal">(opsional)</span>
               </Label>
               <Textarea
-                value={form.reason}
-                onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))}
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
                 placeholder="Alasan transfer (opsional)"
-                rows={3}
+                rows={2}
                 className="bg-white/[0.04] border-white/[0.08] text-white text-xs placeholder:text-slate-500 resize-none"
               />
             </div>
           </div>
-          <ResponsiveDialogFooter className="gap-2">
+
+          <ResponsiveDialogFooter className="gap-2 mt-2">
             <Button
               variant="ghost"
               onClick={() => { setCreateDialogOpen(false); resetForm() }}
@@ -1254,11 +1390,11 @@ function TransferStokTab({ outlets }: { outlets: { id: string; name: string }[] 
             </Button>
             <Button
               onClick={handleCreateTransfer}
-              disabled={submitting}
+              disabled={submitting || selectedItems.length === 0}
               className="theme-btn-primary text-xs h-9 gap-1.5"
             >
               {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              Buat Transfer
+              Buat Transfer ({selectedItems.length} produk)
             </Button>
           </ResponsiveDialogFooter>
         </ResponsiveDialogContent>
@@ -1300,857 +1436,293 @@ function TransferStokTab({ outlets }: { outlets: { id: string; name: string }[] 
 
 // ============================== TAB 3: TRANSAKSI ==============================
 
-function TransaksiTab({ outlets }: { outlets: { id: string; name: string }[] }) {
-  const [transactions, setTransactions] = useState<Transaction[]>([])
+// ============================== TAB: PELANGGAN ==============================
+
+function PelangganTab({ outlets }: { outlets: { id: string; name: string }[] }) {
+  const [data, setData] = useState<MBCustomerResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
-  const [page, setPage] = useState(1)
-  const [totalPages, setTotalPages] = useState(1)
   const [outletFilter, setOutletFilter] = useState<string>('ALL')
   const [search, setSearch] = useState('')
-  const [searchInput, setSearchInput] = useState('')
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
+  const [page, setPage] = useState(1)
 
-  const fetchTransactions = useCallback(async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true)
     setError(false)
     try {
       const params = new URLSearchParams({ page: String(page), limit: '20' })
       if (outletFilter !== 'ALL') params.set('outletId', outletFilter)
       if (search) params.set('search', search)
-      if (dateFrom) params.set('dateFrom', dateFrom)
-      if (dateTo) params.set('dateTo', dateTo)
-      const res = await fetch(`/api/multi-branch/transactions?${params}`)
+      const res = await fetch(`/api/multi-branch/customers?${params}`)
       if (res.ok) {
-        const json: TransactionListResponse = await res.json()
-        setTransactions(json.transactions)
-        setTotalPages(json.totalPages)
+        const json: MBCustomerResponse = await res.json()
+        setData(json)
       } else {
         setError(true)
-        toast.error('Gagal memuat data transaksi')
+        toast.error('Gagal memuat data pelanggan')
       }
     } catch {
       setError(true)
-      toast.error('Gagal memuat data transaksi')
+      toast.error('Gagal memuat data pelanggan')
     } finally {
       setLoading(false)
     }
-  }, [page, outletFilter, search, dateFrom, dateTo])
+  }, [outletFilter, search, page])
 
   useEffect(() => {
-    fetchTransactions()
-  }, [fetchTransactions])
-
-  const handleSearch = () => {
-    setSearch(searchInput)
-    setPage(1)
-  }
-
-  const handleClearSearch = () => {
-    setSearchInput('')
-    setSearch('')
-    setPage(1)
-  }
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') handleSearch()
-  }
-
-  const handleClearAllFilters = () => {
-    setOutletFilter('ALL')
-    setSearchInput('')
-    setSearch('')
-    setDateFrom('')
-    setDateTo('')
-    setPage(1)
-  }
-
-  const hasActiveFilters = search || outletFilter !== 'ALL' || dateFrom || dateTo
-
-  if (error) {
-    return <ErrorState onRetry={fetchTransactions} />
-  }
-
-  return (
-    <div className="space-y-4">
-      {/* Filters */}
-      <div className="flex flex-col sm:flex-row gap-2">
-        <div className="relative flex-1 min-w-0 sm:max-w-xs">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500 pointer-events-none" />
-          <Input
-            type="text"
-            placeholder="Cari invoice, nama customer..."
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            className="pl-8 pr-8 bg-white/[0.04] border-white/[0.08] text-white h-8 text-xs placeholder:text-slate-500"
-          />
-          {searchInput && (
-            <button
-              onClick={handleClearSearch}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
-
-        <Select value={outletFilter} onValueChange={(v) => { setOutletFilter(v); setPage(1) }}>
-          <SelectTrigger className="w-full sm:w-44 bg-white/[0.04] border-white/[0.08] text-white h-8 text-xs">
-            <SelectValue placeholder="Semua Cabang" />
-          </SelectTrigger>
-          <SelectContent className="bg-white/[0.04] border-white/[0.08]">
-            <SelectItem value="ALL" className="text-slate-200 focus:bg-white/[0.06] text-xs">
-              Semua Cabang
-            </SelectItem>
-            {outlets.map((outlet) => (
-              <SelectItem key={outlet.id} value={outlet.id} className="text-slate-200 focus:bg-white/[0.06] text-xs">
-                {outlet.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-500 pointer-events-none" />
-            <Input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => { setDateFrom(e.target.value); setPage(1) }}
-              className="pl-7 bg-white/[0.04] border-white/[0.08] text-white h-8 text-xs w-[130px] sm:w-auto"
-            />
-          </div>
-          <span className="text-slate-600 text-xs">—</span>
-          <div className="relative">
-            <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-500 pointer-events-none" />
-            <Input
-              type="date"
-              value={dateTo}
-              onChange={(e) => { setDateTo(e.target.value); setPage(1) }}
-              className="pl-7 bg-white/[0.04] border-white/[0.08] text-white h-8 text-xs w-[130px] sm:w-auto"
-            />
-          </div>
-        </div>
-
-        {hasActiveFilters && (
-          <Button
-            variant="ghost"
-            className="h-8 text-xs text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] shrink-0"
-            onClick={handleClearAllFilters}
-          >
-            <RotateCcw className="mr-1 h-3 w-3" />
-            Reset
-          </Button>
-        )}
-      </div>
-
-      {/* Active filter badges */}
-      {hasActiveFilters && (
-        <div className="flex flex-wrap gap-1.5">
-          {search && (
-            <Badge
-              variant="outline"
-              className="bg-white/[0.04] border-white/[0.08] text-slate-300 text-[11px] gap-1 px-2 py-0.5 cursor-pointer"
-              onClick={handleClearSearch}
-            >
-              Cari: &quot;{search}&quot;
-              <X className="h-2.5 w-2.5 ml-0.5" />
-            </Badge>
-          )}
-          {outletFilter !== 'ALL' && (
-            <Badge
-              variant="outline"
-              className="bg-white/[0.04] border-white/[0.08] text-slate-300 text-[11px] gap-1 px-2 py-0.5 cursor-pointer"
-              onClick={() => { setOutletFilter('ALL'); setPage(1) }}
-            >
-              <Store className="h-2.5 w-2.5" />
-              {outlets.find((o) => o.id === outletFilter)?.name || outletFilter}
-              <X className="h-2.5 w-2.5 ml-0.5" />
-            </Badge>
-          )}
-          {dateFrom && (
-            <Badge
-              variant="outline"
-              className="bg-white/[0.04] border-white/[0.08] text-slate-300 text-[11px] gap-1 px-2 py-0.5 cursor-pointer"
-              onClick={() => { setDateFrom(''); setDateTo(''); setPage(1) }}
-            >
-              {dateFrom}{dateTo && dateTo !== dateFrom ? ` – ${dateTo}` : ''}
-              <X className="h-2.5 w-2.5 ml-0.5" />
-            </Badge>
-          )}
-        </div>
-      )}
-
-      {/* Content */}
-      {loading ? (
-        <TableRowsSkeleton rows={6} />
-      ) : transactions.length === 0 ? (
-        <EmptyState
-          icon={Receipt}
-          title="Belum ada transaksi"
-          description={hasActiveFilters ? 'Tidak ada transaksi yang cocok dengan filter' : 'Transaksi akan muncul setelah ada penjualan'}
-          action={
-            hasActiveFilters ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleClearAllFilters}
-                className="text-slate-500 hover:text-slate-300 text-xs h-7"
-              >
-                Reset semua filter
-              </Button>
-            ) : undefined
-          }
-        />
-      ) : (
-        <div className="space-y-3">
-          {/* Mobile Card View */}
-          <div className="md:hidden space-y-2">
-            {transactions.map((tx) => {
-              const PayIcon = getPaymentIcon(tx.paymentMethod)
-              return (
-                <Card key={tx.id} className="bg-nebula border-white/[0.06] rounded-xl p-3.5">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div className="w-7 h-7 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0">
-                        <Receipt className="h-3.5 w-3.5 text-emerald-400" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-xs font-medium text-white truncate">{tx.invoiceNumber}</p>
-                        <p className="text-[10px] text-slate-500">{formatDate(tx.createdAt)}</p>
-                      </div>
-                    </div>
-                    <p className="text-sm font-semibold text-white shrink-0">
-                      {formatCurrency(tx.total)}
-                    </p>
-                  </div>
-                  <div className="space-y-1.5 text-[11px]">
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-500">Outlet</span>
-                      <span className="text-slate-300 truncate max-w-[160px]">{tx.outletName}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-500">Kasir</span>
-                      <span className="text-slate-300 truncate max-w-[160px]">{tx.cashierName}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-500">Metode</span>
-                      <span className="text-slate-300 flex items-center gap-1">
-                        <PayIcon className="h-3 w-3" />
-                        {getPaymentLabel(tx.paymentMethod)}
-                      </span>
-                    </div>
-                  </div>
-                </Card>
-              )
-            })}
-          </div>
-
-          {/* Desktop Table View */}
-          <div className="hidden md:block rounded-xl border border-white/[0.06] overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow className="border-white/[0.06] hover:bg-transparent bg-nebula/50">
-                  <TableHead className="text-slate-500 text-[11px] font-medium">Invoice</TableHead>
-                  <TableHead className="text-slate-500 text-[11px] font-medium">Tanggal</TableHead>
-                  <TableHead className="text-slate-500 text-[11px] font-medium">Outlet</TableHead>
-                  <TableHead className="text-slate-500 text-[11px] font-medium">Kasir</TableHead>
-                  <TableHead className="text-slate-500 text-[11px] font-medium text-center">Metode</TableHead>
-                  <TableHead className="text-slate-500 text-[11px] font-medium text-right">Total</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {transactions.map((tx) => {
-                  const PayIcon = getPaymentIcon(tx.paymentMethod)
-                  return (
-                    <TableRow
-                      key={tx.id}
-                      className="border-white/[0.06] hover:bg-white/[0.02] transition-colors"
-                    >
-                      <TableCell className="text-xs text-white font-medium py-3 px-4 whitespace-nowrap">
-                        {tx.invoiceNumber}
-                      </TableCell>
-                      <TableCell className="text-xs text-slate-400 py-3 px-4 whitespace-nowrap">
-                        {formatDate(tx.createdAt)}
-                      </TableCell>
-                      <TableCell className="text-xs text-slate-300 py-3 px-4">
-                        <span className="flex items-center gap-1.5">
-                          <Store className="h-3 w-3 text-slate-500" />
-                          {tx.outletName}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-xs text-slate-400 py-3 px-4">
-                        {tx.cashierName}
-                      </TableCell>
-                      <TableCell className="text-center py-3 px-4">
-                        <Badge className="bg-white/[0.04] border border-white/[0.08] text-slate-300 text-[10px] gap-1 px-1.5 py-0">
-                          <PayIcon className="h-2.5 w-2.5" />
-                          {getPaymentLabel(tx.paymentMethod)}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-xs text-white font-semibold py-3 px-4 text-right">
-                        {formatCurrency(tx.total)}
-                      </TableCell>
-                    </TableRow>
-                  )
-                })}
-              </TableBody>
-            </Table>
-          </div>
-        </div>
-      )}
-
-      <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
-    </div>
-  )
-}
-
-// ============================== TAB 4: AUDIT LOG ==============================
-
-function AuditLogTab({ outlets }: { outlets: { id: string; name: string }[] }) {
-  const [logs, setLogs] = useState<AuditLog[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(false)
-  const [page, setPage] = useState(1)
-  const [totalPages, setTotalPages] = useState(1)
-  const [outletFilter, setOutletFilter] = useState<string>('ALL')
-  const [actionFilter, setActionFilter] = useState<string>('ALL')
-  const [entityFilter, setEntityFilter] = useState<string>('ALL')
-  const [search, setSearch] = useState('')
-  const [searchInput, setSearchInput] = useState('')
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
-
-  const fetchLogs = useCallback(async () => {
-    setLoading(true)
-    setError(false)
-    try {
-      const params = new URLSearchParams({ page: String(page), limit: '20' })
-      if (outletFilter !== 'ALL') params.set('outletId', outletFilter)
-      if (actionFilter !== 'ALL') params.set('action', actionFilter)
-      if (entityFilter !== 'ALL') params.set('entityType', entityFilter)
-      if (search) params.set('search', search)
-      if (dateFrom) params.set('dateFrom', dateFrom)
-      if (dateTo) params.set('dateTo', dateTo)
-      const res = await fetch(`/api/multi-branch/audit-logs?${params}`)
-      if (res.ok) {
-        const json: AuditLogListResponse = await res.json()
-        setLogs(json.logs)
-        setTotalPages(json.totalPages)
-      } else {
-        setError(true)
-        toast.error('Gagal memuat audit log')
-      }
-    } catch {
-      setError(true)
-      toast.error('Gagal memuat audit log')
-    } finally {
-      setLoading(false)
-    }
-  }, [page, outletFilter, actionFilter, entityFilter, search, dateFrom, dateTo])
+    fetchData()
+  }, [fetchData])
 
   useEffect(() => {
-    fetchLogs()
-  }, [fetchLogs])
-
-  const handleSearch = () => {
-    setSearch(searchInput)
-    setPage(1)
-  }
-
-  const handleClearSearch = () => {
-    setSearchInput('')
-    setSearch('')
-    setPage(1)
-  }
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') handleSearch()
-  }
-
-  const handleClearAllFilters = () => {
-    setOutletFilter('ALL')
-    setActionFilter('ALL')
-    setEntityFilter('ALL')
-    setSearchInput('')
-    setSearch('')
-    setDateFrom('')
-    setDateTo('')
-    setPage(1)
-  }
-
-  const hasActiveFilters =
-    search || outletFilter !== 'ALL' || actionFilter !== 'ALL' || entityFilter !== 'ALL' || dateFrom || dateTo
-
-  // Parse details for display
-  const parseDetails = (details: string | null): string => {
-    if (!details) return '-'
-    try {
-      const parsed = JSON.parse(details)
-      if (typeof parsed === 'string') return parsed
-      // Show first few key-value pairs
-      const entries = Object.entries(parsed).slice(0, 3)
-      if (entries.length === 0) return '-'
-      return entries
-        .map(([key, value]) => {
-          const label = key.replace(/([A-Z])/g, ' $1').replace(/^./, (s) => s.toUpperCase())
-          const displayValue = typeof value === 'number' && key.toLowerCase().includes('price') || key.toLowerCase().includes('total') || key.toLowerCase().includes('hpp')
-            ? formatCurrency(value as number)
-            : String(value)
-          return `${label}: ${displayValue}`
-        })
-        .join(' • ')
-    } catch {
-      return details
-    }
-  }
+    const timer = setTimeout(() => setPage(1), 300)
+    return () => clearTimeout(timer)
+  }, [search, outletFilter])
 
   if (error) {
-    return <ErrorState onRetry={fetchLogs} />
+    return <ErrorState onRetry={fetchData} />
   }
+
+  // Overview stat cards
+  const statCards = [
+    {
+      label: 'Total Pelanggan',
+      value: data ? formatNumber(data.combined.totalCustomers) : '0',
+      sub: 'Semua cabang',
+      icon: Users,
+      iconBg: 'bg-pink-500/10',
+      iconColor: 'text-pink-400',
+    },
+    {
+      label: 'Total Belanja',
+      value: data ? formatCurrency(data.combined.totalSpend) : 'Rp 0',
+      sub: 'Akumulasi semua pelanggan',
+      icon: DollarSign,
+      iconBg: 'bg-emerald-500/10',
+      iconColor: 'text-emerald-400',
+    },
+    {
+      label: 'Pelanggan Baru',
+      value: data ? formatNumber(data.combined.newThisMonth) : '0',
+      sub: 'Bulan ini',
+      icon: TrendingUp,
+      iconBg: 'bg-amber-500/10',
+      iconColor: 'text-amber-400',
+    },
+  ]
 
   return (
-    <div className="space-y-4">
-      {/* Filters */}
-      <div className="flex flex-col sm:flex-row gap-2">
-        <div className="relative flex-1 min-w-0 sm:max-w-xs">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500 pointer-events-none" />
-          <Input
-            type="text"
-            placeholder="Cari nama, aksi, entitas..."
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            className="pl-8 pr-8 bg-white/[0.04] border-white/[0.08] text-white h-8 text-xs placeholder:text-slate-500"
-          />
-          {searchInput && (
-            <button
-              onClick={handleClearSearch}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
-
-        <Select value={outletFilter} onValueChange={(v) => { setOutletFilter(v); setPage(1) }}>
-          <SelectTrigger className="w-full sm:w-40 bg-white/[0.04] border-white/[0.08] text-white h-8 text-xs">
-            <SelectValue placeholder="Semua Cabang" />
-          </SelectTrigger>
-          <SelectContent className="bg-white/[0.04] border-white/[0.08]">
-            <SelectItem value="ALL" className="text-slate-200 focus:bg-white/[0.06] text-xs">
-              Semua Cabang
-            </SelectItem>
-            {outlets.map((outlet) => (
-              <SelectItem key={outlet.id} value={outlet.id} className="text-slate-200 focus:bg-white/[0.06] text-xs">
-                {outlet.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select value={actionFilter} onValueChange={(v) => { setActionFilter(v); setPage(1) }}>
-          <SelectTrigger className="w-full sm:w-36 bg-white/[0.04] border-white/[0.08] text-white h-8 text-xs">
-            <SelectValue placeholder="Semua Aksi" />
-          </SelectTrigger>
-          <SelectContent className="bg-white/[0.04] border-white/[0.08]">
-            <SelectItem value="ALL" className="text-slate-200 focus:bg-white/[0.06] text-xs">
-              Semua Aksi
-            </SelectItem>
-            {ACTION_TYPES.map((action) => (
-              <SelectItem key={action} value={action} className="text-slate-200 focus:bg-white/[0.06] text-xs">
-                {ACTION_LABELS[action] || action}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select value={entityFilter} onValueChange={(v) => { setEntityFilter(v); setPage(1) }}>
-          <SelectTrigger className="w-full sm:w-36 bg-white/[0.04] border-white/[0.08] text-white h-8 text-xs">
-            <SelectValue placeholder="Semua Entitas" />
-          </SelectTrigger>
-          <SelectContent className="bg-white/[0.04] border-white/[0.08]">
-            <SelectItem value="ALL" className="text-slate-200 focus:bg-white/[0.06] text-xs">
-              Semua Entitas
-            </SelectItem>
-            {ENTITY_TYPES.map((entity) => (
-              <SelectItem key={entity} value={entity} className="text-slate-200 focus:bg-white/[0.06] text-xs">
-                {ENTITY_LABELS[entity] || entity}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        {hasActiveFilters && (
-          <Button
-            variant="ghost"
-            className="h-8 text-xs text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] shrink-0"
-            onClick={handleClearAllFilters}
-          >
-            <RotateCcw className="mr-1 h-3 w-3" />
-            Reset
-          </Button>
-        )}
-      </div>
-
-      {/* Active filter badges */}
-      {hasActiveFilters && (
-        <div className="flex flex-wrap gap-1.5">
-          {search && (
-            <Badge
-              variant="outline"
-              className="bg-white/[0.04] border-white/[0.08] text-slate-300 text-[11px] gap-1 px-2 py-0.5 cursor-pointer"
-              onClick={handleClearSearch}
-            >
-              Cari: &quot;{search}&quot;
-              <X className="h-2.5 w-2.5 ml-0.5" />
-            </Badge>
-          )}
-          {outletFilter !== 'ALL' && (
-            <Badge
-              variant="outline"
-              className="bg-white/[0.04] border-white/[0.08] text-slate-300 text-[11px] gap-1 px-2 py-0.5 cursor-pointer"
-              onClick={() => { setOutletFilter('ALL'); setPage(1) }}
-            >
-              <Store className="h-2.5 w-2.5" />
-              {outlets.find((o) => o.id === outletFilter)?.name || outletFilter}
-              <X className="h-2.5 w-2.5 ml-0.5" />
-            </Badge>
-          )}
-          {actionFilter !== 'ALL' && (
-            <Badge
-              variant="outline"
-              className="bg-white/[0.04] border-white/[0.08] text-slate-300 text-[11px] gap-1 px-2 py-0.5 cursor-pointer"
-              onClick={() => { setActionFilter('ALL'); setPage(1) }}
-            >
-              {ACTION_LABELS[actionFilter] || actionFilter}
-              <X className="h-2.5 w-2.5 ml-0.5" />
-            </Badge>
-          )}
-          {entityFilter !== 'ALL' && (
-            <Badge
-              variant="outline"
-              className="bg-white/[0.04] border-white/[0.08] text-slate-300 text-[11px] gap-1 px-2 py-0.5 cursor-pointer"
-              onClick={() => { setEntityFilter('ALL'); setPage(1) }}
-            >
-              {ENTITY_LABELS[entityFilter] || entityFilter}
-              <X className="h-2.5 w-2.5 ml-0.5" />
-            </Badge>
-          )}
-        </div>
-      )}
-
-      {/* Content */}
-      {loading ? (
-        <TableRowsSkeleton rows={6} />
-      ) : logs.length === 0 ? (
-        <EmptyState
-          icon={ClipboardList}
-          title="Belum ada audit log"
-          description={hasActiveFilters ? 'Tidak ada audit log yang cocok dengan filter' : 'Aktivitas akan tercatat di sini'}
-          action={
-            hasActiveFilters ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleClearAllFilters}
-                className="text-slate-500 hover:text-slate-300 text-xs h-7"
-              >
-                Reset semua filter
-              </Button>
-            ) : undefined
-          }
-        />
-      ) : (
-        <div className="space-y-3">
-          {/* Mobile Card View */}
-          <div className="md:hidden space-y-2">
-            {logs.map((log) => {
-              const actionConfig = getActionColorConfig(log.action)
-              return (
-                <div
-                  key={log.id}
-                  className={`rounded-xl border-l-4 ${actionConfig.leftBorder} border border-white/[0.06] bg-nebula p-3.5 transition-colors`}
-                >
-                  <div className="flex items-center gap-2.5 mb-2">
-                    <div className={`w-7 h-7 rounded-lg ${actionConfig.iconBg} flex items-center justify-center shrink-0`}>
-                      <actionConfig.icon className={`h-3.5 w-3.5 ${actionConfig.color}`} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <ActionBadge action={log.action} />
-                        <Badge variant="outline" className="bg-white/[0.04] border-white/[0.08] text-slate-400 text-[10px] px-1.5 py-0">
-                          {ENTITY_LABELS[log.entityType] || log.entityType}
-                        </Badge>
-                      </div>
-                      <p className="text-[10px] text-slate-500 mt-0.5">{formatDate(log.createdAt)}</p>
-                    </div>
-                  </div>
-                  {log.entityName && (
-                    <p className="text-xs text-slate-300 mb-1 truncate">
-                      <span className="text-slate-500">Entitas: </span>
-                      {log.entityName}
-                    </p>
-                  )}
-                  <div className="flex items-center justify-between text-[11px] mb-1">
-                    <span className="text-slate-500">Oleh</span>
-                    <span className="text-slate-300">{log.userName}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-[11px]">
-                    <span className="text-slate-500">Outlet</span>
-                    <span className="text-slate-300 truncate max-w-[160px]">{log.outletName}</span>
-                  </div>
-                  {log.details && (
-                    <div className="mt-2 pt-2 border-t border-white/[0.04]">
-                      <p className="text-[10px] text-slate-500 leading-relaxed">
-                        {parseDetails(log.details)}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-
-          {/* Desktop Table View */}
-          <div className="hidden md:block rounded-xl border border-white/[0.06] overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow className="border-white/[0.06] hover:bg-transparent bg-nebula/50">
-                  <TableHead className="text-slate-500 text-[11px] font-medium w-10"></TableHead>
-                  <TableHead className="text-slate-500 text-[11px] font-medium">Waktu</TableHead>
-                  <TableHead className="text-slate-500 text-[11px] font-medium">User</TableHead>
-                  <TableHead className="text-slate-500 text-[11px] font-medium">Outlet</TableHead>
-                  <TableHead className="text-slate-500 text-[11px] font-medium text-center">Aksi</TableHead>
-                  <TableHead className="text-slate-500 text-[11px] font-medium">Entitas</TableHead>
-                  <TableHead className="text-slate-500 text-[11px] font-medium">Detail</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {logs.map((log) => {
-                  const actionConfig = getActionColorConfig(log.action)
-                  return (
-                    <TableRow
-                      key={log.id}
-                      className={`border-white/[0.06] transition-colors border-l-2 ${actionConfig.leftBorder}`}
-                    >
-                      <TableCell className="py-3 px-3">
-                        <div className={`w-2 h-2 rounded-full ${actionConfig.dotColor}`} />
-                      </TableCell>
-                      <TableCell className="text-xs text-slate-400 py-3 px-3 whitespace-nowrap">
-                        {formatDate(log.createdAt)}
-                      </TableCell>
-                      <TableCell className="text-xs text-slate-300 py-3 px-3">
-                        {log.userName}
-                      </TableCell>
-                      <TableCell className="text-xs text-slate-400 py-3 px-3">
-                        <span className="flex items-center gap-1">
-                          <Store className="h-3 w-3 text-slate-600" />
-                          {log.outletName}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-center py-3 px-3">
-                        <ActionBadge action={log.action} />
-                      </TableCell>
-                      <TableCell className="text-xs text-slate-400 py-3 px-3">
-                        <Badge variant="outline" className="bg-white/[0.04] border-white/[0.08] text-slate-400 text-[10px] px-1.5 py-0">
-                          {ENTITY_LABELS[log.entityType] || log.entityType}
-                          {log.entityName && `: ${log.entityName}`}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-xs text-slate-400 py-3 px-3 max-w-xs">
-                        <p className="text-[11px] text-slate-500 truncate">{parseDetails(log.details)}</p>
-                      </TableCell>
-                    </TableRow>
-                  )
-                })}
-              </TableBody>
-            </Table>
-          </div>
-        </div>
-      )}
-
-      <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
-    </div>
-  )
-}
-
-// Audit log action color config helper
-function getActionColorConfig(action: string) {
-  const configs: Record<string, {
-    icon: React.ElementType
-    color: string
-    iconBg: string
-    leftBorder: string
-    dotColor: string
-  }> = {
-    CREATE: { icon: Plus, color: 'text-emerald-400', iconBg: 'bg-emerald-500/10', leftBorder: 'border-l-emerald-500', dotColor: 'bg-emerald-500' },
-    SALE: { icon: ShoppingCart, color: 'text-sky-400', iconBg: 'bg-sky-500/10', leftBorder: 'border-l-sky-500', dotColor: 'bg-sky-500' },
-    RESTOCK: { icon: Package, color: 'text-amber-400', iconBg: 'bg-amber-500/10', leftBorder: 'border-l-amber-500', dotColor: 'bg-amber-500' },
-    UPDATE: { icon: Pencil, color: 'text-violet-400', iconBg: 'bg-violet-500/10', leftBorder: 'border-l-violet-500', dotColor: 'bg-violet-500' },
-    DELETE: { icon: Ban, color: 'text-red-400', iconBg: 'bg-red-500/10', leftBorder: 'border-l-red-500', dotColor: 'bg-red-500' },
-    TRANSFER: { icon: ArrowRightLeft, color: 'text-cyan-400', iconBg: 'bg-cyan-500/10', leftBorder: 'border-l-cyan-500', dotColor: 'bg-cyan-500' },
-    ADJUSTMENT: { icon: SlidersHorizontal, color: 'text-zinc-300', iconBg: 'bg-zinc-500/10', leftBorder: 'border-l-zinc-400', dotColor: 'bg-zinc-400' },
-    VOID: { icon: Ban, color: 'text-red-400', iconBg: 'bg-red-500/10', leftBorder: 'border-l-red-500', dotColor: 'bg-red-500' },
-  }
-  return configs[action] || {
-    icon: RotateCcw,
-    color: 'text-zinc-400',
-    iconBg: 'bg-zinc-500/10',
-    leftBorder: 'border-l-zinc-600',
-    dotColor: 'bg-zinc-600',
-  }
-}
-
-// ============================== TAB 5: CREW ==============================
-
-function CrewTab({ outlets }: { outlets: { id: string; name: string }[] }) {
-  const [crew, setCrew] = useState<CrewMember[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(false)
-  const [outletFilter, setOutletFilter] = useState<string>('ALL')
-
-  const fetchCrew = useCallback(async () => {
-    setLoading(true)
-    setError(false)
-    try {
-      const params = new URLSearchParams()
-      if (outletFilter !== 'ALL') params.set('outletId', outletFilter)
-      const res = await fetch(`/api/multi-branch/crew?${params}`)
-      if (res.ok) {
-        const json: CrewListResponse = await res.json()
-        setCrew(json.crew)
-      } else {
-        setError(true)
-        toast.error('Gagal memuat data crew')
-      }
-    } catch {
-      setError(true)
-      toast.error('Gagal memuat data crew')
-    } finally {
-      setLoading(false)
-    }
-  }, [outletFilter])
-
-  useEffect(() => {
-    fetchCrew()
-  }, [fetchCrew])
-
-  if (error) {
-    return <ErrorState onRetry={fetchCrew} />
-  }
-
-  return (
-    <div className="space-y-4">
-      {/* Filter */}
-      <div className="flex items-center gap-2">
-        <Select value={outletFilter} onValueChange={setOutletFilter}>
-          <SelectTrigger className="w-full sm:w-44 bg-white/[0.04] border-white/[0.08] text-white h-8 text-xs">
-            <SelectValue placeholder="Semua Cabang" />
-          </SelectTrigger>
-          <SelectContent className="bg-white/[0.04] border-white/[0.08]">
-            <SelectItem value="ALL" className="text-slate-200 focus:bg-white/[0.06] text-xs">
-              Semua Cabang
-            </SelectItem>
-            {outlets.map((outlet) => (
-              <SelectItem key={outlet.id} value={outlet.id} className="text-slate-200 focus:bg-white/[0.06] text-xs">
-                {outlet.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {!loading && crew.length > 0 && (
-          <Badge className="bg-white/[0.04] border border-white/[0.08] text-slate-400 text-[10px] px-1.5 py-0">
-            {crew.length} crew
-          </Badge>
-        )}
-      </div>
-
-      {/* Content */}
-      {loading ? (
-        <CardGridSkeleton count={6} />
-      ) : crew.length === 0 ? (
-        <EmptyState
-          icon={UserCog}
-          title="Belum ada crew"
-          description={outletFilter !== 'ALL' ? 'Tidak ada crew di cabang ini' : 'Tambahkan crew ke outlet Anda'}
-        />
-      ) : (
-        <motion.div
-          variants={containerVariants}
-          initial="hidden"
-          animate="visible"
-          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"
-        >
-          {crew.map((member) => (
-            <motion.div key={member.id} variants={itemVariants}>
+    <div className="space-y-6">
+      {/* Stat Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {statCards.map((stat, idx) => {
+          const Icon = stat.icon
+          return (
+            <motion.div key={idx} variants={itemVariants} initial="hidden" animate="visible">
               <Card className="bg-nebula border-white/[0.06] rounded-xl hover:border-white/[0.12] transition-colors">
                 <CardContent className="p-4">
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="w-9 h-9 rounded-full bg-gradient-to-br from-pink-500/20 via-purple-500/20 to-cyan-500/20 flex items-center justify-center shrink-0 border border-white/[0.06]">
-                        <span className="text-xs font-semibold text-slate-300">
-                          {member.name.charAt(0).toUpperCase()}
-                        </span>
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-white truncate">{member.name}</p>
-                        <p className="text-[11px] text-slate-500 truncate">{member.email}</p>
-                      </div>
-                    </div>
-                    <RoleBadge role={member.role} />
-                  </div>
-
-                  <Separator className="bg-white/[0.04] mb-3" />
-
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between text-[11px]">
-                      <span className="text-slate-500 flex items-center gap-1.5">
-                        <Store className="h-3 w-3" />
-                        Outlet
-                      </span>
-                      <span className="text-slate-300 truncate max-w-[160px]">{member.outletName}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-[11px]">
-                      <span className="text-slate-500 flex items-center gap-1.5">
-                        <Calendar className="h-3 w-3" />
-                        Bergabung
-                      </span>
-                      <span className="text-slate-300">{formatDate(member.joinDate)}</span>
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-[11px] text-slate-500 font-medium">{stat.label}</span>
+                    <div className={`w-8 h-8 rounded-lg ${stat.iconBg} flex items-center justify-center`}>
+                      <Icon className={`h-4 w-4 ${stat.iconColor}`} />
                     </div>
                   </div>
-
-                  {/* Permissions */}
-                  {member.permissions && member.permissions.length > 0 && (
-                    <div className="mt-3 pt-3 border-t border-white/[0.04]">
-                      <p className="text-[10px] text-slate-500 mb-1.5 flex items-center gap-1">
-                        <Shield className="h-2.5 w-2.5" />
-                        Hak Akses
-                      </p>
-                      <div className="flex flex-wrap gap-1">
-                        {member.permissions.map((perm) => (
-                          <Badge
-                            key={perm}
-                            variant="outline"
-                            className="bg-white/[0.03] border-white/[0.06] text-slate-400 text-[9px] px-1.5 py-0"
-                          >
-                            {perm}
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                  <p className="text-lg font-semibold text-white tracking-tight">{stat.value}</p>
+                  <p className="text-[10px] text-slate-500 mt-0.5">{stat.sub}</p>
                 </CardContent>
               </Card>
             </motion.div>
-          ))}
+          )
+        })}
+      </div>
+
+      {/* Per-outlet canvassing performance */}
+      {!loading && data && data.outletStats.length > 0 && (
+        <motion.div variants={containerVariants} initial="hidden" animate="visible" className="space-y-3">
+          <h3 className="text-xs font-medium text-slate-400 flex items-center gap-1.5">
+            <MapPin className="h-3.5 w-3.5" />
+            Performa Canvasing per Cabang
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {data.outletStats.map((stat) => {
+              const ratio = stat.totalCustomers > 0
+                ? Math.round((stat.newThisMonth / stat.totalCustomers) * 100)
+                : 0
+              return (
+                <motion.div key={stat.outletId} variants={itemVariants}>
+                  <Card className="bg-nebula border-white/[0.06] rounded-xl hover:border-white/[0.12] transition-colors">
+                    <CardContent className="p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <p className="text-xs font-medium text-white truncate max-w-[180px]">{stat.outletName}</p>
+                        <Badge className="bg-cyan-500/10 text-cyan-400 border-cyan-500/20 text-[10px] px-1.5 py-0 h-4 shrink-0">
+                          {ratio}% baru
+                        </Badge>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div>
+                          <p className="text-[10px] text-slate-500">Pelanggan</p>
+                          <p className="text-sm font-semibold text-white">{formatNumber(stat.totalCustomers)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-slate-500">Total Belanja</p>
+                          <p className="text-sm font-semibold text-emerald-400">{formatCurrency(stat.totalSpend)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-slate-500">Baru</p>
+                          <p className="text-sm font-semibold text-amber-400">{formatNumber(stat.newThisMonth)}</p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              )
+            })}
+          </div>
         </motion.div>
       )}
+
+      {/* Customer list section */}
+      <div className="space-y-3">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <h3 className="text-xs font-medium text-slate-400 flex items-center gap-1.5">
+            <Users className="h-3.5 w-3.5" />
+            Daftar Pelanggan
+            {!loading && data && (
+              <Badge className="bg-white/[0.04] border border-white/[0.08] text-slate-400 text-[10px] px-1.5 py-0">
+                {data.customers.length}
+              </Badge>
+            )}
+          </h3>
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <Select value={outletFilter} onValueChange={setOutletFilter}>
+              <SelectTrigger className="w-full sm:w-40 bg-white/[0.04] border-white/[0.08] text-white h-8 text-xs">
+                <SelectValue placeholder="Semua Cabang" />
+              </SelectTrigger>
+              <SelectContent className="bg-[#0F172A] border-white/[0.08]">
+                <SelectItem value="ALL" className="text-slate-200 focus:bg-white/[0.06] text-xs">
+                  Semua Cabang
+                </SelectItem>
+                {outlets.map((o) => (
+                  <SelectItem key={o.id} value={o.id} className="text-slate-200 focus:bg-white/[0.06] text-xs">
+                    {o.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="relative flex-1 sm:w-48">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500 pointer-events-none" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Cari nama atau WA..."
+                className="bg-white/[0.04] border-white/[0.08] text-white h-8 text-xs placeholder:text-slate-500 pl-8"
+              />
+            </div>
+          </div>
+        </div>
+
+        {loading ? (
+          <TableRowsSkeleton rows={6} />
+        ) : !data || data.customers.length === 0 ? (
+          <EmptyState
+            icon={Users}
+            title="Belum ada pelanggan"
+            description="Pelanggan akan muncul setelah ditambahkan di masing-masing cabang"
+          />
+        ) : (
+          <>
+            {/* Mobile Card View */}
+            <div className="md:hidden space-y-2">
+              {data.customers.map((customer) => (
+                <Card key={customer.id} className="bg-nebula border-white/[0.06] rounded-xl p-3.5">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-8 h-8 rounded-full bg-pink-500/10 flex items-center justify-center shrink-0 border border-white/[0.06]">
+                        <span className="text-[11px] font-semibold text-pink-400">
+                          {customer.name.charAt(0).toUpperCase()}
+                        </span>
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-medium text-white truncate">{customer.name}</p>
+                        <p className="text-[10px] text-slate-500 truncate">{customer.outletName}</p>
+                      </div>
+                    </div>
+                    <span className="text-xs font-semibold text-emerald-400 shrink-0">
+                      {formatCurrency(customer.totalSpend)}
+                    </span>
+                  </div>
+                  <div className="space-y-1 text-[11px]">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500">WhatsApp</span>
+                      <span className="text-slate-300">{customer.whatsapp}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500">Transaksi</span>
+                      <span className="text-slate-300">{formatNumber(customer.transactionCount)}x</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500">Poin</span>
+                      <span className="text-amber-400">{formatNumber(customer.points)}</span>
+                    </div>
+                  </div>
+                </Card>
+              ))}
+            </div>
+
+            {/* Desktop Table View */}
+            <div className="hidden md:block rounded-xl border border-white/[0.06] overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-white/[0.06] hover:bg-transparent bg-nebula/50">
+                    <TableHead className="text-slate-500 text-[11px] font-medium">Pelanggan</TableHead>
+                    <TableHead className="text-slate-500 text-[11px] font-medium">Cabang</TableHead>
+                    <TableHead className="text-slate-500 text-[11px] font-medium">WhatsApp</TableHead>
+                    <TableHead className="text-slate-500 text-[11px] font-medium text-right">Total Belanja</TableHead>
+                    <TableHead className="text-slate-500 text-[11px] font-medium text-center">Transaksi</TableHead>
+                    <TableHead className="text-slate-500 text-[11px] font-medium text-right">Poin</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.customers.map((customer) => (
+                    <TableRow key={customer.id} className="border-white/[0.06] hover:bg-white/[0.02] transition-colors">
+                      <TableCell className="py-3 px-4">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-7 h-7 rounded-full bg-pink-500/10 flex items-center justify-center shrink-0 border border-white/[0.06]">
+                            <span className="text-[10px] font-semibold text-pink-400">
+                              {customer.name.charAt(0).toUpperCase()}
+                            </span>
+                          </div>
+                          <span className="text-xs text-white font-medium truncate max-w-[160px]">{customer.name}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="py-3 px-4">
+                        <Badge className="bg-cyan-500/10 text-cyan-400 border-cyan-500/20 text-[10px] px-1.5 py-0">
+                          {customer.outletName}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-xs text-slate-400 py-3 px-4">{customer.whatsapp}</TableCell>
+                      <TableCell className="text-xs text-emerald-400 font-medium py-3 px-4 text-right">
+                        {formatCurrency(customer.totalSpend)}
+                      </TableCell>
+                      <TableCell className="text-xs text-slate-300 py-3 px-4 text-center">
+                        {formatNumber(customer.transactionCount)}x
+                      </TableCell>
+                      <TableCell className="text-xs text-amber-400 font-medium py-3 px-4 text-right">
+                        {formatNumber(customer.points)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+
+            <Pagination currentPage={page} totalPages={data.totalPages} onPageChange={setPage} />
+          </>
+        )}
+      </div>
     </div>
   )
 }
+
 
 // ============================== MAIN PAGE ==============================
 
@@ -2212,9 +1784,7 @@ export default function MultiBranchPage() {
   const tabs = [
     { value: 'ringkasan', label: 'Ringkasan', icon: Building2 },
     { value: 'transfer', label: 'Transfer Stok', icon: ArrowRightLeft },
-    { value: 'transaksi', label: 'Transaksi', icon: FileText },
-    { value: 'audit', label: 'Audit Log', icon: ClipboardList },
-    { value: 'crew', label: 'Crew', icon: UserCog },
+    { value: 'pelanggan', label: 'Pelanggan', icon: Users },
   ]
 
   return (
@@ -2273,16 +1843,8 @@ export default function MultiBranchPage() {
             <TransferStokTab outlets={outlets} />
           </TabsContent>
 
-          <TabsContent value="transaksi" className="mt-0">
-            <TransaksiTab outlets={outlets} />
-          </TabsContent>
-
-          <TabsContent value="audit" className="mt-0">
-            <AuditLogTab outlets={outlets} />
-          </TabsContent>
-
-          <TabsContent value="crew" className="mt-0">
-            <CrewTab outlets={outlets} />
+          <TabsContent value="pelanggan" className="mt-0">
+            <PelangganTab outlets={outlets} />
           </TabsContent>
         </Tabs>
       </motion.div>
