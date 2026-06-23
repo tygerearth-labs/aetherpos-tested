@@ -26,6 +26,7 @@ import {
   UserCog,
   Lock,
   Command,
+  Building2,
 } from 'lucide-react'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -55,6 +56,7 @@ interface NavItem {
   page: PageType
   shortLabel: string
   section?: 'main' | 'operations' | 'admin'
+  ownerOnly?: boolean
 }
 
 // ============================================================
@@ -67,6 +69,7 @@ const navItems: NavItem[] = [
   { label: 'Customers', shortLabel: 'Cust', icon: <Users className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'customers', section: 'main' },
   { label: 'POS', shortLabel: 'POS', icon: <ShoppingCart className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'pos', section: 'operations' },
   { label: 'Transactions', shortLabel: 'Txn', icon: <Receipt className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'transactions', section: 'operations' },
+  { label: 'Multi-Cabang', shortLabel: 'Cab', icon: <Building2 className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'multi-branch', section: 'admin', ownerOnly: true },
   { label: 'Audit Log', shortLabel: 'Log', icon: <ClipboardList className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'audit-log', section: 'admin' },
   { label: 'Kelola Crew', shortLabel: 'Crew', icon: <UserCog className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'crew', section: 'admin' },
   { label: 'Pengaturan', shortLabel: 'Set', icon: <Settings className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'settings', section: 'admin' },
@@ -157,11 +160,12 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
     return map
   }, [isOwner, allowedPages])
 
-  // Group all items by section
+  // Group all items by section — filter ownerOnly items for non-owners
   const groupedItems = useMemo(() => {
     const groups: { key: string; label: string; items: NavItem[] }[] = []
     const seen = new Set<string>()
     for (const item of navItems) {
+      if (item.ownerOnly && !isOwner) continue
       const sec = item.section || 'main'
       if (!seen.has(sec)) {
         seen.add(sec)
@@ -170,7 +174,7 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
       groups[groups.length - 1].items.push(item)
     }
     return groups
-  }, [navItemAccess])
+  }, [isOwner, navItemAccess])
 
   const handleNav = (page: PageType) => {
     if (isOwner || !allowedPages || allowedPages.includes(page)) {

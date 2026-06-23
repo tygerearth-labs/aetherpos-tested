@@ -1,5 +1,5 @@
 // ==================== AETHER POS SCHEMA ====================
-// Uses DATABASE_URL — PostgreSQL (Neon) for production
+// SQLite for local development
 
 generator client {
   provider = "prisma-client-js"
@@ -30,6 +30,9 @@ model Outlet {
   promos          Promo[]
   crewPermissions CrewPermission[]
   productVariants ProductVariant[]
+  stockTransfersFrom StockTransfer[] @relation("FromOutlet")
+  stockTransfersTo   StockTransfer[] @relation("ToOutlet")
+  stockTransfers     StockTransfer[]
 }
 
 // ==================== USER ====================
@@ -47,6 +50,7 @@ model User {
   transactions    Transaction[]
   auditLogs       AuditLog[]
   crewPermission  CrewPermission?
+  stockTransfers  StockTransfer[]
 
   @@unique([email, outletId])
 }
@@ -55,7 +59,7 @@ model User {
 model Category {
   id        String   @id @default(cuid())
   name      String
-  color     String   @default("zinc")  // Tailwind color name for chip styling
+  color     String   @default("zinc")
   outletId  String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -73,24 +77,25 @@ model Product {
   name          String
   sku           String?
   barcode       String?
-  hpp           Float    @default(0)    // Harga Pokok Produksi (Cost Price)
-  price         Float                    // Selling Price
-  bruto         Float    @default(0)    // Gross weight
-  netto         Float    @default(0)    // Net weight
-  stock         Int      @default(0)    // Current stock
-  lowStockAlert Int      @default(10)   // Alert threshold
-  unit          String   @default("pcs") // Unit: pcs, ml, lt, gr, kg, box, etc.
-  image         String?                 // Snapshot image URL
+  hpp           Float    @default(0)
+  price         Float
+  bruto         Float    @default(0)
+  netto         Float    @default(0)
+  stock         Int      @default(0)
+  lowStockAlert Int      @default(10)
+  unit          String   @default("pcs")
+  image         String?
   categoryId    String?
   outletId      String
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  hasVariants      Boolean        @default(false) // Has product variants
+  hasVariants      Boolean        @default(false)
   outlet           Outlet           @relation(fields: [outletId], references: [id])
   category        Category?        @relation(fields: [categoryId], references: [id])
   transactionItems TransactionItem[]
   variants         ProductVariant[]
+  stockTransfers   StockTransfer[]
 
   @@unique([name, outletId])
 }
@@ -99,12 +104,12 @@ model Product {
 model ProductVariant {
   id        String   @id @default(cuid())
   productId String
-  name      String                       // e.g. "Small", "Medium", "Large", "Original", "Matcha"
-  sku       String?                      // Variant-specific SKU
+  name      String
+  sku       String?
   barcode   String?
-  hpp       Float    @default(0)          // Cost price for this variant
-  price     Float                        // Selling price for this variant
-  stock     Int      @default(0)          // Independent stock per variant
+  hpp       Float    @default(0)
+  price     Float
+  stock     Int      @default(0)
   outletId  String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -112,6 +117,7 @@ model ProductVariant {
   product          Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
   outlet           Outlet            @relation(fields: [outletId], references: [id])
   transactionItems TransactionItem[]
+  stockTransfers   StockTransfer[]
 
   @@unique([name, productId])
 }
@@ -120,9 +126,9 @@ model ProductVariant {
 model Customer {
   id          String   @id @default(cuid())
   name        String
-  whatsapp    String               // WhatsApp number
-  totalSpend  Float    @default(0) // Running total
-  points      Int      @default(0) // Current loyalty points
+  whatsapp    String
+  totalSpend  Float    @default(0)
+  points      Int      @default(0)
   outletId    String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -141,9 +147,9 @@ model Transaction {
   subtotal      Float
   discount      Float    @default(0)
   pointsUsed    Int      @default(0)
-  taxAmount     Float    @default(0)    // PPN / tax amount
+  taxAmount     Float    @default(0)
   total         Float
-  paymentMethod String               // CASH, QRIS, DEBIT
+  paymentMethod String
   paidAmount    Float    @default(0)
   change        Float    @default(0)
   note          String?
@@ -169,7 +175,7 @@ model TransactionItem {
   price          Float
   qty            Int
   subtotal       Float
-  itemDiscount   Float       @default(0)  // Manual per-item discount amount (nominal Rp)
+  itemDiscount   Float       @default(0)
   hpp            Float
   transactionId  String
 
@@ -181,8 +187,8 @@ model TransactionItem {
 // ==================== LOYALTY LOG ====================
 model LoyaltyLog {
   id             String    @id @default(cuid())
-  type           String              // EARN or REDEEM
-  points         Int                 // positive for earn, negative for redeem
+  type           String
+  points         Int
   description    String
   customerId     String
   transactionId  String?
@@ -195,10 +201,10 @@ model LoyaltyLog {
 // ==================== AUDIT LOG ====================
 model AuditLog {
   id          String   @id @default(cuid())
-  action      String               // CREATE, RESTOCK, SALE, ADJUSTMENT, UPDATE
-  entityType  String               // PRODUCT, STOCK, OUTLET, SETTINGS, TRANSACTION
-  entityId    String?              // ID of the referenced entity (any type)
-  details     String?              // JSON string with change details
+  action      String
+  entityType  String
+  entityId    String?
+  details     String?
   outletId    String
   userId      String
   createdAt   DateTime @default(now())
@@ -212,40 +218,33 @@ model OutletSetting {
   id      String @id @default(cuid())
   outletId String @unique
 
-  // Payment methods: comma-separated enabled methods
   paymentMethods String @default("CASH,QRIS")
 
-  // Loyalty program config
   loyaltyEnabled          Boolean @default(true)
-  loyaltyPointsPerAmount  Int     @default(10000) // 1 point per Rp10,000 spent
-  loyaltyPointValue       Int     @default(100)   // 1 point = Rp100 discount
+  loyaltyPointsPerAmount  Int     @default(10000)
+  loyaltyPointValue       Int     @default(100)
 
-  // Receipt config
   receiptBusinessName String @default("Aether POS")
   receiptAddress      String @default("")
   receiptPhone        String @default("")
   receiptFooter       String @default("Terima kasih atas kunjungan Anda!")
   receiptLogo         String @default("")
 
-  // PPN / Tax
-  ppnEnabled      Boolean @default(false)  // Enable PPN tax
-  ppnRate         Float   @default(11)     // PPN percentage (default 11% for Indonesia)
+  ppnEnabled      Boolean @default(false)
+  ppnRate         Float   @default(11)
 
-  // Manual per-item discount toggle for POS Terminal
-  manualDiscountEnabled Boolean @default(false) // Enable/disable manual discount per item in cart
+  manualDiscountEnabled Boolean @default(false)
 
-  // Theme
-  themePrimaryColor String @default("emerald") // tailwind color name: emerald, blue, violet, rose, amber
+  themePrimaryColor String @default("emerald")
 
-  // Telegram notifications
-  telegramBotToken  String?                // Telegram Bot Token (from @BotFather)
-  telegramChatId   String?                // Owner's Telegram chat ID for notifications
-  notifyOnTransaction Boolean @default(true) // Notify on every new transaction
-  notifyOnCustomer   Boolean @default(true) // Notify on new customer registration
-  notifyDailyReport  Boolean @default(true) // Daily revenue summary
-  notifyWeeklyReport Boolean @default(false) // Weekly report
-  notifyMonthlyReport Boolean @default(true) // Monthly report
-  notifyOnInsight     Boolean @default(true) // Business insight notifications (critical/high priority)
+  telegramBotToken  String?
+  telegramChatId   String?
+  notifyOnTransaction Boolean @default(true)
+  notifyOnCustomer   Boolean @default(true)
+  notifyDailyReport  Boolean @default(true)
+  notifyWeeklyReport Boolean @default(false)
+  notifyMonthlyReport Boolean @default(true)
+  notifyOnInsight     Boolean @default(true)
 
   outlet    Outlet   @relation(fields: [outletId], references: [id])
   createdAt DateTime @default(now())
@@ -256,17 +255,15 @@ model OutletSetting {
 model Promo {
   id          String   @id @default(cuid())
   name        String
-  type        String               // "PERCENTAGE", "NOMINAL", or "BUY_X_GET_DISCOUNT"
-  value       Float                // percentage (e.g. 10) or nominal (e.g. 50000)
-  minPurchase Float?               // minimum purchase amount to apply
-  maxDiscount Float?               // max discount cap for percentage type
+  type        String
+  value       Float
+  minPurchase Float?
+  maxDiscount Float?
   active      Boolean  @default(true)
   outletId    String
-  // For BUY_X_GET_DISCOUNT: minimum qty of items to qualify
   buyMinQty   Int      @default(0)
-  // For BUY_X_GET_DISCOUNT: "PERCENTAGE" or "NOMINAL" — how the discount is calculated
   discountType String  @default("PERCENTAGE")
-  categoryId  String?               // null = all categories, specific ID = category-only
+  categoryId  String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -278,7 +275,6 @@ model Promo {
 model CrewPermission {
   id       String @id @default(cuid())
   userId   String @unique
-  // Comma-separated allowed pages for this crew member
   pages    String @default("pos")
   outletId String
 
@@ -286,4 +282,32 @@ model CrewPermission {
   outlet Outlet @relation(fields: [outletId], references: [id])
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// ==================== STOCK TRANSFER ====================
+model StockTransfer {
+  id              String   @id @default(cuid())
+  productId       String?
+  variantId       String?
+  productName     String
+  variantName     String?
+  quantity        Int
+  fromOutletId    String
+  toOutletId      String
+  status          String   @default("PENDING") // PENDING, APPROVED, REJECTED, COMPLETED
+  reason          String?
+  approvedBy      String?
+  approvedAt      DateTime?
+  completedAt     DateTime?
+  outletId        String   // The outlet that initiated the transfer
+  userId          String   // User who created the transfer
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  fromOutlet  Outlet  @relation("FromOutlet", fields: [fromOutletId], references: [id])
+  toOutlet    Outlet  @relation("ToOutlet", fields: [toOutletId], references: [id])
+  user        User    @relation(fields: [userId], references: [id])
+  outlet      Outlet  @relation(fields: [outletId], references: [id])
+  product     Product? @relation(fields: [productId], references: [id])
+  variant     ProductVariant? @relation(fields: [variantId], references: [id])
 }
