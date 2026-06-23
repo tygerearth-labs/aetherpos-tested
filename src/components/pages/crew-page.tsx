@@ -249,6 +249,7 @@ function CrewManagement() {
       email: member.email,
       password: '',
       showPassword: false,
+      outletId: member.outletId || '',
     })
     setEditOpen(true)
   }
@@ -269,6 +270,7 @@ function CrewManagement() {
       const payload: Record<string, string> = {
         name: formData.name.trim(),
         email: formData.email.trim().toLowerCase(),
+        ...(formData.outletId ? { outletId: formData.outletId } : {}),
       }
       if (formData.password) {
         payload.password = formData.password
@@ -373,6 +375,12 @@ function CrewManagement() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
+                data-form-type="other"
+                data-lpignore="true"
+                data-1p-ignore="true"
                 className="pl-9 h-9 sm:h-10 text-xs bg-nebula border-white/[0.06] text-white placeholder:text-slate-500 w-full"
               />
             </div>
@@ -580,6 +588,11 @@ function CrewManagement() {
                 value={formData.name}
                 onChange={(e) => setFormData((p) => ({ ...p, name: e.target.value }))}
                 placeholder="Nama crew"
+                autoComplete="off"
+                autoCorrect="off"
+                data-form-type="other"
+                data-lpignore="true"
+                data-1p-ignore="true"
                 className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
               />
             </div>
@@ -612,6 +625,10 @@ function CrewManagement() {
                 onChange={(e) => setFormData((p) => ({ ...p, email: e.target.value }))}
                 placeholder="crew@email.com"
                 autoComplete="off"
+                autoCorrect="off"
+                data-form-type="other"
+                data-lpignore="true"
+                data-1p-ignore="true"
                 className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
               />
             </div>
@@ -687,6 +704,11 @@ function CrewManagement() {
                 value={formData.name}
                 onChange={(e) => setFormData((p) => ({ ...p, name: e.target.value }))}
                 placeholder="Nama crew"
+                autoComplete="off"
+                autoCorrect="off"
+                data-form-type="other"
+                data-lpignore="true"
+                data-1p-ignore="true"
                 className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
               />
             </div>
@@ -700,9 +722,32 @@ function CrewManagement() {
                 value={formData.email}
                 onChange={(e) => setFormData((p) => ({ ...p, email: e.target.value }))}
                 placeholder="crew@email.com"
+                autoComplete="off"
+                autoCorrect="off"
+                data-form-type="other"
+                data-lpignore="true"
+                data-1p-ignore="true"
                 className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
               />
             </div>
+            {outlets.length > 1 && (
+              <div className="space-y-1.5">
+                <Label className="text-xs text-slate-300">
+                  Outlet <span className="text-red-400">*</span>
+                </Label>
+                <Select value={formData.outletId} onValueChange={(v) => setFormData((p) => ({ ...p, outletId: v }))}>
+                  <SelectTrigger className="bg-white/[0.04] border-white/[0.08] text-white h-9 text-sm">
+                    <Store className="mr-1.5 h-3 w-3 text-slate-500" />
+                    <SelectValue placeholder="Pilih outlet" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-white/[0.04] border-white/[0.08]">
+                    {outlets.map((o) => (
+                      <SelectItem key={o.id} value={o.id} className="text-slate-200 focus:bg-white/[0.06] text-xs">{o.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="space-y-1.5">
               <Label htmlFor="edit-password" className="text-xs text-slate-300">
                 Password Baru <span className="text-slate-500">(opsional)</span>
@@ -747,7 +792,7 @@ function CrewManagement() {
             </Button>
             <Button
               onClick={handleEdit}
-              disabled={saving || !formData.name.trim() || !formData.email.trim() || (formData.password.length > 0 && formData.password.length < 8)}
+              disabled={saving || !formData.name.trim() || !formData.email.trim() || (formData.password.length > 0 && formData.password.length < 8) || (outlets.length > 1 && !formData.outletId)}
               className="theme-bg hover:theme-hover text-white h-8 text-xs"
             >
               {saving && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}

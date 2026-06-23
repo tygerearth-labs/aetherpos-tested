@@ -4,9 +4,10 @@ import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/get-auth'
 import { safeAuditLog } from '@/lib/safe-audit'
 import { safeJson, safeJsonError } from '@/lib/safe-response'
+import { getOwnerOutlets } from '@/lib/multi-outlet'
 
 /**
- * PUT /api/outlet/crew/[id] — Update crew member info
+ * PUT /api/outlet/crew/[id] — Update crew member info (supports multi-outlet transfer)
  */
 export async function PUT(
   request: NextRequest,
@@ -22,31 +23,55 @@ export async function PUT(
 
     const { id } = await params
 
-    // Verify crew exists and belongs to same outlet
+    // Resolve owner's accessible outlets
+    let ownerOutletIds: string[] = [user.outletId]
+    if (user.email) {
+      const multiOutlet = await getOwnerOutlets(db, user.email, user.outletId)
+      if (multiOutlet) {
+        ownerOutletIds = multiOutlet.outletIds
+      }
+    }
+
+    // Verify crew exists and belongs to one of owner's outlets
     const crew = await db.user.findUnique({
       where: { id },
     })
-    if (!crew || crew.outletId !== user.outletId || crew.role !== 'CREW') {
+    if (!crew || !ownerOutletIds.includes(crew.outletId) || crew.role !== 'CREW') {
       return safeJsonError('Crew tidak ditemukan', 404)
     }
 
     const body = await request.json()
-    const { name, email, password } = body
+    const { name, email, password, outletId: requestedOutletId } = body
 
     // Build update data
     const updateData: Record<string, string> = {}
     if (name !== undefined) updateData.name = name
     if (email !== undefined) {
-      // Check email uniqueness within outlet (excluding current crew)
+      // Check email uniqueness within the crew's current outlet (excluding current crew)
       if (email !== crew.email) {
         const existingUser = await db.user.findFirst({
-          where: { email, outletId: user.outletId, id: { not: id } },
+          where: { email, outletId: crew.outletId, id: { not: id } },
         })
         if (existingUser) {
-          return safeJsonError('Email sudah terdaftar', 409)
+          return safeJsonError('Email sudah terdaftar di outlet ini', 409)
         }
         updateData.email = email
       }
+    }
+
+    // Handle outlet transfer (multi-outlet only)
+    if (requestedOutletId && requestedOutletId !== crew.outletId) {
+      if (!ownerOutletIds.includes(requestedOutletId)) {
+        return safeJsonError('Outlet tidak valid', 403)
+      }
+      // Check email uniqueness in the target outlet
+      const existingInTarget = await db.user.findFirst({
+        where: { email: email || crew.email, outletId: requestedOutletId, id: { not: id } },
+      })
+      if (existingInTarget) {
+        return safeJsonError('Email sudah terdaftar di outlet tujuan', 409)
+      }
+      updateData.outletId = requestedOutletId
     }
 
     if (password !== undefined) {
@@ -69,6 +94,7 @@ export async function PUT(
         name: true,
         email: true,
         role: true,
+        outletId: true,
         createdAt: true,
       },
     })
@@ -78,8 +104,11 @@ export async function PUT(
       action: 'UPDATE',
       entityType: 'CREW',
       entityId: id,
-      details: JSON.stringify({ changes: Object.keys(updateData) }),
-      outletId: user.outletId,
+      details: JSON.stringify({
+        changes: Object.keys(updateData),
+        ...(updateData.outletId ? { newOutletId: updateData.outletId } : {}),
+      }),
+      outletId: updateData.outletId || crew.outletId,
       userId: user.id,
     })
 
@@ -107,11 +136,20 @@ export async function DELETE(
 
     const { id } = await params
 
-    // Verify crew exists and belongs to same outlet
+    // Resolve owner's accessible outlets
+    let ownerOutletIds: string[] = [user.outletId]
+    if (user.email) {
+      const multiOutlet = await getOwnerOutlets(db, user.email, user.outletId)
+      if (multiOutlet) {
+        ownerOutletIds = multiOutlet.outletIds
+      }
+    }
+
+    // Verify crew exists and belongs to one of owner's outlets
     const crew = await db.user.findUnique({
       where: { id },
     })
-    if (!crew || crew.outletId !== user.outletId || crew.role !== 'CREW') {
+    if (!crew || !ownerOutletIds.includes(crew.outletId) || crew.role !== 'CREW') {
       return safeJsonError('Crew tidak ditemukan', 404)
     }
 
@@ -127,7 +165,7 @@ export async function DELETE(
       entityType: 'CREW',
       entityId: id,
       details: JSON.stringify({ name: crew.name, email: crew.email }),
-      outletId: user.outletId,
+      outletId: crew.outletId,
       userId: user.id,
     })
 
