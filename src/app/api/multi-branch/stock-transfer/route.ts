@@ -31,7 +31,11 @@ export async function GET(request: NextRequest) {
       return safeJsonError('Multi-branch management requires an enterprise plan', 403)
     }
 
-    const outletIds = await getOwnerOutletIds(user.email!)
+    if (!user.email) {
+      return safeJsonError('Email tidak ditemukan di sesi', 401)
+    }
+
+    const outletIds = await getOwnerOutletIds(user.email)
     if (outletIds.length === 0) {
       return safeJsonError('No outlets found', 404)
     }
@@ -163,7 +167,11 @@ export async function POST(request: NextRequest) {
       return safeJsonError('Multi-branch management requires an enterprise plan', 403)
     }
 
-    const outletIds = await getOwnerOutletIds(user.email!)
+    if (!user.email) {
+      return safeJsonError('Email tidak ditemukan di sesi', 401)
+    }
+
+    const outletIds = await getOwnerOutletIds(user.email)
     if (outletIds.length === 0) {
       return safeJsonError('No outlets found', 404)
     }
@@ -282,7 +290,11 @@ export async function PUT(request: NextRequest) {
       return safeJsonError('Multi-branch management requires an enterprise plan', 403)
     }
 
-    const outletIds = await getOwnerOutletIds(user.email!)
+    if (!user.email) {
+      return safeJsonError('Email tidak ditemukan di sesi', 401)
+    }
+
+    const outletIds = await getOwnerOutletIds(user.email)
     if (outletIds.length === 0) {
       return safeJsonError('No outlets found', 404)
     }
