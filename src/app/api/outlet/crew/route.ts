@@ -142,19 +142,8 @@ export async function POST(request: NextRequest) {
       return safeJsonError('Hanya pemilik yang dapat menambah crew', 403)
     }
 
-    // Check plan limits
-    const planData = await getOutletPlan(user.outletId, db)
-    if (!planData || planData.features.maxCrew !== -1) {
-      const currentCount = await db.user.count({
-        where: { outletId: user.outletId, role: 'CREW' },
-      })
-      if (planData && currentCount >= planData.features.maxCrew) {
-        return safeJsonError(`Batas crew (${planData.features.maxCrew}) sudah tercapai. Upgrade ke Pro untuk unlimited crew.`, 403)
-      }
-    }
-
     const body = await request.json()
-    const { name, email, password } = body
+    const { name, email, password, outletId: requestedOutletId } = body
 
     if (!name || !email || !password) {
       return safeJsonError('Nama, email, dan password wajib diisi', 400)
@@ -166,10 +155,32 @@ export async function POST(request: NextRequest) {
     const passwordErr = validatePassword(password)
     if (passwordErr) return safeJsonError(passwordErr, 400)
 
-    // Check email uniqueness within outlet (email is part of compound unique [email, outletId])
-    const existingUser = await db.user.findFirst({ where: { email, outletId: user.outletId } })
+    // Resolve target outlet: use requested outlet (multi-outlet) or session outlet (single)
+    let targetOutletId = user.outletId
+    if (requestedOutletId && user.email) {
+      const multiOutlet = await getOwnerOutlets(db, user.email, user.outletId)
+      if (multiOutlet && multiOutlet.outletIds.includes(requestedOutletId)) {
+        targetOutletId = requestedOutletId
+      } else if (requestedOutletId !== user.outletId) {
+        return safeJsonError('Outlet tidak valid', 403)
+      }
+    }
+
+    // Check plan limits
+    const planData = await getOutletPlan(targetOutletId, db)
+    if (!planData || planData.features.maxCrew !== -1) {
+      const currentCount = await db.user.count({
+        where: { outletId: targetOutletId, role: 'CREW' },
+      })
+      if (planData && currentCount >= planData.features.maxCrew) {
+        return safeJsonError(`Batas crew (${planData.features.maxCrew}) sudah tercapai. Upgrade ke Pro untuk unlimited crew.`, 403)
+      }
+    }
+
+    // Check email uniqueness within target outlet
+    const existingUser = await db.user.findFirst({ where: { email, outletId: targetOutletId } })
     if (existingUser) {
-      return safeJsonError('Email sudah terdaftar', 409)
+      return safeJsonError('Email sudah terdaftar di outlet ini', 409)
     }
 
     const hashedPassword = await bcrypt.hash(password, 10)
@@ -180,7 +191,7 @@ export async function POST(request: NextRequest) {
         email,
         password: hashedPassword,
         role: 'CREW',
-        outletId: user.outletId,
+        outletId: targetOutletId,
       },
       select: {
         id: true,
@@ -196,8 +207,8 @@ export async function POST(request: NextRequest) {
       action: 'CREATE',
       entityType: 'CREW',
       entityId: newCrew.id,
-      details: JSON.stringify({ name, email }),
-      outletId: user.outletId,
+      details: JSON.stringify({ name, email, outletId: targetOutletId }),
+      outletId: targetOutletId,
       userId: user.id,
     })
 

@@ -45,6 +45,7 @@ import {
   MessageSquare,
   Pencil,
   AlertTriangle,
+  Lock,
 } from 'lucide-react'
 import {
   Select,
@@ -175,6 +176,9 @@ export default function PosPage() {
   const { data: session } = useSession()
   const isMobile = useIsMobile()
   const { currentPage } = usePageStore()
+  const userRole = session?.user?.role || ''
+  const userName = session?.user?.name || ''
+  const isCrew = userRole === 'CREW'
 
   // Refs
   const searchInputRef = useRef<HTMLInputElement>(null)
@@ -1240,6 +1244,7 @@ export default function PosPage() {
     setCheckingOut(true)
     try {
       const checkoutPayload = {
+        outletId: outletInfo?.id || undefined,
         customerId: selectedCustomer?.id || null,
         items: cart.map((item) => ({
           productId: item.product.id,
@@ -2017,9 +2022,10 @@ export default function PosPage() {
       <div className="md:hidden flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           {outletInfo ? (
-            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl aether-card text-[11px] font-semibold text-slate-300 min-w-0">
-              <Store className="h-3.5 w-3.5 theme-text shrink-0" strokeWidth={1.5} />
+            <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-semibold min-w-0 ${isCrew ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-300' : 'aether-card text-slate-300'}`}>
+              <Store className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} />
               <span className="truncate">{outletInfo.name}</span>
+              {isCrew && <Lock className="h-2.5 w-2.5 text-emerald-400/60 shrink-0" />}
             </div>
           ) : (
             <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl aether-card text-[11px] font-medium text-slate-600">
@@ -2067,8 +2073,24 @@ export default function PosPage() {
             <p className="text-[11px] text-slate-500">Proses transaksi & terima pembayaran</p>
           </div>
 
-          {/* Outlet Selector */}
-          {userOutlets.length > 1 ? (
+          {/* Outlet — Owner can switch, Crew is locked */}
+          {isCrew ? (
+            outletInfo ? (
+              <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                <div className="flex items-center gap-1.5 text-emerald-300 text-xs font-semibold">
+                  <Store className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} />
+                  <span>{outletInfo.name}</span>
+                  <Lock className="h-3 w-3 text-emerald-400/60" />
+                </div>
+                <div className="w-px h-4 bg-emerald-500/20" />
+                <div className="flex items-center gap-1.5 text-[11px] text-emerald-400/80">
+                  <User className="h-3 w-3" />
+                  <span className="font-medium">{userName}</span>
+                  <span className="text-emerald-500/50">• Crew</span>
+                </div>
+              </div>
+            ) : null
+          ) : userOutlets.length > 1 ? (
             <Select
               value={outletInfo?.id || ''}
               onValueChange={(value) => {
@@ -2108,9 +2130,20 @@ export default function PosPage() {
               </SelectContent>
             </Select>
           ) : outletInfo ? (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/[0.04] border border-white/[0.08] text-[11px] font-medium text-slate-400">
-              <Store className="h-3 w-3" strokeWidth={1.5} />
-              <span>{outletInfo.name}</span>
+            <div className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-white/[0.04] border border-white/[0.08]">
+              <div className="flex items-center gap-1.5 text-[11px] font-medium text-slate-400">
+                <Store className="h-3 w-3" strokeWidth={1.5} />
+                <span>{outletInfo.name}</span>
+              </div>
+              {userName && (
+                <>
+                  <div className="w-px h-3 bg-white/[0.08]" />
+                  <div className="flex items-center gap-1 text-[10px] text-slate-500">
+                    <User className="h-2.5 w-2.5" />
+                    <span>{userName}</span>
+                  </div>
+                </>
+              )}
             </div>
           ) : !outletsLoading ? (
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/[0.03] border border-white/[0.06] text-[11px] font-medium text-slate-600">

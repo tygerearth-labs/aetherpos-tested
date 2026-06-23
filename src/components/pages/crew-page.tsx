@@ -88,6 +88,7 @@ interface CrewFormData {
   email: string
   password: string
   showPassword: boolean
+  outletId: string
 }
 
 interface CrewPermission {
@@ -103,6 +104,7 @@ const DEFAULT_FORM: CrewFormData = {
   email: '',
   password: '',
   showPassword: false,
+  outletId: '',
 }
 
 const AVAILABLE_PAGES = [
@@ -217,6 +219,7 @@ function CrewManagement() {
           name: formData.name.trim(),
           email: formData.email.trim().toLowerCase(),
           password: formData.password,
+          ...(formData.outletId ? { outletId: formData.outletId } : {}),
         }),
       })
       if (res.ok) {
@@ -327,7 +330,7 @@ function CrewManagement() {
         {activeTab === 'crew-list' && (
           <Button
             onClick={() => {
-              setFormData(DEFAULT_FORM)
+              setFormData({ ...DEFAULT_FORM, outletId: outletId })
               setAddOpen(true)
             }}
             className="theme-bg hover:theme-hover text-white h-8 text-xs"
@@ -369,6 +372,7 @@ function CrewManagement() {
                 placeholder="Cari nama atau email crew..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
+                autoComplete="off"
                 className="pl-9 h-9 sm:h-10 text-xs bg-nebula border-white/[0.06] text-white placeholder:text-slate-500 w-full"
               />
             </div>
@@ -579,6 +583,24 @@ function CrewManagement() {
                 className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
               />
             </div>
+            {outlets.length > 1 && (
+              <div className="space-y-1.5">
+                <Label className="text-xs text-slate-300">
+                  Outlet <span className="text-red-400">*</span>
+                </Label>
+                <Select value={formData.outletId} onValueChange={(v) => setFormData((p) => ({ ...p, outletId: v }))}>
+                  <SelectTrigger className="bg-white/[0.04] border-white/[0.08] text-white h-9 text-sm">
+                    <Store className="mr-1.5 h-3.5 w-3.5 text-slate-500" />
+                    <SelectValue placeholder="Pilih outlet" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-white/[0.04] border-white/[0.08]">
+                    {outlets.map((o) => (
+                      <SelectItem key={o.id} value={o.id} className="text-slate-200 focus:bg-white/[0.06] text-xs">{o.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="space-y-1.5">
               <Label htmlFor="add-email" className="text-xs text-slate-300">
                 Email <span className="text-red-400">*</span>
@@ -589,6 +611,7 @@ function CrewManagement() {
                 value={formData.email}
                 onChange={(e) => setFormData((p) => ({ ...p, email: e.target.value }))}
                 placeholder="crew@email.com"
+                autoComplete="off"
                 className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
               />
             </div>
@@ -633,7 +656,7 @@ function CrewManagement() {
             </Button>
             <Button
               onClick={handleAdd}
-              disabled={saving || !formData.name.trim() || !formData.email.trim() || formData.password.length < 8}
+              disabled={saving || !formData.name.trim() || !formData.email.trim() || formData.password.length < 8 || (outlets.length > 1 && !formData.outletId)}
               className="theme-bg hover:theme-hover text-white h-8 text-xs"
             >
               {saving && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
