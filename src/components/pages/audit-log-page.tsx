@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { toast } from 'sonner'
 import { formatDate, formatCurrency } from '@/lib/format'
+import { useOutletStore } from '@/hooks/use-outlet-store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -348,6 +349,13 @@ export default function AuditLogPage() {
   // Multi-outlet
   const [outlets, setOutlets] = useState<{ id: string; name: string }[]>([])
   const [outletId, setOutletId] = useState('')
+  const { selectedOutletId, isMultiOutlet, setSelectedOutletId } = useOutletStore()
+
+  // Sync global outlet selection → local outletId (bidirectional)
+  useEffect(() => {
+    const newValue = selectedOutletId || ''
+    setOutletId(prev => (prev === newValue ? prev : newValue))
+  }, [selectedOutletId])
 
   const fetchLogs = useCallback(async () => {
     setLoading(true)
@@ -404,6 +412,7 @@ export default function AuditLogPage() {
     setSearchInput('')
     setSearch('')
     setOutletId('')
+    setSelectedOutletId(null)
     setPage(1)
   }
 
@@ -464,7 +473,7 @@ export default function AuditLogPage() {
       <div className="flex flex-col sm:flex-row gap-2">
         {/* Outlet filter - only show when multi-outlet */}
         {outlets.length > 1 && (
-          <Select value={outletId || '__all__'} onValueChange={(v) => { setOutletId(v === '__all__' ? '' : v); setPage(1) }}>
+          <Select value={outletId || '__all__'} onValueChange={(v) => { const val = v === '__all__' ? '' : v; setOutletId(val); setSelectedOutletId(val || null); setPage(1) }}>
             <SelectTrigger className="w-full sm:w-40 bg-white/[0.04] border-white/[0.08] text-white h-8 text-xs">
               <SelectValue placeholder="Semua Outlet" />
             </SelectTrigger>

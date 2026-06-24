@@ -6,6 +6,7 @@ import { formatCurrency, formatNumber } from '@/lib/format'
 import { usePlan } from '@/hooks/use-plan'
 import { usePageStore } from '@/hooks/use-page-store'
 import { useTimezone } from '@/hooks/use-timezone'
+import { useOutletStore } from '@/hooks/use-outlet-store'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -45,6 +46,7 @@ import {
   Warehouse,
   Target,
   Layers,
+  Store,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -53,6 +55,14 @@ interface HourBucket {
   hour: number
   transactionCount: number
   revenue: number
+}
+
+interface OutletBreakdownItem {
+  outletId: string
+  outletName: string
+  todayRevenue: number
+  todayTransactions: number
+  totalRevenue: number
 }
 
 interface DashboardStats {
@@ -76,6 +86,8 @@ interface DashboardStats {
   revenueChangePercent: number
   peakHours: HourBucket[] | null
   aiInsight: string | null
+  isMultiOutletView?: boolean
+  outletBreakdown?: OutletBreakdownItem[]
 }
 
 interface InsightItem {
@@ -490,6 +502,7 @@ export default function DashboardPage() {
   const { plan, features, isLoading: planLoading } = usePlan()
   const { setCurrentPage } = usePageStore()
   const { tzOffset } = useTimezone()
+  const { selectedOutletId, isMultiOutlet, outlets } = useOutletStore()
   const isOwner = session?.user?.role === 'OWNER'
   const isPro = plan?.type === 'pro' || plan?.type === 'enterprise'
   const hasForecasting = features?.forecasting === true
@@ -510,11 +523,19 @@ export default function DashboardPage() {
   // ── Fetchers ──
   const fetchStats = useCallback(async () => {
     try {
-      const res = await fetch(`/api/dashboard?tzOffset=${tzOffset}`)
+      let url = `/api/dashboard?tzOffset=${tzOffset}`
+      if (isMultiOutlet) {
+        if (selectedOutletId === null) {
+          url += '&view=all'
+        } else {
+          url += `&outletId=${selectedOutletId}`
+        }
+      }
+      const res = await fetch(url)
       if (res.ok) setStats(await res.json())
     } catch { /* silent */ }
     finally { setLoading(false) }
-  }, [tzOffset])
+  }, [tzOffset, selectedOutletId, isMultiOutlet])
 
   const fetchInsights = useCallback(async () => {
     setInsightLoading(true)
@@ -591,9 +612,19 @@ export default function DashboardPage() {
       ═══════════════════════════════════════════════════ */}
       <motion.div variants={itemVariants} className="flex items-start justify-between gap-4">
         <div className="space-y-1">
-          <h1 className="text-xl font-bold text-white tracking-tight">
-            {getGreeting()}, {session?.user?.name?.split(' ')[0] ?? 'User'}
-          </h1>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-xl font-bold text-white tracking-tight">
+              {getGreeting()}, {session?.user?.name?.split(' ')[0] ?? 'User'}
+            </h1>
+            {isMultiOutlet && (
+              <Badge className="bg-amber-500/10 border-amber-500/20 text-amber-400 text-[10px] font-medium gap-1">
+                <Store className="h-3 w-3" />
+                {selectedOutletId === null
+                  ? 'Semua Outlet'
+                  : outlets.find((o) => o.id === selectedOutletId)?.name ?? selectedOutletId}
+              </Badge>
+            )}
+          </div>
           <p className="text-sm text-slate-500">{formatDateNow()}</p>
         </div>
         {isOwner && insightData && (
@@ -765,6 +796,69 @@ export default function DashboardPage() {
           </Card>
         </motion.div>
       </div>
+
+      {/* ═══════════════════════════════════════════════════
+          4. Outlet Breakdown (Multi-Outlet)
+      ═══════════════════════════════════════════════════ */}
+      {stats?.isMultiOutletView && stats.outletBreakdown && stats.outletBreakdown.length > 0 && (
+        <motion.div variants={itemVariants}>
+          <Card className="aether-card rounded-2xl">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Store className="h-4 w-4 text-amber-400" />
+                <h2 className="text-sm font-semibold text-slate-200">Performa per Outlet</h2>
+                <Badge className="bg-white/[0.04] border-white/[0.03] text-slate-400 text-[10px] ml-auto">
+                  {stats.outletBreakdown.length} outlet
+                </Badge>
+              </div>
+              <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                {stats.outletBreakdown.map((outlet) => {
+                  const isSelected = selectedOutletId === outlet.outletId
+                  return (
+                    <div
+                      key={outlet.outletId}
+                      className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-colors ${
+                        isSelected
+                          ? 'bg-amber-500/[0.06] border-amber-500/25'
+                          : 'bg-white/[0.02] border-white/[0.06]'
+                      }`}
+                    >
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                        isSelected ? 'bg-amber-500/15' : 'bg-white/[0.04]'
+                      }`}>
+                        <Store className={`h-3.5 w-3.5 ${isSelected ? 'text-amber-400' : 'text-slate-500'}`} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-xs font-medium truncate ${isSelected ? 'text-amber-300' : 'text-slate-300'}`}>
+                          {outlet.outletName}
+                          {isSelected && (
+                            <span className="ml-1.5 text-[9px] text-amber-500 font-normal">aktif</span>
+                          )}
+                        </p>
+                        <div className="flex items-center gap-3 mt-0.5">
+                          <span className="text-[10px] text-slate-500">
+                            {formatNumber(outlet.todayTransactions)} trx
+                          </span>
+                          <span className="text-[10px] text-slate-600">•</span>
+                          <span className="text-[10px] text-slate-500">
+                            total {formatCurrency(outlet.totalRevenue)}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className={`text-sm font-bold ${isSelected ? 'text-amber-400' : 'theme-text'}`}>
+                          {formatCurrency(outlet.todayRevenue)}
+                        </p>
+                        <p className="text-[9px] text-slate-600">hari ini</p>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
 
       {/* ═══════════════════════════════════════════════════
           5. Quick Actions

@@ -13,6 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { ProGate } from '@/components/shared/pro-gate'
+import { useOutletStore } from '@/hooks/use-outlet-store'
 import {
   ResponsiveDialog,
   ResponsiveDialogContent,
@@ -155,6 +156,13 @@ function CrewManagement() {
   // Multi-outlet
   const [outlets, setOutlets] = useState<{ id: string; name: string }[]>([])
   const [outletId, setOutletId] = useState('')
+  const { selectedOutletId, setSelectedOutletId } = useOutletStore()
+
+  // Sync global outlet selection → local outletId (bidirectional)
+  useEffect(() => {
+    const newValue = selectedOutletId || ''
+    setOutletId(prev => (prev === newValue ? prev : newValue))
+  }, [selectedOutletId])
 
   // Dialogs
   const [addOpen, setAddOpen] = useState(false)
@@ -385,7 +393,7 @@ function CrewManagement() {
               />
             </div>
             {outlets.length > 1 && (
-              <Select value={outletId || '__all__'} onValueChange={(v) => setOutletId(v === '__all__' ? '' : v)}>
+              <Select value={outletId || '__all__'} onValueChange={(v) => { const val = v === '__all__' ? '' : v; setOutletId(val); setSelectedOutletId(val || null) }}>
                 <SelectTrigger className="w-full sm:w-44 bg-white/[0.04] border-white/[0.08] text-white h-9 text-xs">
                   <Store className="mr-1.5 h-3 w-3 text-slate-500" />
                   <SelectValue placeholder="Semua Outlet" />

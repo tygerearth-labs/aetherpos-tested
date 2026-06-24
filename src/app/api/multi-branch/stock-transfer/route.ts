@@ -360,18 +360,80 @@ export async function PUT(request: NextRequest) {
           data: { stock: { decrement: existing.quantity } },
         })
 
-        // Add to toOutlet variant
-        const toVariant = await db.productVariant.findFirst({
-          where: {
-            outletId: existing.toOutletId,
-            productId: existing.productId,
-            name: existing.variantName ?? '',
-          },
+        // Find or create the parent product in toOutlet first
+        let toProduct = await db.product.findFirst({
+          where: { outletId: existing.toOutletId, name: existing.productName },
         })
+        if (!toProduct && existing.productId) {
+          const sourceProduct = await db.product.findUnique({ where: { id: existing.productId } })
+          if (sourceProduct) {
+            toProduct = await db.product.create({
+              data: {
+                name: sourceProduct.name,
+                sku: sourceProduct.sku ? `${sourceProduct.sku}-CABANG` : undefined,
+                barcode: undefined,
+                hpp: sourceProduct.hpp,
+                price: sourceProduct.price,
+                stock: 0,
+                lowStockAlert: sourceProduct.lowStockAlert,
+                unit: sourceProduct.unit,
+                categoryId: null,
+                outletId: existing.toOutletId,
+                hasVariants: true,
+              },
+            })
+          }
+        }
+
+        // Find or create variant in toOutlet
+        let toVariant = toProduct
+          ? await db.productVariant.findFirst({
+              where: {
+                outletId: existing.toOutletId,
+                productId: toProduct.id,
+                name: existing.variantName ?? '',
+              },
+            })
+          : null
+        if (!toVariant && toProduct && existing.variantName) {
+          toVariant = await db.productVariant.create({
+            data: {
+              productId: toProduct.id,
+              name: existing.variantName,
+              sku: undefined,
+              barcode: undefined,
+              hpp: variant.hpp,
+              price: variant.price,
+              stock: 0,
+              outletId: existing.toOutletId,
+            },
+          })
+        }
         if (toVariant) {
           await db.productVariant.update({
             where: { id: toVariant.id },
             data: { stock: { increment: existing.quantity } },
+          })
+        }
+
+        // RESTOCK audit log in DESTINATION outlet
+        if (toVariant) {
+          await db.auditLog.create({
+            data: {
+              action: 'RESTOCK',
+              entityType: 'VARIANT',
+              entityId: toVariant.id,
+              details: JSON.stringify({
+                productName: existing.productName,
+                variantName: existing.variantName,
+                quantityAdded: existing.quantity,
+                newStock: existing.quantity,
+                reason: `Stock transfer dari ${existing.fromOutletId}`,
+                transferId: existing.id,
+              }),
+              outletId: existing.toOutletId,
+              userId: user.id,
+            },
           })
         }
       } else if (existing.productId) {
@@ -386,16 +448,48 @@ export async function PUT(request: NextRequest) {
           data: { stock: { decrement: existing.quantity } },
         })
 
-        // Add to toOutlet product
-        const toProduct = await db.product.findFirst({
+        // Find or create product in toOutlet
+        let toProduct = await db.product.findFirst({
           where: { outletId: existing.toOutletId, name: existing.productName },
         })
-        if (toProduct) {
-          await db.product.update({
-            where: { id: toProduct.id },
-            data: { stock: { increment: existing.quantity } },
+        if (!toProduct) {
+          toProduct = await db.product.create({
+            data: {
+              name: product.name,
+              sku: product.sku ? `${product.sku}-CABANG` : undefined,
+              barcode: undefined,
+              hpp: product.hpp,
+              price: product.price,
+              stock: 0,
+              lowStockAlert: product.lowStockAlert,
+              unit: product.unit,
+              categoryId: null,
+              outletId: existing.toOutletId,
+            },
           })
         }
+        await db.product.update({
+          where: { id: toProduct.id },
+          data: { stock: { increment: existing.quantity } },
+        })
+
+        // RESTOCK audit log in DESTINATION outlet
+        await db.auditLog.create({
+          data: {
+            action: 'RESTOCK',
+            entityType: 'PRODUCT',
+            entityId: toProduct.id,
+            details: JSON.stringify({
+              productName: existing.productName,
+              quantityAdded: existing.quantity,
+              newStock: existing.quantity,
+              reason: `Stock transfer dari ${existing.fromOutletId}`,
+              transferId: existing.id,
+            }),
+            outletId: existing.toOutletId,
+            userId: user.id,
+          },
+        })
       }
     }
 
@@ -405,7 +499,7 @@ export async function PUT(request: NextRequest) {
       data: updateData,
     })
 
-    // Audit log
+    // Audit log in the initiating outlet
     await safeAuditLog({
       action: `STOCK_TRANSFER_${status}`,
       entityType: 'STOCK_TRANSFER',

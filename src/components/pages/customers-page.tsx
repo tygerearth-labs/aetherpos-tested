@@ -1,9 +1,11 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useSession } from 'next-auth/react'
 import { toast } from 'sonner'
 import { formatCurrency, formatNumber, formatDate } from '@/lib/format'
 import { usePlan, useFeatureGate } from '@/hooks/use-plan'
+import { useOutletStore } from '@/hooks/use-outlet-store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -73,6 +75,8 @@ import {
   Trophy,
   BarChart3,
   TrendingUp,
+  Store,
+  ShieldCheck,
 } from 'lucide-react'
 import {
   Collapsible,
@@ -168,6 +172,15 @@ function getNextTierInfo(tier: CustomerTier, totalSpend: number): { label: strin
 // ============================================================
 
 export default function CustomersPage() {
+  // Multi-outlet support
+  const { selectedOutletId, isMultiOutlet, outlets } = useOutletStore()
+  const { data: session } = useSession()
+  const sessionOutletId = session?.user?.outletId
+  const isViewingOtherOutlet = isMultiOutlet && !!selectedOutletId && selectedOutletId !== sessionOutletId
+  const viewingOutletName = isViewingOtherOutlet
+    ? outlets.find((o) => o.id === selectedOutletId)?.name || ''
+    : ''
+
   const [customers, setCustomers] = useState<Customer[]>([])
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(1)
@@ -234,6 +247,10 @@ export default function CustomersPage() {
     try {
       const params = new URLSearchParams({ page: String(page), limit: '20' })
       if (search) params.set('search', search)
+      // Multi-outlet: when a specific outlet is selected, filter by it
+      if (isMultiOutlet && selectedOutletId) {
+        params.set('outletId', selectedOutletId)
+      }
       const res = await fetch(`/api/customers?${params}`)
       if (res.ok) {
         const data: CustomerListResponse = await res.json()
@@ -248,7 +265,7 @@ export default function CustomersPage() {
     } finally {
       setLoading(false)
     }
-  }, [page, search])
+  }, [page, search, selectedOutletId, isMultiOutlet])
 
   useEffect(() => {
     fetchCustomers()
@@ -551,14 +568,34 @@ export default function CustomersPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-lg font-semibold text-white">Customers</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-lg font-semibold text-white">Customers</h1>
+            {isMultiOutlet && selectedOutletId && (
+              <Badge className="bg-amber-500/10 border-amber-500/20 text-amber-400 text-[10px] font-medium px-1.5 py-0 shrink-0">
+                <Store className="mr-0.5 h-2.5 w-2.5" />
+                {outlets.find((o) => o.id === selectedOutletId)?.name || selectedOutletId}
+              </Badge>
+            )}
+          </div>
           <p className="text-xs text-slate-500 mt-0.5">Manage your customer database & CRM</p>
         </div>
-        <Button onClick={handleAdd} className="theme-bg hover:theme-hover text-white h-8 text-xs">
-          <Plus className="mr-1.5 h-3.5 w-3.5" />
-          Add Customer
-        </Button>
+        {!isViewingOtherOutlet && (
+          <Button onClick={handleAdd} className="theme-bg hover:theme-hover text-white h-8 text-xs">
+            <Plus className="mr-1.5 h-3.5 w-3.5" />
+            Add Customer
+          </Button>
+        )}
       </div>
+
+      {/* View-only notice when viewing another outlet */}
+      {isViewingOtherOutlet && (
+        <div className="flex items-center gap-2.5 rounded-lg border border-amber-500/20 bg-amber-500/[0.06] px-4 py-2.5">
+          <ShieldCheck className="h-4 w-4 text-amber-400 shrink-0" />
+          <p className="text-xs text-amber-300/80">
+            Viewing customers from <span className="font-semibold text-amber-300">{viewingOutletName}</span> — read-only mode. Switch to your outlet to add or edit customers.
+          </p>
+        </div>
+      )}
 
       {/* Search */}
       <div className="relative w-full sm:max-w-sm">
@@ -632,24 +669,28 @@ export default function CustomersPage() {
                       >
                         <Coins className="h-3.5 w-3.5" />
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-slate-400 hover:text-white hover:bg-white/[0.04]"
-                        onClick={() => handleEdit(customer)}
-                        title="Edit"
-                      >
-                        <Edit className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-slate-400 hover:text-red-400 hover:bg-red-500/10"
-                        onClick={() => setDeleteId(customer.id)}
-                        title="Delete"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
+                      {!isViewingOtherOutlet && (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-slate-400 hover:text-white hover:bg-white/[0.04]"
+                            onClick={() => handleEdit(customer)}
+                            title="Edit"
+                          >
+                            <Edit className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-slate-400 hover:text-red-400 hover:bg-red-500/10"
+                            onClick={() => setDeleteId(customer.id)}
+                            title="Delete"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -714,24 +755,28 @@ export default function CustomersPage() {
                           >
                             <Coins className="h-3.5 w-3.5" />
                           </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-slate-400 hover:text-white hover:bg-white/[0.04]"
-                            onClick={() => handleEdit(customer)}
-                            title="Edit"
-                          >
-                            <Edit className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-slate-400 hover:text-red-400 hover:bg-red-500/10"
-                            onClick={() => setDeleteId(customer.id)}
-                            title="Delete"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
+                          {!isViewingOtherOutlet && (
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-slate-400 hover:text-white hover:bg-white/[0.04]"
+                                onClick={() => handleEdit(customer)}
+                                title="Edit"
+                              >
+                                <Edit className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-slate-400 hover:text-red-400 hover:bg-red-500/10"
+                                onClick={() => setDeleteId(customer.id)}
+                                title="Delete"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -849,8 +894,8 @@ export default function CustomersPage() {
                 })()}
               </div>
 
-              {/* Manual adjust button — OWNER only */}
-              {plan?.type && (
+              {/* Manual adjust button — OWNER only, hidden when viewing another outlet */}
+              {!isViewingOtherOutlet && plan?.type && (
                 <Button
                   variant="outline"
                   className="w-full border-white/[0.08] text-slate-300 hover:bg-white/[0.04] hover:text-white h-8 text-xs"

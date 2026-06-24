@@ -5,6 +5,7 @@ import { parsePagination, resolvePlanType } from '@/lib/api-helpers'
 import { getPlanFeatures, isUnlimited } from '@/lib/plan-config'
 import { safeJson, safeJsonCreated, safeJsonError } from '@/lib/safe-response'
 import { generateUniqueSKU, generateVariantSKU } from '@/lib/sku-generator'
+import { getOwnerOutlets } from '@/lib/multi-outlet'
 
 type SortOption = 'newest' | 'best-selling' | 'low-stock' | 'most-stock'
 
@@ -29,8 +30,27 @@ export async function GET(request: NextRequest) {
     const search = searchParams.get('search') || ''
     const sort: SortOption = (searchParams.get('sort') as SortOption) || 'newest'
     const categoryId = searchParams.get('categoryId') || ''
+    const outletFilter = searchParams.get('outletId') || ''
 
-    const where: Record<string, unknown> = { outletId }
+    // Resolve effective outlet ID for viewing (enterprise multi-outlet support)
+    let effectiveOutletId = user.outletId
+
+    if (user.role === 'OWNER' && user.email && outletFilter) {
+      const outletData = await db.outlet.findUnique({
+        where: { id: user.outletId },
+        select: { accountType: true },
+      })
+      const planType = resolvePlanType(outletData?.accountType)
+
+      if (planType === 'enterprise') {
+        const multiOutlet = await getOwnerOutlets(db, user.email, user.outletId)
+        if (multiOutlet && multiOutlet.outletIds.includes(outletFilter)) {
+          effectiveOutletId = outletFilter
+        }
+      }
+    }
+
+    const where: Record<string, unknown> = { outletId: effectiveOutletId }
     if (search) {
       where.OR = [
         { name: { contains: search } },
@@ -49,7 +69,7 @@ export async function GET(request: NextRequest) {
       // Use aggregation instead of loading all transaction items
       const soldAgg = await db.transactionItem.groupBy({
         by: ['productId'],
-        where: { transaction: { outletId } },
+        where: { transaction: { outletId: effectiveOutletId } },
         _sum: { qty: true },
         _count: true,
       })
@@ -193,10 +213,10 @@ export async function GET(request: NextRequest) {
 
     // Analytics stats (computed on all products in outlet, not filtered)
     const [totalCount, categoryCount, statsProducts] = await Promise.all([
-      db.product.count({ where: { outletId } }),
-      db.category.count({ where: { outletId } }),
+      db.product.count({ where: { outletId: effectiveOutletId } }),
+      db.category.count({ where: { outletId: effectiveOutletId } }),
       db.product.findMany({
-        where: { outletId },
+        where: { outletId: effectiveOutletId },
         select: {
           price: true,
           stock: true,

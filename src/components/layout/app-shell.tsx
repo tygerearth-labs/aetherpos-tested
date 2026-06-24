@@ -17,6 +17,7 @@ import AuditLogPage from '@/components/pages/audit-log-page'
 import CrewPage from '@/components/pages/crew-page'
 import SettingsPage from '@/components/pages/settings-page'
 import MultiBranchPage from '@/components/pages/multi-branch-page'
+import OutletSwitcher from '@/components/shared/outlet-switcher'
 import { Loader2 } from 'lucide-react'
 import { motion } from 'framer-motion'
 
@@ -88,6 +89,7 @@ function AppContent() {
             ? 'pb-20 px-3 pt-3 sm:px-4 md:h-full md:pb-0 md:px-3 md:py-2 md:overflow-y-hidden'
             : 'pb-20 md:pb-0 px-3 sm:px-4 md:py-4 lg:px-5 lg:py-4'
         }`}>
+          {currentPage !== 'pos' && <OutletSwitcher />}
           {renderPage()}
         </div>
       </main>
