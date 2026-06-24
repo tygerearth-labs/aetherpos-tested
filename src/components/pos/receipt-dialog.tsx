@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef } from 'react'
+import { useRef, useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { formatCurrency } from '@/lib/format'
 import { Button } from '@/components/ui/button'
@@ -19,6 +19,7 @@ import {
   CloudOff,
   AlertCircle,
   Tag,
+  Loader2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -74,6 +75,8 @@ interface OutletSettings {
   themePrimaryColor: string
   ppnEnabled: boolean
   ppnRate: number
+  doubleReceiptEnabled: boolean
+  doubleReceiptMode: string
 }
 
 interface Customer {
@@ -140,7 +143,7 @@ const RECEIPT_CSS = `
     .r-wrap{font-family:'Courier New',Courier,monospace;width:100%;color:#000;font-size:10px;line-height:1.5;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:auto}
   `
 
-// ==================== WHATSAPP TEXT GENERATION ====================
+// ==================== WHATSAPP TEXT GENERATION (fallback) ====================
 
 function generateWhatsAppReceiptText(props: {
   cart: CartItem[]
@@ -240,6 +243,7 @@ export function ReceiptDialog({
   onFinish,
 }: ReceiptDialogProps) {
   const receiptContentRef = useRef<HTMLDivElement>(null)
+  const [waLoading, setWaLoading] = useState(false)
 
   const isOfflineReceipt = checkoutResult?.invoiceNumber?.startsWith('OFF-')
 
@@ -254,6 +258,27 @@ export function ReceiptDialog({
     if (!content) return
     const win = window.open('', '_blank', 'width=320,height=800')
     if (!win) { toast.error('Gagal membuka jendela cetak'); return }
+
+    const isDouble = settings.doubleReceiptEnabled
+    const mode = settings.doubleReceiptMode || 'merchant_customer'
+
+    let receiptHtml = content
+    if (isDouble) {
+      const copyLabel1 = mode === 'merchant_customer' ? 'MERCHANT COPY' : 'ORDER COPY 1'
+      const copyLabel2 = mode === 'merchant_customer' ? 'CUSTOMER COPY' : 'ORDER COPY 2'
+      receiptHtml = `
+        <div class="r-wrap" style="border-bottom:1px dashed #000;padding-bottom:8px;margin-bottom:8px;">
+          <div style="text-align:center;font-weight:bold;font-size:10px;margin-bottom:4px;">=== ${copyLabel1} ===</div>
+          ${content}
+        </div>
+        <div style="page-break-before:always;"></div>
+        <div class="r-wrap">
+          <div style="text-align:center;font-weight:bold;font-size:10px;margin-bottom:4px;">=== ${copyLabel2} ===</div>
+          ${content}
+        </div>
+      `
+    }
+
     win.document.write(`<!DOCTYPE html><html><head><title>Receipt</title>
       <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -266,24 +291,90 @@ export function ReceiptDialog({
           .r-sep { border-top: 1px dashed #000; }
         }
       </style>
-    </head><body>${content}</body></html>`)
+    </head><body>${receiptHtml}</body></html>`)
     win.document.close()
     setTimeout(() => { win.print(); setTimeout(() => win.close(), 500) }, 250)
     handleClose()
   }
 
-  // WhatsApp handler
-  const handleWhatsApp = () => {
-    if (!selectedCustomer?.whatsapp || !checkoutResult) return
-    const text = generateWhatsAppReceiptText({
-      cart, subtotal, pointsDiscount, promoDiscount, manualDiscountTotal, ppnAmount, total,
-      paymentMethod, paidAmount, change: changeAmount,
-      selectedCustomer, selectedPromo, checkoutResult, settings,
-    })
-    let phone = selectedCustomer.whatsapp.replace(/[^0-9]/g, '')
-    if (phone.startsWith('0')) phone = phone.substring(1)
-    const url = `https://wa.me/62${phone}?text=${encodeURIComponent(text)}`
-    window.open(url, '_blank')
+  // Fallback: download image + open WhatsApp Web
+  const downloadAndOpenWA = useCallback((file: File) => {
+    const url = URL.createObjectURL(file)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = file.name
+    a.click()
+    URL.revokeObjectURL(url)
+
+    toast.success('Struk berhasil diunduh! Kirim gambar ke customer via WhatsApp.')
+
+    if (selectedCustomer?.whatsapp) {
+      let phone = selectedCustomer.whatsapp.replace(/[^0-9]/g, '')
+      if (phone.startsWith('0')) phone = phone.substring(1)
+      window.open(`https://wa.me/62${phone}`, '_blank')
+    }
+  }, [selectedCustomer])
+
+  // WhatsApp handler — sends receipt as JPG image
+  const handleWhatsApp = async () => {
+    if (!receiptContentRef.current || !checkoutResult) return
+    setWaLoading(true)
+    try {
+      const html2canvas = (await import('html2canvas')).default
+      const canvas = await html2canvas(receiptContentRef.current, {
+        backgroundColor: '#ffffff',
+        scale: 2,
+        useCORS: true,
+      })
+
+      canvas.toBlob(async (blob) => {
+        if (!blob) {
+          toast.error('Gagal membuat gambar struk')
+          setWaLoading(false)
+          return
+        }
+
+        const file = new File(
+          [blob],
+          `struk-${checkoutResult.invoiceNumber || 'receipt'}.jpg`,
+          { type: 'image/jpeg' }
+        )
+
+        // Try Web Share API first (best UX — can share directly to WhatsApp)
+        if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+          try {
+            await navigator.share({
+              files: [file],
+              title: `Struk ${checkoutResult.invoiceNumber}`,
+              text: `Struk pembelian dari ${settings.receiptBusinessName}`,
+            })
+          } catch (e) {
+            if ((e as Error).name !== 'AbortError') {
+              // User didn't cancel — fallback
+              downloadAndOpenWA(file)
+            }
+          }
+        } else {
+          // Fallback: download image + open WhatsApp
+          downloadAndOpenWA(file)
+        }
+        setWaLoading(false)
+      }, 'image/jpeg', 0.95)
+    } catch (err) {
+      console.error('Receipt image error:', err)
+      // Fallback to text-based WhatsApp
+      if (selectedCustomer?.whatsapp && checkoutResult) {
+        const text = generateWhatsAppReceiptText({
+          cart, subtotal, pointsDiscount, promoDiscount, manualDiscountTotal, ppnAmount, total,
+          paymentMethod, paidAmount, change: changeAmount,
+          selectedCustomer, selectedPromo, checkoutResult, settings,
+        })
+        let phone = selectedCustomer.whatsapp.replace(/[^0-9]/g, '')
+        if (phone.startsWith('0')) phone = phone.substring(1)
+        window.open(`https://wa.me/62${phone}?text=${encodeURIComponent(text)}`, '_blank')
+      }
+      setWaLoading(false)
+    }
   }
 
   // Close handler
@@ -294,7 +385,7 @@ export function ReceiptDialog({
 
   // Receipt HTML content for print
   const receiptHtml = (
-    <div ref={receiptContentRef}>
+    <>
       <style dangerouslySetInnerHTML={{ __html: RECEIPT_CSS }} />
       <div className="r-wrap">
         {/* Header */}
@@ -398,7 +489,7 @@ export function ReceiptDialog({
           </>
         )}
       </div>
-    </div>
+    </>
   )
 
   return (
@@ -452,7 +543,12 @@ export function ReceiptDialog({
             {/* Receipt preview — thermal style */}
             <ScrollArea className="flex-1 min-h-0">
               <div className="px-4 pb-4 pt-2">
-                <div className="bg-white border border-zinc-200 rounded-lg shadow-inner mx-auto max-w-[280px] p-3 overflow-hidden">
+                {/* This white card is the html2canvas capture target with solid white background */}
+                <div
+                  ref={receiptContentRef}
+                  className="bg-white border border-zinc-200 rounded-lg shadow-inner mx-auto max-w-[280px] p-3 overflow-hidden"
+                  style={{ backgroundColor: '#ffffff' }}
+                >
                   {receiptHtml}
                 </div>
               </div>
@@ -468,14 +564,24 @@ export function ReceiptDialog({
                 Cetak Struk
               </Button>
 
-              {/* WhatsApp button — only if customer has WhatsApp */}
+              {/* WhatsApp button — sends receipt as JPG image */}
               {selectedCustomer?.whatsapp && (
                 <Button
                   onClick={handleWhatsApp}
-                  className="flex-1 h-10 text-sm font-medium rounded-xl bg-green-600 hover:bg-green-500 text-white transition-colors"
+                  disabled={waLoading}
+                  className="flex-1 h-10 text-sm font-medium rounded-xl bg-green-600 hover:bg-green-500 text-white transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  <MessageSquare className="mr-1.5 h-4 w-4" strokeWidth={1.5} />
-                  Kirim WA
+                  {waLoading ? (
+                    <>
+                      <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                      Membuat…
+                    </>
+                  ) : (
+                    <>
+                      <MessageSquare className="mr-1.5 h-4 w-4" strokeWidth={1.5} />
+                      Kirim WA
+                    </>
+                  )}
                 </Button>
               )}
 

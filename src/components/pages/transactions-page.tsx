@@ -5,7 +5,6 @@ import { useSession } from 'next-auth/react'
 import { toast } from 'sonner'
 import { formatCurrency, formatDate } from '@/lib/format'
 import { usePlan } from '@/hooks/use-plan'
-import { useOutletStore } from '@/hooks/use-outlet-store'
 import { ProGate } from '@/components/shared/pro-gate'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -171,13 +170,12 @@ export default function TransactionsPage() {
   const isOwner = session?.user?.role === 'OWNER'
   const { plan } = usePlan()
   const isPro = plan?.type === 'pro' || plan?.type === 'enterprise'
-  const { outlets: storeOutlets, selectedOutletId, isMultiOutlet, setSelectedOutletId } = useOutletStore()
 
   // Active tab
   const [activeTab, setActiveTab] = useState('transactions')
 
-  // Outlets from global store (bidirectional sync with AppShell OutletSwitcher)
-  const outlets = storeOutlets.map(o => ({ id: o.id, name: o.name }))
+  // Multi-outlet
+  const [outlets, setOutlets] = useState<{ id: string; name: string }[]>([])
 
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [loading, setLoading] = useState(true)
@@ -320,6 +318,8 @@ export default function TransactionsPage() {
         const data: TransactionListResponse = await res.json()
         setTransactions(data.transactions)
         setTotalPages(data.totalPages)
+        if (data.outlets && data.outlets.length > 1) setOutlets(data.outlets)
+
         // Update cashier list from response (only if not already populated)
         if (!cashiersPopulated.current) {
           const uniqueCashiers = new Map<string, string>()
@@ -346,12 +346,6 @@ export default function TransactionsPage() {
   useEffect(() => {
     fetchTransactions()
   }, [fetchTransactions])
-
-  // Sync global outlet selection → local outletId filter (bidirectional: AppShell → page)
-  useEffect(() => {
-    const newValue = selectedOutletId || ''
-    setOutletId(prev => (prev === newValue ? prev : newValue))
-  }, [selectedOutletId])
 
   // Fetch summary when date range changes
   useEffect(() => {
@@ -407,7 +401,6 @@ export default function TransactionsPage() {
     setPaymentMethod('')
     setVoidFilter('')
     setOutletId('')
-    setSelectedOutletId(null)
   }
 
   const handleExport = () => {
@@ -420,7 +413,6 @@ export default function TransactionsPage() {
     if (dateTo) params.set('dateToMs', String(getEndOfDayMs(dateTo)))
     if (cashierId) params.set('cashierId', cashierId)
     if (paymentMethod) params.set('paymentMethod', paymentMethod)
-    if (outletId) params.set('outletId', outletId)
     window.open(`/api/transactions/export?${params}`, '_blank')
   }
 

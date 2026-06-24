@@ -1,8 +1,7 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
-import { parsePagination, resolvePlanType } from '@/lib/api-helpers'
+import { parsePagination } from '@/lib/api-helpers'
 import { getAuthUser, unauthorized } from '@/lib/get-auth'
-import { getOwnerOutlets } from '@/lib/multi-outlet'
 import { notifyNewCustomer } from '@/lib/notify'
 import { safeJson, safeJsonCreated, safeJsonError } from '@/lib/safe-response'
 
@@ -12,31 +11,13 @@ export async function GET(request: NextRequest) {
     if (!user) {
       return unauthorized()
     }
+    const outletId = user.outletId
 
     const { searchParams } = request.nextUrl
-    const outletFilter = searchParams.get('outletId') || ''
-
-    let effectiveOutletId = user.outletId
-
-    if (user.role === 'OWNER' && user.email && outletFilter) {
-      const outletData = await db.outlet.findUnique({
-        where: { id: user.outletId },
-        select: { accountType: true },
-      })
-      const planType = resolvePlanType(outletData?.accountType)
-
-      if (planType === 'enterprise') {
-        const multiOutlet = await getOwnerOutlets(db, user.email, user.outletId)
-        if (multiOutlet && multiOutlet.outletIds.includes(outletFilter)) {
-          effectiveOutletId = outletFilter
-        }
-      }
-    }
-
     const { skip, limit } = parsePagination(searchParams)
     const search = searchParams.get('search') || ''
 
-    const where: Record<string, unknown> = { outletId: effectiveOutletId }
+    const where: Record<string, unknown> = { outletId }
     if (search) {
       where.OR = [
         { name: { contains: search } },
@@ -53,16 +34,16 @@ export async function GET(request: NextRequest) {
       }),
       db.customer.count({ where }),
       db.customer.aggregate({
-        where: { outletId: effectiveOutletId },
+        where: { outletId },
         _sum: { points: true },
       }),
       db.customer.aggregate({
-        where: { outletId: effectiveOutletId },
+        where: { outletId },
         _avg: { totalSpend: true },
       }),
       db.customer.count({
         where: {
-          outletId: effectiveOutletId,
+          outletId,
           createdAt: { gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1) },
         },
       }),

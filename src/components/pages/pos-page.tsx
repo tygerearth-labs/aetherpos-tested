@@ -136,6 +136,8 @@ interface OutletSettings {
   ppnEnabled: boolean
   ppnRate: number
   manualDiscountEnabled: boolean
+  doubleReceiptEnabled: boolean
+  doubleReceiptMode: string
 }
 
 interface OutletInfo {
@@ -220,6 +222,8 @@ export default function PosPage() {
     ppnEnabled: false,
     ppnRate: 11,
     manualDiscountEnabled: false,
+    doubleReceiptEnabled: false,
+    doubleReceiptMode: 'merchant_customer',
   })
 
   // Outlet info (from settings API)
@@ -253,6 +257,8 @@ export default function PosPage() {
               ppnEnabled: data.ppnEnabled ?? false,
               ppnRate: data.ppnRate || 11,
               manualDiscountEnabled: data.manualDiscountEnabled ?? false,
+              doubleReceiptEnabled: data.doubleReceiptEnabled ?? false,
+              doubleReceiptMode: data.doubleReceiptMode || 'merchant_customer',
             })
             // Extract outlet info from settings response
             if (data.outlet) {
@@ -284,6 +290,8 @@ export default function PosPage() {
               ppnEnabled: (cached.ppnEnabled as boolean) ?? false,
               ppnRate: (cached.ppnRate as number) || 11,
               manualDiscountEnabled: (cached.manualDiscountEnabled as boolean) ?? false,
+              doubleReceiptEnabled: (cached.doubleReceiptEnabled as boolean) ?? false,
+              doubleReceiptMode: (cached.doubleReceiptMode as string) || 'merchant_customer',
             })
             // Extract outlet info from cached settings
             const cachedOutlet = cached.outlet as { id: string; name: string; address: string | null; phone: string | null } | undefined

@@ -42,6 +42,8 @@ export async function GET(request: NextRequest) {
       ppnEnabled: setting.ppnEnabled,
       ppnRate: setting.ppnRate,
       manualDiscountEnabled: setting.manualDiscountEnabled,
+      doubleReceiptEnabled: setting.doubleReceiptEnabled,
+      doubleReceiptMode: setting.doubleReceiptMode,
       themePrimaryColor: setting.themePrimaryColor,
       telegramChatId: setting.telegramChatId,
       telegramBotToken: setting.telegramBotToken ? '••••••' : null,
@@ -73,6 +75,7 @@ export async function GET(request: NextRequest) {
           receiptBusinessName: true, receiptAddress: true, receiptPhone: true,
           receiptFooter: true, receiptLogo: true,
           ppnEnabled: true, ppnRate: true,
+          doubleReceiptEnabled: true, doubleReceiptMode: true,
           themePrimaryColor: true, telegramChatId: true, telegramBotToken: true,
           notifyOnTransaction: true, notifyOnCustomer: true, notifyDailyReport: true,
           notifyWeeklyReport: true, notifyMonthlyReport: true, notifyOnInsight: true,
@@ -83,6 +86,8 @@ export async function GET(request: NextRequest) {
         ...minimal,
         // Safe defaults for new columns that may not exist yet
         manualDiscountEnabled: false,
+        doubleReceiptEnabled: false,
+        doubleReceiptMode: 'merchant_customer',
         telegramBotToken: minimal?.telegramBotToken ? '••••••' : null,
       })
     } catch (fallbackError) {
@@ -138,6 +143,10 @@ export async function PUT(request: NextRequest) {
     // Manual discount toggle
     const manualDiscountEnabled = typeof body.manualDiscountEnabled === 'boolean' ? body.manualDiscountEnabled : undefined
 
+    // Double receipt fields
+    const doubleReceiptEnabled = typeof body.doubleReceiptEnabled === 'boolean' ? body.doubleReceiptEnabled : undefined
+    const doubleReceiptMode = typeof body.doubleReceiptMode === 'string' && body.doubleReceiptMode ? String(body.doubleReceiptMode) : undefined
+
     const settingsData = {
       outletId: user.outletId,
       ...(body.paymentMethods !== undefined && { paymentMethods: String(body.paymentMethods) }),
@@ -152,6 +161,8 @@ export async function PUT(request: NextRequest) {
       ...(ppnEnabled !== undefined && { ppnEnabled }),
       ...(ppnRate !== undefined && { ppnRate }),
       ...(manualDiscountEnabled !== undefined && { manualDiscountEnabled }),
+      ...(doubleReceiptEnabled !== undefined && { doubleReceiptEnabled }),
+      ...(doubleReceiptMode !== undefined && { doubleReceiptMode }),
       ...(body.themePrimaryColor !== undefined && { themePrimaryColor: String(body.themePrimaryColor) }),
       ...(body.telegramBotToken !== undefined && { telegramBotToken: body.telegramBotToken ? String(body.telegramBotToken) : null }),
       ...(body.telegramChatId !== undefined && { telegramChatId: body.telegramChatId ? String(body.telegramChatId) : null }),
@@ -204,6 +215,7 @@ export async function PUT(request: NextRequest) {
       'paymentMethods', 'loyaltyEnabled', 'loyaltyPointsPerAmount', 'loyaltyPointValue',
       'receiptBusinessName', 'receiptAddress', 'receiptPhone', 'receiptFooter', 'receiptLogo',
       'ppnEnabled', 'ppnRate', 'manualDiscountEnabled',
+      'doubleReceiptEnabled', 'doubleReceiptMode',
       'themePrimaryColor', 'telegramBotToken', 'telegramChatId',
       'notifyOnTransaction', 'notifyOnCustomer', 'notifyDailyReport', 'notifyWeeklyReport', 'notifyMonthlyReport', 'notifyOnInsight',
     ] as const
@@ -252,6 +264,8 @@ export async function PUT(request: NextRequest) {
       ppnEnabled: response.ppnEnabled,
       ppnRate: response.ppnRate,
       manualDiscountEnabled: response.manualDiscountEnabled,
+      doubleReceiptEnabled: response.doubleReceiptEnabled,
+      doubleReceiptMode: response.doubleReceiptMode,
       themePrimaryColor: response.themePrimaryColor,
       telegramChatId: response.telegramChatId,
       telegramBotToken: response.telegramBotToken ? '••••••' : null,

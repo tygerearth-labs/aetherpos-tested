@@ -91,12 +91,9 @@ import {
   FilePenLine,
   ScanBarcode,
   Printer,
-  Store,
-  EyeOff,
 } from 'lucide-react'
 // Collapsible removed — analytics section removed in redesign
 import { ProGate } from '@/components/shared/pro-gate'
-import { useOutletStore } from '@/hooks/use-outlet-store'
 import ProductFormDialog from './product-form-dialog'
 import dynamic from 'next/dynamic'
 
@@ -355,15 +352,8 @@ function getActionRowBg(action: string, details?: Record<string, unknown>): stri
 export default function ProductsPage() {
   const { data: session } = useSession()
   const isOwner = session?.user?.role === 'OWNER'
-  const userOutletId = session?.user?.outletId
   const { plan } = usePlan()
   const isPro = plan?.type === 'pro' || plan?.type === 'enterprise'
-
-  // Multi-outlet support
-  const { selectedOutletId, isMultiOutlet, outlets } = useOutletStore()
-  const selectedOutletName = selectedOutletId ? outlets.find((o) => o.id === selectedOutletId)?.name : null
-  const isViewingOtherOutlet = isMultiOutlet && !!selectedOutletId && selectedOutletId !== userOutletId
-  const isAllOutletsView = isMultiOutlet && !selectedOutletId
 
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
@@ -492,20 +482,12 @@ export default function ProductsPage() {
   }, [fetchCategories])
 
   const fetchProducts = useCallback(async () => {
-    // In multi-outlet mode with no specific outlet selected, don't fetch
-    if (isAllOutletsView) {
-      setLoading(false)
-      return
-    }
     setLoading(true)
     try {
       const params = new URLSearchParams({ page: String(page), limit: '20' })
       if (search) params.set('search', search)
       if (sort !== 'newest') params.set('sort', sort)
       if (activeCategoryId) params.set('categoryId', activeCategoryId)
-      if (isMultiOutlet && selectedOutletId) {
-        params.set('outletId', selectedOutletId)
-      }
       const res = await fetch(`/api/products?${params}`)
       if (res.ok) {
         const data: ProductListResponse = await res.json()
@@ -522,7 +504,7 @@ export default function ProductsPage() {
     } finally {
       setLoading(false)
     }
-  }, [page, search, sort, activeCategoryId, selectedOutletId, isMultiOutlet, isAllOutletsView])
+  }, [page, search, sort, activeCategoryId])
 
   useEffect(() => {
     fetchProducts()
@@ -1095,21 +1077,8 @@ export default function ProductsPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2.5 flex-wrap">
-            <h1 className="text-xl font-bold text-white tracking-tight">Produk</h1>
-            {isMultiOutlet && selectedOutletId && selectedOutletName && (
-              <Badge className="bg-amber-500/10 border-amber-500/20 text-amber-400 text-[11px] px-2 py-0.5 font-medium gap-1">
-                <Store className="h-3 w-3" />
-                {selectedOutletName}
-              </Badge>
-            )}
-          </div>
-          <p className="text-sm text-slate-500 mt-0.5">
-            {isViewingOtherOutlet
-              ? 'Melihat produk outlet lain (read-only)'
-              : 'Kelola inventori produk kamu'
-            }
-          </p>
+          <h1 className="text-xl font-bold text-white tracking-tight">Produk</h1>
+          <p className="text-sm text-slate-500 mt-0.5">Kelola inventori produk kamu</p>
         </div>
         <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide -mx-1 px-1 sm:overflow-visible sm:mx-0 sm:px-0 sm:flex-wrap">
           {isPro && isOwner && (
@@ -1174,41 +1143,15 @@ export default function ProductsPage() {
               Edit Excel
             </Button>
           </ProGate>
-          {!isViewingOtherOutlet && !isAllOutletsView && (
-            <Button onClick={handleAdd} className="theme-bg theme-hover text-white h-9 text-xs font-medium shadow-lg theme-shadow shrink-0">
-              <Plus className="mr-1.5 h-3.5 w-3.5" />
-              Tambah Produk
-            </Button>
-          )}
+          <Button onClick={handleAdd} className="theme-bg theme-hover text-white h-9 text-xs font-medium shadow-lg theme-shadow shrink-0">
+            <Plus className="mr-1.5 h-3.5 w-3.5" />
+            Tambah Produk
+          </Button>
         </div>
       </div>
 
-      {/* All Outlets View — Select Outlet Prompt */}
-      {isMultiOutlet && !selectedOutletId && !loading && (
-        <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.03] p-6 text-center">
-          <div className="h-12 w-12 rounded-full bg-amber-500/10 flex items-center justify-center mx-auto mb-3">
-            <Store className="h-6 w-6 text-amber-400" />
-          </div>
-          <h3 className="text-sm font-semibold text-white mb-1">Pilih Outlet Tertentu</h3>
-          <p className="text-xs text-slate-400 max-w-sm mx-auto">
-            Untuk melihat produk, pilih outlet tertentu di switcher di atas. Produk dikelola per-outlet.
-          </p>
-        </div>
-      )}
-
-      {/* View-Only Notice for Other Outlet */}
-      {isViewingOtherOutlet && !loading && (
-        <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.03] p-3 flex items-center gap-2.5">
-          <EyeOff className="h-4 w-4 text-amber-400 shrink-0" />
-          <div className="flex-1 min-w-0">
-            <p className="text-xs font-medium text-amber-400">Mode view-only</p>
-            <p className="text-[11px] text-slate-400">Produk outlet lain hanya bisa dilihat, tidak bisa diedit.</p>
-          </div>
-        </div>
-      )}
-
       {/* Stats Cards */}
-      {!loading && stats.total > 0 && !isAllOutletsView && (
+      {!loading && stats.total > 0 && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {/* Total Products */}
           <div className="relative rounded-xl border border-white/[0.06] bg-nebula p-4 space-y-3 overflow-hidden group">
@@ -1262,8 +1205,7 @@ export default function ProductsPage() {
         </div>
       )}
 
-      {/* Category Management Section — hide when viewing other outlet or all outlets */}
-      {!isViewingOtherOutlet && !isAllOutletsView && (
+      {/* Category Management Section */}
       <div className="rounded-xl border border-white/[0.06] bg-nebula/60 overflow-hidden">
         <button
           onClick={() => setCategorySectionOpen(!categorySectionOpen)}
@@ -1358,10 +1300,8 @@ export default function ProductsPage() {
           </div>
         )}
       </div>
-      )}
 
-      {/* Search & Sort — hide when all outlets view */}
-      {!isAllOutletsView && (
+      {/* Search & Sort */}
       <div className="flex flex-col sm:flex-row gap-2.5">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
@@ -1390,10 +1330,8 @@ export default function ProductsPage() {
           </SelectContent>
         </Select>
       </div>
-      )}
 
       {/* Desktop Table */}
-      {!isAllOutletsView && (
       <div className="hidden md:block">
         {loading ? (
           <div className="space-y-2">
@@ -1599,7 +1537,6 @@ export default function ProductsPage() {
                           >
                             <RefreshCw className="h-3.5 w-3.5" />
                           </Button>
-                          {!isViewingOtherOutlet && (
                           <Button
                             variant="ghost"
                             size="icon"
@@ -1608,8 +1545,6 @@ export default function ProductsPage() {
                           >
                             <Edit className="h-3.5 w-3.5" />
                           </Button>
-                          )}
-                          {!isViewingOtherOutlet && (
                           <Button
                             variant="ghost"
                             size="icon"
@@ -1618,7 +1553,6 @@ export default function ProductsPage() {
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
-                          )}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -1629,10 +1563,8 @@ export default function ProductsPage() {
           </div>
         )}
       </div>
-      )}
 
       {/* Mobile Card View */}
-      {!isAllOutletsView && (
       <div className="md:hidden">
         {/* Mobile bulk select-all bar */}
         {bulkMode && !loading && products.length > 0 && (
@@ -1852,7 +1784,6 @@ export default function ProductsPage() {
                         >
                           <RefreshCw className="h-3.5 w-3.5" />
                         </Button>
-                        {!isViewingOtherOutlet && (
                         <Button
                           variant="ghost"
                           size="icon"
@@ -1861,8 +1792,6 @@ export default function ProductsPage() {
                         >
                           <Edit className="h-3.5 w-3.5" />
                         </Button>
-                        )}
-                        {!isViewingOtherOutlet && (
                         <Button
                           variant="ghost"
                           size="icon"
@@ -1871,7 +1800,6 @@ export default function ProductsPage() {
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
-                        )}
                       </div>
                     </div>
                   </div>
@@ -1881,14 +1809,11 @@ export default function ProductsPage() {
           </div>
         )}
       </div>
-      )}
 
-      {!isAllOutletsView && (
-        <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
-      )}
+      <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
 
-      {/* Floating Bulk Edit Bar — hide for other outlet view */}
-      {!isViewingOtherOutlet && bulkMode && selectedIds.size > 0 && (
+      {/* Floating Bulk Edit Bar */}
+      {bulkMode && selectedIds.size > 0 && (
         <div className="fixed bottom-16 md:bottom-0 left-0 right-0 z-40 md:z-50 border-t border-white/[0.04] bg-nebula/95 backdrop-blur-sm p-3">
           <div className="max-w-4xl mx-auto flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">
