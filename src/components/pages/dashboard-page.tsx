@@ -498,7 +498,7 @@ export default function DashboardPage() {
   // ── Loading Skeleton ──
   if (loading) {
     return (
-      <div className="space-y-4">
+      <div className="space-y-4 max-w-5xl mx-auto">
         <div className="space-y-1.5">
           <Skeleton className="h-7 w-52 bg-white/[0.04]" />
           <Skeleton className="h-3.5 w-64 bg-white/[0.04]" />
@@ -523,7 +523,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <motion.div className="space-y-4" variants={containerVariants} initial="hidden" animate="visible">
+    <motion.div className="space-y-4 max-w-5xl mx-auto" variants={containerVariants} initial="hidden" animate="visible">
       {/* ═══════════════════════════════════════════════════
           1. Welcome Header + Range Selector
       ═══════════════════════════════════════════════════ */}
@@ -710,58 +710,47 @@ export default function DashboardPage() {
       </div>
 
       {/* ═══════════════════════════════════════════════════
-          3b. Secondary KPI Row — Rich Info Cards
+          3b. Secondary KPI — Compact Summary Strip
       ═══════════════════════════════════════════════════ */}
-      <div className="grid grid-cols-3 lg:grid-cols-6 gap-2.5">
-        {/* Brutto */}
-        <motion.div variants={itemVariants}>
-          <div className="bg-nebula border border-white/[0.04] rounded-xl p-3 space-y-1">
-            <p className="text-[9px] text-slate-600 uppercase tracking-wider font-medium">Brutto</p>
-            <p className="text-sm font-bold text-slate-200">{stats ? formatCurrency(stats.rangeBrutto) : '-'}</p>
+      <motion.div variants={itemVariants}>
+        <div className="bg-nebula border border-white/[0.04] rounded-xl px-4 py-3 flex flex-wrap items-center gap-x-5 gap-y-2">
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] text-slate-600 uppercase tracking-wider font-medium">Brutto</span>
+            <span className="text-sm font-bold text-slate-200">{stats ? formatCurrency(stats.rangeBrutto) : '-'}</span>
           </div>
-        </motion.div>
-        {/* Diskon */}
-        <motion.div variants={itemVariants}>
-          <div className="bg-nebula border border-white/[0.04] rounded-xl p-3 space-y-1">
-            <p className="text-[9px] text-slate-600 uppercase tracking-wider font-medium">Diskon</p>
-            <p className="text-sm font-bold text-orange-400">-{stats ? formatCurrency(stats.rangeDiscount) : '-'}</p>
+          <div className="w-px h-4 bg-white/[0.06] hidden sm:block" />
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] text-slate-600 uppercase tracking-wider font-medium">Diskon</span>
+            <span className="text-sm font-bold text-orange-400">-{stats ? formatCurrency(stats.rangeDiscount) : '-'}</span>
           </div>
-        </motion.div>
-        {/* PPN */}
-        <motion.div variants={itemVariants}>
-          <div className="bg-nebula border border-white/[0.04] rounded-xl p-3 space-y-1">
-            <p className="text-[9px] text-slate-600 uppercase tracking-wider font-medium">PPN</p>
-            <p className="text-sm font-bold text-slate-300">+{stats ? formatCurrency(stats.rangeTax) : '-'}</p>
+          <div className="w-px h-4 bg-white/[0.06] hidden sm:block" />
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] text-slate-600 uppercase tracking-wider font-medium">PPN</span>
+            <span className="text-sm font-bold text-slate-300">+{stats ? formatCurrency(stats.rangeTax) : '-'}</span>
           </div>
-        </motion.div>
-        {/* Total Produk */}
-        <motion.div variants={itemVariants}>
-          <div className="bg-nebula border border-white/[0.04] rounded-xl p-3 space-y-1">
-            <p className="text-[9px] text-slate-600 uppercase tracking-wider font-medium">Produk</p>
-            <p className="text-sm font-bold text-slate-200">{stats ? formatNumber(stats.totalProducts) : '-'}</p>
+          <div className="w-px h-4 bg-white/[0.06] hidden sm:block" />
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] text-slate-600 uppercase tracking-wider font-medium">Produk</span>
+            <span className="text-sm font-bold text-slate-200">{stats ? formatNumber(stats.totalProducts) : '-'}</span>
           </div>
-        </motion.div>
-        {/* Stok Menipis */}
-        <motion.div variants={itemVariants}>
-          <div className={`bg-nebula border rounded-xl p-3 space-y-1 ${
-            stats && stats.lowStockProducts > 0 ? 'border-red-500/20' : 'border-white/[0.04]'
-          }`}>
-            <p className="text-[9px] text-slate-600 uppercase tracking-wider font-medium">Stok Rendah</p>
-            <p className={`text-sm font-bold ${stats && stats.lowStockProducts > 0 ? 'text-red-400' : 'text-slate-200'}`}>
+          <div className="w-px h-4 bg-white/[0.06] hidden sm:block" />
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] text-slate-600 uppercase tracking-wider font-medium">Stok Rendah</span>
+            <span className={`text-sm font-bold ${stats && stats.lowStockProducts > 0 ? 'text-red-400' : 'text-slate-200'}`}>
               {stats ? stats.lowStockProducts : '-'}
-            </p>
+            </span>
           </div>
-        </motion.div>
-        {/* Total Profit */}
-        {isOwner && (
-          <motion.div variants={itemVariants}>
-            <div className="bg-nebula border border-amber-500/10 rounded-xl p-3 space-y-1">
-              <p className="text-[9px] text-slate-600 uppercase tracking-wider font-medium">Total Profit</p>
-              <p className="text-sm font-bold text-amber-400/70">{stats && stats.totalProfit !== null ? formatCurrency(stats.totalProfit) : '-'}</p>
-            </div>
-          </motion.div>
-        )}
-      </div>
+          {isOwner && (
+            <>
+              <div className="w-px h-4 bg-white/[0.06] hidden sm:block" />
+              <div className="flex items-center gap-2">
+                <span className="text-[9px] text-slate-600 uppercase tracking-wider font-medium">Total Profit</span>
+                <span className="text-sm font-bold text-amber-400/70">{stats && stats.totalProfit !== null ? formatCurrency(stats.totalProfit) : '-'}</span>
+              </div>
+            </>
+          )}
+        </div>
+      </motion.div>
 
       {/* ═══════════════════════════════════════════════════
           4. Quick Actions
