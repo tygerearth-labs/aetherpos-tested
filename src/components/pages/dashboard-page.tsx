@@ -18,7 +18,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   DollarSign,
   Receipt,
@@ -40,19 +39,35 @@ import {
   TrendingDown,
   Minus,
   Activity,
-  ShoppingCartIcon,
   Clock,
   Warehouse,
   Target,
   Layers,
+  Calendar,
+  CreditCard,
+  Wallet,
+  ArrowRight,
+  ChevronRight,
+  CircleDollarSign,
+  ShoppingBag,
+  UsersRound,
+  Gauge,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 // ── Types ──
 interface HourBucket {
   hour: number
   transactionCount: number
   revenue: number
+}
+
+interface DayBucket {
+  date: string
+  revenue: number
+  transactionCount: number
+  profit: number
 }
 
 interface DashboardStats {
@@ -65,15 +80,27 @@ interface DashboardStats {
   lowStockList: { id: string; name: string; stock: number; lowStockAlert: number }[]
   lowStockVariants: number
   lowStockVariantList: { id: string; name: string; stock: number; productId: string; productName: string }[]
+  // Range-based
+  range: string
+  rangeRevenue: number
+  rangeBrutto: number
+  rangeDiscount: number
+  rangeTax: number
+  rangeTransactions: number
+  rangeProfit: number | null
+  previousRangeRevenue: number
+  previousRangeTransactions: number
+  revenueChangePercent: number
+  // Today (always)
   todayRevenue: number
-  todayBrutto: number
-  todayDiscount: number
-  todayTax: number
   todayTransactions: number
-  todayProfit: number | null
   yesterdayRevenue: number
   yesterdayTransactions: number
-  revenueChangePercent: number
+  // Chart data
+  dailyBreakdown: DayBucket[]
+  paymentBreakdown: Record<string, { count: number; revenue: number }>
+  topSellingProducts: { name: string; qty: number; revenue: number }[]
+  // OWNER
   peakHours: HourBucket[] | null
   aiInsight: string | null
 }
@@ -148,16 +175,16 @@ const containerVariants = {
   hidden: { opacity: 0 },
   visible: {
     opacity: 1,
-    transition: { staggerChildren: 0.05 },
+    transition: { staggerChildren: 0.04 },
   },
 }
 
 const itemVariants = {
-  hidden: { opacity: 0, y: 12 },
+  hidden: { opacity: 0, y: 8 },
   visible: {
     opacity: 1,
     y: 0,
-    transition: { duration: 0.35, ease: [0.25, 0.46, 0.45, 0.94] },
+    transition: { duration: 0.3, ease: [0.25, 0.46, 0.45, 0.94] },
   },
 }
 
@@ -182,6 +209,18 @@ function formatDateNow(): string {
 function formatShortDate(dateStr: string): string {
   const d = new Date(dateStr + 'T00:00:00')
   return d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })
+}
+
+function formatHour(hour: number): string {
+  return `${String(hour).padStart(2, '0')}:00`
+}
+
+function getRangeLabel(range: string): string {
+  switch (range) {
+    case 'week': return 'Minggu Ini'
+    case 'month': return 'Bulan Ini'
+    default: return 'Hari Ini'
+  }
 }
 
 // ── Sub-Components ──
@@ -258,20 +297,6 @@ function getPriorityBg(priority: InsightItem['priority']): string {
   }
 }
 
-function MiniBar({ value, max, color }: { value: number; max: number; color: string }) {
-  const pct = max > 0 ? Math.min((value / max) * 100, 100) : 0
-  return (
-    <div className="h-1.5 w-full rounded-full bg-white/[0.04] overflow-hidden">
-      <motion.div
-        className={`h-full rounded-full ${color}`}
-        initial={{ width: 0 }}
-        animate={{ width: `${pct}%` }}
-        transition={{ duration: 0.8, delay: 0.3, ease: 'easeOut' }}
-      />
-    </div>
-  )
-}
-
 function ProLock({ label = 'PRO' }: { label?: string }) {
   return (
     <Badge className="bg-amber-500/10 border-amber-500/20 text-amber-400 text-[10px] gap-1 shrink-0">
@@ -287,168 +312,21 @@ function TrendIcon({ direction }: { direction: 'up' | 'down' | 'stable' }) {
   return <Minus className="h-3.5 w-3.5 text-slate-400" />
 }
 
-// ── Sparkline mini-chart ──
-function Sparkline({ data, color = 'theme-text', height = 40 }: { data: number[]; color?: string; height?: number }) {
-  if (data.length < 2) return null
-  const max = Math.max(...data, 1)
-  const min = Math.min(...data, 0)
-  const range = max - min || 1
-  const w = data.length * 8
-  const points = data.map((v, i) => {
-    const x = (i / (data.length - 1)) * w
-    const y = height - ((v - min) / range) * (height - 4) - 2
-    return `${x},${y}`
-  }).join(' ')
-
+// ── Custom Tooltip for Recharts ──
+function CustomTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number; name: string; color: string }>; label?: string }) {
+  if (!active || !payload?.length) return null
   return (
-    <svg width={w} height={height} className="overflow-visible">
-      <polyline
-        points={points}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={1.5}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        className={color}
-      />
-    </svg>
-  )
-}
-
-// ── Revenue Trend Line Chart ──
-function RevenueLineChart({ trend, forecast, onReady }: {
-  trend: { date: string; revenue: number }[]
-  forecast: { date: string; predictedRevenue: number; isForecast: boolean }[]
-  onReady?: () => void
-}) {
-  const chartRef = useRef<HTMLDivElement>(null)
-  const chartW = 600
-  const chartH = 160
-  const pad = { top: 8, right: 8, bottom: 24, left: 8 }
-  const innerW = chartW - pad.left - pad.right
-  const innerH = chartH - pad.top - pad.bottom
-
-  const allValues = [...trend.map((d) => d.revenue), ...forecast.map((d) => d.predictedRevenue)]
-  const maxVal = Math.max(...allValues, 1)
-  const minVal = Math.min(...allValues, 0)
-  const range = maxVal - minVal || 1
-
-  const allPoints = [...trend.map((d) => ({ x: d.date, y: d.revenue, isForecast: false })), ...forecast.map((d) => ({ x: d.date, y: d.predictedRevenue, isForecast: true }))]
-  const totalPts = allPoints.length
-
-  const toX = (i: number) => pad.left + (i / (totalPts - 1)) * innerW
-  const toY = (v: number) => pad.top + innerH - ((v - minVal) / range) * innerH
-
-  const actualPath = trend.map((d, i) => `${i === 0 ? 'M' : 'L'}${toX(i).toFixed(1)},${toY(d.revenue).toFixed(1)}`).join(' ')
-  const forecastPath = forecast.map((d, i) => {
-    const idx = trend.length + i
-    if (i === 0) {
-      const lastTrend = trend[trend.length - 1]
-      return `M${toX(trend.length - 1).toFixed(1)},${toY(lastTrend.revenue).toFixed(1)} L${toX(idx).toFixed(1)},${toY(d.predictedRevenue).toFixed(1)}`
-    }
-    return `L${toX(idx).toFixed(1)},${toY(d.predictedRevenue).toFixed(1)}`
-  }).join(' ')
-
-  // Area fill paths
-  const actualArea = `${actualPath} L${toX(trend.length - 1).toFixed(1)},${(pad.top + innerH).toFixed(1)} L${toX(0).toFixed(1)},${(pad.top + innerH).toFixed(1)} Z`
-  const forecastArea = (() => {
-    const lastTrendX = toX(trend.length - 1).toFixed(1)
-    const lastForecastX = toX(totalPts - 1).toFixed(1)
-    const baseY = (pad.top + innerH).toFixed(1)
-    const pts = forecast.map((d, i) => {
-      const idx = trend.length + i
-      return `${toX(idx).toFixed(1)},${toY(d.predictedRevenue).toFixed(1)}`
-    }).join(' ')
-    return `M${lastTrendX},${baseY} L${lastTrendX},${toY(trend[trend.length - 1].revenue).toFixed(1)} L${pts} L${lastForecastX},${baseY} Z`
-  })()
-
-  return (
-    <div ref={chartRef} className="w-full overflow-x-auto">
-      <svg viewBox={`0 0 ${chartW} ${chartH}`} className="w-full" preserveAspectRatio="xMidYMid meet">
-        {/* Area fills */}
-        <path d={actualArea} fill="url(#actualGrad)" />
-        <path d={forecastArea} fill="url(#forecastGrad)" />
-        {/* Grid lines */}
-        {[0, 0.25, 0.5, 0.75, 1].map((pct) => {
-          const y = pad.top + innerH * (1 - pct)
-          return <line key={pct} x1={pad.left} y1={y} x2={chartW - pad.right} y2={y} stroke="rgb(63 63 70)" strokeWidth={0.5} />
-        })}
-        {/* Actual line */}
-        <motion.path
-          d={actualPath}
-          fill="none"
-          stroke="rgb(52 211 153)"
-          strokeWidth={2}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          initial={{ pathLength: 0 }}
-          animate={{ pathLength: 1 }}
-          transition={{ duration: 1.2, ease: 'easeOut' }}
-        />
-        {/* Forecast line (dashed) */}
-        <motion.path
-          d={forecastPath}
-          fill="none"
-          stroke="rgb(167 139 250)"
-          strokeWidth={2}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeDasharray="6 4"
-          initial={{ pathLength: 0 }}
-          animate={{ pathLength: 1 }}
-          transition={{ duration: 1, delay: 0.6, ease: 'easeOut' }}
-        />
-        {/* Dots on actual */}
-        {trend.map((d, i) => (
-          <motion.circle
-            key={`a-${i}`}
-            cx={toX(i)} cy={toY(d.revenue)}
-            r={i % 3 === 0 ? 3 : 0}
-            fill="rgb(52 211 153)"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.8 + i * 0.03 }}
-          />
-        ))}
-        {/* Dots on forecast */}
-        {forecast.map((d, i) => {
-          const idx = trend.length + i
-          return (
-            <motion.circle
-              key={`f-${i}`}
-              cx={toX(idx)} cy={toY(d.predictedRevenue)}
-              r={i % 2 === 0 ? 3 : 0}
-              fill="rgb(167 139 250)"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 1.2 + i * 0.03 }}
-            />
-          )
-        })}
-        {/* X-axis labels */}
-        {allPoints.filter((_, i) => i % 3 === 0).map((p, i) => (
-          <text
-            key={i}
-            x={toX(i * 3)} y={chartH - 4}
-            textAnchor="middle"
-            className="fill-slate-600"
-            style={{ fontSize: '9px' }}
-          >
-            {formatShortDate(p.x)}
-          </text>
-        ))}
-        {/* Gradients */}
-        <defs>
-          <linearGradient id="actualGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="rgb(52 211 153)" stopOpacity="0.15" />
-            <stop offset="100%" stopColor="rgb(52 211 153)" stopOpacity="0" />
-          </linearGradient>
-          <linearGradient id="forecastGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="rgb(167 139 250)" stopOpacity="0.1" />
-            <stop offset="100%" stopColor="rgb(167 139 250)" stopOpacity="0" />
-          </linearGradient>
-        </defs>
-      </svg>
+    <div className="bg-nebula/95 backdrop-blur-sm border border-white/10 rounded-lg px-3 py-2 shadow-xl">
+      <p className="text-[10px] text-slate-500 mb-1">{label}</p>
+      {payload.map((p, i) => (
+        <p key={i} className="text-xs font-semibold" style={{ color: p.color }}>
+          {p.name}: {typeof p.value === 'number' && p.name.toLowerCase().includes('revenue') || p.name.toLowerCase().includes('profit')
+            ? formatCurrency(p.value)
+            : p.name.toLowerCase().includes('count') || p.name.toLowerCase().includes('trx')
+              ? formatNumber(p.value)
+              : formatCurrency(p.value)}
+        </p>
+      ))}
     </div>
   )
 }
@@ -482,6 +360,34 @@ function DayHeatBar({ day, avgRevenue, maxRevenue, avgTx }: { day: string; avgRe
   )
 }
 
+// ── Sparkline ──
+function Sparkline({ data, color = 'theme-text', height = 40 }: { data: number[]; color?: string; height?: number }) {
+  if (data.length < 2) return null
+  const max = Math.max(...data, 1)
+  const min = Math.min(...data, 0)
+  const range = max - min || 1
+  const w = data.length * 8
+  const points = data.map((v, i) => {
+    const x = (i / (data.length - 1)) * w
+    const y = height - ((v - min) / range) * (height - 4) - 2
+    return `${x},${y}`
+  }).join(' ')
+
+  return (
+    <svg width={w} height={height} className="overflow-visible">
+      <polyline
+        points={points}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className={color}
+      />
+    </svg>
+  )
+}
+
 // ════════════════════════════════════════════════════════════
 // Main Component
 // ════════════════════════════════════════════════════════════
@@ -495,6 +401,7 @@ export default function DashboardPage() {
   const hasForecasting = features?.forecasting === true
   const hasAiInsights = features?.aiInsights === true
 
+  const [range, setRange] = useState<'day' | 'week' | 'month'>('day')
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [loading, setLoading] = useState(true)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -510,11 +417,11 @@ export default function DashboardPage() {
   // ── Fetchers ──
   const fetchStats = useCallback(async () => {
     try {
-      const res = await fetch(`/api/dashboard?tzOffset=${tzOffset}`)
+      const res = await fetch(`/api/dashboard?tzOffset=${tzOffset}&range=${range}`)
       if (res.ok) setStats(await res.json())
     } catch { /* silent */ }
     finally { setLoading(false) }
-  }, [tzOffset])
+  }, [tzOffset, range])
 
   const fetchInsights = useCallback(async () => {
     setInsightLoading(true)
@@ -554,13 +461,39 @@ export default function DashboardPage() {
     ? Math.max(...stats.peakHours.map((b) => b.transactionCount), 1)
     : 1
 
-  const topSelling = insightData?.metrics.topSelling ?? []
+  const topSelling = stats?.topSellingProducts ?? insightData?.metrics.topSelling ?? []
   const otherInsights = insightData?.insights.filter(
     (i) => i.id !== insightData.topInsight?.id
   ) ?? []
 
   const trendValues = forecastData?.trend.map((d) => d.revenue) ?? []
-  const forecastValues = forecastData?.forecast.map((d) => d.predictedRevenue) ?? []
+
+  // Chart data for daily revenue
+  const revenueChartData = (stats?.dailyBreakdown ?? []).map((d) => ({
+    date: formatShortDate(d.date),
+    revenue: d.revenue,
+    profit: d.profit,
+    trx: d.transactionCount,
+  }))
+
+  // Peak hours chart data
+  const peakHoursChartData = (stats?.peakHours ?? [])
+    .filter((b) => b.transactionCount > 0)
+    .map((b) => ({
+      hour: formatHour(b.hour),
+      trx: b.transactionCount,
+      revenue: b.revenue,
+    }))
+
+  // Payment method data
+  const paymentData = Object.entries(stats?.paymentBreakdown ?? {}).map(([method, data]) => ({
+    method,
+    ...data,
+  }))
+
+  const aov = stats && stats.rangeTransactions > 0
+    ? Math.round(stats.rangeRevenue / stats.rangeTransactions)
+    : 0
 
   // ── Loading Skeleton ──
   if (loading) {
@@ -570,12 +503,17 @@ export default function DashboardPage() {
           <Skeleton className="h-7 w-52 bg-white/[0.04]" />
           <Skeleton className="h-3.5 w-64 bg-white/[0.04]" />
         </div>
-        <Skeleton className="h-56 bg-nebula rounded-2xl" />
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-24 bg-nebula rounded-xl" />
+        <div className="flex gap-2">
+          {[1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-9 w-24 bg-white/[0.04] rounded-lg" />
           ))}
         </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-28 bg-nebula rounded-xl" />
+          ))}
+        </div>
+        <Skeleton className="h-64 bg-nebula rounded-2xl" />
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <Skeleton className="h-52 bg-nebula rounded-2xl" />
           <Skeleton className="h-52 bg-nebula rounded-2xl" />
@@ -587,26 +525,45 @@ export default function DashboardPage() {
   return (
     <motion.div className="space-y-4" variants={containerVariants} initial="hidden" animate="visible">
       {/* ═══════════════════════════════════════════════════
-          1. Welcome Header
+          1. Welcome Header + Range Selector
       ═══════════════════════════════════════════════════ */}
-      <motion.div variants={itemVariants} className="flex items-start justify-between gap-4">
+      <motion.div variants={itemVariants} className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
         <div className="space-y-1">
-          <h1 className="text-xl font-bold text-white tracking-tight">
+          <h1 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
+            <Gauge className="h-5 w-5 theme-text" />
             {getGreeting()}, {session?.user?.name?.split(' ')[0] ?? 'User'}
           </h1>
           <p className="text-sm text-slate-500">{formatDateNow()}</p>
         </div>
-        {isOwner && insightData && (
-          <div className="flex items-center gap-2">
-            <div className="text-right hidden sm:block">
-              <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">Health Score</p>
-              <p className={`text-xs font-semibold ${insightData.healthScore >= 75 ? 'theme-text' : insightData.healthScore >= 50 ? 'text-amber-400' : 'text-red-400'}`}>
-                {insightData.healthScore >= 75 ? 'Sehat' : insightData.healthScore >= 50 ? 'Perhatian' : 'Kritis'}
-              </p>
+        <div className="flex items-center gap-2">
+          {isOwner && insightData && (
+            <div className="flex items-center gap-2 mr-2">
+              <div className="text-right hidden sm:block">
+                <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">Health</p>
+                <p className={`text-xs font-semibold ${insightData.healthScore >= 75 ? 'theme-text' : insightData.healthScore >= 50 ? 'text-amber-400' : 'text-red-400'}`}>
+                  {insightData.healthScore >= 75 ? 'Sehat' : insightData.healthScore >= 50 ? 'Perhatian' : 'Kritis'}
+                </p>
+              </div>
+              <HealthRing score={insightData.healthScore} />
             </div>
-            <HealthRing score={insightData.healthScore} />
+          )}
+          {/* Range selector */}
+          <div className="flex items-center bg-nebula border border-white/[0.06] rounded-xl p-1 gap-0.5">
+            {(['day', 'week', 'month'] as const).map((r) => (
+              <button
+                key={r}
+                onClick={() => { setRange(r); setLoading(true) }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  range === r
+                    ? 'theme-bg text-white shadow-sm'
+                    : 'text-slate-500 hover:text-slate-300 hover:bg-white/[0.04]'
+                }`}
+              >
+                {r === 'day' ? 'Hari' : r === 'week' ? 'Minggu' : 'Bulan'}
+              </button>
+            ))}
           </div>
-        )}
+        </div>
       </motion.div>
 
       {/* ═══════════════════════════════════════════════════
@@ -634,25 +591,27 @@ export default function DashboardPage() {
       )}
 
       {/* ═══════════════════════════════════════════════════
-          3. Stat Cards Grid
+          3. Primary KPI Cards — Modern Terminal Style
       ═══════════════════════════════════════════════════ */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {/* Revenue */}
+        {/* Revenue Card */}
         <motion.div variants={itemVariants}>
-          <Card className="aether-card overflow-hidden relative">
-            <div className="absolute inset-0 bg-gradient-to-br theme-gradient-subtle" />
-            <CardContent className="p-3.5 relative">
-              <div className="flex items-center justify-between mb-1.5">
-                <p className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Revenue</p>
-                <div className="w-7 h-7 rounded-lg theme-bg-very-light flex items-center justify-center theme-text">
-                  <DollarSign className="h-3.5 w-3.5" />
+          <Card className="aether-card overflow-hidden relative group">
+            <div className="absolute inset-0 bg-gradient-to-br theme-gradient-subtle opacity-60 group-hover:opacity-100 transition-opacity" />
+            <CardContent className="p-4 relative">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-7 h-7 rounded-lg theme-bg-very-light flex items-center justify-center">
+                    <CircleDollarSign className="h-3.5 w-3.5 theme-text" />
+                  </div>
+                  <p className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Revenue</p>
                 </div>
               </div>
-              <p className="text-xl font-bold text-white tracking-tight">
-                {stats ? formatCurrency(stats.todayRevenue) : '-'}
+              <p className="text-2xl font-bold text-white tracking-tight">
+                {stats ? formatCurrency(stats.rangeRevenue) : '-'}
               </p>
-              <div className="flex items-center gap-1.5 mt-1.5">
-                {stats && stats.yesterdayRevenue > 0 ? (
+              <div className="flex items-center gap-2 mt-2">
+                {stats && stats.previousRangeRevenue > 0 ? (
                   <span className={`inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
                     isUp ? 'theme-bg-very-light theme-text' : 'bg-red-500/10 text-red-400'
                   }`}>
@@ -660,55 +619,65 @@ export default function DashboardPage() {
                     {Math.abs(changePercent).toFixed(1)}%
                   </span>
                 ) : (
-                  <span className="text-[10px] text-slate-600">vs kemarin</span>
+                  <span className="text-[10px] text-slate-600">vs periode lalu</span>
                 )}
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        {/* Transaksi */}
-        <motion.div variants={itemVariants}>
-          <Card className="aether-card">
-            <CardContent className="p-3.5">
-              <div className="flex items-center justify-between mb-1.5">
-                <p className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Transaksi</p>
-                <div className="w-7 h-7 rounded-lg bg-white/[0.04] flex items-center justify-center text-slate-300">
-                  <Receipt className="h-3.5 w-3.5" />
-                </div>
-              </div>
-              <p className="text-xl font-bold text-white tracking-tight">
-                {stats ? formatNumber(stats.todayTransactions) : '-'}
-              </p>
-              <div className="flex items-center gap-1.5 mt-1.5">
-                <span className="text-[10px] text-slate-600">kemarin </span>
-                <span className="text-[10px] text-slate-400 font-medium">
-                  {stats ? formatNumber(stats.yesterdayTransactions) : '-'}
+                <span className="text-[10px] text-slate-600">
+                  {getRangeLabel(range)}
                 </span>
               </div>
             </CardContent>
           </Card>
         </motion.div>
 
-        {/* Profit — OWNER */}
+        {/* Transaksi Card */}
+        <motion.div variants={itemVariants}>
+          <Card className="aether-card overflow-hidden relative group">
+            <div className="absolute inset-0 bg-gradient-to-br from-violet-500/[0.03] to-transparent opacity-60 group-hover:opacity-100 transition-opacity" />
+            <CardContent className="p-4 relative">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-7 h-7 rounded-lg bg-violet-500/10 flex items-center justify-center">
+                    <Receipt className="h-3.5 w-3.5 text-violet-400" />
+                  </div>
+                  <p className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Transaksi</p>
+                </div>
+              </div>
+              <p className="text-2xl font-bold text-white tracking-tight">
+                {stats ? formatNumber(stats.rangeTransactions) : '-'}
+              </p>
+              <div className="flex items-center gap-2 mt-2">
+                <span className="text-[10px] text-slate-600">periode lalu </span>
+                <span className="text-[10px] text-slate-400 font-medium">
+                  {stats ? formatNumber(stats.previousRangeTransactions) : '-'}
+                </span>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        {/* Profit Card — OWNER */}
         {isOwner && (
           <motion.div variants={itemVariants}>
-            <Card className="bg-nebula border border-amber-500/10 rounded-xl overflow-hidden relative">
-              <div className="absolute inset-0 bg-gradient-to-br from-amber-500/[0.04] to-transparent" />
-              <CardContent className="p-3.5 relative">
-                <div className="flex items-center justify-between mb-1.5">
-                  <p className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Profit</p>
-                  <div className="w-7 h-7 rounded-lg bg-amber-500/10 flex items-center justify-center text-amber-400">
-                    <TrendingUp className="h-3.5 w-3.5" />
+            <Card className="bg-nebula border border-amber-500/10 rounded-xl overflow-hidden relative group">
+              <div className="absolute inset-0 bg-gradient-to-br from-amber-500/[0.04] to-transparent opacity-60 group-hover:opacity-100 transition-opacity" />
+              <CardContent className="p-4 relative">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-7 h-7 rounded-lg bg-amber-500/10 flex items-center justify-center">
+                      <TrendingUp className="h-3.5 w-3.5 text-amber-400" />
+                    </div>
+                    <p className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Profit</p>
                   </div>
                 </div>
-                <p className="text-xl font-bold text-amber-400 tracking-tight">
-                  {stats && stats.todayProfit !== null ? formatCurrency(stats.todayProfit) : '-'}
+                <p className="text-2xl font-bold text-amber-400 tracking-tight">
+                  {stats && stats.rangeProfit !== null ? formatCurrency(stats.rangeProfit) : '-'}
                 </p>
-                <div className="flex items-center gap-1.5 mt-1.5">
-                  <span className="text-[10px] text-slate-600">total </span>
+                <div className="flex items-center gap-2 mt-2">
+                  <span className="text-[10px] text-slate-600">margin </span>
                   <span className="text-[10px] text-amber-400/70 font-medium">
-                    {stats && stats.totalProfit !== null ? formatCurrency(stats.totalProfit) : '-'}
+                    {stats && stats.rangeProfit !== null && stats.rangeRevenue > 0
+                      ? ((stats.rangeProfit / stats.rangeRevenue) * 100).toFixed(1) + '%'
+                      : '-'}
                   </span>
                 </div>
               </CardContent>
@@ -716,58 +685,86 @@ export default function DashboardPage() {
           </motion.div>
         )}
 
-        {/* Low Stock */}
+        {/* AOV Card */}
         <motion.div variants={itemVariants}>
-          <Card className={`bg-nebula border rounded-xl overflow-hidden relative ${
-            stats && stats.lowStockProducts > 0 ? 'border-red-500/20' : 'border-white/[0.06]'
-          }`}>
-            <div className={`absolute inset-0 ${stats && stats.lowStockProducts > 0 ? 'bg-gradient-to-br from-red-500/[0.04] to-transparent' : 'bg-gradient-to-br from-slate-500/[0.02] to-transparent'}`} />
-            <CardContent className="p-3.5 relative">
-              <div className="flex items-center justify-between mb-1.5">
-                <p className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Stok Menipis</p>
-                <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${
-                  stats && stats.lowStockProducts > 0 ? 'bg-red-500/10 text-red-400' : 'bg-white/[0.04] text-slate-400'
-                }`}>
-                  <AlertTriangle className="h-3.5 w-3.5" />
+          <Card className="aether-card overflow-hidden relative group">
+            <div className="absolute inset-0 bg-gradient-to-br from-sky-500/[0.03] to-transparent opacity-60 group-hover:opacity-100 transition-opacity" />
+            <CardContent className="p-4 relative">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-7 h-7 rounded-lg bg-sky-500/10 flex items-center justify-center">
+                    <ShoppingBag className="h-3.5 w-3.5 text-sky-400" />
+                  </div>
+                  <p className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Avg. Order</p>
                 </div>
               </div>
-              <p className={`text-xl font-bold tracking-tight ${
-                stats && stats.lowStockProducts > 0 ? 'text-red-400' : 'text-white'
-              }`}>
-                {stats ? formatNumber(stats.lowStockProducts) : '-'}
+              <p className="text-2xl font-bold text-sky-400 tracking-tight">
+                {stats ? formatCurrency(aov) : '-'}
               </p>
-              <div className="flex items-center gap-1.5 mt-1.5">
-                {stats && stats.lowStockProducts > 0 ? (
-                  <span className="text-[10px] text-red-400/70 font-medium">perlu restok</span>
-                ) : (
-                  <span className="text-[10px] text-slate-600">semua aman</span>
-                )}
-                {stats && stats.lowStockProducts > 0 && (
-                  <motion.span
-                    className="relative flex h-2 w-2"
-                    animate={{ scale: [1, 1.3, 1] }}
-                    transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
-                  >
-                    <span className="absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-40" />
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
-                  </motion.span>
-                )}
+              <div className="flex items-center gap-2 mt-2">
+                <span className="text-[10px] text-slate-600">rata-rata per transaksi</span>
               </div>
-              {stats && stats.lowStockVariants > 0 && (
-                <div className="flex items-center gap-1.5 mt-1">
-                  <Layers className="h-3 w-3 text-violet-400" />
-                  <span className="text-[10px] text-violet-400">
-                    {stats.lowStockVariants} varian stok rendah
-                  </span>
-                </div>
-              )}
             </CardContent>
           </Card>
         </motion.div>
       </div>
 
       {/* ═══════════════════════════════════════════════════
-          5. Quick Actions
+          3b. Secondary KPI Row — Rich Info Cards
+      ═══════════════════════════════════════════════════ */}
+      <div className="grid grid-cols-3 lg:grid-cols-6 gap-2.5">
+        {/* Brutto */}
+        <motion.div variants={itemVariants}>
+          <div className="bg-nebula border border-white/[0.04] rounded-xl p-3 space-y-1">
+            <p className="text-[9px] text-slate-600 uppercase tracking-wider font-medium">Brutto</p>
+            <p className="text-sm font-bold text-slate-200">{stats ? formatCurrency(stats.rangeBrutto) : '-'}</p>
+          </div>
+        </motion.div>
+        {/* Diskon */}
+        <motion.div variants={itemVariants}>
+          <div className="bg-nebula border border-white/[0.04] rounded-xl p-3 space-y-1">
+            <p className="text-[9px] text-slate-600 uppercase tracking-wider font-medium">Diskon</p>
+            <p className="text-sm font-bold text-orange-400">-{stats ? formatCurrency(stats.rangeDiscount) : '-'}</p>
+          </div>
+        </motion.div>
+        {/* PPN */}
+        <motion.div variants={itemVariants}>
+          <div className="bg-nebula border border-white/[0.04] rounded-xl p-3 space-y-1">
+            <p className="text-[9px] text-slate-600 uppercase tracking-wider font-medium">PPN</p>
+            <p className="text-sm font-bold text-slate-300">+{stats ? formatCurrency(stats.rangeTax) : '-'}</p>
+          </div>
+        </motion.div>
+        {/* Total Produk */}
+        <motion.div variants={itemVariants}>
+          <div className="bg-nebula border border-white/[0.04] rounded-xl p-3 space-y-1">
+            <p className="text-[9px] text-slate-600 uppercase tracking-wider font-medium">Produk</p>
+            <p className="text-sm font-bold text-slate-200">{stats ? formatNumber(stats.totalProducts) : '-'}</p>
+          </div>
+        </motion.div>
+        {/* Stok Menipis */}
+        <motion.div variants={itemVariants}>
+          <div className={`bg-nebula border rounded-xl p-3 space-y-1 ${
+            stats && stats.lowStockProducts > 0 ? 'border-red-500/20' : 'border-white/[0.04]'
+          }`}>
+            <p className="text-[9px] text-slate-600 uppercase tracking-wider font-medium">Stok Rendah</p>
+            <p className={`text-sm font-bold ${stats && stats.lowStockProducts > 0 ? 'text-red-400' : 'text-slate-200'}`}>
+              {stats ? stats.lowStockProducts : '-'}
+            </p>
+          </div>
+        </motion.div>
+        {/* Total Profit */}
+        {isOwner && (
+          <motion.div variants={itemVariants}>
+            <div className="bg-nebula border border-amber-500/10 rounded-xl p-3 space-y-1">
+              <p className="text-[9px] text-slate-600 uppercase tracking-wider font-medium">Total Profit</p>
+              <p className="text-sm font-bold text-amber-400/70">{stats && stats.totalProfit !== null ? formatCurrency(stats.totalProfit) : '-'}</p>
+            </div>
+          </motion.div>
+        )}
+      </div>
+
+      {/* ═══════════════════════════════════════════════════
+          4. Quick Actions
       ═══════════════════════════════════════════════════ */}
       <motion.div variants={itemVariants}>
         <div className="grid grid-cols-3 gap-2.5">
@@ -790,140 +787,296 @@ export default function DashboardPage() {
       </motion.div>
 
       {/* ═══════════════════════════════════════════════════
-          6. Forecast & Analytics Section (PRO+)
+          5. Revenue Chart — Modern Recharts Area
+      ═══════════════════════════════════════════════════ */}
+      <motion.div variants={itemVariants}>
+        <Card className="aether-card rounded-2xl">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <BarChart3 className="h-4 w-4 theme-text" />
+                <h2 className="text-sm font-semibold text-slate-200">
+                  Revenue & Profit — {getRangeLabel(range)}
+                </h2>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-3 h-1.5 rounded-full bg-emerald-400" />
+                  <span className="text-[10px] text-slate-500">Revenue</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-3 h-1.5 rounded-full bg-amber-400" />
+                  <span className="text-[10px] text-slate-500">Profit</span>
+                </div>
+              </div>
+            </div>
+            {revenueChartData.length > 0 ? (
+              <div className="h-56 sm:h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={revenueChartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="revenueGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#34d399" stopOpacity={0.2} />
+                        <stop offset="95%" stopColor="#34d399" stopOpacity={0} />
+                      </linearGradient>
+                      <linearGradient id="profitGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#fbbf24" stopOpacity={0.15} />
+                        <stop offset="95%" stopColor="#fbbf24" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+                    <XAxis
+                      dataKey="date"
+                      tick={{ fontSize: 10, fill: '#64748b' }}
+                      axisLine={{ stroke: 'rgba(255,255,255,0.06)' }}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      tick={{ fontSize: 9, fill: '#64748b' }}
+                      axisLine={false}
+                      tickLine={false}
+                      tickFormatter={(v: number) => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : String(v)}
+                    />
+                    <Tooltip content={<CustomTooltip />} />
+                    <Area
+                      type="monotone"
+                      dataKey="revenue"
+                      name="Revenue"
+                      stroke="#34d399"
+                      strokeWidth={2}
+                      fill="url(#revenueGrad)"
+                      dot={range !== 'day' ? { r: 2, fill: '#34d399' } : false}
+                      activeDot={{ r: 4, fill: '#34d399', stroke: '#0f172a', strokeWidth: 2 }}
+                    />
+                    {isOwner && (
+                      <Area
+                        type="monotone"
+                        dataKey="profit"
+                        name="Profit"
+                        stroke="#fbbf24"
+                        strokeWidth={1.5}
+                        fill="url(#profitGrad)"
+                        dot={false}
+                        activeDot={{ r: 3, fill: '#fbbf24', stroke: '#0f172a', strokeWidth: 2 }}
+                      />
+                    )}
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <div className="h-56 flex flex-col items-center justify-center text-center">
+                <BarChart3 className="h-8 w-8 text-slate-700 mb-2" />
+                <p className="text-xs text-slate-500">Belum ada data untuk periode ini</p>
+              </div>
+            )}
+            {/* Summary stats below chart */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 pt-3 border-t border-white/[0.04]">
+              <div>
+                <p className="text-[10px] text-slate-500 uppercase tracking-wider">Total Revenue</p>
+                <p className="text-sm font-bold text-emerald-400">{stats ? formatCurrency(stats.rangeRevenue) : '-'}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-slate-500 uppercase tracking-wider">Total Trx</p>
+                <p className="text-sm font-bold text-slate-200">{stats ? formatNumber(stats.rangeTransactions) : '-'}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-slate-500 uppercase tracking-wider">Rata-rata/Hari</p>
+                <p className="text-sm font-bold text-slate-200">
+                  {stats && stats.dailyBreakdown.length > 0
+                    ? formatCurrency(stats.rangeRevenue / stats.dailyBreakdown.length)
+                    : '-'}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] text-slate-500 uppercase tracking-wider">Perubahan</p>
+                <p className={`text-sm font-bold ${isUp ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {changePercent !== 0 ? `${isUp ? '+' : ''}${changePercent.toFixed(1)}%` : '-'}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </motion.div>
+
+      {/* ═══════════════════════════════════════════════════
+          6. Peak Hours & Payment Method Row
+      ═══════════════════════════════════════════════════ */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        {/* Peak Hours Chart — OWNER */}
+        {isOwner && (
+          <motion.div variants={itemVariants}>
+            <Card className="aether-card rounded-2xl">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-4 w-4 text-violet-400" />
+                    <h2 className="text-sm font-semibold text-slate-200">Jam Ramai</h2>
+                  </div>
+                  <span className="text-[10px] text-slate-500">{getRangeLabel(range)}</span>
+                </div>
+                {peakHoursChartData.length > 0 ? (
+                  <div className="h-44">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={peakHoursChartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+                        <XAxis
+                          dataKey="hour"
+                          tick={{ fontSize: 9, fill: '#64748b' }}
+                          axisLine={{ stroke: 'rgba(255,255,255,0.06)' }}
+                          tickLine={false}
+                          interval={1}
+                        />
+                        <YAxis
+                          tick={{ fontSize: 9, fill: '#64748b' }}
+                          axisLine={false}
+                          tickLine={false}
+                        />
+                        <Tooltip content={<CustomTooltip />} />
+                        <Bar dataKey="trx" name="Transaksi" radius={[3, 3, 0, 0]} maxBarSize={20}>
+                          {peakHoursChartData.map((entry, i) => {
+                            const isPeak = busiestHour && formatHour(busiestHour.hour) === entry.hour
+                            return <Cell key={i} fill={isPeak ? '#8b5cf6' : '#34d399'} fillOpacity={isPeak ? 1 : 0.7} />
+                          })}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                ) : (
+                  <div className="h-44 flex flex-col items-center justify-center text-center">
+                    <Clock className="h-7 w-7 text-slate-700 mb-1.5" />
+                    <p className="text-xs text-slate-500">Belum ada data transaksi</p>
+                  </div>
+                )}
+                {busiestHour && busiestHour.transactionCount > 0 && (
+                  <div className="mt-3 px-3 py-2 rounded-lg bg-violet-500/5 border border-violet-500/10 flex items-center justify-between">
+                    <span className="text-[11px] text-slate-400">Jam tersibuk</span>
+                    <span className="text-[11px] font-semibold text-violet-400">
+                      {formatHour(busiestHour.hour)} — {busiestHour.transactionCount} trx
+                    </span>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
+
+        {/* Payment Method Breakdown */}
+        <motion.div variants={itemVariants}>
+          <Card className="aether-card rounded-2xl">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <CreditCard className="h-4 w-4 text-sky-400" />
+                  <h2 className="text-sm font-semibold text-slate-200">Metode Pembayaran</h2>
+                </div>
+                <span className="text-[10px] text-slate-500">{getRangeLabel(range)}</span>
+              </div>
+              {paymentData.length > 0 ? (
+                <div className="space-y-2.5">
+                  {paymentData
+                    .sort((a, b) => b.revenue - a.revenue)
+                    .map((p) => {
+                      const pct = stats && stats.rangeRevenue > 0 ? (p.revenue / stats.rangeRevenue) * 100 : 0
+                      const methodLabel = p.method === 'CASH' ? 'Tunai' : p.method === 'QRIS' ? 'QRIS' : p.method === 'DEBIT' ? 'Debit' : p.method === 'TRANSFER' ? 'Transfer' : p.method
+                      const methodIcon = p.method === 'CASH' ? <Wallet className="h-3.5 w-3.5" /> : <CreditCard className="h-3.5 w-3.5" />
+                      const methodColor = p.method === 'CASH' ? 'text-emerald-400' : p.method === 'QRIS' ? 'text-violet-400' : p.method === 'DEBIT' ? 'text-sky-400' : 'text-amber-400'
+                      return (
+                        <div key={p.method} className="space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className={methodColor}>{methodIcon}</span>
+                              <span className="text-xs font-medium text-slate-300">{methodLabel}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] text-slate-500">{p.count} trx</span>
+                              <span className="text-xs font-semibold text-slate-200">{formatCurrency(p.revenue)}</span>
+                            </div>
+                          </div>
+                          <div className="h-1.5 w-full rounded-full bg-white/[0.04] overflow-hidden">
+                            <motion.div
+                              className={`h-full rounded-full ${p.method === 'CASH' ? 'bg-emerald-400' : p.method === 'QRIS' ? 'bg-violet-400' : p.method === 'DEBIT' ? 'bg-sky-400' : 'bg-amber-400'}`}
+                              initial={{ width: 0 }}
+                              animate={{ width: `${pct}%` }}
+                              transition={{ duration: 0.6, ease: 'easeOut' }}
+                            />
+                          </div>
+                        </div>
+                      )
+                    })}
+                </div>
+              ) : (
+                <div className="h-44 flex flex-col items-center justify-center text-center">
+                  <CreditCard className="h-7 w-7 text-slate-700 mb-1.5" />
+                  <p className="text-xs text-slate-500">Belum ada data pembayaran</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </motion.div>
+      </div>
+
+      {/* ═══════════════════════════════════════════════════
+          7. Forecast & Day Performance (PRO+)
       ═══════════════════════════════════════════════════ */}
       {isOwner && (
         <motion.div variants={itemVariants}>
-          <Tabs defaultValue="forecast" className="space-y-3">
-            <TabsList className="bg-nebula border border-white/[0.06] rounded-xl h-9 p-1">
-              <TabsTrigger value="forecast" className="text-xs gap-1.5 rounded-lg data-[state=active]:bg-white/[0.04] data-[state=active]:text-white">
-                {!hasForecasting && <Lock className="h-3 w-3" />}
-                <Activity className="h-3 w-3" />
-                Forecasting
-              </TabsTrigger>
-              <TabsTrigger value="pnl" className="text-xs gap-1.5 rounded-lg data-[state=active]:bg-white/[0.04] data-[state=active]:text-white">
-                <BarChart3 className="h-3 w-3" />
-                Laba & Rugi
-              </TabsTrigger>
-              <TabsTrigger value="peak" className="text-xs gap-1.5 rounded-lg data-[state=active]:bg-white/[0.04] data-[state=active]:text-white">
-                {!isPro && <Lock className="h-3 w-3" />}
-                <Clock className="h-3 w-3" />
-                Jam Ramai
-              </TabsTrigger>
-            </TabsList>
-
-            {/* ── Forecast Tab ── */}
-            <TabsContent value="forecast" className="mt-0">
-              {!hasForecasting ? (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            {/* Forecast Summary Cards */}
+            {hasForecasting && forecastData ? (
+              <>
                 <Card className="aether-card rounded-2xl">
-                  <CardContent className="py-10 flex flex-col items-center justify-center text-center">
-                    <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-violet-500/10 theme-gradient-subtle border border-white/[0.06] flex items-center justify-center mb-3">
-                      <Activity className="h-6 w-6 text-violet-400/60" />
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Activity className="h-4 w-4 text-violet-400" />
+                      <h2 className="text-sm font-semibold text-slate-200">Forecast & Trend</h2>
                     </div>
-                    <h3 className="text-sm font-semibold text-slate-300 mb-1">Forecasting & Prediksi</h3>
-                    <p className="text-xs text-slate-500 max-w-xs mb-4">
-                      Prediksi revenue, analisa stok otomatis, dan rekomendasi berbasis data AI
-                    </p>
-                    <Button
-                      size="sm"
-                      className="theme-bg hover:theme-hover-light text-white text-xs font-medium h-8 px-4 rounded-lg gap-1.5"
-                      onClick={() => setCurrentPage('settings')}
-                    >
-                      <Crown className="h-3 w-3" />
-                      Upgrade ke PRO
-                    </Button>
-                  </CardContent>
-                </Card>
-              ) : forecastLoading && !forecastData ? (
-                <Card className="aether-card rounded-2xl">
-                  <CardContent className="p-5 space-y-4">
-                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                      {Array.from({ length: 4 }).map((_, i) => (
-                        <Skeleton key={i} className="h-16 bg-white/[0.04] rounded-xl" />
-                      ))}
-                    </div>
-                    <Skeleton className="h-40 bg-white/[0.04] rounded-xl" />
-                    <Skeleton className="h-48 bg-white/[0.04] rounded-xl" />
-                  </CardContent>
-                </Card>
-              ) : forecastData ? (
-                <div className="space-y-3">
-                  {/* Forecast Summary Cards */}
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                    {/* Trend direction */}
-                    <Card className="aether-card">
-                      <CardContent className="p-3">
-                        <div className="flex items-center justify-between mb-1">
-                          <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">Tren Revenue 14 Hari</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      {/* Trend direction */}
+                      <div className="bg-white/[0.03] rounded-xl p-3 border border-white/[0.03]">
+                        <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium mb-1">Tren 14 Hari</p>
+                        <div className="flex items-center gap-1.5">
                           <TrendIcon direction={forecastData.trendDirection} />
+                          <p className={`text-sm font-bold ${
+                            forecastData.trendDirection === 'up' ? 'theme-text' :
+                            forecastData.trendDirection === 'down' ? 'text-red-400' : 'text-slate-200'
+                          }`}>
+                            {forecastData.trendDirection === 'up' ? 'Naik' :
+                             forecastData.trendDirection === 'down' ? 'Turun' : 'Stabil'}
+                          </p>
                         </div>
-                        <p className={`text-sm font-bold ${
-                          forecastData.trendDirection === 'up' ? 'theme-text' :
-                          forecastData.trendDirection === 'down' ? 'text-red-400' : 'text-slate-200'
-                        }`}>
-                          {forecastData.trendDirection === 'up' ? 'Naik' :
-                           forecastData.trendDirection === 'down' ? 'Turun' : 'Stabil'}
-                        </p>
-                        <p className="text-[10px] text-slate-500 mt-0.5">Total pendapatan harian</p>
                         <div className="mt-1.5">
                           <Sparkline data={trendValues} color={
                             forecastData.trendDirection === 'up' ? 'theme-text' :
                             forecastData.trendDirection === 'down' ? 'text-red-400' : 'text-slate-400'
                           } height={24} />
                         </div>
-                      </CardContent>
-                    </Card>
-
-                    {/* Projected Monthly */}
-                    <Card className="aether-card">
-                      <CardContent className="p-3">
-                        <div className="flex items-center justify-between mb-1">
-                          <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">Proyeksi Bulan</p>
-                          <Target className="h-3.5 w-3.5 text-violet-400" />
-                        </div>
+                      </div>
+                      {/* Projected Monthly */}
+                      <div className="bg-white/[0.03] rounded-xl p-3 border border-white/[0.03]">
+                        <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium mb-1">Proyeksi Bulan</p>
                         <p className="text-sm font-bold text-violet-400">
                           {formatCurrency(forecastData.summary.projectedMonthly)}
                         </p>
                         <p className="text-[10px] text-slate-500 mt-0.5">
                           ~{formatCurrency(forecastData.summary.avgDailyRevenue)}/hari
                         </p>
-                      </CardContent>
-                    </Card>
-
-                    {/* Week over week */}
-                    <Card className="aether-card">
-                      <CardContent className="p-3">
-                        <div className="flex items-center justify-between mb-1">
-                          <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">Week vs Week</p>
-                          {forecastData.summary.weekOverWeek > 0
-                            ? <ArrowUpRight className="h-3.5 w-3.5 theme-text" />
-                            : forecastData.summary.weekOverWeek < 0
-                              ? <ArrowDownRight className="h-3.5 w-3.5 text-red-400" />
-                              : <Minus className="h-3.5 w-3.5 text-slate-400" />}
-                        </div>
+                      </div>
+                      {/* Week over week */}
+                      <div className="bg-white/[0.03] rounded-xl p-3 border border-white/[0.03]">
+                        <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium mb-1">Week vs Week</p>
                         <p className={`text-sm font-bold ${
                           forecastData.summary.weekOverWeek > 0 ? 'theme-text' :
                           forecastData.summary.weekOverWeek < 0 ? 'text-red-400' : 'text-slate-200'
                         }`}>
                           {forecastData.summary.weekOverWeek > 0 ? '+' : ''}{forecastData.summary.weekOverWeek}%
                         </p>
-                        <p className="text-[10px] text-slate-500 mt-0.5">vs minggu lalu</p>
-                      </CardContent>
-                    </Card>
-
-                    {/* Stock alerts — Velocity based */}
-                    <Card className={`bg-nebula border rounded-xl ${
-                      forecastData.summary.criticalStock > 0 ? 'border-red-500/20' :
-                      forecastData.summary.warningStock > 0 ? 'border-amber-500/20' : 'border-white/[0.06]'
-                    }`}>
-                      <CardContent className="p-3">
-                        <div className="flex items-center justify-between mb-1">
-                          <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">Stok Kritis</p>
-                          <Warehouse className={`h-3.5 w-3.5 ${
-                            forecastData.summary.criticalStock > 0 ? 'text-red-400' :
-                            forecastData.summary.warningStock > 0 ? 'text-amber-400' : 'theme-text'
-                          }`} />
-                        </div>
+                      </div>
+                      {/* Stock alerts */}
+                      <div className={`bg-white/[0.03] rounded-xl p-3 border ${
+                        forecastData.summary.criticalStock > 0 ? 'border-red-500/20' :
+                        forecastData.summary.warningStock > 0 ? 'border-amber-500/20' : 'border-white/[0.03]'
+                      }`}>
+                        <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium mb-1">Stok Kritis</p>
                         <p className={`text-sm font-bold ${
                           forecastData.summary.criticalStock > 0 ? 'text-red-400' :
                           forecastData.summary.warningStock > 0 ? 'text-amber-400' : 'theme-text'
@@ -934,471 +1087,76 @@ export default function DashboardPage() {
                               ? `${forecastData.summary.warningStock} peringatan`
                               : 'Aman'}
                         </p>
-                        <p className={`text-[10px] mt-0.5 ${
-                          forecastData.summary.criticalStock > 0 ? 'text-red-400/60' :
-                          forecastData.summary.warningStock > 0 ? 'text-amber-400/60' : 'text-slate-500'
-                        }`}>
-                          {forecastData.summary.criticalStock > 0
-                            ? `⚡ ${forecastData.summary.criticalStock} produk habis dalam 3 hari`
-                            : forecastData.summary.warningStock > 0
-                              ? `⚠️ ${forecastData.summary.warningStock} produk menipis (velocity 14 hari)`
-                              : '✓ Semua stok aman berdasarkan penjualan'
-                          }
-                        </p>
-                      </CardContent>
-                    </Card>
-                  </div>
-
-                  {/* Top: Revenue Chart + Day Performance side by side on desktop */}
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                    {/* Revenue Trend + Forecast Line Chart */}
-                    <Card className="aether-card rounded-2xl">
-                      <CardContent className="p-4">
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2">
-                            <Activity className="h-4 w-4 text-violet-400" />
-                            <h2 className="text-sm font-semibold text-slate-200">Revenue Trend & Forecast</h2>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <div className="flex items-center gap-1.5">
-                              <div className="w-6 h-[2px] rounded-full theme-bg-light" />
-                              <span className="text-[10px] text-slate-500">Aktual 14 hari</span>
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                              <div className="w-6 h-[2px] rounded-full bg-violet-400 border-dashed" />
-                              <span className="text-[10px] text-slate-500">Prediksi 7 hari</span>
-                            </div>
-                          </div>
-                        </div>
-                        {/* Chart legend — only on mobile (header has it on desktop) */}
-                        <div className="sm:hidden mb-2 px-3 py-2 rounded-lg bg-white/[0.03] border border-white/[0.03]">
-                          <p className="text-[10px] text-slate-400">
-                            📊 <span className="theme-text font-medium">Hijau</span>: aktual • <span className="text-violet-400 font-medium">Ungu</span>: prediksi
-                          </p>
-                        </div>
-                        <RevenueLineChart trend={forecastData.trend} forecast={forecastData.forecast} />
-                        {/* Forecast summary line */}
-                        <div className="mt-3 flex items-center justify-between px-1">
-                          <div className="flex items-center gap-4">
-                            <div>
-                              <p className="text-[10px] text-slate-500">Rata-rata/hari</p>
-                              <p className="text-xs font-semibold text-slate-200">{formatCurrency(forecastData.summary.avgDailyRevenue)}</p>
-                            </div>
-                            <div>
-                              <p className="text-[10px] text-slate-500">Proyeksi minggu depan</p>
-                              <p className="text-xs font-semibold text-violet-400">{formatCurrency(forecastData.summary.projectedWeekly)}</p>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-[10px] text-slate-500">Week vs Week</p>
-                            <p className={`text-xs font-semibold ${
-                              forecastData.summary.weekOverWeek > 0 ? 'theme-text' :
-                              forecastData.summary.weekOverWeek < 0 ? 'text-red-400' : 'text-slate-200'
-                            }`}>
-                              {forecastData.summary.weekOverWeek > 0 ? '+' : ''}{forecastData.summary.weekOverWeek}%
-                            </p>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-
-                    {/* Day of Week Performance */}
-                    <Card className="aether-card rounded-2xl">
-                      <CardContent className="p-4">
-                        <div className="flex items-center gap-2 mb-3">
-                          <Clock className="h-4 w-4 text-sky-400" />
-                          <h2 className="text-sm font-semibold text-slate-200">Performa per Hari</h2>
-                        </div>
-                        {forecastData.dayPerformance.length === 0 ? (
-                          <div className="flex flex-col items-center py-6 text-center">
-                            <Clock className="h-7 w-7 text-slate-700 mb-1.5" />
-                            <p className="text-xs text-slate-500">Belum cukup data</p>
-                          </div>
-                        ) : (
-                          <div className="space-y-1">
-                            {/* Reorder: Sen first */}
-                            {[...forecastData.dayPerformance.slice(1), forecastData.dayPerformance[0]].map((d) => (
-                              <DayHeatBar
-                                key={d.day}
-                                day={d.day}
-                                avgRevenue={d.avgRevenue}
-                                maxRevenue={Math.max(...forecastData.dayPerformance.map((dp) => dp.avgRevenue), 1)}
-                                avgTx={d.avgTx}
-                              />
-                            ))}
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
-                  </div>
-
-                  {/* Stock Predictions — full width below */}
-                  <Card className="aether-card rounded-2xl">
-                    <CardContent className="p-4">
-                      <div className="flex items-center gap-2 mb-3">
-                        <Warehouse className="h-4 w-4 text-amber-400" />
-                        <h2 className="text-sm font-semibold text-slate-200">Prediksi Stok</h2>
-                        {forecastData.stockPredictions.length > 0 && (
-                          <Badge className="text-[9px] bg-white/[0.04] border-white/[0.03] text-slate-400 ml-auto">
-                            {forecastData.stockPredictions.length} produk
-                          </Badge>
-                        )}
                       </div>
-                      {forecastData.stockPredictions.length === 0 ? (
-                        <div className="flex flex-col items-center py-6 text-center">
-                          <Package className="h-7 w-7 text-slate-700 mb-1.5" />
-                          <p className="text-xs text-slate-500">Belum cukup data untuk prediksi</p>
-                        </div>
-                      ) : (
-                        <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
-                          {forecastData.stockPredictions.map((p, i) => (
-                            <div key={i} className={`flex items-center gap-3 px-3 py-2 rounded-lg border ${
-                              p.status === 'critical' ? 'bg-red-500/[0.04] border-red-500/15' :
-                              p.status === 'warning' ? 'bg-amber-500/[0.04] border-amber-500/15' :
-                              'bg-white/[0.03] border-white/[0.03]'
-                            }`}>
-                              <span className="text-[10px] font-bold text-slate-600 w-4 text-center shrink-0">{i + 1}</span>
-                              <div className="flex-1 min-w-0">
-                                <p className="text-xs font-medium text-slate-300 truncate">{p.name}</p>
-                                <p className="text-[10px] text-slate-500">
-                                  sisa {p.stock} • {p.dailyVelocity}/hari
-                                </p>
-                              </div>
-                              <div className="text-right shrink-0">
-                                <p className={`text-xs font-bold ${
-                                  p.status === 'critical' ? 'text-red-400' :
-                                  p.status === 'warning' ? 'text-amber-400' : 'text-slate-300'
-                                }`}>
-                                  {p.daysUntilEmpty === Infinity ? '∞' : `${p.daysUntilEmpty}h`}
-                                </p>
-                                <p className="text-[9px] text-slate-600">habis</p>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                </div>
-              ) : null}
-            </TabsContent>
-
-            {/* ── P&L Tab ── */}
-            <TabsContent value="pnl" className="mt-0">
-              <Card className="aether-card rounded-2xl">
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-2 mb-4">
-                    <BarChart3 className="h-4 w-4 text-amber-400" />
-                    <h2 className="text-sm font-semibold text-slate-200">Laba & Rugi Hari Ini</h2>
-                  </div>
-                  <div className="grid grid-cols-2 lg:grid-cols-5 gap-2.5">
-                    {[
-                      { label: 'Brutto', value: stats?.todayBrutto ?? 0, color: 'text-slate-200', barColor: 'bg-zinc-400' },
-                      { label: 'Diskon', value: -(stats?.todayDiscount ?? 0), color: 'text-red-400', barColor: 'bg-red-400' },
-                      { label: 'Netto', value: stats?.todayRevenue ?? 0, color: 'theme-text', barColor: 'theme-bg-light' },
-                      { label: 'PPN', value: stats?.todayTax ?? 0, color: 'text-sky-400', barColor: 'bg-sky-400' },
-                      { label: 'Profit', value: stats?.todayProfit ?? 0, color: 'text-amber-400', barColor: 'bg-amber-400' },
-                    ].map((item) => (
-                      <div key={item.label} className="rounded-xl bg-white/[0.03] border border-white/[0.03] p-3 space-y-2">
-                        <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">{item.label}</p>
-                        <p className={`text-sm font-bold ${item.color}`}>
-                          {item.value < 0 ? '-' : ''}{formatCurrency(Math.abs(item.value))}
-                        </p>
-                        <MiniBar value={Math.abs(item.value)} max={stats?.todayBrutto ?? 1} color={item.barColor} />
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-
-            {/* ── Peak Hours Tab ── */}
-            <TabsContent value="peak" className="mt-0">
-              {!isPro ? (
-                <Card className="aether-card rounded-2xl">
-                  <CardContent className="py-10 flex flex-col items-center justify-center text-center">
-                    <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-violet-500/10 to-sky-500/10 border border-white/[0.06] flex items-center justify-center mb-3">
-                      <Clock className="h-6 w-6 text-violet-400/60" />
                     </div>
-                    <h3 className="text-sm font-semibold text-slate-300 mb-1">Analisa Jam Ramai</h3>
-                    <p className="text-xs text-slate-500 max-w-xs mb-4">
-                      Lihat jam tersibuk untuk optimasi shift karyawan dan operasional
-                    </p>
-                    <Button
-                      size="sm"
-                      className="theme-bg hover:theme-hover-light text-white text-xs font-medium h-8 px-4 rounded-lg gap-1.5"
-                      onClick={() => setCurrentPage('settings')}
-                    >
-                      <Crown className="h-3 w-3" />
-                      Upgrade ke PRO
-                    </Button>
                   </CardContent>
                 </Card>
-              ) : (
-                <div className="space-y-3">
-                  {/* Main Bar Chart */}
-                  <Card className="aether-card rounded-2xl">
-                    <CardContent className="p-4">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
-                        <div className="flex items-center gap-2">
-                          <Zap className="h-4 w-4 text-violet-400" />
-                          <h2 className="text-sm font-semibold text-slate-200">Jam Ramai Hari Ini</h2>
-                          {busiestHour && busiestHour.transactionCount > 0 && (
-                            <Badge className="bg-violet-500/10 border-violet-500/20 text-violet-400 text-[10px]">
-                              Puncak: {String(busiestHour.hour).padStart(2, '0')}:00
-                            </Badge>
-                          )}
-                        </div>
-                        {stats?.todayTransactions && stats.todayTransactions > 0 && (
-                          <div className="flex items-center gap-3 text-[10px]">
-                            <span className="text-slate-500">Total hari ini:</span>
-                            <span className="font-semibold text-slate-200">{stats.todayTransactions} trx</span>
-                            <span className="text-slate-600">•</span>
-                            <span className="font-semibold theme-text">{formatCurrency(stats.todayRevenue)}</span>
-                          </div>
-                        )}
+
+                {/* Day of Week Performance */}
+                <Card className="aether-card rounded-2xl">
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Clock className="h-4 w-4 text-sky-400" />
+                      <h2 className="text-sm font-semibold text-slate-200">Performa per Hari</h2>
+                    </div>
+                    {forecastData.dayPerformance.length === 0 ? (
+                      <div className="flex flex-col items-center py-6 text-center">
+                        <Clock className="h-7 w-7 text-slate-700 mb-1.5" />
+                        <p className="text-xs text-slate-500">Belum cukup data</p>
                       </div>
-                      <div className="relative h-40 sm:h-48">
-                        {/* Y-axis labels */}
-                        <div className="absolute left-0 top-0 bottom-6 w-7 flex flex-col justify-between text-[10px] text-slate-600">
-                          <span>{maxTxCount}</span>
-                          <span>{Math.round(maxTxCount / 2)}</span>
-                          <span>0</span>
-                        </div>
-                        <div className="ml-9 h-full relative">
-                          {/* Grid lines */}
-                          {[0, 0.5, 1].map((pct) => (
-                            <div key={pct} className="absolute left-0 right-0 border-t border-white/[0.04]" style={{ top: `${(1 - pct) * 100}%` }} />
-                          ))}
-                          <svg viewBox="0 0 600 160" className="w-full h-full" preserveAspectRatio="none">
-                            <defs>
-                              <linearGradient id="peakGrad" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stopColor="rgb(52 211 153)" stopOpacity="0.2" />
-                                <stop offset="100%" stopColor="rgb(52 211 153)" stopOpacity="0" />
-                              </linearGradient>
-                            </defs>
-                            {/* Area fill */}
-                            {(() => {
-                              const points = (stats?.peakHours || []).map((b, i) => {
-                                const x = (i / 23) * 600
-                                const y = maxTxCount > 0 ? 155 - (b.transactionCount / maxTxCount) * 140 : 155
-                                return `${x},${y}`
-                              })
-                              if (points.length < 2) return null
-                              return (
-                                <polygon
-                                  points={`${points.join(' ')} 600,155 0,155`}
-                                  fill="url(#peakGrad)"
-                                />
-                              )
-                            })()}
-                            {/* Line */}
-                            <motion.polyline
-                              fill="none"
-                              stroke="rgb(52 211 153)"
-                              strokeWidth={2}
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              points={(stats?.peakHours || []).map((b, i) => {
-                                const x = (i / 23) * 600
-                                const y = maxTxCount > 0 ? 155 - (b.transactionCount / maxTxCount) * 140 : 155
-                                return `${x},${y}`
-                              }).join(' ')}
-                              initial={{ pathLength: 0 }}
-                              animate={{ pathLength: 1 }}
-                              transition={{ duration: 1, ease: 'easeOut' }}
-                            />
-                            {/* Dots */}
-                            {(stats?.peakHours || []).map((b, i) => {
-                              const x = (i / 23) * 600
-                              const y = maxTxCount > 0 ? 155 - (b.transactionCount / maxTxCount) * 140 : 155
-                              const isPeak = busiestHour?.hour === b.hour && b.transactionCount > 0
-                              return (
-                                <motion.circle
-                                  key={i}
-                                  cx={x}
-                                  cy={y}
-                                  r={isPeak ? 5 : b.transactionCount > 0 ? 2.5 : 0}
-                                  fill={isPeak ? 'rgb(167 139 250)' : b.transactionCount > 0 ? 'rgb(52 211 153)' : 'transparent'}
-                                  initial={{ opacity: 0, scale: 0 }}
-                                  animate={{ opacity: 1, scale: 1 }}
-                                  transition={{ delay: 0.5 + i * 0.02 }}
-                                />
-                              )
-                            })}
-                          </svg>
-                          {/* X-axis labels */}
-                          <div className="flex justify-between mt-1 px-0">
-                            {[0, 3, 6, 9, 12, 15, 18, 21, 23].map((h) => (
-                              <span key={h} className="text-[9px] text-slate-600">{String(h).padStart(2, '0')}</span>
-                            ))}
-                          </div>
-                        </div>
+                    ) : (
+                      <div className="space-y-1">
+                        {[...forecastData.dayPerformance.slice(1), forecastData.dayPerformance[0]].map((d) => (
+                          <DayHeatBar
+                            key={d.day}
+                            day={d.day}
+                            avgRevenue={d.avgRevenue}
+                            maxRevenue={Math.max(...forecastData.dayPerformance.map((dp) => dp.avgRevenue), 1)}
+                            avgTx={d.avgTx}
+                          />
+                        ))}
                       </div>
-                    </CardContent>
-                  </Card>
-
-                  {/* Historical Insights Row */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    {/* Peak Hour Insight */}
-                    <Card className="aether-card">
-                      <CardContent className="p-3">
-                        <div className="flex items-center gap-2 mb-2">
-                          <div className="w-7 h-7 rounded-lg bg-violet-500/10 flex items-center justify-center">
-                            <Zap className="h-3.5 w-3.5 text-violet-400" />
-                          </div>
-                          <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">Jam Puncak</p>
-                        </div>
-                        {busiestHour && busiestHour.transactionCount > 0 ? (
-                          <>
-                            <p className="text-lg font-bold text-violet-400">{String(busiestHour.hour).padStart(2, '0')}:00</p>
-                            <p className="text-[10px] text-slate-500 mt-0.5">
-                              {busiestHour.transactionCount} trx • {formatCurrency(busiestHour.revenue)}
-                            </p>
-                          </>
-                        ) : (
-                          <p className="text-xs text-slate-500">Belum ada transaksi</p>
-                        )}
-                      </CardContent>
-                    </Card>
-
-                    {/* Quiet Hours Insight */}
-                    <Card className="aether-card">
-                      <CardContent className="p-3">
-                        <div className="flex items-center gap-2 mb-2">
-                          <div className="w-7 h-7 rounded-lg bg-white/[0.04] flex items-center justify-center">
-                            <Clock className="h-3.5 w-3.5 text-slate-400" />
-                          </div>
-                          <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">Jam Sepi</p>
-                        </div>
-                        {(() => {
-                          const quietHours = stats?.peakHours?.filter(b => b.transactionCount === 0)
-                          const quietRange = quietHours && quietHours.length > 0
-                            ? (() => {
-                                const hours = quietHours.map(h => h.hour).sort((a, b) => a - b)
-                                // Find longest consecutive range
-                                let bestStart = hours[0], bestEnd = hours[0], curStart = hours[0], curEnd = hours[0]
-                                for (let i = 1; i < hours.length; i++) {
-                                  if (hours[i] === curEnd + 1) { curEnd = hours[i] }
-                                  else { if (curEnd - curStart > bestEnd - bestStart) { bestStart = curStart; bestEnd = curEnd } curStart = hours[i]; curEnd = hours[i] }
-                                }
-                                if (curEnd - curStart > bestEnd - bestStart) { bestStart = curStart; bestEnd = curEnd }
-                                return { start: bestStart, end: bestEnd, count: quietHours.length }
-                              })()
-                            : null
-                          return quietRange ? (
-                            <>
-                              <p className="text-lg font-bold text-slate-300">
-                                {String(quietRange.start).padStart(2, '0')}:00–{String(quietRange.end).padStart(2, '0')}:00
-                              </p>
-                              <p className="text-[10px] text-slate-500 mt-0.5">{quietRange.count} jam tanpa transaksi</p>
-                            </>
-                          ) : (
-                            <p className="text-xs text-slate-500">Semua jam aktif</p>
-                          )
-                        })()}
-                      </CardContent>
-                    </Card>
-
-                    {/* Average per Hour */}
-                    <Card className="aether-card">
-                      <CardContent className="p-3">
-                        <div className="flex items-center gap-2 mb-2">
-                          <div className="w-7 h-7 rounded-lg theme-bg-very-light flex items-center justify-center">
-                            <Activity className="h-3.5 w-3.5 theme-text" />
-                          </div>
-                          <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">Rata-rata/Jam</p>
-                        </div>
-                        {(() => {
-                          const activeHours = stats?.peakHours?.filter(b => b.transactionCount > 0).length ?? 0
-                          const avgPerHour = activeHours > 0 ? (stats?.todayTransactions ?? 0) / activeHours : 0
-                          const avgRevenuePerHour = activeHours > 0 ? (stats?.todayRevenue ?? 0) / activeHours : 0
-                          return activeHours > 0 ? (
-                            <>
-                              <p className="text-lg font-bold theme-text">{avgPerHour.toFixed(1)} trx</p>
-                              <p className="text-[10px] text-slate-500 mt-0.5">
-                                ~{formatCurrency(Math.round(avgRevenuePerHour))}/jam • {activeHours} jam aktif
-                              </p>
-                            </>
-                          ) : (
-                            <p className="text-xs text-slate-500">Belum ada data</p>
-                          )
-                        })()}
-                      </CardContent>
-                    </Card>
+                    )}
+                  </CardContent>
+                </Card>
+              </>
+            ) : !hasForecasting ? (
+              <Card className="aether-card rounded-2xl lg:col-span-2">
+                <CardContent className="py-10 flex flex-col items-center justify-center text-center">
+                  <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-violet-500/10 theme-gradient-subtle border border-white/[0.06] flex items-center justify-center mb-3">
+                    <Activity className="h-6 w-6 text-violet-400/60" />
                   </div>
-
-                  {/* AI Insight for Peak Hours */}
-                  {(() => {
-                    const peak = busiestHour
-                    if (!peak || peak.transactionCount === 0) return null
-                    const totalTrx = stats?.todayTransactions ?? 0
-                    const peakPct = totalTrx > 0 ? Math.round((peak.transactionCount / totalTrx) * 100) : 0
-                    const activeHours = stats?.peakHours?.filter(b => b.transactionCount > 0).length ?? 0
-                    return (
-                      <div className="px-3 py-2.5 rounded-xl bg-white/[0.03] border border-white/[0.03]">
-                        <p className="text-[11px] text-slate-400 leading-relaxed">
-                          <span className="text-slate-300 font-medium">💡 Insight:</span>{' '}
-                          Jam <span className="text-violet-400 font-semibold">{String(peak.hour).padStart(2, '0')}:00</span> adalah jam tersibuk hari ini dengan{' '}
-                          <span className="text-slate-200 font-medium">{peak.transactionCount} transaksi ({peakPct}%)</span>{' '}
-                          menghasilkan{' '}
-                          <span className="theme-text font-medium">{formatCurrency(peak.revenue)}</span>.
-                          {activeHours > 0 && (
-                            <span>
-                              {' '}Outlet aktif selama <span className="text-slate-200 font-medium">{activeHours} jam</span> dengan rata-rata{' '}
-                              <span className="text-slate-200 font-medium">{totalTrx > 0 ? (totalTrx / activeHours).toFixed(1) : 0} trx/jam</span>.
-                            </span>
-                          )}
-                          {peakPct > 30 && (
-                            <span className="text-amber-400"> ⚠️ {peakPct}% transaksi terkonsentrasi di 1 jam — pertimbangkan tambah shift.</span>
-                          )}
-                        </p>
-                      </div>
-                    )
-                  })()}
-                </div>
-              )}
-            </TabsContent>
-          </Tabs>
+                  <h3 className="text-sm font-semibold text-slate-300 mb-1">Forecasting & Prediksi</h3>
+                  <p className="text-xs text-slate-500 max-w-xs mb-4">
+                    Prediksi revenue, analisa stok otomatis, dan rekomendasi berbasis data AI
+                  </p>
+                  <Button
+                    size="sm"
+                    className="theme-bg hover:theme-hover-light text-white text-xs font-medium h-8 px-4 rounded-lg gap-1.5"
+                    onClick={() => setCurrentPage('settings')}
+                  >
+                    <Crown className="h-3 w-3" />
+                    Upgrade ke PRO
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : null}
+          </div>
         </motion.div>
       )}
 
       {/* ═══════════════════════════════════════════════════
-          7. Insight Card (OWNER, AI Insights feature)
+          8. AI Insight Card
       ═══════════════════════════════════════════════════ */}
       {isOwner && hasAiInsights && (
         <motion.div variants={itemVariants}>
-          {insightLoading && !insightData ? (
+          {insightData ? (
             <Card className="aether-card rounded-2xl">
-              <CardContent className="p-5 space-y-3">
-                <div className="flex items-center gap-2">
-                  <Skeleton className="h-4 w-4 rounded bg-white/[0.04]" />
-                  <Skeleton className="h-4 w-32 bg-white/[0.04]" />
-                </div>
-                <Skeleton className="h-4 w-72 bg-white/[0.04]" />
-                <Skeleton className="h-3 w-full bg-white/[0.04]" />
-                <div className="flex gap-2">
-                  <Skeleton className="h-7 w-24 rounded-lg bg-white/[0.04]" />
-                  <Skeleton className="h-7 w-24 rounded-lg bg-white/[0.04]" />
-                </div>
-              </CardContent>
-            </Card>
-          ) : insightData ? (
-            <Card className={`bg-nebula border rounded-2xl overflow-hidden relative ${
-              insightData.healthScore >= 75 ? 'theme-border-light' : insightData.healthScore >= 50 ? 'border-amber-500/15' : 'border-red-500/15'
-            }`}>
-              <div className={`absolute inset-0 pointer-events-none ${
-                insightData.healthScore >= 75
-                  ? 'bg-gradient-to-br theme-gradient-subtle'
-                  : insightData.healthScore >= 50
-                    ? 'bg-gradient-to-br from-amber-500/[0.03] to-transparent'
-                    : 'bg-gradient-to-br from-red-500/[0.03] to-transparent'
-              }`} />
-              <CardContent className="p-5 relative">
-                <div className="flex items-center justify-between mb-4">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <Sparkles className="h-4 w-4 text-violet-400" />
-                    <h2 className="text-sm font-semibold text-slate-200">AI Insight Hari Ini</h2>
+                    <h2 className="text-sm font-semibold text-slate-200">AI Insight — {getRangeLabel(range)}</h2>
                   </div>
                   <div className="flex items-center gap-2">
                     <HealthRing score={insightData.healthScore} size="sm" />
@@ -1474,21 +1232,24 @@ export default function DashboardPage() {
       )}
 
       {/* ═══════════════════════════════════════════════════
-          8. Bottom Row — Top Products & Top Customers
+          9. Bottom Row — Top Products & Top Customers
       ═══════════════════════════════════════════════════ */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         {/* Top Products */}
         <motion.div variants={itemVariants}>
           <Card className="aether-card rounded-2xl">
             <CardContent className="p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <Package className="h-4 w-4 theme-text" />
-                <h2 className="text-sm font-semibold text-slate-200">Produk Terlaris</h2>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <Package className="h-4 w-4 theme-text" />
+                  <h2 className="text-sm font-semibold text-slate-200">Produk Terlaris</h2>
+                </div>
+                <span className="text-[10px] text-slate-500">{getRangeLabel(range)}</span>
               </div>
               {topSelling.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-6 text-center">
                   <Package className="h-7 w-7 text-slate-700 mb-1.5" />
-                  <p className="text-xs text-slate-500">Belum ada data hari ini</p>
+                  <p className="text-xs text-slate-500">Belum ada data untuk periode ini</p>
                 </div>
               ) : (
                 <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
@@ -1513,13 +1274,16 @@ export default function DashboardPage() {
           <motion.div variants={itemVariants}>
             <Card className="aether-card rounded-2xl">
               <CardContent className="p-4">
-                <div className="flex items-center gap-2 mb-3">
-                  <Users className="h-4 w-4 text-sky-400" />
-                  <h2 className="text-sm font-semibold text-slate-200">Top Customer</h2>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <UsersRound className="h-4 w-4 text-sky-400" />
+                    <h2 className="text-sm font-semibold text-slate-200">Top Customer</h2>
+                  </div>
+                  <span className="text-[10px] text-slate-500">All-time</span>
                 </div>
                 {(!stats?.topCustomers || stats.topCustomers.length === 0) ? (
                   <div className="flex flex-col items-center justify-center py-6 text-center">
-                    <Users className="h-7 w-7 text-slate-700 mb-1.5" />
+                    <UsersRound className="h-7 w-7 text-slate-700 mb-1.5" />
                     <p className="text-xs text-slate-500">Belum ada data customer</p>
                   </div>
                 ) : (
@@ -1543,7 +1307,7 @@ export default function DashboardPage() {
       </div>
 
       {/* ═══════════════════════════════════════════════════
-          9. Low Stock Detail (Products & Variants)
+          10. Low Stock Detail (Products & Variants)
       ═══════════════════════════════════════════════════ */}
       <motion.div variants={itemVariants}>
         <Card className="aether-card">
@@ -1553,12 +1317,23 @@ export default function DashboardPage() {
                 <AlertTriangle className="h-4 w-4 text-red-400" />
                 Produk Stok Menipis
               </h2>
-              {stats && stats.lowStockVariants > 0 && (
-                <Badge className="bg-violet-500/10 border-violet-500/20 text-violet-400 text-[10px] gap-1">
-                  <Layers className="h-3 w-3" />
-                  {stats.lowStockVariants} varian
-                </Badge>
-              )}
+              <div className="flex items-center gap-2">
+                {stats && stats.lowStockVariants > 0 && (
+                  <Badge className="bg-violet-500/10 border-violet-500/20 text-violet-400 text-[10px] gap-1">
+                    <Layers className="h-3 w-3" />
+                    {stats.lowStockVariants} varian
+                  </Badge>
+                )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setCurrentPage('products')}
+                  className="h-7 text-[11px] text-slate-500 hover:text-slate-300 hover:bg-white/[0.04] gap-1"
+                >
+                  Lihat Semua
+                  <ChevronRight className="h-3 w-3" />
+                </Button>
+              </div>
             </div>
             {(!stats?.lowStockList || stats.lowStockList.length === 0) && (!stats?.lowStockVariantList || stats.lowStockVariantList.length === 0) ? (
               <div className="flex flex-col items-center justify-center py-10 text-center">
@@ -1593,7 +1368,6 @@ export default function DashboardPage() {
                       </div>
                     )
                   })}
-                  {/* Variant low stock items */}
                   {stats.lowStockVariantList && stats.lowStockVariantList.length > 0 && (
                     <>
                       <div className="flex items-center gap-1.5 pt-2 pb-1">
@@ -1655,7 +1429,6 @@ export default function DashboardPage() {
                           </TableRow>
                         )
                       })}
-                      {/* Variant low stock rows */}
                       {stats.lowStockVariantList && stats.lowStockVariantList.length > 0 && (
                         <>
                           <TableRow className="border-white/[0.06] hover:bg-transparent">
