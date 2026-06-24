@@ -173,36 +173,6 @@ export async function GET(request: NextRequest) {
       aiInsight = 'AI insight requires Z.AI GLM 5 integration'
     }
 
-    // ── Calendar Revenue (last 35 days for calendar view) ──
-    const calendarStart = new Date(todayStart.getTime() - 34 * 86_400_000)
-    const calendarTransactions = await db.transaction.findMany({
-      where: {
-        outletId,
-        createdAt: { gte: calendarStart, lt: new Date(todayStart.getTime() + 86_400_000) },
-        ...voidExclude,
-      },
-      select: { total: true, createdAt: true },
-    })
-
-    // Group by date string (YYYY-MM-DD)
-    const calendarRevenueMap = new Map<string, number>()
-    for (const t of calendarTransactions) {
-      const dateKey = (() => {
-        if (tzOffset !== null) {
-          const localMs = t.createdAt.getTime() - tzOffset * 60000
-          const d = new Date(localMs)
-          return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
-        }
-        return `${t.createdAt.getFullYear()}-${String(t.createdAt.getMonth() + 1).padStart(2, '0')}-${String(t.createdAt.getDate()).padStart(2, '0')}`
-      })()
-      calendarRevenueMap.set(dateKey, (calendarRevenueMap.get(dateKey) ?? 0) + t.total)
-    }
-
-    const calendarRevenue = Array.from(calendarRevenueMap.entries()).map(([date, revenue]) => ({
-      date,
-      revenue,
-    }))
-
     return safeJson({
       // All-time
       totalRevenue,
@@ -233,9 +203,6 @@ export async function GET(request: NextRequest) {
       yesterdayRevenue,
       yesterdayTransactions: yesterdayTxCount,
       revenueChangePercent,
-
-      // Calendar revenue (last 35 days)
-      calendarRevenue,
 
       // OWNER-ONLY Pro features
       peakHours: isOwner ? peakHours : null,

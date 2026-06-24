@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
 import { toast } from 'sonner'
-import { formatDate, formatCurrency, formatNumber } from '@/lib/format'
+import { formatDate } from '@/lib/format'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -40,13 +40,6 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import {
   Plus,
   Pencil,
   Trash2,
@@ -59,9 +52,6 @@ import {
   Shield,
   Search,
   Users,
-  Store,
-  Receipt,
-  TrendingUp,
 } from 'lucide-react'
 
 // ==================== TYPES ====================
@@ -71,16 +61,8 @@ interface CrewMember {
   name: string
   email: string
   role: string
-  outletId?: string
-  outletName?: string | null
   createdAt: string
   crewPermission?: { pages: string }
-  // Performance metrics
-  totalTransactions?: number
-  totalRevenue?: number
-  monthTransactions?: number
-  monthRevenue?: number
-  todayTransactions?: number
 }
 
 interface CrewFormData {
@@ -88,7 +70,6 @@ interface CrewFormData {
   email: string
   password: string
   showPassword: boolean
-  outletId: string
 }
 
 interface CrewPermission {
@@ -104,7 +85,6 @@ const DEFAULT_FORM: CrewFormData = {
   email: '',
   password: '',
   showPassword: false,
-  outletId: '',
 }
 
 const AVAILABLE_PAGES = [
@@ -152,10 +132,6 @@ function CrewManagement() {
   const [search, setSearch] = useState('')
   const [activeTab, setActiveTab] = useState('crew-list')
 
-  // Multi-outlet
-  const [outlets, setOutlets] = useState<{ id: string; name: string }[]>([])
-  const [outletId, setOutletId] = useState('')
-
   // Dialogs
   const [addOpen, setAddOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
@@ -171,13 +147,10 @@ function CrewManagement() {
   const fetchCrew = useCallback(async () => {
     setLoading(true)
     try {
-      const params = new URLSearchParams()
-      if (outletId) params.set('outletId', outletId)
-      const res = await fetch(`/api/outlet/crew?${params}`)
+      const res = await fetch('/api/outlet/crew')
       if (res.ok) {
         const data = await res.json()
         setCrew(data.crew || [])
-        if (data.outlets && data.outlets.length > 1) setOutlets(data.outlets)
       } else {
         toast.error('Gagal memuat daftar crew')
       }
@@ -186,7 +159,7 @@ function CrewManagement() {
     } finally {
       setLoading(false)
     }
-  }, [outletId])
+  }, [])
 
   useEffect(() => {
     fetchCrew()
@@ -219,7 +192,6 @@ function CrewManagement() {
           name: formData.name.trim(),
           email: formData.email.trim().toLowerCase(),
           password: formData.password,
-          ...(formData.outletId ? { outletId: formData.outletId } : {}),
         }),
       })
       if (res.ok) {
@@ -249,7 +221,6 @@ function CrewManagement() {
       email: member.email,
       password: '',
       showPassword: false,
-      outletId: member.outletId || '',
     })
     setEditOpen(true)
   }
@@ -270,7 +241,6 @@ function CrewManagement() {
       const payload: Record<string, string> = {
         name: formData.name.trim(),
         email: formData.email.trim().toLowerCase(),
-        ...(formData.outletId ? { outletId: formData.outletId } : {}),
       }
       if (formData.password) {
         payload.password = formData.password
@@ -332,7 +302,7 @@ function CrewManagement() {
         {activeTab === 'crew-list' && (
           <Button
             onClick={() => {
-              setFormData({ ...DEFAULT_FORM, outletId: outletId })
+              setFormData(DEFAULT_FORM)
               setAddOpen(true)
             }}
             className="theme-bg hover:theme-hover text-white h-8 text-xs"
@@ -366,53 +336,16 @@ function CrewManagement() {
 
         {/* Tab: Crew List */}
         <TabsContent value="crew-list" className="space-y-3">
-          {/* Search + Outlet filter */}
-          <div className="flex flex-col sm:flex-row gap-2">
-            <div className="relative flex-1 min-w-0 sm:max-w-xs">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
-              <Input
-                placeholder="Cari nama atau email crew..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                autoComplete="off"
-                autoCorrect="off"
-                autoCapitalize="off"
-                spellCheck={false}
-                data-form-type="other"
-                data-lpignore="true"
-                data-1p-ignore="true"
-                className="pl-9 h-9 sm:h-10 text-xs bg-nebula border-white/[0.06] text-white placeholder:text-slate-500 w-full"
-              />
-            </div>
-            {outlets.length > 1 && (
-              <Select value={outletId || '__all__'} onValueChange={(v) => setOutletId(v === '__all__' ? '' : v)}>
-                <SelectTrigger className="w-full sm:w-44 bg-white/[0.04] border-white/[0.08] text-white h-9 text-xs">
-                  <Store className="mr-1.5 h-3 w-3 text-slate-500" />
-                  <SelectValue placeholder="Semua Outlet" />
-                </SelectTrigger>
-                <SelectContent className="bg-white/[0.04] border-white/[0.08]">
-                  <SelectItem value="__all__" className="text-slate-200 focus:bg-white/[0.06] text-xs">Semua Outlet</SelectItem>
-                  {outlets.map((o) => (
-                    <SelectItem key={o.id} value={o.id} className="text-slate-200 focus:bg-white/[0.06] text-xs">{o.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
+          {/* Search */}
+          <div className="relative w-full sm:max-w-xs">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
+            <Input
+              placeholder="Cari nama atau email crew..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9 h-9 sm:h-10 text-xs bg-nebula border-white/[0.06] text-white placeholder:text-slate-500 w-full"
+            />
           </div>
-
-          {/* Performance summary bar */}
-          {!loading && crew.length > 0 && (
-            <div className="flex items-center gap-4 text-[11px]">
-              <div className="flex items-center gap-1.5 text-slate-500">
-                <Receipt className="h-3 w-3" />
-                <span>Bulan ini: <span className="text-sky-400 font-medium">{formatNumber(crew.reduce((s, c) => s + (c.monthTransactions ?? 0), 0))} transaksi</span></span>
-              </div>
-              <div className="flex items-center gap-1.5 text-slate-500">
-                <TrendingUp className="h-3 w-3" />
-                <span>Pendapatan: <span className="text-emerald-400 font-medium">{formatCurrency(crew.reduce((s, c) => s + (c.monthRevenue ?? 0), 0))}</span></span>
-              </div>
-            </div>
-          )}
 
           {/* Content */}
           {loading ? (
@@ -446,14 +379,10 @@ function CrewManagement() {
                     <TableHeader>
                       <TableRow className="border-white/[0.06] hover:bg-transparent">
                         <TableHead className="text-slate-500 text-[11px] font-medium">Crew</TableHead>
-                        {outlets.length > 1 && (
-                          <TableHead className="text-slate-500 text-[11px] font-medium hidden md:table-cell">Outlet</TableHead>
-                        )}
                         <TableHead className="text-slate-500 text-[11px] font-medium hidden sm:table-cell">Email</TableHead>
                         <TableHead className="text-slate-500 text-[11px] font-medium text-center">Role</TableHead>
                         <TableHead className="text-slate-500 text-[11px] font-medium text-center">Halaman Akses</TableHead>
-                        <TableHead className="text-slate-500 text-[11px] font-medium text-center hidden lg:table-cell">Bulan Ini</TableHead>
-                        <TableHead className="text-slate-500 text-[11px] font-medium text-right hidden lg:table-cell">Pendapatan</TableHead>
+                        <TableHead className="text-slate-500 text-[11px] font-medium hidden lg:table-cell">Bergabung</TableHead>
                         <TableHead className="text-slate-500 text-[11px] font-medium text-right">Aksi</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -469,20 +398,9 @@ function CrewManagement() {
                                 </div>
                                 <div className="min-w-0">
                                   <p className="text-sm font-medium text-slate-200 truncate">{member.name}</p>
-                                  {member.todayTransactions != null && member.todayTransactions > 0 && (
-                                    <p className="text-[10px] text-emerald-400/70">{member.todayTransactions} transaksi hari ini</p>
-                                  )}
                                 </div>
                               </div>
                             </TableCell>
-                            {outlets.length > 1 && (
-                              <TableCell className="py-2.5 px-3 hidden md:table-cell">
-                                <div className="flex items-center gap-1.5">
-                                  <Store className="h-3 w-3 text-slate-500 shrink-0" />
-                                  <span className="text-xs text-slate-400 truncate max-w-[120px]">{member.outletName || '-'}</span>
-                                </div>
-                              </TableCell>
-                            )}
                             <TableCell className="py-2.5 px-3 hidden sm:table-cell">
                               <div className="flex items-center gap-1.5">
                                 <Mail className="h-3 w-3 text-slate-500 shrink-0" />
@@ -513,12 +431,11 @@ function CrewManagement() {
                                 )}
                               </div>
                             </TableCell>
-                            <TableCell className="text-center py-2.5 px-3 hidden lg:table-cell">
-                              <span className="text-xs text-sky-400 font-medium">{formatNumber(member.monthTransactions ?? 0)}</span>
-                              <span className="text-[10px] text-slate-600 ml-1">tx</span>
-                            </TableCell>
-                            <TableCell className="text-right py-2.5 px-3 hidden lg:table-cell">
-                              <span className="text-xs text-emerald-400 font-medium">{formatCurrency(member.monthRevenue ?? 0)}</span>
+                            <TableCell className="py-2.5 px-3 hidden lg:table-cell">
+                              <div className="flex items-center gap-1.5">
+                                <Calendar className="h-3 w-3 text-slate-500" />
+                                <span className="text-xs text-slate-400">{formatDate(member.createdAt)}</span>
+                              </div>
                             </TableCell>
                             <TableCell className="text-right py-2.5 px-3">
                               <div className="flex items-center justify-end gap-0.5">
@@ -588,32 +505,9 @@ function CrewManagement() {
                 value={formData.name}
                 onChange={(e) => setFormData((p) => ({ ...p, name: e.target.value }))}
                 placeholder="Nama crew"
-                autoComplete="off"
-                autoCorrect="off"
-                data-form-type="other"
-                data-lpignore="true"
-                data-1p-ignore="true"
                 className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
               />
             </div>
-            {outlets.length > 1 && (
-              <div className="space-y-1.5">
-                <Label className="text-xs text-slate-300">
-                  Outlet <span className="text-red-400">*</span>
-                </Label>
-                <Select value={formData.outletId} onValueChange={(v) => setFormData((p) => ({ ...p, outletId: v }))}>
-                  <SelectTrigger className="bg-white/[0.04] border-white/[0.08] text-white h-9 text-sm">
-                    <Store className="mr-1.5 h-3.5 w-3.5 text-slate-500" />
-                    <SelectValue placeholder="Pilih outlet" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-white/[0.04] border-white/[0.08]">
-                    {outlets.map((o) => (
-                      <SelectItem key={o.id} value={o.id} className="text-slate-200 focus:bg-white/[0.06] text-xs">{o.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
             <div className="space-y-1.5">
               <Label htmlFor="add-email" className="text-xs text-slate-300">
                 Email <span className="text-red-400">*</span>
@@ -624,11 +518,6 @@ function CrewManagement() {
                 value={formData.email}
                 onChange={(e) => setFormData((p) => ({ ...p, email: e.target.value }))}
                 placeholder="crew@email.com"
-                autoComplete="off"
-                autoCorrect="off"
-                data-form-type="other"
-                data-lpignore="true"
-                data-1p-ignore="true"
                 className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
               />
             </div>
@@ -673,7 +562,7 @@ function CrewManagement() {
             </Button>
             <Button
               onClick={handleAdd}
-              disabled={saving || !formData.name.trim() || !formData.email.trim() || formData.password.length < 8 || (outlets.length > 1 && !formData.outletId)}
+              disabled={saving || !formData.name.trim() || !formData.email.trim() || formData.password.length < 8}
               className="theme-bg hover:theme-hover text-white h-8 text-xs"
             >
               {saving && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
@@ -704,11 +593,6 @@ function CrewManagement() {
                 value={formData.name}
                 onChange={(e) => setFormData((p) => ({ ...p, name: e.target.value }))}
                 placeholder="Nama crew"
-                autoComplete="off"
-                autoCorrect="off"
-                data-form-type="other"
-                data-lpignore="true"
-                data-1p-ignore="true"
                 className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
               />
             </div>
@@ -722,32 +606,9 @@ function CrewManagement() {
                 value={formData.email}
                 onChange={(e) => setFormData((p) => ({ ...p, email: e.target.value }))}
                 placeholder="crew@email.com"
-                autoComplete="off"
-                autoCorrect="off"
-                data-form-type="other"
-                data-lpignore="true"
-                data-1p-ignore="true"
                 className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
               />
             </div>
-            {outlets.length > 1 && (
-              <div className="space-y-1.5">
-                <Label className="text-xs text-slate-300">
-                  Outlet <span className="text-red-400">*</span>
-                </Label>
-                <Select value={formData.outletId} onValueChange={(v) => setFormData((p) => ({ ...p, outletId: v }))}>
-                  <SelectTrigger className="bg-white/[0.04] border-white/[0.08] text-white h-9 text-sm">
-                    <Store className="mr-1.5 h-3 w-3 text-slate-500" />
-                    <SelectValue placeholder="Pilih outlet" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-white/[0.04] border-white/[0.08]">
-                    {outlets.map((o) => (
-                      <SelectItem key={o.id} value={o.id} className="text-slate-200 focus:bg-white/[0.06] text-xs">{o.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
             <div className="space-y-1.5">
               <Label htmlFor="edit-password" className="text-xs text-slate-300">
                 Password Baru <span className="text-slate-500">(opsional)</span>
@@ -792,7 +653,7 @@ function CrewManagement() {
             </Button>
             <Button
               onClick={handleEdit}
-              disabled={saving || !formData.name.trim() || !formData.email.trim() || (formData.password.length > 0 && formData.password.length < 8) || (outlets.length > 1 && !formData.outletId)}
+              disabled={saving || !formData.name.trim() || !formData.email.trim() || (formData.password.length > 0 && formData.password.length < 8)}
               className="theme-bg hover:theme-hover text-white h-8 text-xs"
             >
               {saving && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}

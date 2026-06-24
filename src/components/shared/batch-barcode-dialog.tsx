@@ -45,66 +45,6 @@ interface BatchBarcodeDialogProps {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Column layout config                                               */
-/* ------------------------------------------------------------------ */
-
-const COLUMN_OPTIONS = [
-  { value: 1, label: '1 Kolom', desc: 'Produk besar' },
-  { value: 2, label: '2 Kolom', desc: 'Produk sedang' },
-  { value: 3, label: '3 Kolom', desc: 'Produk kecil' },
-  { value: 4, label: '4 Kolom', desc: 'Parfum / Make-up' },
-] as const
-
-type ColumnCount = 1 | 2 | 3 | 4
-
-const COLUMN_CONFIG: Record<ColumnCount, {
-  barcodeWidth: number
-  barcodeHeight: number
-  nameFontSize: string
-  priceFontSize: string
-  codeFontSize: string
-  labelPadding: string
-  labelMaxWidth: string
-}> = {
-  1: {
-    barcodeWidth: 2,
-    barcodeHeight: 50,
-    nameFontSize: '12px',
-    priceFontSize: '14px',
-    codeFontSize: '10px',
-    labelPadding: '2.5mm 2mm',
-    labelMaxWidth: '68mm',
-  },
-  2: {
-    barcodeWidth: 1.5,
-    barcodeHeight: 40,
-    nameFontSize: '10px',
-    priceFontSize: '11px',
-    codeFontSize: '8px',
-    labelPadding: '2mm 1.5mm',
-    labelMaxWidth: '32mm',
-  },
-  3: {
-    barcodeWidth: 1,
-    barcodeHeight: 30,
-    nameFontSize: '8px',
-    priceFontSize: '9px',
-    codeFontSize: '7px',
-    labelPadding: '1.5mm 1mm',
-    labelMaxWidth: '21mm',
-  },
-  4: {
-    barcodeWidth: 1,
-    barcodeHeight: 25,
-    nameFontSize: '7px',
-    priceFontSize: '8px',
-    codeFontSize: '6px',
-    labelPadding: '1mm 0.8mm',
-    labelMaxWidth: '15mm',
-  },
-}
-
-/* ------------------------------------------------------------------ */
 /*  Debounce hook                                                      */
 /* ------------------------------------------------------------------ */
 
@@ -128,7 +68,6 @@ export default function BatchBarcodeDialog({ open, onOpenChange, categories }: B
   const [filterCategory, setFilterCategory] = useState('')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [printing, setPrinting] = useState(false)
-  const [columns, setColumns] = useState<ColumnCount>(1)
 
   const search = useDebounce(rawSearch, 300)
 
@@ -218,14 +157,13 @@ export default function BatchBarcodeDialog({ open, onOpenChange, categories }: B
       const JsBarcodeMod = await import('jsbarcode')
       const JsBarcode = JsBarcodeMod.default || JsBarcodeMod
       const canvas = document.createElement('canvas')
-      const cfg = COLUMN_CONFIG[columns]
       const labels: string[] = []
 
       for (const item of toPrint) {
         JsBarcode(canvas, item.barcode, {
           format: 'CODE128',
-          width: cfg.barcodeWidth,
-          height: cfg.barcodeHeight,
+          width: 2,
+          height: 50,
           displayValue: false,
           margin: 0,
           background: '#FFFFFF',
@@ -247,19 +185,18 @@ export default function BatchBarcodeDialog({ open, onOpenChange, categories }: B
 <style>
 @page{size:80mm auto;margin:0}
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Courier New',monospace;background:#fff;color:#000;padding:2mm 2mm 2mm 2mm}
-.grid{display:grid;grid-template-columns:repeat(${columns},1fr);gap:1.5mm}
-.label{padding:${cfg.labelPadding};text-align:center;page-break-inside:avoid}
-.lbl-name{font-size:${cfg.nameFontSize};font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:${cfg.labelMaxWidth};margin:0 auto 0.5px}
-.lbl-price{font-size:${cfg.priceFontSize};font-weight:700;margin-bottom:2px}
-.lbl-img{width:100%;max-width:${cfg.labelMaxWidth};height:auto;display:block;margin:0 auto}
-.lbl-code{font-size:${cfg.codeFontSize};letter-spacing:1px;margin-top:1px;color:#333}
+body{font-family:'Courier New',monospace;background:#fff;color:#000;display:flex;flex-direction:column;align-items:center;padding:4mm 0}
+.label{width:72mm;padding:2.5mm 2mm;text-align:center;page-break-inside:avoid}
+.lbl-name{font-size:12px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:68mm;margin:0 auto 1px}
+.lbl-price{font-size:14px;font-weight:700;margin-bottom:3px}
+.lbl-img{width:100%;max-width:68mm;height:auto;display:block;margin:0 auto}
+.lbl-code{font-size:10px;letter-spacing:1.5px;margin-top:2px;color:#333}
 .bar{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#fff;padding:14px 20px;border-radius:14px;box-shadow:0 4px 24px rgba(0,0,0,.12);display:flex;flex-direction:column;align-items:center;gap:8px}
 .bar button{cursor:pointer;border:none;border-radius:8px;font-size:14px;font-weight:600}
 .bar .bp{padding:10px 36px;background:#111;color:#fff}
 .bar .bc{padding:6px 18px;background:none;color:#888;text-decoration:underline;font-size:13px}
 @media print{.bar{display:none!important}}
-</style></head><body><div class="grid">${labels.join('')}</div>
+</style></head><body>${labels.join('')}
 <div class="bar">
   <button class="bp" onclick="window.print()">Cetak ${toPrint.length} Label</button>
   <button class="bc" onclick="window.close()">Tutup</button>
@@ -269,11 +206,11 @@ body{font-family:'Courier New',monospace;background:#fff;color:#000;padding:2mm 
       console.error('Batch print error:', err)
       toast.error('Gagal mencetak barcode')
     } finally { setPrinting(false) }
-  }, [printableItems, selectedIds, columns])
+  }, [printableItems, selectedIds])
 
   /* ---- Reset everything on close ---- */
   useEffect(() => {
-    if (!open) { setRawSearch(''); setFilterCategory(''); setSelectedIds(new Set()); setItems([]); setColumns(1) }
+    if (!open) { setRawSearch(''); setFilterCategory(''); setSelectedIds(new Set()); setItems([]) }
   }, [open])
 
   /* ---- Filtered items for rendering (products with barcode) ---- */
@@ -460,30 +397,6 @@ body{font-family:'Courier New',monospace;background:#fff;color:#000;padding:2mm 
           )}
         </div>
 
-        {/* ── Column Selector ── */}
-        <div className="shrink-0 px-5 py-2.5 border-t border-white/[0.06] bg-nebula">
-          <p className="text-[10px] text-zinc-500 mb-2 uppercase tracking-wider font-medium">Kolom</p>
-          <div className="flex gap-1.5 flex-wrap">
-            {COLUMN_OPTIONS.map((opt) => (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => setColumns(opt.value as ColumnCount)}
-                className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors ${
-                  columns === opt.value
-                    ? 'bg-zinc-100 text-zinc-900 border-zinc-300 font-medium'
-                    : 'bg-white/[0.04] text-slate-400 border-zinc-700/60 hover:text-slate-200 hover:border-zinc-600'
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-          <p className="text-[10px] text-zinc-600 mt-1.5">
-            {COLUMN_OPTIONS.find((o) => o.value === columns)?.desc}
-          </p>
-        </div>
-
         {/* ── Footer ── */}
         <div className="shrink-0 px-5 py-3.5 border-t border-white/[0.06] bg-nebula flex items-center justify-between gap-3">
           <div className="min-w-0">
@@ -491,7 +404,6 @@ body{font-family:'Courier New',monospace;background:#fff;color:#000;padding:2mm 
               <p className="text-xs text-slate-300">
                 <span className="font-semibold tabular-nums">{selectedCount}</span>
                 <span className="text-slate-500 ml-1">label siap cetak</span>
-                <span className="text-zinc-600 ml-1">· {columns} kolom</span>
               </p>
             ) : (
               <p className="text-xs text-zinc-600">Belum ada yang dipilih</p>

@@ -61,9 +61,6 @@ import {
   Palette,
   Receipt,
   ReceiptText,
-  Printer,
-  FileText,
-  Layers,
   Save,
   Plus,
   Pencil,
@@ -88,6 +85,7 @@ import {
   MessageSquare,
   UserCircle,
   Bot,
+  Lock,
 } from 'lucide-react'
 
 // ==================== TYPES ====================
@@ -108,8 +106,6 @@ interface SettingsData {
   ppnEnabled: boolean
   ppnRate: number
   manualDiscountEnabled: boolean
-  doubleReceiptEnabled: boolean
-  doubleReceiptMode: string
   telegramChatId: string | null
   telegramBotToken: string | null
   notifyOnTransaction: boolean
@@ -1533,68 +1529,6 @@ function ThemeReceiptTab() {
                   Simpan
                 </Button>
               </div>
-
-              {/* ── Double Receipt ── */}
-              <div className="space-y-4 pt-4 border-t border-white/[0.06]">
-                <div className="flex items-center gap-2">
-                  <Printer className="h-4 w-4 text-slate-400" />
-                  <h3 className="text-sm font-semibold text-slate-200">Cetak Double Struk</h3>
-                </div>
-                <p className="text-xs text-slate-500">
-                  Aktifkan untuk mencetak 2 struk sekaligus saat checkout.
-                </p>
-
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs text-slate-300 font-medium">Aktifkan Double Receipt</p>
-                    <p className="text-[10px] text-slate-500 mt-0.5">Cetak 2 lembar struk otomatis</p>
-                  </div>
-                  <Switch
-                    checked={settings?.doubleReceiptEnabled ?? false}
-                    onCheckedChange={async (v) => {
-                      await saveSettings({ doubleReceiptEnabled: v, doubleReceiptMode: v ? (settings?.doubleReceiptMode || 'merchant_customer') : settings?.doubleReceiptMode })
-                    }}
-                  />
-                </div>
-
-                {settings?.doubleReceiptEnabled && (
-                  <div className="space-y-2 pl-1">
-                    <Label className="text-xs text-slate-400">Mode Cetak</Label>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => saveSettings({ doubleReceiptMode: 'merchant_customer' })}
-                        className={`text-left p-3 rounded-xl border transition-all ${
-                          (settings?.doubleReceiptMode || 'merchant_customer') === 'merchant_customer'
-                            ? 'bg-white/[0.06] border-white/[0.12] text-white'
-                            : 'bg-white/[0.02] border-white/[0.04] text-slate-400 hover:bg-white/[0.04]'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2 mb-1">
-                          <FileText className="h-4 w-4 text-slate-400" />
-                          <span className="text-xs font-semibold">Merchant + Customer Copy</span>
-                        </div>
-                        <p className="text-[10px] text-slate-500">Cetak struk merchant copy dan customer copy sekaligus</p>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => saveSettings({ doubleReceiptMode: 'batch_order' })}
-                        className={`text-left p-3 rounded-xl border transition-all ${
-                          settings?.doubleReceiptMode === 'batch_order'
-                            ? 'bg-white/[0.06] border-white/[0.12] text-white'
-                            : 'bg-white/[0.02] border-white/[0.04] text-slate-400 hover:bg-white/[0.04]'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2 mb-1">
-                          <Layers className="h-4 w-4 text-slate-400" />
-                          <span className="text-xs font-semibold">Batch Order</span>
-                        </div>
-                        <p className="text-[10px] text-slate-500">Cetak 2 struk identik untuk pesanan batch</p>
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
             </CardContent>
           </Card>
         </div>
@@ -2985,11 +2919,11 @@ function MultiOutletTab() {
               </p>
             </div>
             {canAddMore && (
-              <Button
-                onClick={() => setDialogOpen(true)}
-                className="theme-btn-primary h-8 text-xs flex items-center gap-1.5">
+              <Button disabled
+                className="theme-btn-primary h-8 text-xs opacity-50 cursor-not-allowed flex items-center gap-1.5">
                 <Plus className="h-3.5 w-3.5" />
                 Tambah Cabang
+                <Lock className="h-3 w-3 ml-1" />
               </Button>
             )}
           </div>
@@ -3041,7 +2975,11 @@ function MultiOutletTab() {
             </div>
           )}
 
-          
+          <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-2.5">
+            <p className="text-[10px] text-amber-400 text-center">
+              🔒 Fitur <span className="font-medium">Tambah Cabang</span> sedang dalam pengembangan. Segera hadir!
+            </p>
+          </div>
         </CardContent>
       </Card>
 

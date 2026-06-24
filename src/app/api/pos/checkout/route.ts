@@ -8,7 +8,6 @@ import { runInsightEngine } from '@/lib/insight-engine'
 import { getPlanFeatures, isUnlimited } from '@/lib/plan-config'
 import { safeJson, safeJsonError } from '@/lib/safe-response'
 import { ensureMigrated } from '@/lib/db-migrate'
-import { getOwnerOutlets } from '@/lib/multi-outlet'
 
 interface CheckoutItem {
   productId: string
@@ -28,14 +27,13 @@ export async function POST(request: NextRequest) {
       return unauthorized()
     }
     const userId = user.id
-    const sessionOutletId = user.outletId
+    const outletId = user.outletId
 
     // Auto-migrate: ensure new columns exist (e.g. itemDiscount)
     await ensureMigrated()
 
     const body = await request.json()
     const {
-      outletId: requestedOutletId,
       customerId,
       items,
       subtotal,
@@ -49,19 +47,6 @@ export async function POST(request: NextRequest) {
       promoDiscount,
       taxAmount,
     } = body
-
-    // Resolve outlet: OWNER can specify a different owned outlet, CREW always uses session outlet
-    let outletId = sessionOutletId
-    if (requestedOutletId && user.role === 'OWNER' && user.email) {
-      const multiOutlet = await getOwnerOutlets(db, user.email, sessionOutletId)
-      if (multiOutlet && multiOutlet.outletIds.includes(requestedOutletId)) {
-        outletId = requestedOutletId
-      } else if (requestedOutletId !== sessionOutletId) {
-        return safeJsonError('Outlet tidak valid', 403)
-      }
-    } else if (requestedOutletId && requestedOutletId !== sessionOutletId) {
-      return safeJsonError('Crew hanya dapat bertransaksi di outletnya sendiri', 403)
-    }
 
     // Validate items
     if (!items || items.length === 0) {

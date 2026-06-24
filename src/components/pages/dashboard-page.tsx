@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSession } from 'next-auth/react'
 import { formatCurrency, formatNumber } from '@/lib/format'
 import { usePlan } from '@/hooks/use-plan'
@@ -23,7 +23,6 @@ import {
   DollarSign,
   Receipt,
   AlertTriangle,
-  CalendarDays,
   TrendingUp,
   ArrowUpRight,
   ArrowDownRight,
@@ -46,18 +45,8 @@ import {
   Warehouse,
   Target,
   Layers,
-  ChevronLeft,
-  ChevronRight,
-  X,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
-import {
-  ResponsiveDialog,
-  ResponsiveDialogContent,
-  ResponsiveDialogHeader,
-  ResponsiveDialogTitle,
-  ResponsiveDialogDescription,
-} from '@/components/ui/responsive-dialog'
 
 // ── Types ──
 interface HourBucket {
@@ -87,7 +76,6 @@ interface DashboardStats {
   revenueChangePercent: number
   peakHours: HourBucket[] | null
   aiInsight: string | null
-  calendarRevenue: { date: string; revenue: number }[]
 }
 
 interface InsightItem {
@@ -494,271 +482,6 @@ function DayHeatBar({ day, avgRevenue, maxRevenue, avgTx }: { day: string; avgRe
   )
 }
 
-// ── Revenue Calendar Component ──
-function RevenueCalendar({ calendarRevenue, tzOffset }: { calendarRevenue: { date: string; revenue: number }[]; tzOffset: number | null }) {
-  const [viewDate, setViewDate] = useState(() => {
-    const now = new Date()
-    if (tzOffset !== null) {
-      const localMs = now.getTime() - tzOffset * 60000
-      return new Date(localMs)
-    }
-    return now
-  })
-
-  const revenueMap = useMemo(() => {
-    const m = new Map<string, number>()
-    for (const item of calendarRevenue) m.set(item.date, item.revenue)
-    return m
-  }, [calendarRevenue])
-
-  const maxRevenue = useMemo(() => Math.max(...calendarRevenue.map((c) => c.revenue), 1), [calendarRevenue])
-
-  const year = viewDate.getFullYear()
-  const month = viewDate.getMonth()
-  const daysInMonth = new Date(year, month + 1, 0).getDate()
-  const firstDay = new Date(year, month, 1).getDay()
-  const monthName = viewDate.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })
-
-  const goToPrev = () => setViewDate(new Date(year, month - 1, 1))
-  const goToNext = () => {
-    const next = new Date(year, month + 1, 1)
-    const now = new Date()
-    const nowLocal = tzOffset !== null ? new Date(now.getTime() - tzOffset * 60000) : now
-    if (next <= new Date(nowLocal.getFullYear(), nowLocal.getMonth() + 1, 0)) setViewDate(next)
-  }
-  const goToToday = () => {
-    const now = new Date()
-    if (tzOffset !== null) setViewDate(new Date(now.getTime() - tzOffset * 60000))
-    else setViewDate(now)
-  }
-
-  const today = new Date()
-  const todayLocal = tzOffset !== null ? new Date(today.getTime() - tzOffset * 60000) : today
-  const todayStr = `${todayLocal.getFullYear()}-${String(todayLocal.getMonth() + 1).padStart(2, '0')}-${String(todayLocal.getDate()).padStart(2, '0')}`
-
-  const days: (number | null)[] = []
-  for (let i = 0; i < firstDay; i++) days.push(null)
-  for (let d = 1; d <= daysInMonth; d++) days.push(d)
-
-  const getIntensity = (revenue: number) => {
-    if (revenue <= 0) return 'bg-white/[0.02] text-slate-600'
-    const pct = (revenue / maxRevenue) * 100
-    if (pct > 80) return 'theme-bg-light theme-text font-semibold'
-    if (pct > 50) return 'theme-bg-subtle theme-text'
-    if (pct > 25) return 'bg-white/[0.06] text-slate-200'
-    return 'bg-white/[0.04] text-slate-300'
-  }
-
-  const dayNames = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab']
-
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-3">
-        <button onClick={goToPrev} className="p-1 rounded-lg hover:bg-white/[0.04] text-slate-400 hover:text-white transition-colors">
-          <ChevronLeft className="h-4 w-4" />
-        </button>
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-slate-200">{monthName}</span>
-          <button onClick={goToToday} className="text-[10px] px-2 py-0.5 rounded-full bg-white/[0.06] text-slate-400 hover:text-white hover:bg-white/[0.1] transition-colors">
-            Hari ini
-          </button>
-        </div>
-        <button onClick={goToNext} className="p-1 rounded-lg hover:bg-white/[0.04] text-slate-400 hover:text-white transition-colors">
-          <ChevronRight className="h-4 w-4" />
-        </button>
-      </div>
-      <div className="grid grid-cols-7 gap-1">
-        {dayNames.map((d) => (
-          <div key={d} className="text-center text-[10px] font-medium text-slate-500 py-1">{d}</div>
-        ))}
-        {days.map((day, i) => {
-          if (day === null) return <div key={`empty-${i}`} />
-          const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-          const revenue = revenueMap.get(dateStr) ?? 0
-          const isToday = dateStr === todayStr
-          const isFuture = new Date(year, month, day) > todayLocal
-          return (
-            <div
-              key={dateStr}
-              className={`relative rounded-lg p-1 min-h-[52px] flex flex-col items-center justify-center text-center transition-colors cursor-default ${
-                isFuture ? 'opacity-30' : ''
-              } ${isToday ? 'ring-1 ring-white/20' : ''} ${getIntensity(revenue)}`}
-              title={revenue > 0 ? `${formatCurrency(revenue)}` : 'Tidak ada transaksi'}
-            >
-              <span className="text-[11px] font-medium">{day}</span>
-              {revenue > 0 && !isFuture && (
-                <span className="text-[8px] leading-tight mt-0.5 opacity-80">
-                  {revenue >= 1000000 ? `${(revenue / 1000000).toFixed(1)}jt` : revenue >= 1000 ? `${(revenue / 1000).toFixed(0)}rb` : formatCurrency(revenue)}
-                </span>
-              )}
-            </div>
-          )
-        })}
-      </div>
-      {/* Legend */}
-      <div className="flex items-center justify-center gap-3 mt-3">
-        <div className="flex items-center gap-1.5">
-          <div className="w-3 h-3 rounded-sm bg-white/[0.04]" />
-          <span className="text-[9px] text-slate-500">Rendah</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <div className="w-3 h-3 rounded-sm bg-white/[0.08]" />
-          <span className="text-[9px] text-slate-500">Sedang</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <div className="w-3 h-3 rounded-sm theme-bg-subtle" />
-          <span className="text-[9px] text-slate-500">Tinggi</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <div className="w-3 h-3 rounded-sm theme-bg-light" />
-          <span className="text-[9px] text-slate-500">Tertinggi</span>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ── Low Stock Dialog Component ──
-function LowStockDialog({ open, onOpenChange, stats }: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  stats: DashboardStats | null
-}) {
-  if (!stats) return null
-  const { lowStockList, lowStockVariantList } = stats
-
-  return (
-    <ResponsiveDialog open={open} onOpenChange={onOpenChange}>
-      <ResponsiveDialogContent className="sm:max-w-2xl !max-h-[85vh] flex flex-col !overflow-hidden p-0 gap-0">
-        <ResponsiveDialogHeader className="px-5 pt-5 pb-3 shrink-0">
-          <ResponsiveDialogTitle className="flex items-center gap-2 text-base">
-            <AlertTriangle className="h-4 w-4 text-red-400" />
-            Produk Stok Menipis
-          </ResponsiveDialogTitle>
-          <ResponsiveDialogDescription className="text-xs">
-            {lowStockList.length} produk dan {lowStockVariantList.length} varian dengan stok rendah.
-          </ResponsiveDialogDescription>
-        </ResponsiveDialogHeader>
-        <div className="flex-1 min-h-0 overflow-y-auto px-5 pb-5">
-          {lowStockList.length === 0 && lowStockVariantList.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-10 text-center">
-              <Package className="h-8 w-8 theme-text-medium/30 mb-2" />
-              <p className="text-xs text-slate-500">Semua stok aman</p>
-            </div>
-          ) : (
-            <>
-              {/* Desktop table */}
-              <div className="hidden md:block overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="border-white/[0.06] hover:bg-transparent sticky top-0 bg-nebula z-10">
-                      <TableHead className="text-slate-500 text-[11px] w-8 py-2.5">#</TableHead>
-                      <TableHead className="text-slate-500 text-[11px] py-2.5">Produk</TableHead>
-                      <TableHead className="text-slate-500 text-[11px] text-right py-2.5">Stok</TableHead>
-                      <TableHead className="text-slate-500 text-[11px] text-right py-2.5">Alert</TableHead>
-                      <TableHead className="text-slate-500 text-[11px] text-center py-2.5">Status</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {lowStockList.map((p, idx) => {
-                      const isCritical = p.stock === 0
-                      const isWarning = p.stock > 0 && p.stock <= p.lowStockAlert / 2
-                      return (
-                        <TableRow key={p.id} className="border-white/[0.04] hover:bg-white/[0.03]">
-                          <TableCell className="text-[11px] text-slate-500 font-mono py-2.5">{idx + 1}</TableCell>
-                          <TableCell className="text-xs text-slate-200 font-medium py-2.5">{p.name}</TableCell>
-                          <TableCell className={`text-xs text-right font-bold py-2.5 ${isCritical ? 'text-red-400' : isWarning ? 'text-amber-400' : 'text-yellow-300'}`}>{p.stock}</TableCell>
-                          <TableCell className="text-xs text-slate-500 text-right py-2.5">{p.lowStockAlert}</TableCell>
-                          <TableCell className="text-center py-2.5">
-                            {isCritical ? <Badge className="bg-red-500/10 border-red-500/20 text-red-400 text-[10px]">Habis</Badge>
-                              : isWarning ? <Badge className="bg-amber-500/10 border-amber-500/20 text-amber-400 text-[10px]">Kritis</Badge>
-                              : <Badge className="bg-yellow-500/10 border-yellow-500/20 text-yellow-400 text-[10px]">Rendah</Badge>}
-                          </TableCell>
-                        </TableRow>
-                      )
-                    })}
-                    {lowStockVariantList.length > 0 && (
-                      <>
-                        <TableRow className="border-white/[0.06] hover:bg-transparent">
-                          <TableCell colSpan={5} className="py-2 px-0">
-                            <div className="flex items-center gap-1.5 px-3">
-                              <Layers className="h-3 w-3 text-violet-400" />
-                              <span className="text-[11px] font-medium text-violet-400">Varian Stok Rendah</span>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                        {lowStockVariantList.map((v) => (
-                          <TableRow key={v.id} className="border-violet-500/10 hover:bg-violet-500/5">
-                            <TableCell className="text-[11px] text-violet-400/50 font-mono py-2.5"><Layers className="h-3 w-3 text-violet-400/50" /></TableCell>
-                            <TableCell className="py-2.5">
-                              <p className="text-xs text-slate-200 font-medium">{v.name}</p>
-                              <p className="text-[10px] text-slate-500">{v.productName}</p>
-                            </TableCell>
-                            <TableCell className={`text-xs text-right font-bold py-2.5 ${v.stock === 0 ? 'text-red-400' : 'text-violet-400'}`}>{v.stock}</TableCell>
-                            <TableCell className="text-xs text-slate-500 text-right py-2.5">-</TableCell>
-                            <TableCell className="text-center py-2.5">
-                              <Badge className={`text-[10px] ${v.stock === 0 ? 'bg-red-500/10 border-red-500/20 text-red-400' : 'bg-violet-500/10 border-violet-500/20 text-violet-400'}`}>
-                                {v.stock === 0 ? 'Habis' : 'Rendah'}
-                              </Badge>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </>
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-              {/* Mobile cards */}
-              <div className="flex flex-col gap-2 md:hidden">
-                {lowStockList.map((p) => {
-                  const isCritical = p.stock === 0
-                  const isWarning = p.stock > 0 && p.stock <= p.lowStockAlert / 2
-                  return (
-                    <div key={p.id} className="flex items-center gap-3 rounded-xl bg-white/[0.03] border border-white/[0.03] p-3">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs text-slate-200 font-medium truncate">{p.name}</p>
-                        <p className="text-[10px] text-slate-500">Stok: {p.lowStockAlert} alert</p>
-                      </div>
-                      <div className="text-right shrink-0 flex items-center gap-2">
-                        <span className={`text-sm font-bold ${isCritical ? 'text-red-400' : isWarning ? 'text-amber-400' : 'text-yellow-300'}`}>{p.stock}</span>
-                        {isCritical ? <Badge className="bg-red-500/10 border-red-500/20 text-red-400 text-[10px]">Habis</Badge>
-                          : isWarning ? <Badge className="bg-amber-500/10 border-amber-500/20 text-amber-400 text-[10px]">Kritis</Badge>
-                          : <Badge className="bg-yellow-500/10 border-yellow-500/20 text-yellow-400 text-[10px]">Rendah</Badge>}
-                      </div>
-                    </div>
-                  )
-                })}
-                {lowStockVariantList.length > 0 && (
-                  <>
-                    <div className="flex items-center gap-1.5 pt-2 pb-1">
-                      <Layers className="h-3 w-3 text-violet-400" />
-                      <span className="text-[11px] font-medium text-violet-400">Varian Stok Rendah</span>
-                    </div>
-                    {lowStockVariantList.map((v) => (
-                      <div key={v.id} className="flex items-center gap-3 rounded-xl bg-violet-500/5 border border-violet-500/15 p-3">
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs text-slate-200 font-medium truncate">{v.name}</p>
-                          <p className="text-[10px] text-slate-500 truncate">{v.productName}</p>
-                        </div>
-                        <div className="text-right shrink-0 flex items-center gap-2">
-                          <span className={`text-sm font-bold ${v.stock === 0 ? 'text-red-400' : 'text-violet-400'}`}>{v.stock}</span>
-                          <Badge className={`text-[10px] ${v.stock === 0 ? 'bg-red-500/10 border-red-500/20 text-red-400' : 'bg-violet-500/10 border-violet-500/20 text-violet-400'}`}>
-                            {v.stock === 0 ? 'Habis' : 'Rendah'}
-                          </Badge>
-                        </div>
-                      </div>
-                    ))}
-                  </>
-                )}
-              </div>
-            </>
-          )}
-        </div>
-      </ResponsiveDialogContent>
-    </ResponsiveDialog>
-  )
-}
-
 // ════════════════════════════════════════════════════════════
 // Main Component
 // ════════════════════════════════════════════════════════════
@@ -783,9 +506,6 @@ export default function DashboardPage() {
   // Forecast state (PRO+)
   const [forecastData, setForecastData] = useState<ForecastData | null>(null)
   const [forecastLoading, setForecastLoading] = useState(false)
-
-  // Low stock dialog
-  const [lowStockOpen, setLowStockOpen] = useState(false)
 
   // ── Fetchers ──
   const fetchStats = useCallback(async () => {
@@ -996,18 +716,15 @@ export default function DashboardPage() {
           </motion.div>
         )}
 
-        {/* Low Stock — clickable card */}
+        {/* Low Stock */}
         <motion.div variants={itemVariants}>
-          <Card
-            className={`bg-nebula border rounded-xl overflow-hidden relative cursor-pointer hover:border-white/[0.12] transition-colors ${
-              stats && stats.lowStockProducts > 0 ? 'border-red-500/20' : 'border-white/[0.06]'
-            }`}
-            onClick={() => setLowStockOpen(true)}
-          >
+          <Card className={`bg-nebula border rounded-xl overflow-hidden relative ${
+            stats && stats.lowStockProducts > 0 ? 'border-red-500/20' : 'border-white/[0.06]'
+          }`}>
             <div className={`absolute inset-0 ${stats && stats.lowStockProducts > 0 ? 'bg-gradient-to-br from-red-500/[0.04] to-transparent' : 'bg-gradient-to-br from-slate-500/[0.02] to-transparent'}`} />
             <CardContent className="p-3.5 relative">
               <div className="flex items-center justify-between mb-1.5">
-                <p className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Stok Kritis</p>
+                <p className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Stok Menipis</p>
                 <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${
                   stats && stats.lowStockProducts > 0 ? 'bg-red-500/10 text-red-400' : 'bg-white/[0.04] text-slate-400'
                 }`}>
@@ -1021,7 +738,7 @@ export default function DashboardPage() {
               </p>
               <div className="flex items-center gap-1.5 mt-1.5">
                 {stats && stats.lowStockProducts > 0 ? (
-                  <span className="text-[10px] text-red-400/70 font-medium">Lihat detail →</span>
+                  <span className="text-[10px] text-red-400/70 font-medium">perlu restok</span>
                 ) : (
                   <span className="text-[10px] text-slate-600">semua aman</span>
                 )}
@@ -1040,7 +757,7 @@ export default function DashboardPage() {
                 <div className="flex items-center gap-1.5 mt-1">
                   <Layers className="h-3 w-3 text-violet-400" />
                   <span className="text-[10px] text-violet-400">
-                    {stats.lowStockVariants} varian
+                    {stats.lowStockVariants} varian stok rendah
                   </span>
                 </div>
               )}
@@ -1314,23 +1031,6 @@ export default function DashboardPage() {
                       </CardContent>
                     </Card>
                   </div>
-
-                  {/* Calendar Revenue — full width */}
-                  <Card className="aether-card rounded-2xl">
-                    <CardContent className="p-4">
-                      <div className="flex items-center gap-2 mb-3">
-                        <CalendarDays className="h-4 w-4 text-emerald-400" />
-                        <h2 className="text-sm font-semibold text-slate-200">Calendar Revenue</h2>
-                        <Badge className="text-[9px] bg-white/[0.04] border-white/[0.03] text-slate-400 ml-auto">
-                          {stats?.calendarRevenue?.length ?? 0} hari data
-                        </Badge>
-                      </div>
-                      <RevenueCalendar
-                        calendarRevenue={stats?.calendarRevenue ?? []}
-                        tzOffset={tzOffset}
-                      />
-                    </CardContent>
-                  </Card>
 
                   {/* Stock Predictions — full width below */}
                   <Card className="aether-card rounded-2xl">
@@ -1774,73 +1474,29 @@ export default function DashboardPage() {
       )}
 
       {/* ═══════════════════════════════════════════════════
-          9. Bottom 2x2 Grid: Prediksi Stok, Produk Terlaris, AI Insight, Top Customer
+          8. Bottom Row — Top Products & Top Customers
       ═══════════════════════════════════════════════════ */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        {/* Prediksi Stok */}
+        {/* Top Products */}
         <motion.div variants={itemVariants}>
-          <Card className="aether-card rounded-2xl h-full">
+          <Card className="aether-card rounded-2xl">
             <CardContent className="p-4">
               <div className="flex items-center gap-2 mb-3">
-                <Warehouse className="h-4 w-4 text-amber-400" />
-                <h2 className="text-sm font-semibold text-slate-200">Prediksi Stok</h2>
-                {forecastData?.stockPredictions && forecastData.stockPredictions.length > 0 && (
-                  <Badge className="text-[9px] bg-white/[0.04] border-white/[0.03] text-slate-400 ml-auto">
-                    {forecastData.stockPredictions.length} produk
-                  </Badge>
-                )}
-              </div>
-              {!forecastData || forecastData.stockPredictions.length === 0 ? (
-                <div className="flex flex-col items-center py-8 text-center">
-                  <Package className="h-7 w-7 text-slate-700 mb-1.5" />
-                  <p className="text-xs text-slate-500">Belum cukup data untuk prediksi</p>
-                </div>
-              ) : (
-                <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
-                  {forecastData.stockPredictions.slice(0, 5).map((p, i) => (
-                    <div key={i} className={`flex items-center gap-3 px-3 py-2 rounded-lg border ${
-                      p.status === 'critical' ? 'bg-red-500/[0.04] border-red-500/15' :
-                      p.status === 'warning' ? 'bg-amber-500/[0.04] border-amber-500/15' :
-                      'bg-white/[0.02] border-white/[0.04]'
-                    }`}>
-                      <span className="text-[11px] font-bold w-4 text-center shrink-0 text-slate-600">{i + 1}</span>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs text-slate-200 font-medium truncate">{p.name}</p>
-                        <p className="text-[10px] text-slate-500">Stok: {p.stock} · {p.dailyVelocity.toFixed(1)}/hari</p>
-                      </div>
-                      <div className="text-right shrink-0">
-                        <p className={`text-[11px] font-bold ${p.status === 'critical' ? 'text-red-400' : p.status === 'warning' ? 'text-amber-400' : 'theme-text'}`}>
-                          {p.daysUntilEmpty <= 0 ? 'Habis' : `${p.daysUntilEmpty} hari`}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        {/* Produk Terlaris */}
-        <motion.div variants={itemVariants}>
-          <Card className="aether-card rounded-2xl h-full">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <ShoppingCartIcon className="h-4 w-4 theme-text" />
+                <Package className="h-4 w-4 theme-text" />
                 <h2 className="text-sm font-semibold text-slate-200">Produk Terlaris</h2>
               </div>
-              {!topSelling || topSelling.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-8 text-center">
-                  <ShoppingCartIcon className="h-7 w-7 text-slate-700 mb-1.5" />
-                  <p className="text-xs text-slate-500">Belum ada data penjualan</p>
+              {topSelling.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-6 text-center">
+                  <Package className="h-7 w-7 text-slate-700 mb-1.5" />
+                  <p className="text-xs text-slate-500">Belum ada data hari ini</p>
                 </div>
               ) : (
                 <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
-                  {topSelling.map((p, i) => (
+                  {topSelling.slice(0, 5).map((p, i) => (
                     <div key={i} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-white/[0.03] border border-white/[0.03]">
                       <span className={`text-[11px] font-bold w-4 text-center shrink-0 ${i === 0 ? 'text-amber-400' : 'text-slate-600'}`}>{i + 1}</span>
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs text-slate-200 font-medium truncate">{p.name}</p>
+                        <p className="text-xs font-medium text-slate-300 truncate">{p.name}</p>
                         <p className="text-[10px] text-slate-500">{formatNumber(p.qty)} unit</p>
                       </div>
                       <p className="text-xs font-semibold theme-text shrink-0">{formatCurrency(p.revenue)}</p>
@@ -1852,67 +1508,17 @@ export default function DashboardPage() {
           </Card>
         </motion.div>
 
-        {/* AI Insight Hari Ini */}
-        <motion.div variants={itemVariants}>
-          <Card className="aether-card rounded-2xl h-full">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <Sparkles className="h-4 w-4 text-violet-400" />
-                <h2 className="text-sm font-semibold text-slate-200">AI Insight Hari Ini</h2>
-                {insightData && (
-                  <HealthRing score={insightData.healthScore} size="sm" />
-                )}
-              </div>
-              {insightLoading ? (
-                <div className="flex items-center justify-center py-8">
-                  <RefreshCw className="h-4 w-4 animate-spin text-slate-500" />
-                </div>
-              ) : !insightData?.topInsight ? (
-                <div className="flex flex-col items-center justify-center py-8 text-center">
-                  <Sparkles className="h-7 w-7 text-slate-700 mb-1.5" />
-                  <p className="text-xs text-slate-500">Insight belum tersedia</p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <div className={`px-3 py-2.5 rounded-lg border ${getPriorityBg(insightData.topInsight.priority)}`}>
-                    <div className="flex items-start gap-2">
-                      <PriorityDot priority={insightData.topInsight.priority} />
-                      <div className="flex-1 min-w-0">
-                        <p className={`text-xs font-semibold ${getPriorityColor(insightData.topInsight.priority)}`}>
-                          {insightData.topInsight.title}
-                        </p>
-                        <p className="text-[11px] text-slate-400 mt-1 line-clamp-2">{insightData.topInsight.why}</p>
-                      </div>
-                    </div>
-                  </div>
-                  {insightData.topInsight.actions.length > 0 && (
-                    <div className="px-3">
-                      <p className="text-[10px] text-slate-500 font-medium mb-1.5">Rekomendasi:</p>
-                      {insightData.topInsight.actions.slice(0, 3).map((a, i) => (
-                        <p key={i} className="text-[11px] text-slate-400 flex items-start gap-1.5 mb-1">
-                          <span className="theme-text mt-0.5">•</span>
-                          <span>{a}</span>
-                        </p>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        {/* Top Customer */}
+        {/* Top Customers — OWNER */}
         {isOwner && (
           <motion.div variants={itemVariants}>
-            <Card className="aether-card rounded-2xl h-full">
+            <Card className="aether-card rounded-2xl">
               <CardContent className="p-4">
                 <div className="flex items-center gap-2 mb-3">
                   <Users className="h-4 w-4 text-sky-400" />
                   <h2 className="text-sm font-semibold text-slate-200">Top Customer</h2>
                 </div>
                 {(!stats?.topCustomers || stats.topCustomers.length === 0) ? (
-                  <div className="flex flex-col items-center justify-center py-8 text-center">
+                  <div className="flex flex-col items-center justify-center py-6 text-center">
                     <Users className="h-7 w-7 text-slate-700 mb-1.5" />
                     <p className="text-xs text-slate-500">Belum ada data customer</p>
                   </div>
@@ -1936,8 +1542,160 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* Low Stock Dialog */}
-      <LowStockDialog open={lowStockOpen} onOpenChange={setLowStockOpen} stats={stats} />
+      {/* ═══════════════════════════════════════════════════
+          9. Low Stock Detail (Products & Variants)
+      ═══════════════════════════════════════════════════ */}
+      <motion.div variants={itemVariants}>
+        <Card className="aether-card">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-red-400" />
+                Produk Stok Menipis
+              </h2>
+              {stats && stats.lowStockVariants > 0 && (
+                <Badge className="bg-violet-500/10 border-violet-500/20 text-violet-400 text-[10px] gap-1">
+                  <Layers className="h-3 w-3" />
+                  {stats.lowStockVariants} varian
+                </Badge>
+              )}
+            </div>
+            {(!stats?.lowStockList || stats.lowStockList.length === 0) && (!stats?.lowStockVariantList || stats.lowStockVariantList.length === 0) ? (
+              <div className="flex flex-col items-center justify-center py-10 text-center">
+                <Package className="h-8 w-8 theme-text-medium/30 mb-2" />
+                <p className="text-xs text-slate-500">Semua stok aman</p>
+              </div>
+            ) : (
+              <>
+                {/* Mobile: compact card list */}
+                <div className="flex flex-col gap-2 md:hidden max-h-60 overflow-y-auto">
+                  {stats.lowStockList.map((p) => {
+                    const isCritical = p.stock === 0
+                    const isWarning = p.stock > 0 && p.stock <= p.lowStockAlert / 2
+                    return (
+                      <div key={p.id} className="flex items-center gap-3 rounded-xl bg-white/[0.03] border border-white/[0.03] p-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-slate-200 font-medium truncate">{p.name}</p>
+                          <p className="text-[10px] text-slate-500">Stok: {p.lowStockAlert} alert</p>
+                        </div>
+                        <div className="text-right shrink-0 flex items-center gap-2">
+                          <span className={`text-sm font-bold ${isCritical ? 'text-red-400' : isWarning ? 'text-amber-400' : 'text-yellow-300'}`}>
+                            {p.stock}
+                          </span>
+                          {isCritical ? (
+                            <Badge className="bg-red-500/10 border-red-500/20 text-red-400 text-[10px]">Habis</Badge>
+                          ) : isWarning ? (
+                            <Badge className="bg-amber-500/10 border-amber-500/20 text-amber-400 text-[10px]">Kritis</Badge>
+                          ) : (
+                            <Badge className="bg-yellow-500/10 border-yellow-500/20 text-yellow-400 text-[10px]">Rendah</Badge>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                  {/* Variant low stock items */}
+                  {stats.lowStockVariantList && stats.lowStockVariantList.length > 0 && (
+                    <>
+                      <div className="flex items-center gap-1.5 pt-2 pb-1">
+                        <Layers className="h-3 w-3 text-violet-400" />
+                        <span className="text-[11px] font-medium text-violet-400">Varian Stok Rendah</span>
+                      </div>
+                      {stats.lowStockVariantList.map((v) => (
+                        <div key={v.id} className="flex items-center gap-3 rounded-xl bg-violet-500/5 border border-violet-500/15 p-3">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs text-slate-200 font-medium truncate">{v.name}</p>
+                            <p className="text-[10px] text-slate-500 truncate">{v.productName}</p>
+                          </div>
+                          <div className="text-right shrink-0 flex items-center gap-2">
+                            <span className={`text-sm font-bold ${v.stock === 0 ? 'text-red-400' : 'text-violet-400'}`}>
+                              {v.stock}
+                            </span>
+                            <Badge className={`text-[10px] ${v.stock === 0 ? 'bg-red-500/10 border-red-500/20 text-red-400' : 'bg-violet-500/10 border-violet-500/20 text-violet-400'}`}>
+                              {v.stock === 0 ? 'Habis' : 'Rendah'}
+                            </Badge>
+                          </div>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </div>
+                {/* Desktop: full table */}
+                <div className="hidden md:block overflow-x-auto max-h-60 overflow-y-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="border-white/[0.06] hover:bg-transparent sticky top-0 bg-nebula z-10">
+                        <TableHead className="text-slate-500 text-[11px] w-8 py-2.5">#</TableHead>
+                        <TableHead className="text-slate-500 text-[11px] py-2.5">Produk</TableHead>
+                        <TableHead className="text-slate-500 text-[11px] text-right py-2.5">Stok</TableHead>
+                        <TableHead className="text-slate-500 text-[11px] text-right py-2.5">Alert</TableHead>
+                        <TableHead className="text-slate-500 text-[11px] text-center py-2.5">Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {stats.lowStockList.map((p, idx) => {
+                        const isCritical = p.stock === 0
+                        const isWarning = p.stock > 0 && p.stock <= p.lowStockAlert / 2
+                        return (
+                          <TableRow key={p.id} className="border-white/[0.04] hover:bg-white/[0.03]">
+                            <TableCell className="text-[11px] text-slate-500 font-mono py-2.5">{idx + 1}</TableCell>
+                            <TableCell className="text-xs text-slate-200 font-medium py-2.5">{p.name}</TableCell>
+                            <TableCell className={`text-xs text-right font-bold py-2.5 ${isCritical ? 'text-red-400' : isWarning ? 'text-amber-400' : 'text-yellow-300'}`}>
+                              {p.stock}
+                            </TableCell>
+                            <TableCell className="text-xs text-slate-500 text-right py-2.5">{p.lowStockAlert}</TableCell>
+                            <TableCell className="text-center py-2.5">
+                              {isCritical ? (
+                                <Badge className="bg-red-500/10 border-red-500/20 text-red-400 text-[10px]">Habis</Badge>
+                              ) : isWarning ? (
+                                <Badge className="bg-amber-500/10 border-amber-500/20 text-amber-400 text-[10px]">Kritis</Badge>
+                              ) : (
+                                <Badge className="bg-yellow-500/10 border-yellow-500/20 text-yellow-400 text-[10px]">Rendah</Badge>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        )
+                      })}
+                      {/* Variant low stock rows */}
+                      {stats.lowStockVariantList && stats.lowStockVariantList.length > 0 && (
+                        <>
+                          <TableRow className="border-white/[0.06] hover:bg-transparent">
+                            <TableCell colSpan={5} className="py-2 px-0">
+                              <div className="flex items-center gap-1.5 px-3">
+                                <Layers className="h-3 w-3 text-violet-400" />
+                                <span className="text-[11px] font-medium text-violet-400">Varian Stok Rendah</span>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                          {stats.lowStockVariantList.map((v) => (
+                            <TableRow key={v.id} className="border-violet-500/10 hover:bg-violet-500/5">
+                              <TableCell className="text-[11px] text-violet-400/50 font-mono py-2.5">
+                                <Layers className="h-3 w-3 text-violet-400/50" />
+                              </TableCell>
+                              <TableCell className="py-2.5">
+                                <p className="text-xs text-slate-200 font-medium">{v.name}</p>
+                                <p className="text-[10px] text-slate-500">{v.productName}</p>
+                              </TableCell>
+                              <TableCell className={`text-xs text-right font-bold py-2.5 ${v.stock === 0 ? 'text-red-400' : 'text-violet-400'}`}>
+                                {v.stock}
+                              </TableCell>
+                              <TableCell className="text-xs text-slate-500 text-right py-2.5">-</TableCell>
+                              <TableCell className="text-center py-2.5">
+                                <Badge className={`text-[10px] ${v.stock === 0 ? 'bg-red-500/10 border-red-500/20 text-red-400' : 'bg-violet-500/10 border-violet-500/20 text-violet-400'}`}>
+                                  {v.stock === 0 ? 'Habis' : 'Rendah'}
+                                </Badge>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </>
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </motion.div>
     </motion.div>
   )
 }

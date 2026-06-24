@@ -108,7 +108,6 @@ interface Transaction {
 interface TransactionListResponse {
   transactions: Transaction[]
   totalPages: number
-  outlets?: { id: string; name: string }[]
 }
 
 interface CashierOption {
@@ -173,9 +172,6 @@ export default function TransactionsPage() {
 
   // Active tab
   const [activeTab, setActiveTab] = useState('transactions')
-
-  // Multi-outlet
-  const [outlets, setOutlets] = useState<{ id: string; name: string }[]>([])
 
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [loading, setLoading] = useState(true)
@@ -312,13 +308,11 @@ export default function TransactionsPage() {
       if (voidFilter) params.set('voidStatus', voidFilter)
       if (sortField) params.set('sortField', sortField)
       if (sortDir) params.set('sortDir', sortDir)
-      if (outletId) params.set('outletId', outletId)
       const res = await fetch(`/api/transactions?${params}`)
       if (res.ok) {
         const data: TransactionListResponse = await res.json()
         setTransactions(data.transactions)
         setTotalPages(data.totalPages)
-        if (data.outlets && data.outlets.length > 1) setOutlets(data.outlets)
 
         // Update cashier list from response (only if not already populated)
         if (!cashiersPopulated.current) {
@@ -341,7 +335,7 @@ export default function TransactionsPage() {
     } finally {
       setLoading(false)
     }
-  }, [page, search, dateFrom, dateTo, cashierId, paymentMethod, voidFilter, sortField, sortDir, outletId])
+  }, [page, search, dateFrom, dateTo, cashierId, paymentMethod, voidFilter, sortField, sortDir])
 
   useEffect(() => {
     fetchTransactions()
@@ -986,21 +980,17 @@ export default function TransactionsPage() {
       {/* ── Collapsible Secondary Filters ── */}
       {filterOpen && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-3 bg-nebula/50 border border-white/[0.06] rounded-xl animate-in slide-in-from-top-2 duration-200">
-          {/* Outlet filter - only show when multi-outlet */}
-          {outlets.length > 1 && (
+          {/* Outlet filter */}
           <Select value={outletId || '__all__'} onValueChange={(v) => setOutletId(v === '__all__' ? '' : v)}>
             <SelectTrigger className="h-9 text-xs bg-white/[0.04] border-white/[0.08] text-white rounded-lg">
               <Store className="mr-1.5 h-3 w-3 text-slate-500" />
-              <SelectValue placeholder="Semua Outlet" />
+              <SelectValue placeholder="Outlet" />
             </SelectTrigger>
             <SelectContent className="bg-white/[0.04] border-white/[0.08]">
               <SelectItem value="__all__" className="text-slate-200 focus:bg-white/[0.06] text-xs">Semua Outlet</SelectItem>
-              {outlets.map((o) => (
-                <SelectItem key={o.id} value={o.id} className="text-slate-200 focus:bg-white/[0.06] text-xs">{o.name}</SelectItem>
-              ))}
+              <SelectItem value="current" className="text-slate-200 focus:bg-white/[0.06] text-xs">Outlet Saat Ini</SelectItem>
             </SelectContent>
           </Select>
-          )}
 
           {/* Cashier filter */}
           {isPro && cashiers.length > 0 && (
@@ -1185,7 +1175,7 @@ export default function TransactionsPage() {
                 <TableRow className="border-white/[0.06] hover:bg-transparent bg-nebula/50">
                   <TableHead className="text-slate-500 text-[11px] font-medium w-10"></TableHead>
                   {renderSortHeader('invoiceNumber', 'Invoice #')}
-                  {renderSortHeader('outletName', 'Outlet', outlets.length > 1 ? '' : 'hidden lg:table-cell')}
+                  {renderSortHeader('outletName', 'Outlet', 'hidden lg:table-cell')}
                   {renderSortHeader('createdAt', 'Tanggal')}
                   {renderSortHeader('customerName', 'Customer', 'hidden md:table-cell')}
                   {renderSortHeader('paymentMethod', 'Pembayaran', 'text-center')}
@@ -1220,7 +1210,7 @@ export default function TransactionsPage() {
                         {txn.invoiceNumber}
                       </TableCell>
                       {/* Outlet column */}
-                      <TableCell className={`text-xs text-slate-400 py-3 px-3 ${outlets.length > 1 ? '' : 'hidden lg:table-cell'}`}>
+                      <TableCell className="text-xs text-slate-400 py-3 px-3 hidden lg:table-cell">
                         <div className="flex items-center gap-1.5">
                           <Store className="h-3 w-3 text-slate-500 shrink-0" />
                           <span className="truncate max-w-[120px]">{txn.outletName || 'Outlet Saat Ini'}</span>

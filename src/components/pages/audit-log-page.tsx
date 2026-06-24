@@ -35,7 +35,6 @@ import {
   Pencil,
   Ban,
   RotateCcw,
-  Store,
 } from 'lucide-react'
 
 // ==================== TYPES ====================
@@ -45,7 +44,6 @@ interface AuditLog {
   entityType: string
   entityId?: string | null
   details?: string | null
-  outletName?: string | null
   createdAt: string
   user?: {
     name: string
@@ -56,7 +54,6 @@ interface AuditLog {
 interface AuditLogListResponse {
   logs: AuditLog[]
   totalPages: number
-  outlets?: { id: string; name: string }[]
 }
 
 // ==================== ACTION TYPE CONFIG ====================
@@ -345,10 +342,6 @@ export default function AuditLogPage() {
   const [search, setSearch] = useState('')
   const [searchInput, setSearchInput] = useState('')
 
-  // Multi-outlet
-  const [outlets, setOutlets] = useState<{ id: string; name: string }[]>([])
-  const [outletId, setOutletId] = useState('')
-
   const fetchLogs = useCallback(async () => {
     setLoading(true)
     try {
@@ -358,13 +351,11 @@ export default function AuditLogPage() {
       if (dateFrom) params.set('from', dateFrom)
       if (dateTo) params.set('to', dateTo)
       if (search) params.set('search', search)
-      if (outletId) params.set('outletId', outletId)
       const res = await fetch(`/api/audit-logs?${params}`)
       if (res.ok) {
         const data: AuditLogListResponse = await res.json()
         setLogs(data.logs)
         setTotalPages(data.totalPages)
-        if (data.outlets && data.outlets.length > 1) setOutlets(data.outlets)
       } else {
         toast.error('Gagal memuat audit log')
       }
@@ -373,7 +364,7 @@ export default function AuditLogPage() {
     } finally {
       setLoading(false)
     }
-  }, [page, actionFilter, entityFilter, dateFrom, dateTo, search, outletId])
+  }, [page, actionFilter, entityFilter, dateFrom, dateTo, search])
 
   useEffect(() => {
     fetchLogs()
@@ -403,7 +394,6 @@ export default function AuditLogPage() {
     setDateTo('')
     setSearchInput('')
     setSearch('')
-    setOutletId('')
     setPage(1)
   }
 
@@ -417,7 +407,7 @@ export default function AuditLogPage() {
     window.open(`/api/audit-logs/export?${params}`, '_blank')
   }
 
-  const hasActiveFilters = search || actionFilter !== 'ALL' || entityFilter !== 'ALL' || dateFrom || dateTo || outletId
+  const hasActiveFilters = search || actionFilter !== 'ALL' || entityFilter !== 'ALL' || dateFrom || dateTo
 
   // ==================== ACTION BADGE ====================
   const ActionBadge = ({ action }: { action: string }) => {
@@ -462,20 +452,6 @@ export default function AuditLogPage() {
 
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-2">
-        {/* Outlet filter - only show when multi-outlet */}
-        {outlets.length > 1 && (
-          <Select value={outletId || '__all__'} onValueChange={(v) => { setOutletId(v === '__all__' ? '' : v); setPage(1) }}>
-            <SelectTrigger className="w-full sm:w-40 bg-white/[0.04] border-white/[0.08] text-white h-8 text-xs">
-              <SelectValue placeholder="Semua Outlet" />
-            </SelectTrigger>
-            <SelectContent className="bg-white/[0.04] border-white/[0.08]">
-              <SelectItem value="__all__" className="text-slate-200 focus:bg-white/[0.06] text-xs">Semua Outlet</SelectItem>
-              {outlets.map((o) => (
-                <SelectItem key={o.id} value={o.id} className="text-slate-200 focus:bg-white/[0.06] text-xs">{o.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
         {/* Search */}
         <div className="relative flex-1 min-w-0 sm:max-w-xs">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500 pointer-events-none" />
@@ -582,14 +558,6 @@ export default function AuditLogPage() {
               </button>
             </Badge>
           )}
-          {outletId && (
-            <Badge variant="outline" className="bg-white/[0.04] border-white/[0.08] text-slate-300 text-[11px] gap-1 px-2 py-0.5 cursor-pointer">
-              🏪 {outlets.find(o => o.id === outletId)?.name || 'Outlet'}
-              <button onClick={() => { setOutletId(''); setPage(1) }}>
-                <X className="h-2.5 w-2.5 ml-0.5" />
-              </button>
-            </Badge>
-          )}
         </div>
       )}
 
@@ -639,12 +607,6 @@ export default function AuditLogPage() {
                         </Badge>
                       </div>
                       <p className="text-[10px] text-slate-500 mt-0.5">{formatDate(log.createdAt)}</p>
-                      {outlets.length > 1 && log.outletName && (
-                        <p className="text-[10px] text-slate-600 mt-0.5 flex items-center gap-1">
-                          <Store className="h-2.5 w-2.5" />
-                          {log.outletName}
-                        </p>
-                      )}
                     </div>
                   </div>
 
@@ -670,9 +632,6 @@ export default function AuditLogPage() {
                 <TableRow className="border-white/[0.06] hover:bg-transparent bg-nebula/50">
                   <TableHead className="text-slate-500 text-[11px] font-medium w-10"></TableHead>
                   <TableHead className="text-slate-500 text-[11px] font-medium">Waktu</TableHead>
-                  {outlets.length > 1 && (
-                    <TableHead className="text-slate-500 text-[11px] font-medium">Outlet</TableHead>
-                  )}
                   <TableHead className="text-slate-500 text-[11px] font-medium">User</TableHead>
                   <TableHead className="text-slate-500 text-[11px] font-medium text-center">Aksi</TableHead>
                   <TableHead className="text-slate-500 text-[11px] font-medium">Entitas</TableHead>
@@ -695,15 +654,6 @@ export default function AuditLogPage() {
                       <TableCell className="text-xs text-slate-400 py-3 px-3 whitespace-nowrap">
                         {formatDate(log.createdAt)}
                       </TableCell>
-                      {/* Outlet */}
-                      {outlets.length > 1 && (
-                        <TableCell className="text-xs text-slate-400 py-3 px-3">
-                          <div className="flex items-center gap-1.5">
-                            <Store className="h-3 w-3 text-slate-500 shrink-0" />
-                            <span className="truncate max-w-[120px]">{log.outletName || '-'}</span>
-                          </div>
-                        </TableCell>
-                      )}
                       {/* User */}
                       <TableCell className="text-xs text-slate-300 py-3 px-3">
                         {log.user?.name || 'System'}

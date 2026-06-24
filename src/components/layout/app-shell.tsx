@@ -16,7 +16,6 @@ import TransactionsPage from '@/components/pages/transactions-page'
 import AuditLogPage from '@/components/pages/audit-log-page'
 import CrewPage from '@/components/pages/crew-page'
 import SettingsPage from '@/components/pages/settings-page'
-import MultiBranchPage from '@/components/pages/multi-branch-page'
 import { Loader2 } from 'lucide-react'
 import { motion } from 'framer-motion'
 
@@ -65,8 +64,6 @@ function AppContent() {
         return <CrewPage />
       case 'settings':
         return <SettingsPage />
-      case 'multi-branch':
-        return <MultiBranchPage />
       default:
         return <DashboardPage />
     }

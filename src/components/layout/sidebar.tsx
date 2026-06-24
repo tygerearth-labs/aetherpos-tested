@@ -26,15 +26,8 @@ import {
   UserCog,
   Lock,
   Command,
-  Building2,
-  Info,
 } from 'lucide-react'
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover'
 import { motion, AnimatePresence } from 'framer-motion'
 import { create } from 'zustand'
 
@@ -62,7 +55,6 @@ interface NavItem {
   page: PageType
   shortLabel: string
   section?: 'main' | 'operations' | 'admin'
-  ownerOnly?: boolean
 }
 
 // ============================================================
@@ -75,7 +67,6 @@ const navItems: NavItem[] = [
   { label: 'Customers', shortLabel: 'Cust', icon: <Users className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'customers', section: 'main' },
   { label: 'POS', shortLabel: 'POS', icon: <ShoppingCart className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'pos', section: 'operations' },
   { label: 'Transactions', shortLabel: 'Txn', icon: <Receipt className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'transactions', section: 'operations' },
-  { label: 'Multi-Cabang', shortLabel: 'Cab', icon: <Building2 className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'multi-branch', section: 'admin', ownerOnly: true },
   { label: 'Audit Log', shortLabel: 'Log', icon: <ClipboardList className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'audit-log', section: 'admin' },
   { label: 'Kelola Crew', shortLabel: 'Crew', icon: <UserCog className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'crew', section: 'admin' },
   { label: 'Pengaturan', shortLabel: 'Set', icon: <Settings className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'settings', section: 'admin' },
@@ -121,7 +112,6 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
 
   const [allowedPages, setAllowedPages] = useState<string[] | null>(null)
   const [permissionsLoaded, setPermissionsLoaded] = useState(false)
-  const [hasBranches, setHasBranches] = useState(false)
 
   const fetchPermissions = useCallback(async () => {
     if (isOwner) {
@@ -149,20 +139,6 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
     fetchPermissions()
   }, [fetchPermissions])
 
-  // Fetch outlets to check if branches exist
-  useEffect(() => {
-    ;(async () => {
-      try {
-        const res = await fetch('/api/outlets')
-        if (res.ok) {
-          const data = await res.json()
-          const outlets = data.outlets || []
-          setHasBranches(outlets.filter((o: { isPrimary: boolean }) => !o.isPrimary).length > 0)
-        }
-      } catch { /* ignore */ }
-    })()
-  }, [])
-
   // Page guard: redirect crew if they navigate to unauthorized page
   useEffect(() => {
     if (permissionsLoaded && !isOwner && allowedPages && currentPage) {
@@ -181,12 +157,11 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
     return map
   }, [isOwner, allowedPages])
 
-  // Group all items by section — filter ownerOnly items for non-owners
+  // Group all items by section
   const groupedItems = useMemo(() => {
     const groups: { key: string; label: string; items: NavItem[] }[] = []
     const seen = new Set<string>()
     for (const item of navItems) {
-      if (item.ownerOnly && !isOwner) continue
       const sec = item.section || 'main'
       if (!seen.has(sec)) {
         seen.add(sec)
@@ -195,7 +170,7 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
       groups[groups.length - 1].items.push(item)
     }
     return groups
-  }, [isOwner, navItemAccess])
+  }, [navItemAccess])
 
   const handleNav = (page: PageType) => {
     if (isOwner || !allowedPages || allowedPages.includes(page)) {
@@ -234,99 +209,52 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
   const renderNavButton = (item: NavItem) => {
     const isActive = currentPage === item.page
     const isCompact = collapsed && !isMobile
+    const isLocked = permissionsLoaded && !navItemAccess.get(item.page)
 
-    // Check if multi-branch should be disabled (no branches yet)
-    const isBranchLocked = item.page === 'multi-branch' && !hasBranches
-    const isLocked = (permissionsLoaded && !navItemAccess.get(item.page)) || isBranchLocked
-
-  const btn = (
-    <motion.button
-      onClick={() => {
-        if (isLocked) return
-        handleNav(item.page)
-      }}
-      whileTap={{ scale: 0.97 }}
-      className={`group relative w-full flex items-center gap-3 rounded-lg text-[13px] font-medium transition-all duration-200 ${
-        isCompact ? 'justify-center px-2 py-2.5' : 'px-3 py-2.5'
-      } ${
-        isLocked
-          ? 'opacity-40 cursor-not-allowed'
-          : isActive
-            ? 'bg-white/[0.06] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]'
-            : 'text-slate-400 hover:bg-white/[0.03] hover:text-slate-200'
-      }`}
-    >
-      {isActive && !isCompact && !isLocked && (
-        <motion.span
-          layoutId="sidebar-active-indicator"
-          className="absolute left-0 top-1/2 -translate-y-1/2 w-[2.5px] h-4 rounded-r-full"
-          style={{
-            background: 'linear-gradient(180deg, #EC4899, #8B5CF6, #06B6D4)',
-          }}
-          transition={{ type: 'spring', stiffness: 380, damping: 30 }}
-        />
-      )}
-      <span className={`shrink-0 transition-colors duration-200 ${
-        isLocked
-          ? 'text-slate-600'
-          : isActive
-            ? 'text-white'
-            : 'text-slate-500 group-hover:text-slate-300'
-      }`}>
-        {item.icon}
-      </span>
-      {!isCompact && (
-        <span className="truncate flex-1">{item.label}</span>
-      )}
-      {!isCompact && isLocked && (
-        <Lock className="h-3 w-3 shrink-0 text-slate-600" />
-      )}
-      {isCompact && isLocked && (
-        <Lock className="h-3 w-3 absolute -top-0.5 -right-0.5 text-slate-500" />
-      )}
-    </motion.button>
-  )
-
-    if (isBranchLocked) {
-      // Show popover for no-branches state
-      const popoverContent = (
-        <div className="flex items-start gap-2.5 px-1 py-0.5">
-          <Info className="h-4 w-4 shrink-0 text-amber-400 mt-0.5" />
-          <div>
-            <p className="text-xs font-semibold text-slate-200">Multi-Cabang Tidak Tersedia</p>
-            <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">Tambah cabang di halaman <span className="text-amber-400 font-medium">Pengaturan → Outlet & Struk</span> untuk membuka akses halaman ini.</p>
-          </div>
-        </div>
-      )
-
-      if (isCompact) {
-        return (
-          <Popover key={item.page}>
-            <PopoverTrigger asChild>{btn}</PopoverTrigger>
-            <PopoverContent
-              side="right"
-              sideOffset={12}
-              className="bg-slate-800/95 backdrop-blur-sm text-slate-100 border border-white/[0.08] shadow-2xl rounded-xl p-3 w-64"
-            >
-              {popoverContent}
-            </PopoverContent>
-          </Popover>
-        )
-      }
-
-      return (
-        <Popover key={item.page}>
-          <PopoverTrigger asChild>{btn}</PopoverTrigger>
-          <PopoverContent
-            side="right"
-            sideOffset={8}
-            className="bg-slate-800/95 backdrop-blur-sm text-slate-100 border border-white/[0.08] shadow-2xl rounded-xl p-3 w-64"
-          >
-            {popoverContent}
-          </PopoverContent>
-        </Popover>
-      )
-    }
+    const btn = (
+      <motion.button
+        onClick={() => !isLocked && handleNav(item.page)}
+        whileTap={{ scale: 0.97 }}
+        className={`group relative w-full flex items-center gap-3 rounded-lg text-[13px] font-medium transition-all duration-200 ${
+          isCompact ? 'justify-center px-2 py-2.5' : 'px-3 py-2.5'
+        } ${
+          isLocked
+            ? 'opacity-30 cursor-not-allowed pointer-events-none'
+            : isActive
+              ? 'bg-white/[0.06] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]'
+              : 'text-slate-400 hover:bg-white/[0.03] hover:text-slate-200'
+        }`}
+      >
+        {isActive && !isCompact && !isLocked && (
+          <motion.span
+            layoutId="sidebar-active-indicator"
+            className="absolute left-0 top-1/2 -translate-y-1/2 w-[2.5px] h-4 rounded-r-full"
+            style={{
+              background: 'linear-gradient(180deg, #EC4899, #8B5CF6, #06B6D4)',
+            }}
+            transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+          />
+        )}
+        <span className={`shrink-0 transition-colors duration-200 ${
+          isLocked
+            ? 'text-slate-600'
+            : isActive
+              ? 'text-white'
+              : 'text-slate-500 group-hover:text-slate-300'
+        }`}>
+          {item.icon}
+        </span>
+        {!isCompact && (
+          <span className="truncate flex-1">{item.label}</span>
+        )}
+        {!isCompact && isLocked && (
+          <Lock className="h-3 w-3 shrink-0 text-slate-600" />
+        )}
+        {isCompact && isLocked && (
+          <Lock className="h-3 w-3 absolute -top-0.5 -right-0.5 text-slate-500" />
+        )}
+      </motion.button>
+    )
 
     if (isCompact) {
       return (

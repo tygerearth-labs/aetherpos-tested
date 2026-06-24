@@ -18,14 +18,7 @@ import {
   UserCog,
   LogOut,
   Lock,
-  Building2,
-  Info,
 } from 'lucide-react'
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useRouter } from 'next/navigation'
@@ -78,7 +71,6 @@ interface MoreMenuItem {
 
 const allMoreMenuItems: MoreMenuItem[] = [
   { page: 'customers', icon: <Users className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Customers', section: 'Main' },
-  { page: 'multi-branch', icon: <Building2 className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Multi-Cabang', section: 'Admin' },
   { page: 'audit-log', icon: <ClipboardList className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Audit Log', section: 'Admin' },
   { page: 'crew', icon: <UserCog className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Kelola Crew', section: 'Admin' },
   { page: 'settings', icon: <Settings className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Pengaturan', section: 'Admin' },
@@ -90,23 +82,7 @@ export default function MobileBottomNav() {
   const { plan, isSuspended, isLoading: planLoading } = usePlan()
   const router = useRouter()
   const [moreOpen, setMoreOpen] = useState(false)
-  const [hasBranches, setHasBranches] = useState(false)
   const isOwner = session?.user?.role === 'OWNER'
-
-  // Fetch outlets to check if branches exist
-  useEffect(() => {
-    if (!isOwner) return
-    ;(async () => {
-      try {
-        const res = await fetch('/api/outlets')
-        if (res.ok) {
-          const data = await res.json()
-          const outlets = data.outlets || []
-          setHasBranches(outlets.filter((o: { isPrimary: boolean }) => !o.isPrimary).length > 0)
-        }
-      } catch { /* ignore */ }
-    })()
-  }, [isOwner])
 
   // ---- Crew permission-based access ----
   const [allowedPages, setAllowedPages] = useState<Set<string> | null>(null)
@@ -294,16 +270,13 @@ export default function MobileBottomNav() {
                   <div className="space-y-0.5">
                     {sectionItems.map((item) => {
                       const locked = item.page ? !hasAccess(item.page) : false
-                      const isBranchLocked = item.page === 'multi-branch' && isOwner && !hasBranches
-                      const isLocked = locked || isBranchLocked
-
-                      const menuBtn = (
+                      return (
                         <button
                           key={item.page || item.label}
-                          onClick={() => !isLocked && (item.action ? item.action() : item.page && handleNav(item.page))}
+                          onClick={() => !locked && (item.action ? item.action() : item.page && handleNav(item.page))}
                           className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all duration-200 ${
-                            isLocked
-                              ? 'opacity-40 cursor-not-allowed'
+                            locked
+                              ? 'opacity-30 cursor-not-allowed pointer-events-none'
                               : item.page && isActive(item.page)
                                 ? 'bg-white/[0.06] text-white'
                                 : item.danger
@@ -312,7 +285,7 @@ export default function MobileBottomNav() {
                           }`}
                         >
                           <span className={`shrink-0 ${
-                            isLocked
+                            locked
                               ? 'text-slate-600'
                               : item.page && isActive(item.page)
                                 ? 'text-white'
@@ -323,10 +296,10 @@ export default function MobileBottomNav() {
                             {item.icon}
                           </span>
                           <span className="text-sm font-medium flex-1">{item.label}</span>
-                          {isLocked && (
+                          {locked && (
                             <Lock className="h-3.5 w-3.5 shrink-0 text-slate-600" />
                           )}
-                          {!isLocked && item.page && isActive(item.page) && (
+                          {!locked && item.page && isActive(item.page) && (
                             <motion.div
                               layoutId="more-menu-dot"
                               className="ml-auto w-1.5 h-1.5 rounded-full aether-gradient"
@@ -335,30 +308,6 @@ export default function MobileBottomNav() {
                           )}
                         </button>
                       )
-
-                      if (isBranchLocked) {
-                        return (
-                          <Popover key={item.page || item.label}>
-                            <PopoverTrigger asChild>{menuBtn}</PopoverTrigger>
-                            <PopoverContent
-                              side="top"
-                              sideOffset={8}
-                              align="center"
-                              className="bg-slate-800/95 backdrop-blur-sm text-slate-100 border border-white/[0.08] shadow-2xl rounded-xl p-3 w-72"
-                            >
-                              <div className="flex items-start gap-2.5 px-1 py-0.5">
-                                <Info className="h-4 w-4 shrink-0 text-amber-400 mt-0.5" />
-                                <div>
-                                  <p className="text-xs font-semibold text-slate-200">Multi-Cabang Tidak Tersedia</p>
-                                  <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">Tambah cabang di halaman <span className="text-amber-400 font-medium">Pengaturan → Outlet & Struk</span> untuk membuka akses halaman ini.</p>
-                                </div>
-                              </div>
-                            </PopoverContent>
-                          </Popover>
-                        )
-                      }
-
-                      return menuBtn
                     })}
                   </div>
                 </div>

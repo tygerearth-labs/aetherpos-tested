@@ -4,7 +4,6 @@ import { getAuthUser, unauthorized } from '@/lib/get-auth'
 import { generateInvoiceNumber } from '@/lib/api-helpers'
 import { safeJson, safeJsonError } from '@/lib/safe-response'
 import { ensureMigrated } from '@/lib/db-migrate'
-import { getOwnerOutlets } from '@/lib/multi-outlet'
 
 interface SyncTransactionItem {
   productId: string
@@ -20,7 +19,6 @@ interface SyncTransactionItem {
 interface SyncTransaction {
   id?: number
   payload: {
-    outletId?: string
     customerId: string | null
     items: SyncTransactionItem[]
     subtotal: number
@@ -52,7 +50,7 @@ export async function POST(request: NextRequest) {
       return unauthorized()
     }
     const userId = user.id
-    const sessionOutletId = user.outletId
+    const outletId = user.outletId
 
     // Auto-migrate: ensure new columns exist (e.g. itemDiscount)
     await ensureMigrated()
@@ -62,20 +60,6 @@ export async function POST(request: NextRequest) {
 
     if (!transactions || !Array.isArray(transactions) || transactions.length === 0) {
       return safeJsonError('No transactions to sync', 400)
-    }
-
-    // Resolve outlet from first transaction's payload (multi-outlet support)
-    const firstOutletId = transactions[0]?.payload?.outletId
-    let outletId = sessionOutletId
-    if (firstOutletId && user.role === 'OWNER' && user.email) {
-      const multiOutlet = await getOwnerOutlets(db, user.email, sessionOutletId)
-      if (multiOutlet && multiOutlet.outletIds.includes(firstOutletId)) {
-        outletId = firstOutletId
-      } else if (firstOutletId !== sessionOutletId) {
-        return safeJsonError('Outlet tidak valid', 403)
-      }
-    } else if (firstOutletId && firstOutletId !== sessionOutletId) {
-      return safeJsonError('Crew hanya dapat bertransaksi di outletnya sendiri', 403)
     }
 
     // Limit batch size to 50
