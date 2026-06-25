@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { seedDatabase } from '@/lib/seed';
-import { getAuthUser, unauthorized } from '@/lib/get-auth';
-import { safeJson } from '@/lib/safe-response';
+import { getAuthUser, unauthorized } from '@/lib/api/get-auth';
+import { safeJson } from '@/lib/api/safe-response';
 
 export async function POST(request: NextRequest) {
   // ?force=true bypasses auth ONLY in development mode

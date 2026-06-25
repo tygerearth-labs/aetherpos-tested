@@ -3,7 +3,7 @@ import { db } from '@/lib/db'
 import { sendTelegramMessage, formatStockAlertMessage, type StockAlertItem } from '@/lib/telegram'
 import { notifyDailyReport, notifyWeeklyReport, notifyMonthlyReport, notifyInsight } from '@/lib/notify'
 import { runInsightEngine, type AIInsight } from '@/lib/insight-engine'
-import { safeJson, safeJsonError } from '@/lib/safe-response'
+import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 
 const TELEGRAM_API = 'https://api.telegram.org'
 

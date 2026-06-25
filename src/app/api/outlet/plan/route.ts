@@ -1,9 +1,9 @@
 import { NextRequest } from 'next/server'
-import { resolvePlanType } from '@/lib/api-helpers'
-import { requireAuth } from '@/lib/auth-utils'
+import { resolvePlanType } from '@/lib/api/api-helpers'
+import { requireAuth } from '@/lib/auth/auth-utils'
 import { db } from '@/lib/db'
-import { getPlanFeatures, getPlanLabel } from '@/lib/plan-config'
-import { safeJson, safeJsonError } from '@/lib/safe-response'
+import { getPlanFeatures, getPlanLabel } from '@/lib/config/plan-config'
+import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 
 /**
  * GET /api/outlet/plan

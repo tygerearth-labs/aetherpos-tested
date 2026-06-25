@@ -1,8 +1,8 @@
 import { NextRequest } from 'next/server'
-import { resolvePlanType } from '@/lib/api-helpers'
+import { resolvePlanType } from '@/lib/api/api-helpers'
 import { db } from '@/lib/db'
-import { getAuthUser, unauthorized } from '@/lib/get-auth'
-import { safeJson, safeJsonCreated, safeJsonError } from '@/lib/safe-response'
+import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
+import { safeJson, safeJsonCreated, safeJsonError } from '@/lib/api/safe-response'
 
 /**
  * GET /api/outlets — List all outlets owned by the current user's owner

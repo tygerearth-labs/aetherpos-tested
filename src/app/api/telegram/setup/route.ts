@@ -1,8 +1,8 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
-import { getAuthUser, unauthorized } from '@/lib/get-auth'
+import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { sendTelegramMessage } from '@/lib/telegram'
-import { safeJson, safeJsonError } from '@/lib/safe-response'
+import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 
 const TELEGRAM_API = 'https://api.telegram.org'
 

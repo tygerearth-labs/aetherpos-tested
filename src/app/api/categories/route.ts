@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
-import { getAuthUser, unauthorized } from '@/lib/get-auth'
-import { safeJson, safeJsonCreated, safeJsonError } from '@/lib/safe-response'
+import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
+import { safeJson, safeJsonCreated, safeJsonError } from '@/lib/api/safe-response'
 
 // GET /api/categories — list all categories for the outlet
 export async function GET(request: NextRequest) {

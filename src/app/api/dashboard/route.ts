@@ -1,8 +1,8 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
-import { getAuthUser, unauthorized } from '@/lib/get-auth'
-import { getVoidedTxIds, parseTzOffset, getTodayRangeTz, getHourInTimezone } from '@/lib/api-helpers'
-import { safeJson, safeJsonError } from '@/lib/safe-response'
+import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
+import { parseTzOffset, getTodayRangeTz, getHourInTimezone, getVoidedTxIds } from '@/lib/api/api-helpers'
+import { safeJson, safeJsonError, CACHE } from '@/lib/api/safe-response'
 
 interface HourBucket {
   hour: number
@@ -29,30 +29,89 @@ export async function GET(request: NextRequest) {
           return { todayStart: ts, yesterdayStart: new Date(ts.getTime() - 86_400_000) }
         })()
 
-    // Get voided transaction IDs to exclude from all calculations
+    // ── Get voided transaction IDs (needed for all calculations) ──
     const voidedTxIds = await getVoidedTxIds(db, outletId)
     const voidedIdArray = Array.from(voidedTxIds).filter(Boolean) as string[]
-
-    // Build void exclusion filter
     const voidExclude = voidedIdArray.length > 0 ? { id: { notIn: voidedIdArray } } : {}
 
-    // ── All-time totals (excluding voided) ──
-    const [revenueResult, totalTxCount, totalProducts] = await Promise.all([
+    // ── Batch 1: All independent queries in parallel ──
+    const [
+      allTimeAgg,
+      allTimeCount,
+      totalProducts,
+      lowStockProducts,
+      lowStockVariants,
+      topCustomers,
+      todayAgg,
+      yesterdayAgg,
+    ] = await Promise.all([
+      // All-time revenue (excluding voided) — aggregate instead of findMany
       db.transaction.aggregate({
         where: { outletId, ...voidExclude },
         _sum: { total: true },
       }),
-      db.transaction.count({ where: { outletId, ...voidExclude } }),
-      db.product.count({ where: { outletId } }),
-    ])
-    const totalRevenue = revenueResult._sum.total ?? 0
-    const totalTransactions = totalTxCount
 
-    // ── Low stock products (variant-aware aggregation) ──
-    const lowStockProducts = await db.product.findMany({
-      where: { outletId },
-      select: { id: true, name: true, stock: true, lowStockAlert: true, hasVariants: true, variants: { select: { stock: true } } },
-    })
+      db.transaction.count({ where: { outletId, ...voidExclude } }),
+
+      db.product.count({ where: { outletId } }),
+
+      // Low stock products (variant-aware aggregation)
+      db.product.findMany({
+        where: { outletId },
+        select: { id: true, name: true, stock: true, lowStockAlert: true, hasVariants: true, variants: { select: { stock: true } } },
+      }),
+
+      // Low stock variants (stock <= 0 only)
+      db.productVariant.findMany({
+        where: { outletId, stock: { lte: 0 } },
+        orderBy: { stock: 'asc' },
+        select: {
+          id: true,
+          name: true,
+          stock: true,
+          productId: true,
+          product: { select: { name: true } },
+        },
+      }),
+
+      // Top 5 customers
+      db.customer.findMany({
+        where: { outletId },
+        orderBy: { totalSpend: 'desc' },
+        take: 5,
+      }),
+
+      // Today's aggregated metrics (single aggregate call vs findMany + reduce)
+      db.transaction.aggregate({
+        where: { outletId, createdAt: { gte: todayStart }, ...voidExclude },
+        _sum: { subtotal: true, discount: true, taxAmount: true, total: true },
+        _count: true,
+      }),
+
+      // Yesterday's aggregated metrics
+      db.transaction.aggregate({
+        where: { outletId, createdAt: { gte: yesterdayStart, lt: todayStart }, ...voidExclude },
+        _sum: { total: true },
+        _count: true,
+      }),
+    ])
+
+    const totalRevenue = allTimeAgg._sum.total ?? 0
+    const totalTransactions = allTimeCount
+    const todayRevenue = todayAgg._sum.total ?? 0
+    const todayBrutto = todayAgg._sum.subtotal ?? 0
+    const todayDiscount = todayAgg._sum.discount ?? 0
+    const todayTax = todayAgg._sum.taxAmount ?? 0
+    const todayTxCount = todayAgg._count
+    const yesterdayRevenue = yesterdayAgg._sum.total ?? 0
+    const yesterdayTxCount = yesterdayAgg._count
+
+    const revenueChangePercent =
+      yesterdayRevenue > 0
+        ? ((todayRevenue - yesterdayRevenue) / yesterdayRevenue) * 100
+        : todayRevenue > 0 ? 100 : 0
+
+    // Process low stock
     const lowStockList = lowStockProducts
       .map((p) => {
         const aggStock = p.hasVariants && p.variants.length > 0
@@ -63,104 +122,49 @@ export async function GET(request: NextRequest) {
       .filter((p) => p.aggStock <= p.lowStockAlert)
       .sort((a, b) => a.aggStock - b.aggStock)
 
-    // ── Low stock variants ──
-    const lowStockVariants = await db.productVariant.findMany({
-      where: { outletId },
-      orderBy: { stock: 'asc' },
-      select: {
-        id: true,
-        name: true,
-        stock: true,
-        productId: true,
-        product: { select: { name: true } },
-      },
-    })
-    const lowStockVariantList = lowStockVariants.filter((v) => v.stock <= 0)
-
-    // ── Top 5 customers ──
-    const topCustomers = await db.customer.findMany({
-      where: { outletId },
-      orderBy: { totalSpend: 'desc' },
-      take: 5,
-    })
-
-    // ── Today's metrics (excluding voided) ──
-    const todayTransactions = await db.transaction.findMany({
-      where: {
-        outletId,
-        createdAt: { gte: todayStart },
-        ...voidExclude,
-      },
-      select: {
-        subtotal: true,
-        discount: true,
-        taxAmount: true,
-        total: true,
-        createdAt: true,
-        items: {
-          select: { price: true, hpp: true, qty: true },
-        },
-      },
-    })
-
-    const todayBrutto = todayTransactions.reduce((s, t) => s + t.subtotal, 0)
-    const todayDiscount = todayTransactions.reduce((s, t) => s + t.discount, 0)
-    const todayTax = todayTransactions.reduce((s, t) => s + (t.taxAmount || 0), 0)
-    const todayRevenue = todayTransactions.reduce((s, t) => s + t.total, 0)
-    const todayTxCount = todayTransactions.length
-
-    // ── Yesterday's metrics (excluding voided) ──
-    const yesterdayTransactions = await db.transaction.findMany({
-      where: {
-        outletId,
-        createdAt: { gte: yesterdayStart, lt: todayStart },
-        ...voidExclude,
-      },
-      select: {
-        total: true,
-      },
-    })
-    const yesterdayRevenue = yesterdayTransactions.reduce((s, t) => s + t.total, 0)
-    const yesterdayTxCount = yesterdayTransactions.length
-
-    const revenueChangePercent =
-      yesterdayRevenue > 0
-        ? ((todayRevenue - yesterdayRevenue) / yesterdayRevenue) * 100
-        : todayRevenue > 0
-          ? 100
-          : 0
-
     // ── OWNER-ONLY fields ──
-    let totalProfit = 0
-    let todayProfit = 0
-    let peakHours: HourBucket[] = []
+    let totalProfit: number | null = null
+    let todayProfit: number | null = null
+    let peakHours: HourBucket[] | null = null
     let aiInsight: string | null = null
 
     if (isOwner) {
-      // All-time profit (excluding voided)
-      const allItems = await db.transactionItem.findMany({
-        where: {
-          transaction: { outletId, ...voidExclude },
-        },
-        select: { price: true, hpp: true, qty: true },
-      })
-      totalProfit = allItems.reduce((s, i) => s + (i.price - i.hpp) * i.qty, 0)
+      // Batch 2: Owner-specific queries in parallel
+      const [profitAgg, todayTxs] = await Promise.all([
+        // All-time profit via aggregate (single query)
+        db.transactionItem.aggregate({
+          where: {
+            transaction: { outletId, ...voidExclude },
+          },
+          _sum: { price: true, hpp: true },
+        }),
+
+        // Today's transactions (needed for profit + peak hours)
+        db.transaction.findMany({
+          where: { outletId, createdAt: { gte: todayStart }, ...voidExclude },
+          select: {
+            total: true,
+            createdAt: true,
+            items: { select: { price: true, hpp: true, qty: true } },
+          },
+        }),
+      ])
+
+      // All-time profit = total revenue - total COGS
+      totalProfit = (profitAgg._sum.price ?? 0) - (profitAgg._sum.hpp ?? 0)
 
       // Today's profit
-      todayProfit = todayTransactions.reduce((s, t) => {
-        return (
-          s +
-          t.items.reduce((itemSum, i) => itemSum + (i.price - i.hpp) * i.qty, 0)
-        )
+      todayProfit = todayTxs.reduce((s, t) => {
+        return s + t.items.reduce((is, i) => is + (i.price - i.hpp) * i.qty, 0)
       }, 0)
 
-      // Peak hours — group today's transactions by hour
+      // Peak hours
       const buckets: HourBucket[] = Array.from({ length: 24 }, (_, h) => ({
         hour: h,
         transactionCount: 0,
         revenue: 0,
       }))
-      for (const t of todayTransactions) {
+      for (const t of todayTxs) {
         const hour = tzOffset !== null
           ? getHourInTimezone(t.createdAt, tzOffset)
           : t.createdAt.getHours()
@@ -168,46 +172,41 @@ export async function GET(request: NextRequest) {
         buckets[hour].revenue += t.total
       }
       peakHours = buckets
-
-      // AI Insight placeholder
       aiInsight = 'AI insight requires Z.AI GLM 5 integration'
     }
 
-    return safeJson({
-      // All-time
-      totalRevenue,
-      totalTransactions,
-      totalProducts,
-      lowStockProducts: lowStockList.length,
-      lowStockList,
-      lowStockVariants: lowStockVariantList.length,
-      lowStockVariantList: lowStockVariantList.map((v) => ({
-        id: v.id,
-        name: v.name,
-        stock: v.stock,
-        productId: v.productId,
-        productName: v.product?.name || 'Unknown',
-      })),
-      topCustomers,
-      totalProfit: isOwner ? totalProfit : null,
-
-      // Today
-      todayRevenue,
-      todayBrutto,
-      todayDiscount,
-      todayTax,
-      todayTransactions: todayTxCount,
-      todayProfit: isOwner ? todayProfit : null,
-
-      // Yesterday comparison
-      yesterdayRevenue,
-      yesterdayTransactions: yesterdayTxCount,
-      revenueChangePercent,
-
-      // OWNER-ONLY Pro features
-      peakHours: isOwner ? peakHours : null,
-      aiInsight: isOwner ? aiInsight : null,
-    })
+    return safeJson(
+      {
+        totalRevenue,
+        totalTransactions,
+        totalProducts,
+        lowStockProducts: lowStockList.length,
+        lowStockList,
+        lowStockVariants: lowStockVariants.length,
+        lowStockVariantList: lowStockVariants.map((v) => ({
+          id: v.id,
+          name: v.name,
+          stock: v.stock,
+          productId: v.productId,
+          productName: v.product?.name || 'Unknown',
+        })),
+        topCustomers,
+        totalProfit,
+        todayRevenue,
+        todayBrutto,
+        todayDiscount,
+        todayTax,
+        todayTransactions: todayTxCount,
+        todayProfit,
+        yesterdayRevenue,
+        yesterdayTransactions: yesterdayTxCount,
+        revenueChangePercent,
+        peakHours,
+        aiInsight,
+      },
+      200,
+      CACHE.SHORT // 5-second client cache
+    )
   } catch (error) {
     console.error('Dashboard error:', error)
     return safeJsonError('Failed to load dashboard stats')

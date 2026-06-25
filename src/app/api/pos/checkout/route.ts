@@ -1,12 +1,12 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
-import { getAuthUser, unauthorized } from '@/lib/get-auth'
-import { generateInvoiceNumber, resolvePlanType } from '@/lib/api-helpers'
+import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
+import { generateInvoiceNumber, resolvePlanType } from '@/lib/api/api-helpers'
 import { notifyNewTransaction } from '@/lib/notify'
 import { notifyInsight } from '@/lib/notify'
 import { runInsightEngine } from '@/lib/insight-engine'
-import { getPlanFeatures, isUnlimited } from '@/lib/plan-config'
-import { safeJson, safeJsonError } from '@/lib/safe-response'
+import { getPlanFeatures, isUnlimited } from '@/lib/config/plan-config'
+import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 import { ensureMigrated } from '@/lib/db-migrate'
 
 interface CheckoutItem {

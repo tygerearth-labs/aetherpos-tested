@@ -1,11 +1,11 @@
 import { NextRequest } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { db } from '@/lib/db'
-import { getAuthUser, unauthorized } from '@/lib/get-auth'
-import { getOutletPlan } from '@/lib/plan-config'
-import { validateEmail, validatePassword } from '@/lib/api-helpers'
+import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
+import { getOutletPlan } from '@/lib/config/plan-config'
+import { validateEmail, validatePassword } from '@/lib/api/api-helpers'
 import { safeAuditLog } from '@/lib/safe-audit'
-import { safeJson, safeJsonCreated, safeJsonError } from '@/lib/safe-response'
+import { safeJson, safeJsonCreated, safeJsonError } from '@/lib/api/safe-response'
 
 /**
  * GET /api/outlet/crew — List all crew (non-owner users) for the outlet

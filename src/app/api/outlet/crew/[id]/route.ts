@@ -1,9 +1,9 @@
 import { NextRequest } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { db } from '@/lib/db'
-import { getAuthUser, unauthorized } from '@/lib/get-auth'
+import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeAuditLog } from '@/lib/safe-audit'
-import { safeJson, safeJsonError } from '@/lib/safe-response'
+import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 
 /**
  * PUT /api/outlet/crew/[id] — Update crew member info
