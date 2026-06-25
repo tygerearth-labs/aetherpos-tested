@@ -48,7 +48,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { usePlan } from '@/hooks/use-plan'
-import { PLANS, getPlanLabel, getPlanBadgeClass, formatLimit, isUnlimited, type AccountType } from '@/lib/plan-config'
+import { PLANS, getPlanLabel, getPlanBadgeClass, formatLimit, isUnlimited, type AccountType } from '@/lib/config/plan-config'
 import { ProGate } from '@/components/shared/pro-gate'
 import {
   Banknote,
@@ -281,7 +281,8 @@ function useSettings() {
   }, [])
 
   useEffect(() => {
-    fetchSettings()
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetchSettings()
   }, [fetchSettings])
 
   const saveSettings = useCallback(async (updates: Partial<SettingsData>) => {
@@ -931,7 +932,8 @@ function PromoTab() {
   }, [])
 
   useEffect(() => {
-    fetchPromos()
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetchPromos()
   }, [fetchPromos])
 
   useEffect(() => {
@@ -1683,6 +1685,7 @@ function TelegramTab() {
 
   useEffect(() => {
     if (settings) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setChatId(settings.telegramChatId || '')
       // Never expose the real token — always show placeholder
       setBotToken('')
@@ -2814,7 +2817,8 @@ function MultiOutletTab() {
     }
   }, [])
 
-  useEffect(() => { fetchOutlets() }, [fetchOutlets])
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void fetchOutlets() }, [fetchOutlets])
 
   const handleCreate = async () => {
     if (!formData.name.trim()) {

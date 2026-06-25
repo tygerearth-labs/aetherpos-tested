@@ -1,7 +1,7 @@
 'use server';
 
 import { db } from '@/lib/db';
-import { getCurrentUser, requireOwner } from '@/lib/auth-utils';
+import { getCurrentUser, requireOwner } from '@/lib/auth/auth-utils';
 
 export async function getDashboardStats() {
   const user = await getCurrentUser();

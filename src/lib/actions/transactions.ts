@@ -1,7 +1,7 @@
 'use server';
 
 import { db } from '@/lib/db';
-import { getCurrentUser } from '@/lib/auth-utils';
+import { getCurrentUser } from '@/lib/auth/auth-utils';
 import type { PaginatedResult, CheckoutInput } from '@/lib/types';
 
 const PAGE_SIZE = 20;

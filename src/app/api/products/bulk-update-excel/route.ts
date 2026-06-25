@@ -1,10 +1,10 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
-import { getAuthUser, unauthorized } from '@/lib/get-auth'
-import { getOutletPlan } from '@/lib/plan-config'
+import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
+import { getOutletPlan } from '@/lib/config/plan-config'
 import * as XLSX from 'xlsx'
 import { safeAuditLog } from '@/lib/safe-audit'
-import { safeJson, safeJsonError } from '@/lib/safe-response'
+import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 
 // Vercel serverless function timeout: 60s
 export const maxDuration = 60

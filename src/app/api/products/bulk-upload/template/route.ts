@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
-import { getAuthUser, unauthorized } from '@/lib/get-auth'
+import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import * as XLSX from 'xlsx'
-import { safeJsonError } from '@/lib/safe-response'
+import { safeJsonError } from '@/lib/api/safe-response'
 
 export async function GET(request: NextRequest) {
   try {

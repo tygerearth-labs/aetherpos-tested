@@ -1,5 +1,5 @@
 // ==================== AETHER POS SCHEMA ====================
-// Uses DATABASE_URL — PostgreSQL (Neon) for production
+// PostgreSQL for Vercel / production deployment
 
 generator client {
   provider = "prisma-client-js"

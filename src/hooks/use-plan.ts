@@ -18,8 +18,8 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import type { PlanFeatures } from '@/lib/plan-config'
-import { getPlanFeatures, isUnlimited } from '@/lib/plan-config'
+import type { PlanFeatures } from '@/lib/config/plan-config'
+import { getPlanFeatures, isUnlimited } from '@/lib/config/plan-config'
 
 // ============================================================
 // Types
@@ -105,9 +105,10 @@ export function usePlan(): UsePlanReturn {
     }
   }, [])
 
-  // Initial fetch
+  // Initial fetch — suppress lint: async data-fetch pattern (setStates inside async callback)
   useEffect(() => {
-    fetchPlan()
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetchPlan()
   }, [fetchPlan])
 
   // Polling interval

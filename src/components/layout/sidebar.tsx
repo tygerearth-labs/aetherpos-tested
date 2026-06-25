@@ -4,7 +4,7 @@ import { useSession, signOut } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import { usePageStore, type PageType } from '@/hooks/use-page-store'
 import { usePlan } from '@/hooks/use-plan'
-import { getPlanBadgeClass } from '@/lib/plan-config'
+import { getPlanBadgeClass } from '@/lib/config/plan-config'
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -136,7 +136,8 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
   }, [isOwner])
 
   useEffect(() => {
-    fetchPermissions()
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetchPermissions()
   }, [fetchPermissions])
 
   // Page guard: redirect crew if they navigate to unauthorized page

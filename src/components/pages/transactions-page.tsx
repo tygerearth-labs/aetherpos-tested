@@ -253,7 +253,8 @@ export default function TransactionsPage() {
   }, [])
 
   useEffect(() => {
-    fetchCashiers().catch(() => fetchCashiersFallback())
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetchCashiers().catch(() => fetchCashiersFallback())
   }, [fetchCashiers, fetchCashiersFallback])
 
   // Fetch transaction summary (Pro/Enterprise only)
@@ -338,16 +339,19 @@ export default function TransactionsPage() {
   }, [page, search, dateFrom, dateTo, cashierId, paymentMethod, voidFilter, sortField, sortDir])
 
   useEffect(() => {
-    fetchTransactions()
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetchTransactions()
   }, [fetchTransactions])
 
   // Fetch summary when date range changes
   useEffect(() => {
-    fetchSummary()
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetchSummary()
   }, [fetchSummary])
 
   // Reset page when filters change
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPage(1)
   }, [dateFrom, dateTo, search, cashierId, paymentMethod, voidFilter, outletId])
 

@@ -1,11 +1,19 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
-import { getAuthUser, unauthorized } from '@/lib/get-auth'
-import { getVoidedTxIds, parseTzOffset, getTodayRangeTz, getHourInTimezone } from '@/lib/api-helpers'
-import { safeJson, safeJsonError } from '@/lib/safe-response'
-import ZAI from 'z-ai-web-dev-sdk'
+import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
+import { getVoidedTxIds, parseTzOffset, getTodayRangeTz, getHourInTimezone } from '@/lib/api/api-helpers'
+import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 
 export const maxDuration = 60
+
+// AI SDK is optional — if not installed, AI insights will be unavailable
+let ZAI: any = null
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  ZAI = require('z-ai-web-dev-sdk')?.default || require('z-ai-web-dev-sdk')
+} catch {
+  // z-ai-web-dev-sdk not installed — AI insights disabled
+}
 
 // ── Reusable data aggregator (same logic as GET /api/insights) ──
 async function aggregateInsightData(outletId: string, tzOffset: number | null) {
@@ -181,6 +189,8 @@ ${data.transactions.paymentMethods.map((p) => `  ${p.method}: ${p.count} trx (${
 
 export async function POST(request: NextRequest) {
   try {
+    if (!ZAI) return safeJsonError('AI insights not configured. Install z-ai-web-dev-sdk and set ZAI_API_KEY.', 501)
+
     const user = await getAuthUser(request)
     if (!user) return unauthorized()
     if (user.role !== 'OWNER') return safeJsonError('Owner only', 403)

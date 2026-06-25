@@ -1,8 +1,8 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
-import { getAuthUser, unauthorized } from '@/lib/get-auth'
-import { parsePagination, buildDateFilter, buildDateFilterTz, buildVoidMap, getVoidedTxIds } from '@/lib/api-helpers'
-import { safeJson, safeJsonError } from '@/lib/safe-response'
+import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
+import { parsePagination, buildDateFilter, buildDateFilterTz, buildVoidMap, getVoidedTxIds } from '@/lib/api/api-helpers'
+import { safeJson, safeJsonError, CACHE } from '@/lib/api/safe-response'
 
 export async function GET(request: NextRequest) {
   try {
@@ -145,7 +145,7 @@ export async function GET(request: NextRequest) {
     return safeJson({
       transactions: mappedTransactions,
       totalPages: Math.ceil(total / limit),
-    })
+    }, 200, CACHE.MEDIUM)
   } catch (error) {
     console.error('Transactions GET error:', error)
     return safeJsonError('Failed to load transactions')

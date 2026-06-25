@@ -1,8 +1,8 @@
 import { NextRequest } from 'next/server'
-import { getAuthUser, unauthorized } from '@/lib/get-auth'
+import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { db } from '@/lib/db'
 import { safeAuditLog } from '@/lib/safe-audit'
-import { safeJson, safeJsonError } from '@/lib/safe-response'
+import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 import { ensureMigrated } from '@/lib/db-migrate'
 
 // GET /api/settings - fetch outlet settings + outlet info

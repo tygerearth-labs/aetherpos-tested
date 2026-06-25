@@ -1,8 +1,8 @@
 import { NextRequest } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { db } from '@/lib/db';
-import { validateEmail, validatePassword } from '@/lib/api-helpers';
-import { safeJsonCreated, safeJsonError } from '@/lib/safe-response';
+import { validateEmail, validatePassword } from '@/lib/api/api-helpers';
+import { safeJsonCreated, safeJsonError } from '@/lib/api/safe-response';
 
 export async function POST(request: NextRequest) {
   try {

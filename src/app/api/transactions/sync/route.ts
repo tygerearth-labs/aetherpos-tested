@@ -1,8 +1,8 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
-import { getAuthUser, unauthorized } from '@/lib/get-auth'
-import { generateInvoiceNumber } from '@/lib/api-helpers'
-import { safeJson, safeJsonError } from '@/lib/safe-response'
+import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
+import { generateInvoiceNumber } from '@/lib/api/api-helpers'
+import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 import { ensureMigrated } from '@/lib/db-migrate'
 
 interface SyncTransactionItem {

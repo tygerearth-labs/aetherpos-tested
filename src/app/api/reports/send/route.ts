@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
-import { getAuthUser, unauthorized } from '@/lib/get-auth'
-import { safeJson, safeJsonError } from '@/lib/safe-response'
+import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
+import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 import {
   notifyDailyReport,
   notifyWeeklyReport,

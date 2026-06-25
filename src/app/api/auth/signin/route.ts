@@ -1,4 +1,4 @@
-import { authAction } from '@/lib/auth-handler'
+import { authAction } from '@/lib/auth/auth-handler'
 
 /**
  * GET /api/auth/signin - NextAuth sign-in page.

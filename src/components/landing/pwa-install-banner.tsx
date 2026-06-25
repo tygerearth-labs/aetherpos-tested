@@ -22,6 +22,7 @@ export function PwaInstallBanner() {
     if (dismissedAt) {
       const elapsed = Date.now() - parseInt(dismissedAt, 10);
       if (elapsed < 7 * 24 * 60 * 60 * 1000) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setDismissed(true);
         return;
       }

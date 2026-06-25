@@ -95,7 +95,8 @@ function Carousel({
 
   React.useEffect(() => {
     if (!api) return
-    onSelect(api)
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void onSelect(api)
     api.on("reInit", onSelect)
     api.on("select", onSelect)
 

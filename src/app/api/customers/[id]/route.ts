@@ -1,8 +1,8 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
-import { getAuthUser, unauthorized } from '@/lib/get-auth'
+import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeAuditLog } from '@/lib/safe-audit'
-import { safeJson, safeJsonError } from '@/lib/safe-response'
+import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 
 export async function PUT(
   request: NextRequest,

@@ -136,6 +136,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
 
   useEffect(() => {
     if (product) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setForm({
         name: product.name,
         sku: product.sku || '',

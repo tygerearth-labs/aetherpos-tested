@@ -1,4 +1,4 @@
-import { authAction } from '@/lib/auth-handler'
+import { authAction } from '@/lib/auth/auth-handler'
 
 /**
  * POST /api/auth/callback/credentials - OAuth callback for credentials provider.

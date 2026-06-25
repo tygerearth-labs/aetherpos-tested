@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
-import { VALID_ACCOUNT_TYPES } from '@/lib/plan-config'
-import { safeJson, safeJsonError } from '@/lib/safe-response'
+import { VALID_ACCOUNT_TYPES } from '@/lib/config/plan-config'
+import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 
 /**
  * POST /api/command

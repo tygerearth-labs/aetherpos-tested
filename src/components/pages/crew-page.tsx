@@ -162,7 +162,8 @@ function CrewManagement() {
   }, [])
 
   useEffect(() => {
-    fetchCrew()
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetchCrew()
   }, [fetchCrew])
 
   // Filter crew by search
@@ -721,7 +722,8 @@ function CrewAccessTab() {
   }, [])
 
   useEffect(() => {
-    fetchPermissions()
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetchPermissions()
   }, [fetchPermissions])
 
   const handleTogglePage = async (userId: string, pageKey: string, currentlyChecked: boolean) => {

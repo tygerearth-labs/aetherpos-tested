@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { usePageStore, type PageType } from '@/hooks/use-page-store'
 import { usePlan } from '@/hooks/use-plan'
 import { useSession } from 'next-auth/react'
-import { getPlanLabel, getPlanBadgeClass } from '@/lib/plan-config'
+import { getPlanLabel, getPlanBadgeClass } from '@/lib/config/plan-config'
 import { Badge } from '@/components/ui/badge'
 import {
   LayoutDashboard,

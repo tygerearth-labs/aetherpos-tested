@@ -1,10 +1,10 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
-import { getAuthUser, unauthorized } from '@/lib/get-auth'
-import { parsePagination, resolvePlanType } from '@/lib/api-helpers'
-import { getPlanFeatures, isUnlimited } from '@/lib/plan-config'
-import { safeJson, safeJsonCreated, safeJsonError } from '@/lib/safe-response'
-import { generateUniqueSKU, generateVariantSKU } from '@/lib/sku-generator'
+import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
+import { parsePagination, resolvePlanType } from '@/lib/api/api-helpers'
+import { getPlanFeatures, isUnlimited } from '@/lib/config/plan-config'
+import { safeJson, safeJsonCreated, safeJsonError, CACHE } from '@/lib/api/safe-response'
+import { generateUniqueSKU, generateVariantSKU } from '@/lib/utils/sku-generator'
 
 type SortOption = 'newest' | 'best-selling' | 'low-stock' | 'most-stock'
 
@@ -233,7 +233,7 @@ export async function GET(request: NextRequest) {
         lowStock: lowStockCount,
         inventoryValue: totalInventoryValue,
       },
-    })
+    }, 200, CACHE.MEDIUM)
   } catch (error) {
     console.error('Products GET error:', error)
     return safeJsonError('Failed to load products')

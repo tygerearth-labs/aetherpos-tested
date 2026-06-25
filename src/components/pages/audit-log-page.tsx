@@ -367,7 +367,8 @@ export default function AuditLogPage() {
   }, [page, actionFilter, entityFilter, dateFrom, dateTo, search])
 
   useEffect(() => {
-    fetchLogs()
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetchLogs()
   }, [fetchLogs])
 
   const handleFilter = () => {

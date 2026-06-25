@@ -1,11 +1,11 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
-import { getAuthUser, unauthorized } from '@/lib/get-auth'
-import { buildDateFilter, resolvePlanType } from '@/lib/api-helpers'
-import { getPlanFeatures } from '@/lib/plan-config'
+import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
+import { buildDateFilter, resolvePlanType } from '@/lib/api/api-helpers'
+import { getPlanFeatures } from '@/lib/config/plan-config'
 import { formatCurrency, formatDate } from '@/lib/format'
 import * as XLSX from 'xlsx'
-import { safeJsonError } from '@/lib/safe-response'
+import { safeJsonError } from '@/lib/api/safe-response'
 
 export async function GET(request: NextRequest) {
   try {

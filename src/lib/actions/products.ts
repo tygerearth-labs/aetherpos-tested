@@ -1,8 +1,8 @@
 'use server';
 
 import { db } from '@/lib/db';
-import { getCurrentUser } from '@/lib/auth-utils';
-import { getPlanFeatures, isUnlimited } from '@/lib/plan-config';
+import { getCurrentUser } from '@/lib/auth/auth-utils';
+import { getPlanFeatures, isUnlimited } from '@/lib/config/plan-config';
 import type { PaginatedResult } from '@/lib/types';
 
 const PAGE_SIZE = 20;

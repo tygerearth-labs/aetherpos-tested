@@ -1,8 +1,8 @@
 import { NextRequest } from 'next/server'
 import bcrypt from 'bcryptjs'
-import { getAuthUser, unauthorized } from '@/lib/get-auth'
+import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { db } from '@/lib/db'
-import { safeJson, safeJsonError } from '@/lib/safe-response'
+import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 
 /**
  * POST /api/auth/change-password
