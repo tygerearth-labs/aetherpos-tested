@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { formatCurrency } from '@/lib/format'
 import { Button } from '@/components/ui/button'
@@ -10,17 +10,15 @@ import {
   ResponsiveDialogHeader,
   ResponsiveDialogTitle,
 } from '@/components/ui/responsive-dialog'
-import html2canvas from 'html2canvas'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Printer,
-  Share2,
+  MessageSquare,
   X,
   Check,
   CloudOff,
   AlertCircle,
   Tag,
-  Loader2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -142,9 +140,83 @@ const RECEIPT_CSS = `
     .r-wrap{font-family:'Courier New',Courier,monospace;width:100%;color:#000;font-size:10px;line-height:1.5;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:auto}
   `
 
-// ==================== WHATSAPP TEXT (fallback) ====================
-// The full text receipt generator has been replaced by image-based sharing (html2canvas).
-// A short text message is now composed inline in handleShareReceipt for the WhatsApp URL fallback.
+// ==================== WHATSAPP TEXT GENERATION ====================
+
+function generateWhatsAppReceiptText(props: {
+  cart: CartItem[]
+  subtotal: number
+  pointsDiscount: number
+  promoDiscount: number
+  manualDiscountTotal: number
+  ppnAmount: number
+  total: number
+  paymentMethod: string
+  paidAmount: string
+  change: number
+  selectedCustomer: Customer | null
+  selectedPromo: { id: string; name: string } | null
+  checkoutResult: CheckoutResult
+  settings: OutletSettings
+}): string {
+  const {
+    cart, subtotal, pointsDiscount, promoDiscount, manualDiscountTotal, ppnAmount, total,
+    paymentMethod, paidAmount, change: changeAmount,
+    selectedCustomer, selectedPromo, checkoutResult, settings,
+  } = props
+
+  const now = new Date()
+  const dateStr = now.toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  const timeStr = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+
+  const isOffline = checkoutResult.invoiceNumber?.startsWith('OFF-')
+
+  let text = ``
+  text += `📋 *STRUK PEMBELIAN*\n`
+  text += `${'═'.repeat(28)}\n`
+  text += `${settings.receiptBusinessName}\n`
+  if (settings.receiptAddress) text += `${settings.receiptAddress}\n`
+  if (settings.receiptPhone) text += `${settings.receiptPhone}\n`
+  text += `${'═'.repeat(28)}\n`
+  text += `No: ${checkoutResult.invoiceNumber}\n`
+  text += `Tanggal: ${dateStr} ${timeStr}\n`
+  text += `Customer: ${selectedCustomer ? selectedCustomer.name : 'Walk-in'}\n`
+  if (isOffline) text += `⚠️ *Offline — Pending Sync*\n`
+  text += `${'─'.repeat(28)}\n`
+  text += `*ITEM:*\n`
+
+  for (const item of cart) {
+    const name = item.variant ? `${item.product.name} (${item.variant.name})` : item.product.name
+    const effPrice = getItemEffectivePrice(item)
+    const effSubtotal = effPrice * item.qty
+    text += `${name}\n`
+    if (item.customPrice != null) {
+      text += `  ~~@${formatCurrency(getItemPrice(item))}~~ → @${formatCurrency(effPrice)} × ${item.qty} = ${formatCurrency(effSubtotal)}\n`
+    } else {
+      text += `  @${formatCurrency(effPrice)} × ${item.qty} = ${formatCurrency(effSubtotal)}\n`
+    }
+  }
+
+  text += `${'─'.repeat(28)}\n`
+  text += `Subtotal: ${formatCurrency(subtotal)}\n`
+  if (pointsDiscount > 0) text += `Poin Diskon: -${formatCurrency(pointsDiscount)}\n`
+  if (promoDiscount > 0 && selectedPromo) text += `Promo (${selectedPromo.name}): -${formatCurrency(promoDiscount)}\n`
+  if (manualDiscountTotal > 0) text += `Diskon Manual: -${formatCurrency(manualDiscountTotal)}\n`
+  if (ppnAmount > 0) text += `PPN (${settings.ppnRate}%): +${formatCurrency(ppnAmount)}\n`
+  text += `${'═'.repeat(28)}\n`
+  text += `*TOTAL: ${formatCurrency(total)}*\n`
+  text += `${'─'.repeat(28)}\n`
+  text += `Metode: ${paymentMethod}\n`
+  text += `Dibayar: ${formatCurrency(paymentMethod === 'CASH' ? Number(paidAmount) : total)}\n`
+  if (paymentMethod === 'CASH' && changeAmount > 0) text += `Kembalian: ${formatCurrency(changeAmount)}\n`
+  if (settings.receiptFooter) {
+    text += `${'─'.repeat(28)}\n`
+    text += `${settings.receiptFooter}\n`
+  }
+  text += `${'═'.repeat(28)}\n`
+  text += `Terima kasih! 🙏`
+
+  return text
+}
 
 // ==================== COMPONENT ====================
 
@@ -168,7 +240,6 @@ export function ReceiptDialog({
   onFinish,
 }: ReceiptDialogProps) {
   const receiptContentRef = useRef<HTMLDivElement>(null)
-  const [isSharing, setIsSharing] = useState(false)
 
   const isOfflineReceipt = checkoutResult?.invoiceNumber?.startsWith('OFF-')
 
@@ -201,54 +272,18 @@ export function ReceiptDialog({
     handleClose()
   }
 
-  // Share receipt as image handler
-  const handleShareReceipt = async () => {
-    if (!receiptContentRef.current || !checkoutResult) return
-    setIsSharing(true)
-    try {
-      const canvas = await html2canvas(receiptContentRef.current, {
-        scale: 2,
-        backgroundColor: '#ffffff',
-        useCORS: true,
-        logging: false,
-      })
-      canvas.toBlob(async (blob) => {
-        if (!blob) { toast.error('Gagal membuat gambar struk'); return }
-        const file = new File([blob], `struk-${checkoutResult.invoiceNumber}.jpg`, { type: 'image/jpeg' })
-        // Try Web Share API first (supports sharing images to WhatsApp)
-        if (navigator.share && navigator.canShare?.({ files: [file] })) {
-          try {
-            await navigator.share({
-              files: [file],
-              title: `Struk ${checkoutResult.invoiceNumber}`,
-              text: `Struk pembayaran ${settings.receiptBusinessName}`,
-            })
-            return
-          } catch (err: any) {
-            if (err.name === 'AbortError') return // user cancelled
-          }
-        }
-        // Fallback: download image + open WhatsApp with text
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url; a.download = `struk-${checkoutResult.invoiceNumber}.jpg`; a.click()
-        URL.revokeObjectURL(url)
-
-        if (selectedCustomer?.whatsapp) {
-          const shortText = `Halo ${selectedCustomer.name}, berikut struk pembayaran Anda dari ${settings.receiptBusinessName}. Invoice: ${checkoutResult.invoiceNumber}. Total: ${formatCurrency(total)}. Gambar struk telah diunduh.`
-          let phone = selectedCustomer.whatsapp.replace(/[^0-9]/g, '')
-          if (phone.startsWith('0')) phone = phone.substring(1)
-          window.open(`https://wa.me/62${phone}?text=${encodeURIComponent(shortText)}`, '_blank')
-        } else {
-          toast.success('Gambar struk berhasil diunduh')
-        }
-      }, 'image/jpeg', 0.95)
-    } catch (err) {
-      console.error(err)
-      toast.error('Gagal membuat gambar struk')
-    } finally {
-      setIsSharing(false)
-    }
+  // WhatsApp handler
+  const handleWhatsApp = () => {
+    if (!selectedCustomer?.whatsapp || !checkoutResult) return
+    const text = generateWhatsAppReceiptText({
+      cart, subtotal, pointsDiscount, promoDiscount, manualDiscountTotal, ppnAmount, total,
+      paymentMethod, paidAmount, change: changeAmount,
+      selectedCustomer, selectedPromo, checkoutResult, settings,
+    })
+    let phone = selectedCustomer.whatsapp.replace(/[^0-9]/g, '')
+    if (phone.startsWith('0')) phone = phone.substring(1)
+    const url = `https://wa.me/62${phone}?text=${encodeURIComponent(text)}`
+    window.open(url, '_blank')
   }
 
   // Close handler
@@ -433,19 +468,16 @@ export function ReceiptDialog({
                 Cetak Struk
               </Button>
 
-              {/* Share receipt as image button */}
-              <Button
-                onClick={handleShareReceipt}
-                disabled={isSharing}
-                className="flex-1 h-10 text-sm font-medium rounded-xl bg-green-600 hover:bg-green-500 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isSharing ? (
-                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" strokeWidth={1.5} />
-                ) : (
-                  <Share2 className="mr-1.5 h-4 w-4" strokeWidth={1.5} />
-                )}
-                {isSharing ? 'Membuat...' : 'Bagikan Struk'}
-              </Button>
+              {/* WhatsApp button — only if customer has WhatsApp */}
+              {selectedCustomer?.whatsapp && (
+                <Button
+                  onClick={handleWhatsApp}
+                  className="flex-1 h-10 text-sm font-medium rounded-xl bg-green-600 hover:bg-green-500 text-white transition-colors"
+                >
+                  <MessageSquare className="mr-1.5 h-4 w-4" strokeWidth={1.5} />
+                  Kirim WA
+                </Button>
+              )}
 
               <Button
                 onClick={handleClose}
