@@ -3,7 +3,7 @@ import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeAuditLog } from '@/lib/safe-audit'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
-import { generateUniqueSKU, generateVariantSKU } from '@/lib/utils/sku-generator'
+import { generateUniqueSKU, generateVariantSKU } from '@/lib/sku-generator'
 
 interface VariantPayload {
   name: string

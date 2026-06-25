@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  transpilePackages: ['dexie', 'dexie-react-hooks'],
+  transpilePackages: ['dexie', 'dexie-react-hooks', 'jsbarcode'],
   serverExternalPackages: ['@prisma/client', 'bcryptjs', 'xlsx', 'sharp'],
   typescript: {
     ignoreBuildErrors: true,

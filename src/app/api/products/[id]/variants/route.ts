@@ -3,7 +3,7 @@ import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonCreated, safeJsonError } from '@/lib/api/safe-response'
 import { safeAuditLog } from '@/lib/safe-audit'
-import { generateVariantSKU } from '@/lib/utils/sku-generator'
+import { generateVariantSKU } from '@/lib/sku-generator'
 
 // ─── GET ─── List all variants for a product ─────────────────────────────────
 export async function GET(

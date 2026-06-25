@@ -4,7 +4,7 @@ import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { parsePagination, resolvePlanType } from '@/lib/api/api-helpers'
 import { getPlanFeatures, isUnlimited } from '@/lib/config/plan-config'
 import { safeJson, safeJsonCreated, safeJsonError, CACHE } from '@/lib/api/safe-response'
-import { generateUniqueSKU, generateVariantSKU } from '@/lib/utils/sku-generator'
+import { generateUniqueSKU, generateVariantSKU } from '@/lib/sku-generator'
 
 type SortOption = 'newest' | 'best-selling' | 'low-stock' | 'most-stock'
 

@@ -5,7 +5,7 @@ import { getOutletPlan, isUnlimited } from '@/lib/config/plan-config'
 import * as XLSX from 'xlsx'
 import { safeAuditLog } from '@/lib/safe-audit'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
-import { generateUniqueSKU, generateVariantSKU } from '@/lib/utils/sku-generator'
+import { generateUniqueSKU, generateVariantSKU } from '@/lib/sku-generator'
 
 // Vercel serverless function timeout: 60s (default is 10s on Hobby plan)
 export const maxDuration = 60
