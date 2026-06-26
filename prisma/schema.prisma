@@ -234,6 +234,12 @@ model OutletSetting {
   // Manual per-item discount toggle for POS Terminal
   manualDiscountEnabled Boolean @default(false) // Enable/disable manual discount per item in cart
 
+  // Double receipt print settings
+  receiptDoublePrintEnabled Boolean @default(false)  // Enable double receipt printing
+  receiptMerchantCopyEnabled Boolean @default(true)   // Print merchant copy
+  receiptCustomerCopyEnabled Boolean @default(true)   // Print customer copy
+  receiptBatchOrderEnabled Boolean @default(false)    // Enable batch order copy
+
   // Theme
   themePrimaryColor String @default("emerald") // tailwind color name: emerald, blue, violet, rose, amber
 

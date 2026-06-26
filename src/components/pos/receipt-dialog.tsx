@@ -1,6 +1,7 @@
 'use client'
 
 import { useRef } from 'react'
+import html2canvas from 'html2canvas'
 import { motion, AnimatePresence } from 'framer-motion'
 import { formatCurrency } from '@/lib/format'
 import { Button } from '@/components/ui/button'
@@ -74,6 +75,10 @@ interface OutletSettings {
   themePrimaryColor: string
   ppnEnabled: boolean
   ppnRate: number
+  receiptDoublePrintEnabled?: boolean
+  receiptMerchantCopyEnabled?: boolean
+  receiptCustomerCopyEnabled?: boolean
+  receiptBatchOrderEnabled?: boolean
 }
 
 interface Customer {
@@ -248,13 +253,42 @@ export function ReceiptDialog({
     return `${now.toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' })} ${now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`
   }
 
-  // Print handler
+  // Print handler — supports double receipt
   const handlePrint = () => {
     const content = receiptContentRef.current?.innerHTML
     if (!content) return
+
+    const doublePrint = settings.receiptDoublePrintEnabled
+    const merchantCopy = settings.receiptMerchantCopyEnabled !== false
+    const customerCopy = settings.receiptCustomerCopyEnabled !== false
+    const batchOrder = settings.receiptBatchOrderEnabled === true
+
+    const copies: { label: string; content: string }[] = []
+    if (!doublePrint) {
+      copies.push({ label: 'Struk', content })
+    } else {
+      if (merchantCopy) {
+        copies.push({ label: 'Merchant Copy', content: `<div style="text-align:center;font-size:9px;font-weight:bold;margin-bottom:4px;color:#555;">*** MERCHANT COPY ***</div>${content}` })
+      }
+      if (customerCopy) {
+        copies.push({ label: 'Customer Copy', content: `<div style="text-align:center;font-size:9px;font-weight:bold;margin-bottom:4px;color:#555;">*** CUSTOMER COPY ***</div>${content}` })
+      }
+      if (batchOrder) {
+        copies.push({ label: 'Batch Order', content: `<div style="text-align:center;font-size:9px;font-weight:bold;margin-bottom:4px;color:#555;">*** BATCH ORDER ***</div>${content}` })
+      }
+      if (copies.length === 0) {
+        copies.push({ label: 'Struk', content })
+      }
+    }
+
+    const combinedContent = copies.map((c, i) => {
+      const separator = i > 0 ? `<div style="page-break-before:always;border-top:2px dashed #000;margin:8px 0;"></div>` : ''
+      return separator + c.content
+    }).join('')
+
     const win = window.open('', '_blank', 'width=320,height=800')
     if (!win) { toast.error('Gagal membuka jendela cetak'); return }
-    win.document.write(`<!DOCTYPE html><html><head><title>Receipt</title>
+    win.document.write(`<!DOCTYPE html><html><head><title>Receipt${copies.length > 1 ? ` (${copies.length} copies)` : ''}</title>
       <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { width: 72mm; margin: 0 auto; padding: 10px 8px; }
@@ -266,24 +300,57 @@ export function ReceiptDialog({
           .r-sep { border-top: 1px dashed #000; }
         }
       </style>
-    </head><body>${content}</body></html>`)
+    </head><body>${combinedContent}</body></html>`)
     win.document.close()
     setTimeout(() => { win.print(); setTimeout(() => win.close(), 500) }, 250)
     handleClose()
   }
 
-  // WhatsApp handler
-  const handleWhatsApp = () => {
-    if (!selectedCustomer?.whatsapp || !checkoutResult) return
-    const text = generateWhatsAppReceiptText({
-      cart, subtotal, pointsDiscount, promoDiscount, manualDiscountTotal, ppnAmount, total,
-      paymentMethod, paidAmount, change: changeAmount,
-      selectedCustomer, selectedPromo, checkoutResult, settings,
-    })
-    let phone = selectedCustomer.whatsapp.replace(/[^0-9]/g, '')
-    if (phone.startsWith('0')) phone = phone.substring(1)
-    const url = `https://wa.me/62${phone}?text=${encodeURIComponent(text)}`
-    window.open(url, '_blank')
+  // WhatsApp handler — sends receipt as JPG image
+  const handleWhatsApp = async () => {
+    if (!selectedCustomer?.whatsapp || !checkoutResult || !receiptContentRef.current) return
+
+    try {
+      toast.loading('Membuat gambar struk...', { id: 'receipt-image' })
+
+      const canvas = await html2canvas(receiptContentRef.current, {
+        backgroundColor: '#ffffff',
+        scale: 2,
+        useCORS: true,
+        logging: false,
+      })
+
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) {
+            toast.error('Gagal membuat gambar struk', { id: 'receipt-image' })
+            return
+          }
+
+          const url = URL.createObjectURL(blob)
+          const link = document.createElement('a')
+          link.href = url
+          link.download = `struk-${checkoutResult.invoiceNumber}.jpg`
+          document.body.appendChild(link)
+          link.click()
+          document.body.removeChild(link)
+          URL.revokeObjectURL(url)
+
+          let phone = selectedCustomer.whatsapp.replace(/[^0-9]/g, '')
+          if (phone.startsWith('0')) phone = phone.substring(1)
+          const message = `Berikut struk pembayaran Anda:\nInvoice: ${checkoutResult.invoiceNumber}\nTotal: ${formatCurrency(total)}`
+          const waUrl = `https://wa.me/62${phone}?text=${encodeURIComponent(message)}`
+          window.open(waUrl, '_blank')
+
+          toast.success('Struk berhasil diunduh. Kirim gambar ke pelanggan via WhatsApp.', { id: 'receipt-image' })
+        },
+        'image/jpeg',
+        0.95
+      )
+    } catch (error) {
+      console.error('Receipt image generation error:', error)
+      toast.error('Gagal membuat gambar struk', { id: 'receipt-image' })
+    }
   }
 
   // Close handler

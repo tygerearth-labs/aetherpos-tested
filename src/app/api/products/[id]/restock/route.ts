@@ -17,11 +17,7 @@ export async function POST(
 
     const { id } = await params
     const body = await request.json()
-    const { quantity } = body
-
-    if (!quantity || quantity <= 0) {
-      return safeJsonError('Quantity must be greater than 0', 400)
-    }
+    const { quantity, variants } = body
 
     const existing = await db.product.findFirst({
       where: { id, outletId },
@@ -31,11 +27,78 @@ export async function POST(
       return safeJsonError('Product not found', 404)
     }
 
+    // ===== VARIANT RESTOCK =====
     if (existing.hasVariants) {
-      return safeJsonError(
-        'Produk dengan varian tidak bisa di-restock secara langsung. Gunakan edit produk untuk mengubah stok varian.',
-        400
-      )
+      if (!variants || !Array.isArray(variants) || variants.length === 0) {
+        return safeJsonError('variants array is required for variant products', 400)
+      }
+
+      const invalidQuantities = variants.some((v: { quantity: number }) => !v.quantity || v.quantity <= 0)
+      if (invalidQuantities) {
+        return safeJsonError('Each variant quantity must be greater than 0', 400)
+      }
+
+      const variantIds = variants.map((v: { id: string }) => v.id)
+
+      // Verify all variants belong to this product
+      const existingVariants = await db.productVariant.findMany({
+        where: { id: { in: variantIds }, productId: id, outletId },
+        select: { id: true, name: true, stock: true },
+      })
+
+      if (existingVariants.length !== variants.length) {
+        return safeJsonError('One or more variants not found or do not belong to this product', 400)
+      }
+
+      const results = await db.$transaction(async (tx) => {
+        const updatedVariants = []
+        for (const variantReq of variants) {
+          const variantBefore = existingVariants.find((v) => v.id === variantReq.id)!
+
+          const updated = await tx.productVariant.update({
+            where: { id: variantReq.id },
+            data: { stock: { increment: variantReq.quantity } },
+          })
+
+          await tx.auditLog.create({
+            data: {
+              action: 'RESTOCK',
+              entityType: 'VARIANT',
+              entityId: variantReq.id,
+              details: JSON.stringify({
+                productName: existing.name,
+                variantName: variantBefore.name,
+                quantityAdded: variantReq.quantity,
+                previousStock: variantBefore.stock,
+                newStock: updated.stock,
+              }),
+              outletId,
+              userId,
+            },
+          })
+
+          updatedVariants.push(updated)
+        }
+
+        // Recalculate parent product aggregated stock
+        const aggResult = await tx.productVariant.aggregate({
+          where: { productId: id, outletId },
+          _sum: { stock: true },
+        })
+        await tx.product.update({
+          where: { id },
+          data: { stock: aggResult._sum.stock ?? 0 },
+        })
+
+        return updatedVariants
+      })
+
+      return safeJson({ product: existing, updatedVariants: results })
+    }
+
+    // ===== NON-VARIANT RESTOCK (original behavior) =====
+    if (!quantity || quantity <= 0) {
+      return safeJsonError('Quantity must be greater than 0', 400)
     }
 
     const product = await db.$transaction(async (tx) => {

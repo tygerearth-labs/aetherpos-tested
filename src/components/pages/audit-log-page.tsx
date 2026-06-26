@@ -22,6 +22,13 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+  ResponsiveDialog,
+  ResponsiveDialogContent,
+  ResponsiveDialogHeader,
+  ResponsiveDialogTitle,
+} from '@/components/ui/responsive-dialog'
+import { Separator } from '@/components/ui/separator'
 import { Pagination } from '@/components/shared/pagination'
 import { DateFilter } from '@/components/shared/date-filter'
 import {
@@ -341,6 +348,7 @@ export default function AuditLogPage() {
   const [dateTo, setDateTo] = useState('')
   const [search, setSearch] = useState('')
   const [searchInput, setSearchInput] = useState('')
+  const [detailLog, setDetailLog] = useState<AuditLog | null>(null)
 
   const fetchLogs = useCallback(async () => {
     setLoading(true)
@@ -595,7 +603,8 @@ export default function AuditLogPage() {
               return (
                 <div
                   key={log.id}
-                  className={`rounded-xl border-l-4 ${config.leftBorder} border border-white/[0.06] bg-nebula p-3.5 transition-colors`}
+                  className={`rounded-xl border-l-4 ${config.leftBorder} border border-white/[0.06] bg-nebula p-3.5 transition-colors cursor-pointer hover:bg-white/[0.03]`}
+                  onClick={() => setDetailLog(log)}
                 >
                   {/* Top row: icon + action + entity + time */}
                   <div className="flex items-center gap-2.5 mb-2">
@@ -645,7 +654,8 @@ export default function AuditLogPage() {
                   return (
                     <TableRow
                       key={log.id}
-                      className={`border-white/[0.06] transition-colors border-l-2 ${config.leftBorder}`}
+                      className={`border-white/[0.06] transition-colors border-l-2 ${config.leftBorder} cursor-pointer hover:bg-white/[0.02]`}
+                      onClick={() => setDetailLog(log)}
                     >
                       {/* Action indicator dot */}
                       <TableCell className="py-3 px-3">
@@ -681,6 +691,73 @@ export default function AuditLogPage() {
           </div>
         </div>
       )}
+
+      {/* Detail Dialog */}
+      <ResponsiveDialog open={!!detailLog} onOpenChange={(open) => { if (!open) setDetailLog(null) }}>
+        <ResponsiveDialogContent className="bg-nebula border-white/[0.06]" desktopClassName="max-w-md">
+          <ResponsiveDialogHeader>
+            <ResponsiveDialogTitle className="text-white text-sm font-semibold">Detail Audit Log</ResponsiveDialogTitle>
+          </ResponsiveDialogHeader>
+          {detailLog && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <p className="text-[10px] text-slate-500">Waktu</p>
+                  <p className="text-xs text-slate-300">{formatDate(detailLog.createdAt)}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-slate-500">User</p>
+                  <p className="text-xs text-slate-300">{detailLog.user?.name || 'System'}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-slate-500">Aksi</p>
+                  <div className="mt-0.5"><ActionBadge action={detailLog.action} /></div>
+                </div>
+                <div>
+                  <p className="text-[10px] text-slate-500">Entitas</p>
+                  <Badge variant="outline" className="bg-white/[0.04] border-white/[0.08] text-slate-400 text-[10px] px-1.5 py-0 mt-0.5">
+                    {getEntityLabel(detailLog.entityType)}
+                  </Badge>
+                </div>
+                {detailLog.entityId && (
+                  <div className="col-span-2">
+                    <p className="text-[10px] text-slate-500">Entity ID</p>
+                    <p className="text-[10px] text-slate-400 font-mono break-all">{detailLog.entityId}</p>
+                  </div>
+                )}
+              </div>
+              <Separator className="bg-white/[0.06]" />
+              <div>
+                <p className="text-xs text-slate-400 mb-2 font-medium">Detail Lengkap</p>
+                {(() => {
+                  const parsed = parseDetails(detailLog.details)
+                  if (!parsed) return <p className="text-xs text-slate-500 italic">Tidak ada detail</p>
+                  if (typeof parsed === 'string') return <p className="text-xs text-slate-300">{parsed}</p>
+                  const entries = Object.entries(parsed) as [string, unknown][]
+                  return (
+                    <div className="space-y-2">
+                      {entries.map(([key, value]) => (
+                        <div key={key} className="flex items-start gap-2">
+                          <span className="text-[10px] text-slate-500 min-w-[100px] shrink-0 pt-0.5">{getDetailLabel(key)}</span>
+                          <span className="text-xs text-slate-300 break-all">
+                            {key === 'itemsRestored' && Array.isArray(value)
+                              ? (value as Record<string, unknown>[]).map((item, i) => {
+                                  const name = typeof item.productName === 'string' ? item.productName : '?'
+                                  const qty = typeof item.qty === 'number' ? item.qty : '?'
+                                  return <span key={i}>{name} (x{qty}){i < (value as unknown[]).length - 1 ? ', ' : ''}</span>
+                                })
+                              : formatDetailValue(key, value)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })()}
+              </div>
+            </div>
+          )}
+        </ResponsiveDialogContent>
+      </ResponsiveDialog>
 
       <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
     </div>

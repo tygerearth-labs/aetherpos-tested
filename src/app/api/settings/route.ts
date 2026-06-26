@@ -42,6 +42,10 @@ export async function GET(request: NextRequest) {
       ppnEnabled: setting.ppnEnabled,
       ppnRate: setting.ppnRate,
       manualDiscountEnabled: setting.manualDiscountEnabled,
+      receiptDoublePrintEnabled: setting.receiptDoublePrintEnabled,
+      receiptMerchantCopyEnabled: setting.receiptMerchantCopyEnabled,
+      receiptCustomerCopyEnabled: setting.receiptCustomerCopyEnabled,
+      receiptBatchOrderEnabled: setting.receiptBatchOrderEnabled,
       themePrimaryColor: setting.themePrimaryColor,
       telegramChatId: setting.telegramChatId,
       telegramBotToken: setting.telegramBotToken ? '••••••' : null,
@@ -83,6 +87,10 @@ export async function GET(request: NextRequest) {
         ...minimal,
         // Safe defaults for new columns that may not exist yet
         manualDiscountEnabled: false,
+        receiptDoublePrintEnabled: false,
+        receiptMerchantCopyEnabled: true,
+        receiptCustomerCopyEnabled: true,
+        receiptBatchOrderEnabled: false,
         telegramBotToken: minimal?.telegramBotToken ? '••••••' : null,
       })
     } catch (fallbackError) {
@@ -138,6 +146,12 @@ export async function PUT(request: NextRequest) {
     // Manual discount toggle
     const manualDiscountEnabled = typeof body.manualDiscountEnabled === 'boolean' ? body.manualDiscountEnabled : undefined
 
+    // Double receipt print settings
+    const receiptDoublePrintEnabled = typeof body.receiptDoublePrintEnabled === 'boolean' ? body.receiptDoublePrintEnabled : undefined
+    const receiptMerchantCopyEnabled = typeof body.receiptMerchantCopyEnabled === 'boolean' ? body.receiptMerchantCopyEnabled : undefined
+    const receiptCustomerCopyEnabled = typeof body.receiptCustomerCopyEnabled === 'boolean' ? body.receiptCustomerCopyEnabled : undefined
+    const receiptBatchOrderEnabled = typeof body.receiptBatchOrderEnabled === 'boolean' ? body.receiptBatchOrderEnabled : undefined
+
     const settingsData = {
       outletId: user.outletId,
       ...(body.paymentMethods !== undefined && { paymentMethods: String(body.paymentMethods) }),
@@ -152,6 +166,10 @@ export async function PUT(request: NextRequest) {
       ...(ppnEnabled !== undefined && { ppnEnabled }),
       ...(ppnRate !== undefined && { ppnRate }),
       ...(manualDiscountEnabled !== undefined && { manualDiscountEnabled }),
+      ...(receiptDoublePrintEnabled !== undefined && { receiptDoublePrintEnabled }),
+      ...(receiptMerchantCopyEnabled !== undefined && { receiptMerchantCopyEnabled }),
+      ...(receiptCustomerCopyEnabled !== undefined && { receiptCustomerCopyEnabled }),
+      ...(receiptBatchOrderEnabled !== undefined && { receiptBatchOrderEnabled }),
       ...(body.themePrimaryColor !== undefined && { themePrimaryColor: String(body.themePrimaryColor) }),
       ...(body.telegramBotToken !== undefined && { telegramBotToken: body.telegramBotToken ? String(body.telegramBotToken) : null }),
       ...(body.telegramChatId !== undefined && { telegramChatId: body.telegramChatId ? String(body.telegramChatId) : null }),
@@ -204,6 +222,7 @@ export async function PUT(request: NextRequest) {
       'paymentMethods', 'loyaltyEnabled', 'loyaltyPointsPerAmount', 'loyaltyPointValue',
       'receiptBusinessName', 'receiptAddress', 'receiptPhone', 'receiptFooter', 'receiptLogo',
       'ppnEnabled', 'ppnRate', 'manualDiscountEnabled',
+      'receiptDoublePrintEnabled', 'receiptMerchantCopyEnabled', 'receiptCustomerCopyEnabled', 'receiptBatchOrderEnabled',
       'themePrimaryColor', 'telegramBotToken', 'telegramChatId',
       'notifyOnTransaction', 'notifyOnCustomer', 'notifyDailyReport', 'notifyWeeklyReport', 'notifyMonthlyReport', 'notifyOnInsight',
     ] as const
@@ -252,6 +271,10 @@ export async function PUT(request: NextRequest) {
       ppnEnabled: response.ppnEnabled,
       ppnRate: response.ppnRate,
       manualDiscountEnabled: response.manualDiscountEnabled,
+      receiptDoublePrintEnabled: response.receiptDoublePrintEnabled,
+      receiptMerchantCopyEnabled: response.receiptMerchantCopyEnabled,
+      receiptCustomerCopyEnabled: response.receiptCustomerCopyEnabled,
+      receiptBatchOrderEnabled: response.receiptBatchOrderEnabled,
       themePrimaryColor: response.themePrimaryColor,
       telegramChatId: response.telegramChatId,
       telegramBotToken: response.telegramBotToken ? '••••••' : null,

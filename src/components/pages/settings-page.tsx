@@ -106,6 +106,10 @@ interface SettingsData {
   ppnEnabled: boolean
   ppnRate: number
   manualDiscountEnabled: boolean
+  receiptDoublePrintEnabled: boolean
+  receiptMerchantCopyEnabled: boolean
+  receiptCustomerCopyEnabled: boolean
+  receiptBatchOrderEnabled: boolean
   telegramChatId: string | null
   telegramBotToken: string | null
   notifyOnTransaction: boolean
@@ -1352,6 +1356,10 @@ function ThemeReceiptTab() {
       receiptPhone,
       receiptFooter,
       receiptLogo,
+      receiptDoublePrintEnabled: edits?.receiptDoublePrintEnabled !== undefined ? edits.receiptDoublePrintEnabled === 'true' : settings?.receiptDoublePrintEnabled,
+      receiptMerchantCopyEnabled: edits?.receiptMerchantCopyEnabled !== undefined ? edits.receiptMerchantCopyEnabled === 'true' : settings?.receiptMerchantCopyEnabled,
+      receiptCustomerCopyEnabled: edits?.receiptCustomerCopyEnabled !== undefined ? edits.receiptCustomerCopyEnabled === 'true' : settings?.receiptCustomerCopyEnabled,
+      receiptBatchOrderEnabled: edits?.receiptBatchOrderEnabled !== undefined ? edits.receiptBatchOrderEnabled === 'true' : settings?.receiptBatchOrderEnabled,
     })
     if (ok) setEdits(null)
   }
@@ -1519,6 +1527,59 @@ function ThemeReceiptTab() {
                   <p className="text-[11px] text-slate-500">Masukkan URL gambar logo. Logo akan ditampilkan pada struk belanja.</p>
                 </div>
               </div>
+
+            {/* Double Receipt Print Settings */}
+            <Separator className="bg-white/[0.06]" />
+            <div className="space-y-3 pt-1">
+              <div>
+                <h3 className="text-sm font-medium text-white">Cetak Struk Ganda</h3>
+                <p className="text-xs text-slate-400 mt-0.5">Atur cetak struk ganda untuk berbagai kebutuhan</p>
+              </div>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label className="text-xs text-slate-300">Aktifkan Cetak Ganda</Label>
+                    <p className="text-[10px] text-slate-500">Cetak struk 2 kali secara otomatis</p>
+                  </div>
+                  <Switch
+                    checked={edits?.receiptDoublePrintEnabled !== undefined ? edits.receiptDoublePrintEnabled === 'true' : (settings?.receiptDoublePrintEnabled ?? false)}
+                    onCheckedChange={(checked) => handleChange('receiptDoublePrintEnabled', String(checked))}
+                  />
+                </div>
+                <div className={`space-y-2.5 pl-1 border-l-2 ${edits?.receiptDoublePrintEnabled === 'true' || settings?.receiptDoublePrintEnabled ? 'border-theme-primary/30' : 'border-white/[0.04] opacity-50'} transition-opacity`}>
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label className="text-xs text-slate-300">Merchant Copy</Label>
+                      <p className="text-[10px] text-slate-500">Salinan struk untuk kasir/merchant</p>
+                    </div>
+                    <Switch
+                      checked={edits?.receiptMerchantCopyEnabled !== undefined ? edits.receiptMerchantCopyEnabled === 'true' : (settings?.receiptMerchantCopyEnabled ?? true)}
+                      onCheckedChange={(checked) => handleChange('receiptMerchantCopyEnabled', String(checked))}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label className="text-xs text-slate-300">Customer Copy</Label>
+                      <p className="text-[10px] text-slate-500">Salinan struk untuk pelanggan</p>
+                    </div>
+                    <Switch
+                      checked={edits?.receiptCustomerCopyEnabled !== undefined ? edits.receiptCustomerCopyEnabled === 'true' : (settings?.receiptCustomerCopyEnabled ?? true)}
+                      onCheckedChange={(checked) => handleChange('receiptCustomerCopyEnabled', String(checked))}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label className="text-xs text-slate-300">Batch Order</Label>
+                      <p className="text-[10px] text-slate-500">Salinan struk untuk dapur/produksi</p>
+                    </div>
+                    <Switch
+                      checked={edits?.receiptBatchOrderEnabled !== undefined ? edits.receiptBatchOrderEnabled === 'true' : (settings?.receiptBatchOrderEnabled ?? false)}
+                      onCheckedChange={(checked) => handleChange('receiptBatchOrderEnabled', String(checked))}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
 
               {/* Save Button — inside form card on desktop */}
               <div className="flex justify-end pt-2">

@@ -8,10 +8,13 @@ export function formatCurrency(amount: number): string {
 }
 
 export function formatDate(date: Date | string): string {
-  return new Intl.DateTimeFormat('id-ID', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(new Date(date))
+  const d = new Date(date)
+  const dd = String(d.getDate()).padStart(2, '0')
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const yyyy = d.getFullYear()
+  const hh = String(d.getHours()).padStart(2, '0')
+  const min = String(d.getMinutes()).padStart(2, '0')
+  return `${dd}-${mm}-${yyyy} ${hh}:${min}`
 }
 
 export function formatNumber(num: number): string {

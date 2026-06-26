@@ -48,6 +48,28 @@ export async function ensureMigrated(): Promise<void> {
       END $$;
     `)
 
+    // Add double receipt print columns to OutletSetting if missing
+    const receiptCols = [
+      { name: 'receiptDoublePrintEnabled', def: 'BOOLEAN NOT NULL DEFAULT false' },
+      { name: 'receiptMerchantCopyEnabled', def: 'BOOLEAN NOT NULL DEFAULT true' },
+      { name: 'receiptCustomerCopyEnabled', def: 'BOOLEAN NOT NULL DEFAULT true' },
+      { name: 'receiptBatchOrderEnabled', def: 'BOOLEAN NOT NULL DEFAULT false' },
+    ]
+    for (const col of receiptCols) {
+      await db.$executeRawUnsafe(`
+        DO $$ BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'OutletSetting'
+              AND column_name = '${col.name}'
+          ) THEN
+            ALTER TABLE "OutletSetting" ADD COLUMN "${col.name}" ${col.def};
+          END IF;
+        END $$;
+      `)
+    }
+
     console.log('[db-migrate] ✅ Auto-migration complete')
   } catch (error) {
     console.error('[db-migrate] ⚠️ Auto-migration failed (non-fatal):', error)

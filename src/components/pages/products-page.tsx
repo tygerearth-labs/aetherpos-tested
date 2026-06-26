@@ -369,6 +369,7 @@ export default function ProductsPage() {
   const [restockProduct, setRestockProduct] = useState<Product | null>(null)
   const [restockQty, setRestockQty] = useState('')
   const [restocking, setRestocking] = useState(false)
+  const [variantRestocks, setVariantRestocks] = useState<Array<{ id: string; name: string; stock: number; quantity: string }>>([])
 
   // Stock adjustment state
   const [adjustOpen, setAdjustOpen] = useState(false)
@@ -582,35 +583,62 @@ export default function ProductsPage() {
   }
 
   const handleRestock = async () => {
-    if (!restockProduct || !restockQty || Number(restockQty) <= 0) return
+    if (!restockProduct) return
+
     if (restockProduct.hasVariants) {
-      toast.error('Produk dengan varian tidak bisa di-restock langsung. Gunakan edit produk untuk mengubah stok varian.')
-      setRestockOpen(false)
-      return
-    }
-    setRestocking(true)
-    try {
-      const res = await fetch(`/api/products/${restockProduct.id}/restock`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ quantity: Number(restockQty) }),
-      })
-      if (res.ok) {
-        toast.success(`Restocked ${restockProduct.name} +${restockQty}`)
-        fetchProducts()
-        if (detailOpen && detailProduct?.id === restockProduct.id) {
-          fetchDetail({ ...restockProduct, stock: restockProduct.stock + Number(restockQty) }, detailPage)
-        }
-      } else {
-        toast.error('Failed to restock')
+      const variantData = variantRestocks.filter(v => v.quantity && Number(v.quantity) > 0)
+      if (variantData.length === 0) {
+        toast.error('Masukkan jumlah restock untuk minimal satu varian')
+        return
       }
-    } catch {
-      toast.error('Failed to restock')
-    } finally {
-      setRestocking(false)
-      setRestockOpen(false)
-      setRestockQty('')
-      setRestockProduct(null)
+      setRestocking(true)
+      try {
+        const res = await fetch(`/api/products/${restockProduct.id}/restock`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ variants: variantData.map(v => ({ id: v.id, quantity: Number(v.quantity) })) }),
+        })
+        if (res.ok) {
+          toast.success(`Restocked ${restockProduct.name} (${variantData.length} varian)`)
+          fetchProducts()
+        } else {
+          toast.error('Failed to restock')
+        }
+      } catch {
+        toast.error('Failed to restock')
+      } finally {
+        setRestocking(false)
+        setRestockOpen(false)
+        setRestockQty('')
+        setRestockProduct(null)
+        setVariantRestocks([])
+      }
+    } else {
+      if (!restockQty || Number(restockQty) <= 0) return
+      setRestocking(true)
+      try {
+        const res = await fetch(`/api/products/${restockProduct.id}/restock`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ quantity: Number(restockQty) }),
+        })
+        if (res.ok) {
+          toast.success(`Restocked ${restockProduct.name} +${restockQty}`)
+          fetchProducts()
+          if (detailOpen && detailProduct?.id === restockProduct.id) {
+            fetchDetail({ ...restockProduct, stock: restockProduct.stock + Number(restockQty) }, detailPage)
+          }
+        } else {
+          toast.error('Failed to restock')
+        }
+      } catch {
+        toast.error('Failed to restock')
+      } finally {
+        setRestocking(false)
+        setRestockOpen(false)
+        setRestockQty('')
+        setRestockProduct(null)
+      }
     }
   }
 
@@ -1526,17 +1554,13 @@ export default function ProductsPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            className={`h-7 w-7 rounded-lg ${product.hasVariants ? 'text-slate-700 cursor-not-allowed' : 'text-slate-500 hover:theme-text hover:theme-bg-very-light'}`}
+                            className="h-7 w-7 rounded-lg text-slate-500 hover:theme-text hover:theme-bg-very-light"
                             onClick={() => {
-                              if (product.hasVariants) {
-                                toast.info('Produk varian tidak bisa di-restock langsung. Gunakan edit produk.')
-                                return
-                              }
                               setRestockProduct(product)
                               setRestockQty('')
+                              setVariantRestocks([])
                               setRestockOpen(true)
                             }}
-                            disabled={!!product.hasVariants}
                           >
                             <RefreshCw className="h-3.5 w-3.5" />
                           </Button>
@@ -1773,17 +1797,13 @@ export default function ProductsPage() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className={`h-7 w-7 rounded-md ${product.hasVariants ? 'text-slate-700 cursor-not-allowed' : 'text-slate-500 hover:theme-text hover:theme-bg-very-light'}`}
+                          className="h-7 w-7 rounded-md text-slate-500 hover:theme-text hover:theme-bg-very-light"
                           onClick={() => {
-                            if (product.hasVariants) {
-                              toast.info('Produk varian tidak bisa di-restock langsung. Gunakan edit produk.')
-                              return
-                            }
                             setRestockProduct(product)
                             setRestockQty('')
+                            setVariantRestocks([])
                             setRestockOpen(true)
                           }}
-                          disabled={!!product.hasVariants}
                         >
                           <RefreshCw className="h-3.5 w-3.5" />
                         </Button>
@@ -2017,7 +2037,7 @@ export default function ProductsPage() {
       </AlertDialog>
 
       {/* Restock Dialog */}
-      <ResponsiveDialog open={restockOpen} onOpenChange={setRestockOpen}>
+      <ResponsiveDialog open={restockOpen} onOpenChange={(open) => { if (!open) { setRestockOpen(false); setVariantRestocks([]) } else { setRestockOpen(true) } }}>
         <ResponsiveDialogContent className="bg-nebula border-white/[0.06]" desktopClassName="max-w-sm">
           <ResponsiveDialogHeader>
             <ResponsiveDialogTitle className="text-white text-sm font-semibold">
@@ -2025,32 +2045,68 @@ export default function ProductsPage() {
             </ResponsiveDialogTitle>
           </ResponsiveDialogHeader>
           <div className="space-y-3 py-1">
-            <div className="text-xs text-slate-400">
-              Current stock: <span className="text-slate-200 font-medium">{restockProduct?.stock}</span>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-slate-300 text-xs">Quantity to add</Label>
-              <Input
-                type="number"
-                min="1"
-                placeholder="Enter quantity"
-                value={restockQty}
-                onChange={(e) => setRestockQty(e.target.value)}
-                className="h-8 text-xs bg-white/[0.04] border-white/[0.04] text-white placeholder:text-slate-500"
-              />
-            </div>
+            {!restockProduct?.hasVariants ? (
+              <>
+                <div className="text-xs text-slate-400">
+                  Stok saat ini: <span className="text-slate-200 font-medium">{restockProduct?.stock}</span>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-slate-300 text-xs">Jumlah ditambahkan</Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    placeholder="Masukkan jumlah"
+                    value={restockQty}
+                    onChange={(e) => setRestockQty(e.target.value)}
+                    className="h-8 text-xs bg-white/[0.04] border-white/[0.04] text-white placeholder:text-slate-500"
+                  />
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="text-xs text-slate-400 mb-2">
+                  Masukkan jumlah restock untuk setiap varian:
+                </div>
+                <div className="space-y-2.5 max-h-64 overflow-y-auto">
+                  {restockProduct?.variants?.map((v) => (
+                    <div key={v.id} className="space-y-1 p-2.5 rounded-lg bg-white/[0.03] border border-white/[0.04]">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-slate-200 font-medium">{v.name}</span>
+                        <span className="text-[10px] text-slate-500">Stok: {v.stock}</span>
+                      </div>
+                      <Input
+                        type="number"
+                        min="0"
+                        placeholder="0"
+                        value={variantRestocks.find(vr => vr.id === v.id)?.quantity || ''}
+                        onChange={(e) => {
+                          setVariantRestocks(prev => {
+                            const existing = prev.find(vr => vr.id === v.id)
+                            if (existing) {
+                              return prev.map(vr => vr.id === v.id ? { ...vr, quantity: e.target.value } : vr)
+                            }
+                            return [...prev, { id: v.id, name: v.name, stock: v.stock, quantity: e.target.value }]
+                          })
+                        }}
+                        className="h-7 text-xs bg-white/[0.04] border-white/[0.04] text-white placeholder:text-slate-500"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
           <ResponsiveDialogFooter>
             <Button
               variant="ghost"
-              onClick={() => setRestockOpen(false)}
+              onClick={() => { setRestockOpen(false); setVariantRestocks([]) }}
               className="bg-white/[0.04] border-white/[0.04] text-slate-300 hover:bg-white/[0.04] h-8 text-xs"
             >
-              Cancel
+              Batal
             </Button>
             <Button
               onClick={handleRestock}
-              disabled={restocking || !restockQty || Number(restockQty) <= 0}
+              disabled={restocking || (!restockProduct?.hasVariants ? (!restockQty || Number(restockQty) <= 0) : variantRestocks.filter(v => v.quantity && Number(v.quantity) > 0).length === 0)}
               className="theme-bg theme-hover text-white h-8 text-xs"
             >
               {restocking && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
