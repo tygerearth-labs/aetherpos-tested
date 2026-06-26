@@ -313,12 +313,29 @@ export function ReceiptDialog({
     try {
       toast.loading('Membuat gambar struk...', { id: 'receipt-image' })
 
-      const canvas = await html2canvas(receiptContentRef.current, {
+      // Clone receipt into a clean off-screen container to avoid
+      // Tailwind CSS 4 lab()/oklch() color functions that html2canvas cannot parse.
+      const clone = receiptContentRef.current.cloneNode(true) as HTMLElement
+      const wrapper = document.createElement('div')
+      wrapper.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:280px;background:#ffffff;color:#000;font-family:"Courier New",Courier,monospace;font-size:10px;line-height:1.5;padding:12px;'
+      // Strip all inherited Tailwind color styles from cloned children
+      clone.querySelectorAll('*').forEach((el) => {
+        const h = el as HTMLElement
+        h.style.color = ''
+        h.style.backgroundColor = ''
+        h.style.borderColor = ''
+      })
+      wrapper.appendChild(clone)
+      document.body.appendChild(wrapper)
+
+      const canvas = await html2canvas(wrapper, {
         backgroundColor: '#ffffff',
         scale: 2,
         useCORS: true,
         logging: false,
       })
+
+      document.body.removeChild(wrapper)
 
       canvas.toBlob(
         (blob) => {
