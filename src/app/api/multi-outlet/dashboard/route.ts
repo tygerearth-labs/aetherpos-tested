@@ -29,7 +29,19 @@ export async function GET(request: NextRequest) {
     })
 
     if (!currentOutlet?.groupId) {
-      return safeJsonError('Outlet belum tergabung dalam grup', 400)
+      // Return empty dashboard instead of 400 — frontend guards already, but this
+      // prevents console noise if there's a race condition or stale session.
+      return safeJson({
+        groupId: null,
+        groupName: null,
+        dateFilter: 'today',
+        outlets: [],
+        totals: {
+          totalRevenue: 0, totalTransactions: 0, totalProducts: 0,
+          totalStock: 0, totalCustomers: 0, totalBrutto: 0,
+          totalDiscount: 0, totalTax: 0,
+        },
+      })
     }
 
     // Fetch all outlets in the group with manager info

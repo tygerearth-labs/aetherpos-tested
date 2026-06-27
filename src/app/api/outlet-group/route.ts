@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonCreated, safeJsonError } from '@/lib/api/safe-response'
-import { getOutletPlan } from '@/lib/plan-config'
+import { getOutletPlan, isUnlimited } from '@/lib/plan-config'
 
 /**
  * GET /api/outlet-group — Get current outlet's group info
@@ -185,7 +185,7 @@ export async function POST(request: NextRequest) {
     if (!planInfo.features.multiOutlet) {
       return safeJsonError(`Paket ${planInfo.plan} tidak mendukung multi outlet. Upgrade ke Pro atau Enterprise.`, 403)
     }
-    if (planInfo.features.maxOutlets <= 1) {
+    if (!isUnlimited(planInfo.features.maxOutlets) && planInfo.features.maxOutlets <= 1) {
       return safeJsonError(`Paket ${planInfo.plan} hanya mendukung 1 outlet. Upgrade untuk menambah cabang.`, 403)
     }
 
