@@ -1365,51 +1365,64 @@ export default function MultiOutletTerminalPage() {
   const fetchData = useCallback(async () => {
     setLoading(true)
     try {
-      const [groupRes, terminalRes] = await Promise.all([
-        fetch('/api/outlet-group').catch(() => null),
-        fetch(`/api/multi-outlet/dashboard?period=${dateFilterConfig[dateFilter].param}`).catch(() => null),
-      ])
+      // Step 1: Check group membership first
+      const groupRes = await fetch('/api/outlet-group').catch(() => null)
+      let hasGrp = false
+      let grpName = ''
+      let currentOutlet = ''
+      let plan = null
 
       if (groupRes && groupRes.ok) {
         try {
           const groupData = await groupRes.json()
-          setHasGroup(!!groupData.hasGroup && !!groupData.groupId)
-          setGroupName(groupData.groupName || '')
-          setCurrentOutletName(groupData.outlets?.[0]?.name || '')
-          setPlanMeta(groupData.plan || null)
+          hasGrp = !!(groupData.hasGroup && groupData.groupId)
+          grpName = groupData.groupName || ''
+          currentOutlet = groupData.outlets?.[0]?.name || ''
+          plan = groupData.plan || null
         } catch {
-          setHasGroup(false)
+          hasGrp = false
         }
-      } else {
-        setHasGroup(false)
       }
 
-      if (terminalRes && terminalRes.ok) {
-        try {
-          const data = await terminalRes.json()
-          setTotals(data.totals || null)
-          setOutlets((data.outlets || []).map((o: Record<string, unknown>) => ({
-            id: String(o.id || ''),
-            name: String(o.name || '-'),
-            isMain: Boolean(o.isMain),
-            address: o.address as string | undefined,
-            phone: o.phone as string | undefined,
-            accountType: String(o.accountType || ''),
-            managerName: String(o.managerName || '-'),
-            revenue: Number(o.revenue || 0),
-            brutto: Number(o.brutto || 0),
-            discount: Number(o.discount || 0),
-            tax: Number(o.tax || 0),
-            transactions: Number(o.transactions || 0),
-            yesterdayRevenue: Number(o.yesterdayRevenue || 0),
-            revenueChangePercent: Number(o.revenueChangePercent || 0),
-            totalProducts: Number(o.totalProducts || 0),
-            totalStock: Number(o.totalStock || 0),
-            totalCustomers: Number(o.totalCustomers || 0),
-          })))
-        } catch {
-          // dashboard parse failed, keep defaults
+      setHasGroup(hasGrp)
+      setGroupName(grpName)
+      setCurrentOutletName(currentOutlet)
+      setPlanMeta(plan)
+
+      // Step 2: Only fetch dashboard data if outlet has a group (avoids 400 error)
+      if (hasGrp) {
+        const terminalRes = await fetch(`/api/multi-outlet/dashboard?period=${dateFilterConfig[dateFilter].param}`).catch(() => null)
+        if (terminalRes && terminalRes.ok) {
+          try {
+            const data = await terminalRes.json()
+            setTotals(data.totals || null)
+            setOutlets((data.outlets || []).map((o: Record<string, unknown>) => ({
+              id: String(o.id || ''),
+              name: String(o.name || '-'),
+              isMain: Boolean(o.isMain),
+              address: o.address as string | undefined,
+              phone: o.phone as string | undefined,
+              accountType: String(o.accountType || ''),
+              managerName: String(o.managerName || '-'),
+              revenue: Number(o.revenue || 0),
+              brutto: Number(o.brutto || 0),
+              discount: Number(o.discount || 0),
+              tax: Number(o.tax || 0),
+              transactions: Number(o.transactions || 0),
+              yesterdayRevenue: Number(o.yesterdayRevenue || 0),
+              revenueChangePercent: Number(o.revenueChangePercent || 0),
+              totalProducts: Number(o.totalProducts || 0),
+              totalStock: Number(o.totalStock || 0),
+              totalCustomers: Number(o.totalCustomers || 0),
+            })))
+          } catch {
+            // dashboard parse failed, keep defaults
+          }
         }
+      } else {
+        // No group — clear dashboard data
+        setTotals(null)
+        setOutlets([])
       }
     } catch {
       toast.error('Gagal memuat data')

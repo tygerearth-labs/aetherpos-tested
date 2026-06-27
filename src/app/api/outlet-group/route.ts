@@ -11,11 +11,12 @@ import { getOutletPlan } from '@/lib/plan-config'
  * If outlet has a groupId, returns the group with all outlets
  *
  * Gracefully degrades if production DB hasn't been migrated (missing isMain/groupId columns).
+ * If auth fails, returns { hasGroup: false } (no sensitive data exposed).
  */
 export async function GET(request: NextRequest) {
   try {
     const user = await getAuthUser(request)
-    if (!user) return unauthorized()
+    if (!user) return safeJson({ hasGroup: false, outlets: [] })
 
     // Try full query with new schema fields (isMain, groupId)
     // If the DB hasn't been migrated, fall back to basic query
