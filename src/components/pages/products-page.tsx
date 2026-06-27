@@ -601,6 +601,9 @@ export default function ProductsPage() {
         if (res.ok) {
           toast.success(`Restocked ${restockProduct.name} (${variantData.length} varian)`)
           fetchProducts()
+          if (detailOpen && detailProduct?.id === restockProduct.id) {
+            fetchDetail(restockProduct, detailPage)
+          }
         } else {
           toast.error('Failed to restock')
         }
@@ -3049,20 +3052,21 @@ export default function ProductsPage() {
                               {formatNumber(detailData.product.stock)}
                             </p>
                           </div>
-                          {!detailData.product.hasVariants && (
-                            <div className="col-span-2 flex gap-1.5 mt-0.5">
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-6 text-[10px] px-2 theme-bg-very-light theme-text border theme-border-light hover:theme-bg-subtle"
-                                onClick={() => {
-                                  setRestockProduct(detailProduct!)
-                                  setRestockQty('')
-                                  setRestockOpen(true)
-                                }}
-                              >
-                                <RefreshCw className="h-2.5 w-2.5 mr-0.5" /> Restock
-                              </Button>
+                          <div className="col-span-2 flex gap-1.5 mt-0.5">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-6 text-[10px] px-2 theme-bg-very-light theme-text border theme-border-light hover:theme-bg-subtle"
+                              onClick={() => {
+                                setRestockProduct(detailData.product as unknown as Product)
+                                setRestockQty('')
+                                setVariantRestocks([])
+                                setRestockOpen(true)
+                              }}
+                            >
+                              <RefreshCw className="h-2.5 w-2.5 mr-0.5" /> Restock
+                            </Button>
+                            {!detailData.product.hasVariants && (
                               <Button
                                 size="sm"
                                 variant="ghost"
@@ -3076,8 +3080,8 @@ export default function ProductsPage() {
                               >
                                 <FilePenLine className="h-2.5 w-2.5 mr-0.5" /> Penyesuaian
                               </Button>
-                            </div>
-                          )}
+                            )}
+                          </div>
                           {isOwner && (
                             <div>
                               <span className="text-slate-500 text-[11px]">HPP</span>
