@@ -79,7 +79,7 @@ const allMoreMenuItems: MoreMenuItem[] = [
   { page: 'crew', icon: <UserCog className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Kelola Crew', section: 'Admin' },
   { page: 'plan', icon: <Crown className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Plan & Pricing', section: 'Admin' },
   { page: 'transfer', icon: <Truck className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Transfer', section: 'Admin', groupOnly: true },
-  { page: 'multi-outlet', icon: <Building2 className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Multi Outlet', section: 'Admin', groupOnly: true },
+  { page: 'multi-outlet', icon: <Building2 className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Multi Outlet', section: 'Admin' },
   { page: 'settings', icon: <Settings className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Pengaturan', section: 'Admin' },
 ]
 
