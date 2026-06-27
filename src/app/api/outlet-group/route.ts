@@ -1,0 +1,179 @@
+import { NextRequest } from 'next/server'
+import { db } from '@/lib/db'
+import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
+import { safeJson, safeJsonCreated, safeJsonError } from '@/lib/api/safe-response'
+
+/**
+ * GET /api/outlet-group — Get current outlet's group info
+ *
+ * If outlet has no groupId, returns { hasGroup: false, outlets: [currentOutlet] }
+ * If outlet has a groupId, returns the group with all outlets
+ */
+export async function GET(request: NextRequest) {
+  try {
+    const user = await getAuthUser(request)
+    if (!user) return unauthorized()
+
+    const outlet = await db.outlet.findUnique({
+      where: { id: user.outletId },
+      select: {
+        id: true,
+        name: true,
+        address: true,
+        phone: true,
+        isMain: true,
+        accountType: true,
+        groupId: true,
+        _count: {
+          select: { users: true, products: true, transactions: true },
+        },
+      },
+    })
+
+    if (!outlet) {
+      return safeJsonError('Outlet tidak ditemukan', 404)
+    }
+
+    // No group — standalone outlet
+    if (!outlet.groupId) {
+      return safeJson({
+        hasGroup: false,
+        outlets: [
+          {
+            id: outlet.id,
+            name: outlet.name,
+            address: outlet.address,
+            phone: outlet.phone,
+            isMain: outlet.isMain,
+            accountType: outlet.accountType,
+            _count: outlet._count,
+          },
+        ],
+      })
+    }
+
+    // Has group — fetch all outlets in the group
+    const group = await db.outletGroup.findUnique({
+      where: { id: outlet.groupId },
+      include: {
+        outlets: {
+          select: {
+            id: true,
+            name: true,
+            address: true,
+            phone: true,
+            isMain: true,
+            accountType: true,
+            _count: {
+              select: { users: true, products: true, transactions: true },
+            },
+          },
+          orderBy: { isMain: 'desc' },
+        },
+      },
+    })
+
+    if (!group) {
+      return safeJsonError('Grup outlet tidak ditemukan', 404)
+    }
+
+    return safeJson({
+      hasGroup: true,
+      groupId: group.id,
+      groupName: group.name,
+      outlets: group.outlets,
+    })
+  } catch (error) {
+    console.error('[/api/outlet-group] GET error:', error)
+    return safeJsonError('Failed to load outlet group')
+  }
+}
+
+/**
+ * POST /api/outlet-group — Create a new outlet group
+ *
+ * Sets the current outlet as the main outlet (isMain: true) and
+ * the current user as the group owner.
+ */
+export async function POST(request: NextRequest) {
+  try {
+    const user = await getAuthUser(request)
+    if (!user) return unauthorized()
+
+    if (user.role !== 'OWNER') {
+      return safeJsonError('Hanya pemilik yang dapat membuat grup outlet', 403)
+    }
+
+    const body = await request.json()
+    const { name } = body as { name?: string }
+
+    if (!name || name.trim().length < 2) {
+      return safeJsonError('Nama grup minimal 2 karakter', 400)
+    }
+
+    // Check if outlet already has a group
+    const currentOutlet = await db.outlet.findUnique({
+      where: { id: user.outletId },
+      select: { groupId: true, isMain: true, name: true, accountType: true, address: true, phone: true },
+    })
+
+    if (!currentOutlet) {
+      return safeJsonError('Outlet tidak ditemukan', 404)
+    }
+
+    if (currentOutlet.groupId) {
+      return safeJsonError('Outlet sudah tergabung dalam grup', 400)
+    }
+
+    // Check if user already owns a group
+    const existingGroup = await db.outletGroup.findUnique({
+      where: { ownerId: user.id },
+    })
+
+    if (existingGroup) {
+      return safeJsonError('Anda sudah memiliki grup outlet', 400)
+    }
+
+    const result = await db.$transaction(async (tx) => {
+      // Create the group
+      const group = await tx.outletGroup.create({
+        data: {
+          name: name.trim(),
+          ownerId: user.id,
+        },
+      })
+
+      // Update current outlet to be the main outlet in the group
+      await tx.outlet.update({
+        where: { id: user.outletId },
+        data: {
+          groupId: group.id,
+          isMain: true,
+        },
+      })
+
+      // Audit log
+      await tx.auditLog.create({
+        data: {
+          action: 'CREATE',
+          entityType: 'OUTLET',
+          entityId: group.id,
+          details: JSON.stringify({ action: 'CREATE_GROUP', groupName: group.name }),
+          outletId: user.outletId,
+          userId: user.id,
+        },
+      })
+
+      return group
+    })
+
+    return safeJsonCreated({
+      id: result.id,
+      name: result.name,
+      message: `Grup "${result.name}" berhasil dibuat. Outlet "${currentOutlet.name}" ditetapkan sebagai outlet utama.`,
+    })
+  } catch (error) {
+    console.error('[/api/outlet-group] POST error:', error)
+    return safeJsonError('Failed to create outlet group')
+  }
+}
