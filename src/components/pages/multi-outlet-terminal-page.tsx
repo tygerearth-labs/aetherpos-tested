@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
 import { formatCurrency, formatNumber } from '@/lib/format'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -38,6 +38,11 @@ import {
   Phone,
   MapPin,
   X,
+  Pencil,
+  Trash2,
+  ShieldCheck,
+  UserPlus,
+  Calendar,
 } from 'lucide-react'
 
 // ── Types ──
@@ -83,6 +88,7 @@ interface DrillDownOutlet {
   customers: number
   products: number
   totalStock: number
+  managerName?: string
 }
 
 interface PaginationInfo {
@@ -93,7 +99,7 @@ interface PaginationInfo {
 }
 
 type DateFilter = 'today' | '7days' | '30days'
-type DetailTab = 'transactions' | 'customers' | 'products'
+type DetailTab = 'transactions' | 'customers' | 'products' | 'crew'
 
 const dateFilterConfig: Record<DateFilter, { label: string; param: string }> = {
   today: { label: 'Hari ini', param: 'today' },
@@ -105,6 +111,7 @@ const tabConfig: Record<DetailTab, { label: string; icon: React.ReactNode }> = {
   transactions: { label: 'Transaksi', icon: <Receipt className="h-3.5 w-3.5" /> },
   customers: { label: 'Customer', icon: <Users className="h-3.5 w-3.5" /> },
   products: { label: 'Produk', icon: <Package className="h-3.5 w-3.5" /> },
+  crew: { label: 'Crew', icon: <ShieldCheck className="h-3.5 w-3.5" /> },
 }
 
 // ── Animation variants ──
@@ -169,6 +176,17 @@ function ChangeBadge({ percent }: { percent: number }) {
   )
 }
 
+// ── Crew Types ──
+interface CrewMember {
+  id: string
+  name: string
+  email: string
+  role: string
+  createdAt: string
+  crewPermission?: { id: string; pages: string } | null
+  _count?: { transactions: number }
+}
+
 // ── Outlet Detail Dialog ──
 function OutletDetailDialog({
   outlet,
@@ -189,7 +207,18 @@ function OutletDetailDialog({
   const [outletInfo, setOutletInfo] = useState<DrillDownOutlet | null>(null)
   const [pagination, setPagination] = useState<PaginationInfo>({ page: 1, limit: 20, total: 0, totalPages: 0 })
 
+  // Crew tab state
+  const [crewList, setCrewList] = useState<CrewMember[]>([])
+  const [crewOwner, setCrewOwner] = useState<{ id: string; name: string; email: string; createdAt: string } | null>(null)
+  const [crewPagination, setCrewPagination] = useState<PaginationInfo>({ page: 1, limit: 20, total: 0, totalPages: 0 })
+  const [crewLoading, setCrewLoading] = useState(false)
+  const [addCrewOpen, setAddCrewOpen] = useState(false)
+  const [editCrew, setEditCrew] = useState<CrewMember | null>(null)
+  const [deleteCrew, setDeleteCrew] = useState<CrewMember | null>(null)
+
+  // Fetch data for transactions/customers/products tabs
   const fetchData = useCallback(async () => {
+    if (tab === 'crew') return // Crew has its own fetch
     setLoading(true)
     try {
       const params = new URLSearchParams({
@@ -214,18 +243,104 @@ function OutletDetailDialog({
     }
   }, [outlet.id, tab, period, page, search])
 
+  // Fetch crew data
+  const fetchCrew = useCallback(async () => {
+    if (tab !== 'crew') return
+    setCrewLoading(true)
+    try {
+      const params = new URLSearchParams({
+        outletId: outlet.id,
+        page: String(page),
+        limit: '15',
+      })
+      if (search) params.set('search', search)
+
+      const res = await fetch(`/api/multi-outlet/crew?${params}`)
+      if (!res.ok) throw new Error()
+      const json = await res.json()
+      setCrewList(json.crew || [])
+      setCrewOwner(json.owner || null)
+      setCrewPagination(json.pagination || { page: 1, limit: 20, total: 0, totalPages: 0 })
+    } catch {
+      toast.error('Gagal memuat data crew')
+    } finally {
+      setCrewLoading(false)
+    }
+  }, [outlet.id, tab, page, search])
+
   // Reset when dialog opens/tab changes
   useEffect(() => {
     if (open) {
       setTab('transactions')
       setSearch('')
       setPage(1)
+      setCrewList([])
+      setCrewOwner(null)
     }
   }, [open, outlet.id])
 
   useEffect(() => {
     if (open) void fetchData()
   }, [fetchData, open])
+
+  useEffect(() => {
+    if (open) void fetchCrew()
+  }, [fetchCrew, open])
+
+  // Crew CRUD handlers
+  const handleAddCrew = async (form: { name: string; email: string; password: string }) => {
+    try {
+      const res = await fetch('/api/multi-outlet/crew', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ outletId: outlet.id, ...form }),
+      })
+      const data = await res.json()
+      if (!res.ok) { toast.error(data.error || 'Gagal menambah crew'); return }
+      toast.success(`Crew "${form.name}" berhasil ditambahkan`)
+      setAddCrewOpen(false)
+      setTimeout(() => void fetchCrew(), 300)
+    } catch {
+      toast.error('Gagal menambah crew')
+    }
+  }
+
+  const handleEditCrew = async (form: { name: string; email: string; password?: string }) => {
+    if (!editCrew) return
+    try {
+      const body: Record<string, string> = { name: form.name, email: form.email }
+      if (form.password) body.password = form.password
+      const res = await fetch(`/api/multi-outlet/crew/${editCrew.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json()
+      if (!res.ok) { toast.error(data.error || 'Gagal mengubah crew'); return }
+      toast.success(`Crew "${form.name}" berhasil diubah`)
+      setEditCrew(null)
+      setTimeout(() => void fetchCrew(), 300)
+    } catch {
+      toast.error('Gagal mengubah crew')
+    }
+  }
+
+  const handleDeleteCrew = async () => {
+    if (!deleteCrew) return
+    try {
+      const res = await fetch(`/api/multi-outlet/crew/${deleteCrew.id}`, { method: 'DELETE' })
+      const data = await res.json()
+      if (!res.ok) { toast.error(data.error || 'Gagal menghapus crew'); return }
+      toast.success(`Crew "${deleteCrew.name}" berhasil dihapus`)
+      setDeleteCrew(null)
+      setTimeout(() => void fetchCrew(), 300)
+    } catch {
+      toast.error('Gagal menghapus crew')
+    }
+  }
+
+  const isCrewTab = tab === 'crew'
+  const currentPagination = isCrewTab ? crewPagination : pagination
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
@@ -296,21 +411,46 @@ function OutletDetailDialog({
                 </button>
               ))}
             </div>
-            <div className="relative">
-              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
-              <Input
-                value={search}
-                onChange={(e) => { setSearch(e.target.value); setPage(1) }}
-                placeholder={tab === 'transactions' ? 'Cari invoice...' : tab === 'customers' ? 'Cari nama/WA...' : 'Cari produk...'}
-                className="h-7 pl-7 pr-2 text-[11px] bg-white/[0.04] border-white/[0.06] text-white placeholder:text-slate-600 w-40 sm:w-48"
-              />
+            <div className="flex items-center gap-2">
+              {isCrewTab && (
+                <Button
+                  size="sm"
+                  onClick={() => setAddCrewOpen(true)}
+                  className="h-7 px-2.5 text-[11px] bg-emerald-600 hover:bg-emerald-700 text-white"
+                >
+                  <UserPlus className="h-3.5 w-3.5 mr-1" />
+                  Tambah
+                </Button>
+              )}
+              <div className="relative">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
+                <Input
+                  value={search}
+                  onChange={(e) => { setSearch(e.target.value); setPage(1) }}
+                  placeholder={
+                    tab === 'transactions' ? 'Cari invoice...' :
+                    tab === 'customers' ? 'Cari nama/WA...' :
+                    tab === 'crew' ? 'Cari crew...' :
+                    'Cari produk...'
+                  }
+                  className="h-7 pl-7 pr-2 text-[11px] bg-white/[0.04] border-white/[0.06] text-white placeholder:text-slate-600 w-40 sm:w-48"
+                />
+              </div>
             </div>
           </div>
         </div>
 
         {/* Data */}
         <div className="flex-1 overflow-y-auto min-h-0">
-          {loading ? (
+          {isCrewTab ? (
+            <CrewListContent
+              loading={crewLoading}
+              crewList={crewList}
+              owner={crewOwner}
+              onEdit={(c) => setEditCrew(c)}
+              onDelete={(c) => setDeleteCrew(c)}
+            />
+          ) : loading ? (
             <div className="p-5 space-y-2">
               {Array.from({ length: 5 }).map((_, i) => (
                 <Skeleton key={i} className="h-10 bg-white/[0.04] rounded-lg" />
@@ -334,10 +474,10 @@ function OutletDetailDialog({
         </div>
 
         {/* Pagination */}
-        {pagination.totalPages > 1 && (
+        {currentPagination.totalPages > 1 && (
           <div className="px-5 py-2.5 border-t border-white/[0.06] flex items-center justify-between shrink-0">
             <p className="text-[10px] text-slate-500">
-              {pagination.page} / {pagination.totalPages} halaman ({pagination.total} data)
+              {currentPagination.page} / {currentPagination.totalPages} halaman ({currentPagination.total} data)
             </p>
             <div className="flex items-center gap-1">
               <Button
@@ -349,7 +489,7 @@ function OutletDetailDialog({
               </Button>
               <Button
                 variant="ghost" size="icon" className="h-6 w-6"
-                disabled={page >= pagination.totalPages}
+                disabled={page >= currentPagination.totalPages}
                 onClick={() => setPage((p) => p + 1)}
               >
                 <ChevronRight className="h-3.5 w-3.5" />
@@ -357,6 +497,378 @@ function OutletDetailDialog({
             </div>
           </div>
         )}
+
+        {/* Crew Dialogs */}
+        <AddCrewDialog
+          open={addCrewOpen}
+          outletName={outlet.name}
+          onClose={() => setAddCrewOpen(false)}
+          onSubmit={handleAddCrew}
+        />
+        {editCrew && (
+          <EditCrewDialog
+            crew={editCrew}
+            onClose={() => setEditCrew(null)}
+            onSubmit={handleEditCrew}
+          />
+        )}
+        {deleteCrew && (
+          <DeleteCrewDialog
+            crew={deleteCrew}
+            onClose={() => setDeleteCrew(null)}
+            onConfirm={handleDeleteCrew}
+          />
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ── Crew List Content ──
+const AVAILABLE_PAGES_LABELS: Record<string, string> = {
+  dashboard: 'Dashboard',
+  products: 'Produk',
+  customers: 'Customer',
+  pos: 'Kasir',
+  transactions: 'Transaksi',
+  'audit-log': 'Audit Log',
+  crew: 'Crew',
+  settings: 'Pengaturan',
+  transfer: 'Transfer',
+  'multi-outlet': 'Multi Outlet',
+}
+
+function CrewListContent({
+  loading,
+  crewList,
+  owner,
+  onEdit,
+  onDelete,
+}: {
+  loading: boolean
+  crewList: CrewMember[]
+  owner: { id: string; name: string; email: string; createdAt: string } | null
+  onEdit: (crew: CrewMember) => void
+  onDelete: (crew: CrewMember) => void
+}) {
+  if (loading) {
+    return (
+      <div className="p-5 space-y-2">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <Skeleton key={i} className="h-14 bg-white/[0.04] rounded-lg" />
+        ))}
+      </div>
+    )
+  }
+
+  return (
+    <div className="p-3 space-y-2">
+      {/* Owner card */}
+      {owner && (
+        <div className="flex items-center justify-between gap-3 bg-amber-500/[0.06] rounded-lg px-3 py-2.5 border border-amber-500/10">
+          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+            <div className="w-8 h-8 rounded-full bg-amber-500/20 flex items-center justify-center shrink-0">
+              <ShieldCheck className="h-4 w-4 text-amber-400" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <p className="text-[11px] font-semibold text-white truncate">{owner.name}</p>
+                <Badge className="text-[8px] px-1 py-0 bg-amber-500/10 text-amber-400 border-0 hover:bg-amber-500/10 shrink-0">
+                  Owner
+                </Badge>
+              </div>
+              <p className="text-[10px] text-slate-500 truncate">{owner.email}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Crew list */}
+      {crewList.length === 0 && !owner ? (
+        <div className="py-12 text-center">
+          <ShieldCheck className="h-8 w-8 text-slate-600 mx-auto mb-2" />
+          <p className="text-xs text-slate-500">Belum ada crew di outlet ini</p>
+        </div>
+      ) : crewList.length === 0 ? (
+        <div className="py-8 text-center">
+          <p className="text-xs text-slate-500">Belum ada crew selain owner</p>
+        </div>
+      ) : (
+        crewList.map((c) => {
+          const pages = c.crewPermission?.pages ? c.crewPermission.pages.split(',') : ['pos']
+          return (
+            <div key={c.id} className="flex items-center justify-between gap-3 bg-white/[0.02] rounded-lg px-3 py-2.5 border border-white/[0.04]">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <p className="text-[11px] font-semibold text-white truncate">{c.name}</p>
+                  <Badge className="text-[8px] px-1 py-0 bg-sky-500/10 text-sky-400 border-0 hover:bg-sky-500/10 shrink-0">
+                    Crew
+                  </Badge>
+                </div>
+                <p className="text-[10px] text-slate-500 truncate mb-1">{c.email}</p>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {pages.slice(0, 4).map((p) => (
+                    <span key={p} className="text-[8px] px-1.5 py-px rounded bg-white/[0.06] text-slate-400">
+                      {AVAILABLE_PAGES_LABELS[p] || p}
+                    </span>
+                  ))}
+                  {pages.length > 4 && (
+                    <span className="text-[8px] text-slate-500">+{pages.length - 4}</span>
+                  )}
+                </div>
+              </div>
+              <div className="flex flex-col items-end gap-1 shrink-0">
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => onEdit(c)}
+                    className="h-6 w-6 rounded-md flex items-center justify-center text-slate-500 hover:text-white hover:bg-white/[0.06] transition-colors"
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </button>
+                  <button
+                    onClick={() => onDelete(c)}
+                    className="h-6 w-6 rounded-md flex items-center justify-center text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </div>
+                <div className="flex items-center gap-1 text-[9px] text-slate-600">
+                  <Calendar className="h-2.5 w-2.5" />
+                  {new Date(c.createdAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
+                </div>
+                {c._count && (
+                  <span className="text-[9px] text-slate-600">{c._count.transactions} transaksi</span>
+                )}
+              </div>
+            </div>
+          )
+        })
+      )}
+    </div>
+  )
+}
+
+// ── Add Crew Dialog ──
+function AddCrewDialog({
+  open,
+  outletName,
+  onClose,
+  onSubmit,
+}: {
+  open: boolean
+  outletName: string
+  onClose: () => void
+  onSubmit: (form: { name: string; email: string; password: string }) => void
+}) {
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (open) {
+      setName(''); setEmail(''); setPassword('')
+      setTimeout(() => inputRef.current?.focus(), 100)
+    }
+  }, [open])
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!name.trim() || !email.trim() || !password.trim()) return
+    if (password.length < 8) { toast.error('Password minimal 8 karakter'); return }
+    setSubmitting(true)
+    await onSubmit({ name: name.trim(), email: email.trim().toLowerCase(), password })
+    setSubmitting(false)
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
+      <DialogContent className="bg-[#0c0d12] border-white/[0.06] max-w-sm w-[92vw] p-0 overflow-hidden">
+        <DialogHeader className="px-5 pt-5 pb-3 border-b border-white/[0.06]">
+          <DialogTitle className="text-sm font-bold text-white">Tambah Crew</DialogTitle>
+          <p className="text-[11px] text-slate-500 mt-0.5">Outlet: {outletName}</p>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="p-5 space-y-3">
+          <div className="space-y-1.5">
+            <label className="text-[11px] font-medium text-slate-400">Nama</label>
+            <Input
+              ref={inputRef}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Nama lengkap"
+              required
+              className="h-9 text-sm bg-white/[0.04] border-white/[0.06] text-white placeholder:text-slate-600"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-[11px] font-medium text-slate-400">Email</label>
+            <Input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="email@contoh.com"
+              required
+              className="h-9 text-sm bg-white/[0.04] border-white/[0.06] text-white placeholder:text-slate-600"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-[11px] font-medium text-slate-400">Password</label>
+            <Input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Min. 8 karakter"
+              required
+              minLength={8}
+              className="h-9 text-sm bg-white/[0.04] border-white/[0.06] text-white placeholder:text-slate-600"
+            />
+          </div>
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <Button type="button" variant="ghost" onClick={onClose} className="h-8 text-[11px] text-slate-400">
+              Batal
+            </Button>
+            <Button type="submit" disabled={submitting || !name.trim() || !email.trim() || password.length < 8}
+              className="h-8 px-4 text-[11px] bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              {submitting ? 'Menyimpan...' : 'Tambah Crew'}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ── Edit Crew Dialog ──
+function EditCrewDialog({
+  crew,
+  onClose,
+  onSubmit,
+}: {
+  crew: CrewMember
+  onClose: () => void
+  onSubmit: (form: { name: string; email: string; password?: string }) => void
+}) {
+  const [name, setName] = useState(crew.name)
+  const [email, setEmail] = useState(crew.email)
+  const [password, setPassword] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    setName(crew.name); setEmail(crew.email); setPassword('')
+    setTimeout(() => inputRef.current?.focus(), 100)
+  }, [crew])
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!name.trim() || !email.trim()) return
+    if (password && password.length < 8) { toast.error('Password minimal 8 karakter'); return }
+    setSubmitting(true)
+    await onSubmit({ name: name.trim(), email: email.trim().toLowerCase(), ...(password ? { password } : {}) })
+    setSubmitting(false)
+  }
+
+  return (
+    <Dialog open={true} onOpenChange={(v) => { if (!v) onClose() }}>
+      <DialogContent className="bg-[#0c0d12] border-white/[0.06] max-w-sm w-[92vw] p-0 overflow-hidden">
+        <DialogHeader className="px-5 pt-5 pb-3 border-b border-white/[0.06]">
+          <DialogTitle className="text-sm font-bold text-white">Edit Crew</DialogTitle>
+          <p className="text-[11px] text-slate-500 mt-0.5">{crew.name}</p>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="p-5 space-y-3">
+          <div className="space-y-1.5">
+            <label className="text-[11px] font-medium text-slate-400">Nama</label>
+            <Input
+              ref={inputRef}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+              className="h-9 text-sm bg-white/[0.04] border-white/[0.06] text-white placeholder:text-slate-600"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-[11px] font-medium text-slate-400">Email</label>
+            <Input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              className="h-9 text-sm bg-white/[0.04] border-white/[0.06] text-white placeholder:text-slate-600"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-[11px] font-medium text-slate-400">
+              Password <span className="text-slate-600 font-normal">(kosongkan jika tidak diubah)</span>
+            </label>
+            <Input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Min. 8 karakter"
+              minLength={password ? 8 : 0}
+              className="h-9 text-sm bg-white/[0.04] border-white/[0.06] text-white placeholder:text-slate-600"
+            />
+          </div>
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <Button type="button" variant="ghost" onClick={onClose} className="h-8 text-[11px] text-slate-400">
+              Batal
+            </Button>
+            <Button type="submit" disabled={submitting || !name.trim() || !email.trim()}
+              className="h-8 px-4 text-[11px] bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              {submitting ? 'Menyimpan...' : 'Simpan'}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ── Delete Crew Dialog ──
+function DeleteCrewDialog({
+  crew,
+  onClose,
+  onConfirm,
+}: {
+  crew: CrewMember
+  onClose: () => void
+  onConfirm: () => void
+}) {
+  const [deleting, setDeleting] = useState(false)
+
+  const handleDelete = async () => {
+    setDeleting(true)
+    await onConfirm()
+    setDeleting(false)
+  }
+
+  return (
+    <Dialog open={true} onOpenChange={(v) => { if (!v) onClose() }}>
+      <DialogContent className="bg-[#0c0d12] border-white/[0.06] max-w-sm w-[92vw] p-0 overflow-hidden">
+        <DialogHeader className="px-5 pt-5 pb-3 border-b border-white/[0.06]">
+          <DialogTitle className="text-sm font-bold text-white">Hapus Crew</DialogTitle>
+        </DialogHeader>
+        <div className="p-5 space-y-4">
+          <p className="text-xs text-slate-400 leading-relaxed">
+            Apakah Anda yakin ingin menghapus crew <span className="text-white font-semibold">{crew.name}</span> ({crew.email})?
+            Aksi ini tidak dapat dibatalkan.
+          </p>
+          <div className="flex items-center justify-end gap-2">
+            <Button variant="ghost" onClick={onClose} className="h-8 text-[11px] text-slate-400">
+              Batal
+            </Button>
+            <Button
+              onClick={handleDelete}
+              disabled={deleting}
+              className="h-8 px-4 text-[11px] bg-red-600 hover:bg-red-700 text-white"
+            >
+              {deleting ? 'Menghapus...' : 'Hapus'}
+            </Button>
+          </div>
+        </div>
       </DialogContent>
     </Dialog>
   )
