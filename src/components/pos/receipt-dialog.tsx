@@ -1,7 +1,6 @@
 'use client'
 
 import { useRef } from 'react'
-import html2canvas from 'html2canvas'
 import { motion, AnimatePresence } from 'framer-motion'
 import { formatCurrency } from '@/lib/format'
 import { Button } from '@/components/ui/button'
@@ -173,54 +172,51 @@ function generateWhatsAppReceiptText(props: {
   const dateStr = now.toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' })
   const timeStr = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 
-  const isOffline = checkoutResult.invoiceNumber?.startsWith('OFF-')
+  const lines: string[] = []
 
-  let text = ``
-  text += `📋 *STRUK PEMBELIAN*\n`
-  text += `${'═'.repeat(28)}\n`
-  text += `${settings.receiptBusinessName}\n`
-  if (settings.receiptAddress) text += `${settings.receiptAddress}\n`
-  if (settings.receiptPhone) text += `${settings.receiptPhone}\n`
-  text += `${'═'.repeat(28)}\n`
-  text += `No: ${checkoutResult.invoiceNumber}\n`
-  text += `Tanggal: ${dateStr} ${timeStr}\n`
-  text += `Customer: ${selectedCustomer ? selectedCustomer.name : 'Walk-in'}\n`
-  if (isOffline) text += `⚠️ *Offline — Pending Sync*\n`
-  text += `${'─'.repeat(28)}\n`
-  text += `*ITEM:*\n`
+  // Header
+  lines.push(settings.receiptBusinessName)
+  if (settings.receiptAddress) lines.push(settings.receiptAddress)
+  if (settings.receiptPhone) lines.push(settings.receiptPhone)
+  lines.push('')
 
+  // Transaction info
+  lines.push(`No: ${checkoutResult.invoiceNumber}`)
+  lines.push(`Tanggal: ${dateStr} ${timeStr}`)
+  lines.push(`Customer: ${selectedCustomer ? selectedCustomer.name : 'Walk-in'}`)
+  lines.push('')
+
+  // Items
   for (const item of cart) {
     const name = item.variant ? `${item.product.name} (${item.variant.name})` : item.product.name
     const effPrice = getItemEffectivePrice(item)
     const effSubtotal = effPrice * item.qty
-    text += `${name}\n`
-    if (item.customPrice != null) {
-      text += `  ~~@${formatCurrency(getItemPrice(item))}~~ → @${formatCurrency(effPrice)} × ${item.qty} = ${formatCurrency(effSubtotal)}\n`
-    } else {
-      text += `  @${formatCurrency(effPrice)} × ${item.qty} = ${formatCurrency(effSubtotal)}\n`
-    }
+    lines.push(`${name}`)
+    lines.push(`  ${formatCurrency(effPrice)} x ${item.qty} = ${formatCurrency(effSubtotal)}`)
   }
+  lines.push('')
 
-  text += `${'─'.repeat(28)}\n`
-  text += `Subtotal: ${formatCurrency(subtotal)}\n`
-  if (pointsDiscount > 0) text += `Poin Diskon: -${formatCurrency(pointsDiscount)}\n`
-  if (promoDiscount > 0 && selectedPromo) text += `Promo (${selectedPromo.name}): -${formatCurrency(promoDiscount)}\n`
-  if (manualDiscountTotal > 0) text += `Diskon Manual: -${formatCurrency(manualDiscountTotal)}\n`
-  if (ppnAmount > 0) text += `PPN (${settings.ppnRate}%): +${formatCurrency(ppnAmount)}\n`
-  text += `${'═'.repeat(28)}\n`
-  text += `*TOTAL: ${formatCurrency(total)}*\n`
-  text += `${'─'.repeat(28)}\n`
-  text += `Metode: ${paymentMethod}\n`
-  text += `Dibayar: ${formatCurrency(paymentMethod === 'CASH' ? Number(paidAmount) : total)}\n`
-  if (paymentMethod === 'CASH' && changeAmount > 0) text += `Kembalian: ${formatCurrency(changeAmount)}\n`
+  // Totals
+  lines.push(`Subtotal: ${formatCurrency(subtotal)}`)
+  if (pointsDiscount > 0) lines.push(`Poin Diskon: -${formatCurrency(pointsDiscount)}`)
+  if (promoDiscount > 0 && selectedPromo) lines.push(`Promo (${selectedPromo.name}): -${formatCurrency(promoDiscount)}`)
+  if (manualDiscountTotal > 0) lines.push(`Diskon Manual: -${formatCurrency(manualDiscountTotal)}`)
+  if (ppnAmount > 0) lines.push(`PPN (${settings.ppnRate}%): +${formatCurrency(ppnAmount)}`)
+  lines.push(`TOTAL: ${formatCurrency(total)}`)
+  lines.push('')
+
+  // Payment
+  lines.push(`Pembayaran: ${paymentMethod}`)
+  lines.push(`Dibayar: ${formatCurrency(paymentMethod === 'CASH' ? Number(paidAmount) : total)}`)
+  if (paymentMethod === 'CASH' && changeAmount > 0) lines.push(`Kembalian: ${formatCurrency(changeAmount)}`)
+
+  // Footer
   if (settings.receiptFooter) {
-    text += `${'─'.repeat(28)}\n`
-    text += `${settings.receiptFooter}\n`
+    lines.push('')
+    lines.push(settings.receiptFooter)
   }
-  text += `${'═'.repeat(28)}\n`
-  text += `Terima kasih! 🙏`
 
-  return text
+  return lines.join('\n')
 }
 
 // ==================== COMPONENT ====================
@@ -306,68 +302,20 @@ export function ReceiptDialog({
     handleClose()
   }
 
-  // WhatsApp handler — sends receipt as JPG image
-  const handleWhatsApp = async () => {
-    if (!selectedCustomer?.whatsapp || !checkoutResult || !receiptContentRef.current) return
+  // WhatsApp handler — sends receipt as clean text
+  const handleWhatsApp = () => {
+    if (!selectedCustomer?.whatsapp || !checkoutResult) return
 
-    try {
-      toast.loading('Membuat gambar struk...', { id: 'receipt-image' })
+    const message = generateWhatsAppReceiptText({
+      cart, subtotal, pointsDiscount, promoDiscount, manualDiscountTotal,
+      ppnAmount, total, paymentMethod, paidAmount, change: changeAmount,
+      selectedCustomer, selectedPromo, checkoutResult, settings,
+    })
 
-      // Clone receipt into a clean off-screen container to avoid
-      // Tailwind CSS 4 lab()/oklch() color functions that html2canvas cannot parse.
-      const clone = receiptContentRef.current.cloneNode(true) as HTMLElement
-      const wrapper = document.createElement('div')
-      wrapper.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:280px;background:#ffffff;color:#000;font-family:"Courier New",Courier,monospace;font-size:10px;line-height:1.5;padding:12px;'
-      // Strip all inherited Tailwind color styles from cloned children
-      clone.querySelectorAll('*').forEach((el) => {
-        const h = el as HTMLElement
-        h.style.color = ''
-        h.style.backgroundColor = ''
-        h.style.borderColor = ''
-      })
-      wrapper.appendChild(clone)
-      document.body.appendChild(wrapper)
-
-      const canvas = await html2canvas(wrapper, {
-        backgroundColor: '#ffffff',
-        scale: 2,
-        useCORS: true,
-        logging: false,
-      })
-
-      document.body.removeChild(wrapper)
-
-      canvas.toBlob(
-        (blob) => {
-          if (!blob) {
-            toast.error('Gagal membuat gambar struk', { id: 'receipt-image' })
-            return
-          }
-
-          const url = URL.createObjectURL(blob)
-          const link = document.createElement('a')
-          link.href = url
-          link.download = `struk-${checkoutResult.invoiceNumber}.jpg`
-          document.body.appendChild(link)
-          link.click()
-          document.body.removeChild(link)
-          URL.revokeObjectURL(url)
-
-          let phone = selectedCustomer.whatsapp.replace(/[^0-9]/g, '')
-          if (phone.startsWith('0')) phone = phone.substring(1)
-          const message = `Berikut struk pembayaran Anda:\nInvoice: ${checkoutResult.invoiceNumber}\nTotal: ${formatCurrency(total)}`
-          const waUrl = `https://wa.me/62${phone}?text=${encodeURIComponent(message)}`
-          window.open(waUrl, '_blank')
-
-          toast.success('Struk berhasil diunduh. Kirim gambar ke pelanggan via WhatsApp.', { id: 'receipt-image' })
-        },
-        'image/jpeg',
-        0.95
-      )
-    } catch (error) {
-      console.error('Receipt image generation error:', error)
-      toast.error('Gagal membuat gambar struk', { id: 'receipt-image' })
-    }
+    let phone = selectedCustomer.whatsapp.replace(/[^0-9]/g, '')
+    if (phone.startsWith('0')) phone = phone.substring(1)
+    const waUrl = `https://wa.me/62${phone}?text=${encodeURIComponent(message)}`
+    window.open(waUrl, '_blank')
   }
 
   // Close handler
