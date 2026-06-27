@@ -8,34 +8,65 @@ import { safeJson, safeJsonCreated, safeJsonError } from '@/lib/api/safe-respons
  *
  * If outlet has no groupId, returns { hasGroup: false, outlets: [currentOutlet] }
  * If outlet has a groupId, returns the group with all outlets
+ *
+ * Gracefully degrades if production DB hasn't been migrated (missing isMain/groupId columns).
  */
 export async function GET(request: NextRequest) {
   try {
     const user = await getAuthUser(request)
     if (!user) return unauthorized()
 
-    const outlet = await db.outlet.findUnique({
-      where: { id: user.outletId },
-      select: {
-        id: true,
-        name: true,
-        address: true,
-        phone: true,
-        isMain: true,
-        accountType: true,
-        groupId: true,
-        _count: {
-          select: { users: true, products: true, transactions: true },
+    // Try full query with new schema fields (isMain, groupId)
+    // If the DB hasn't been migrated, fall back to basic query
+    let outlet: Record<string, unknown> | null = null
+    let schemaMigrated = true
+
+    try {
+      outlet = await db.outlet.findUnique({
+        where: { id: user.outletId },
+        select: {
+          id: true,
+          name: true,
+          address: true,
+          phone: true,
+          isMain: true,
+          accountType: true,
+          groupId: true,
+          _count: {
+            select: { users: true, products: true, transactions: true },
+          },
         },
-      },
-    })
+      }) as unknown as Record<string, unknown> | null
+    } catch {
+      // Schema not migrated — fallback query without new fields
+      schemaMigrated = false
+      try {
+        outlet = await db.outlet.findUnique({
+          where: { id: user.outletId },
+          select: {
+            id: true,
+            name: true,
+            address: true,
+            phone: true,
+            accountType: true,
+            _count: {
+              select: { users: true, products: true, transactions: true },
+            },
+          },
+        }) as unknown as Record<string, unknown> | null
+      } catch {
+        // Even basic query failed — return safe default
+        return safeJson({ hasGroup: false, outlets: [] })
+      }
+    }
 
     if (!outlet) {
       return safeJsonError('Outlet tidak ditemukan', 404)
     }
 
     // No group — standalone outlet
-    if (!outlet.groupId) {
+    const groupId = schemaMigrated ? (outlet.groupId as string | null) : null
+    if (!groupId) {
       return safeJson({
         hasGroup: false,
         outlets: [
@@ -44,7 +75,7 @@ export async function GET(request: NextRequest) {
             name: outlet.name,
             address: outlet.address,
             phone: outlet.phone,
-            isMain: outlet.isMain,
+            isMain: schemaMigrated ? (outlet.isMain as boolean) : true,
             accountType: outlet.accountType,
             _count: outlet._count,
           },
@@ -52,40 +83,49 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    // Has group — fetch all outlets in the group
-    const group = await db.outletGroup.findUnique({
-      where: { id: outlet.groupId },
-      include: {
-        outlets: {
-          select: {
-            id: true,
-            name: true,
-            address: true,
-            phone: true,
-            isMain: true,
-            accountType: true,
-            _count: {
-              select: { users: true, products: true, transactions: true },
-            },
-          },
-          orderBy: { isMain: 'desc' },
-        },
-      },
-    })
-
-    if (!group) {
-      return safeJsonError('Grup outlet tidak ditemukan', 404)
+    // Has group — fetch all outlets in the group (only if schema is migrated)
+    if (!schemaMigrated) {
+      return safeJson({ hasGroup: false, outlets: [] })
     }
 
-    return safeJson({
-      hasGroup: true,
-      groupId: group.id,
-      groupName: group.name,
-      outlets: group.outlets,
-    })
+    try {
+      const group = await db.outletGroup.findUnique({
+        where: { id: groupId },
+        include: {
+          outlets: {
+            select: {
+              id: true,
+              name: true,
+              address: true,
+              phone: true,
+              isMain: true,
+              accountType: true,
+              _count: {
+                select: { users: true, products: true, transactions: true },
+              },
+            },
+            orderBy: { isMain: 'desc' },
+          },
+        },
+      })
+
+      if (!group) {
+        return safeJson({ hasGroup: false, outlets: [] })
+      }
+
+      return safeJson({
+        hasGroup: true,
+        groupId: group.id,
+        groupName: group.name,
+        outlets: group.outlets,
+      })
+    } catch {
+      // OutletGroup table doesn't exist yet
+      return safeJson({ hasGroup: false, outlets: [] })
+    }
   } catch (error) {
     console.error('[/api/outlet-group] GET error:', error)
-    return safeJsonError('Failed to load outlet group')
+    return safeJson({ hasGroup: false, outlets: [] })
   }
 }
 

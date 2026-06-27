@@ -151,7 +151,7 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
         const res = await fetch('/api/outlet-group')
         if (res.ok) {
           const data = await res.json()
-          if (!cancelled) setHasOutletGroup(!!data.group)
+          if (!cancelled) setHasOutletGroup(!!data.hasGroup || !!data.group)
         }
       } catch { /* ignore */ }
     })()

@@ -1,5 +1,5 @@
 // Aether POS - Service Worker v1
-const CACHE_NAME = 'aether-pos-v1';
+const CACHE_NAME = 'aether-pos-v3';
 const STATIC_ASSETS = [
   '/',
   '/manifest.json',

@@ -173,9 +173,11 @@ export default function TransferPage() {
         if (res.ok) {
           const data = await res.json()
           if (!cancelled) {
-            setHasGroup(!!data.group)
-            if (data.group?.outlets) {
-              setOutlets(data.group.outlets.filter((o: { id: string }) => o.id !== session?.user?.outletId))
+            const hasG = !!data.hasGroup || !!data.group
+            setHasGroup(hasG)
+            const groupData = data.group || data
+            if (hasG && groupData?.outlets) {
+              setOutlets(groupData.outlets.filter((o: { id: string }) => o.id !== session?.user?.outletId))
             }
           }
         }
