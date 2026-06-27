@@ -1,6 +1,6 @@
 'use client'
 
-import { lazy, Suspense, useState, useCallback } from 'react'
+import { lazy, Suspense, useState, useCallback, Component, type ReactNode, type ErrorInfo } from 'react'
 import { SessionProvider, useSession } from 'next-auth/react'
 import { usePageStore } from '@/hooks/use-page-store'
 import { useSidebarStore } from '@/components/layout/sidebar'
@@ -36,8 +36,35 @@ function PageLoader() {
   )
 }
 
+function PageErrorBoundary({ children }: { children: ReactNode }) {
+  return <InnerErrorBoundary>{children}</InnerErrorBoundary>
+}
+
+class InnerErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null; info: string }> {
+  state = { error: null, info: '' }
+  static getDerivedStateFromError(error: Error) { return { error } }
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('[PageErrorBoundary]', error, info.componentStack)
+    this.setState({ info: info.componentStack })
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="p-6 space-y-4 max-w-2xl mx-auto">
+          <p className="text-red-400 text-sm font-semibold">⚠️ Client-side Error</p>
+          <pre className="text-xs text-red-300 bg-red-500/10 p-4 rounded-lg whitespace-pre-wrap break-all">{this.state.error.message}</pre>
+          <pre className="text-[10px] text-slate-500 bg-white/[0.03] p-4 rounded-lg whitespace-pre-wrap break-all max-h-60 overflow-y-auto">{this.state.error.stack}</pre>
+          {this.state.info && <pre className="text-[10px] text-slate-600 bg-white/[0.02] p-3 rounded-lg whitespace-pre-wrap break-all max-h-40 overflow-y-auto">{this.state.info}</pre>}
+          <button className="text-xs text-emerald-400 hover:text-emerald-300 underline" onClick={() => this.setState({ error: null, info: '' })}>Try Again</button>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
 function LazyPage({ children }: { children: React.ReactNode }) {
-  return <Suspense fallback={<PageLoader />}>{children}</Suspense>
+  return <Suspense fallback={<PageLoader />}><PageErrorBoundary>{children}</PageErrorBoundary></Suspense>
 }
 
 function AppContent() {
@@ -73,31 +100,33 @@ function AppContent() {
   }
 
   const renderPage = () => {
+    // key forces full unmount/remount on page switch, preventing stale state
+    const pageKey = currentPage
     switch (currentPage) {
       case 'dashboard':
-        return <LazyPage><DashboardPage /></LazyPage>
+        return <LazyPage key={pageKey}><DashboardPage /></LazyPage>
       case 'products':
-        return <LazyPage><ProductsPage /></LazyPage>
+        return <LazyPage key={pageKey}><ProductsPage /></LazyPage>
       case 'customers':
-        return <LazyPage><CustomersPage /></LazyPage>
+        return <LazyPage key={pageKey}><CustomersPage /></LazyPage>
       case 'pos':
-        return <LazyPage><PosPage /></LazyPage>
+        return <LazyPage key={pageKey}><PosPage /></LazyPage>
       case 'transactions':
-        return <LazyPage><TransactionsPage /></LazyPage>
+        return <LazyPage key={pageKey}><TransactionsPage /></LazyPage>
       case 'audit-log':
-        return <LazyPage><AuditLogPage /></LazyPage>
+        return <LazyPage key={pageKey}><AuditLogPage /></LazyPage>
       case 'crew':
-        return <LazyPage><CrewPage /></LazyPage>
+        return <LazyPage key={pageKey}><CrewPage /></LazyPage>
       case 'plan':
-        return <LazyPage><PlanPage /></LazyPage>
+        return <LazyPage key={pageKey}><PlanPage /></LazyPage>
       case 'transfer':
-        return <LazyPage><TransferPage /></LazyPage>
+        return <LazyPage key={pageKey}><TransferPage /></LazyPage>
       case 'multi-outlet':
-        return <LazyPage><MultiOutletTerminalPage /></LazyPage>
+        return <LazyPage key={pageKey}><MultiOutletTerminalPage /></LazyPage>
       case 'settings':
-        return <LazyPage><SettingsPage /></LazyPage>
+        return <LazyPage key={pageKey}><SettingsPage /></LazyPage>
       default:
-        return <LazyPage><DashboardPage /></LazyPage>
+        return <LazyPage key={pageKey}><DashboardPage /></LazyPage>
     }
   }
 

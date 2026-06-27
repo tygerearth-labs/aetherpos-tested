@@ -577,3 +577,9 @@ function fmtDate(date: Date): string {
   const dd = String(date.getDate()).padStart(2, '0');
   return `${yyyy}${mm}${dd}`;
 }
+
+// Auto-run when executed directly
+seedDatabase().catch((err) => {
+  console.error('Seed failed:', err);
+  process.exit(1);
+});

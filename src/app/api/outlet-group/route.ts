@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonCreated, safeJsonError } from '@/lib/api/safe-response'
+import { getOutletPlan } from '@/lib/plan-config'
 
 /**
  * GET /api/outlet-group — Get current outlet's group info
@@ -64,11 +65,20 @@ export async function GET(request: NextRequest) {
       return safeJsonError('Outlet tidak ditemukan', 404)
     }
 
+    // Fetch plan info for UI (maxOutlets, multiOutlet)
+    const planInfo = await getOutletPlan(user.outletId, db)
+    const planMeta = planInfo ? {
+      plan: planInfo.plan,
+      multiOutlet: planInfo.features.multiOutlet,
+      maxOutlets: planInfo.features.maxOutlets,
+    } : { plan: 'free', multiOutlet: false, maxOutlets: 1 }
+
     // No group — standalone outlet
     const groupId = schemaMigrated ? (outlet.groupId as string | null) : null
     if (!groupId) {
       return safeJson({
         hasGroup: false,
+        plan: planMeta,
         outlets: [
           {
             id: outlet.id,
@@ -117,6 +127,7 @@ export async function GET(request: NextRequest) {
         hasGroup: true,
         groupId: group.id,
         groupName: group.name,
+        plan: planMeta,
         outlets: group.outlets,
       })
     } catch {
@@ -163,6 +174,18 @@ export async function POST(request: NextRequest) {
 
     if (currentOutlet.groupId) {
       return safeJsonError('Outlet sudah tergabung dalam grup', 400)
+    }
+
+    // Check plan supports multi outlet
+    const planInfo = await getOutletPlan(user.outletId, db)
+    if (!planInfo) {
+      return safeJsonError('Gagal memeriksa paket outlet', 500)
+    }
+    if (!planInfo.features.multiOutlet) {
+      return safeJsonError(`Paket ${planInfo.plan} tidak mendukung multi outlet. Upgrade ke Pro atau Enterprise.`, 403)
+    }
+    if (planInfo.features.maxOutlets <= 1) {
+      return safeJsonError(`Paket ${planInfo.plan} hanya mendukung 1 outlet. Upgrade untuk menambah cabang.`, 403)
     }
 
     // Check if user already owns a group

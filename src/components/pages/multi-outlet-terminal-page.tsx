@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useSession } from 'next-auth/react'
 import { toast } from 'sonner'
 import { formatCurrency, formatNumber } from '@/lib/format'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -9,11 +10,13 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import {
@@ -43,6 +46,12 @@ import {
   ShieldCheck,
   UserPlus,
   Calendar,
+  Plus,
+  KeyRound,
+  AtSign,
+  Lock,
+  Sparkles,
+  Info,
 } from 'lucide-react'
 
 // ── Types ──
@@ -185,6 +194,344 @@ interface CrewMember {
   createdAt: string
   crewPermission?: { id: string; pages: string } | null
   _count?: { transactions: number }
+}
+
+// ── Plan Meta ──
+interface PlanMeta {
+  plan: string
+  multiOutlet: boolean
+  maxOutlets: number
+}
+
+// ── Create Group Dialog ──
+function CreateGroupDialog({
+  open,
+  currentOutletName,
+  onCreated,
+  onClose,
+}: {
+  open: boolean
+  currentOutletName: string
+  onCreated: () => void
+  onClose: () => void
+}) {
+  const [name, setName] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- reset form when dialog opens
+  useEffect(() => {
+    if (!open) return
+    setName('')
+    const t = setTimeout(() => inputRef.current?.focus(), 100)
+    return () => clearTimeout(t)
+  }, [open])
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!name.trim() || name.trim().length < 2) return
+    setSubmitting(true)
+    try {
+      const res = await fetch('/api/outlet-group', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name.trim() }),
+      })
+      const data = await res.json()
+      if (!res.ok) { toast.error(data.error || 'Gagal membuat grup'); return }
+      toast.success(data.message || `Grup "${name.trim()}" berhasil dibuat!`)
+      onCreated()
+    } catch {
+      toast.error('Gagal membuat grup')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
+      <DialogContent className="bg-[#0c0d12] border-white/[0.06] max-w-sm w-[92vw] p-0 overflow-hidden">
+        <DialogHeader className="px-5 pt-5 pb-3 border-b border-white/[0.06]">
+          <DialogTitle className="text-sm font-bold text-white flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-emerald-400" />
+            Buat Grup Outlet
+          </DialogTitle>
+          <DialogDescription className="text-[11px] text-slate-500 mt-0.5">
+            Gabungkan outlet Anda ke dalam satu grup untuk mengelola beberapa cabang.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="p-5 space-y-4">
+          <div className="space-y-1.5">
+            <Label className="text-[11px] font-medium text-slate-400">Nama Grup</Label>
+            <Input
+              ref={inputRef}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Contoh: RNB Coffee Group"
+              required
+              minLength={2}
+              className="h-9 text-sm bg-white/[0.04] border-white/[0.06] text-white placeholder:text-slate-600"
+            />
+          </div>
+
+          <div className="bg-amber-500/[0.06] rounded-lg p-3 border border-amber-500/10 space-y-1">
+            <div className="flex items-start gap-2">
+              <Info className="h-3.5 w-3.5 text-amber-400 mt-0.5 shrink-0" />
+              <div className="text-[10px] text-slate-400 leading-relaxed space-y-1">
+                <p>Outlet <span className="text-white font-medium">&quot;{currentOutletName}&quot;</span> akan menjadi <span className="text-amber-400 font-medium">outlet utama</span> dalam grup ini.</p>
+                <p>Setelah grup dibuat, Anda dapat menambahkan outlet cabang dari halaman ini.</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-1">
+            <Button type="button" variant="ghost" onClick={onClose} className="h-8 text-[11px] text-slate-400">
+              Batal
+            </Button>
+            <Button
+              type="submit"
+              disabled={submitting || name.trim().length < 2}
+              className="h-8 px-4 text-[11px] bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              {submitting ? 'Membuat...' : 'Buat Grup'}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ── Add Outlet Dialog ──
+function AddOutletDialog({
+  open,
+  groupName,
+  currentOutletCount,
+  maxOutlets,
+  planLabel,
+  onAdded,
+  onClose,
+}: {
+  open: boolean
+  groupName: string
+  currentOutletCount: number
+  maxOutlets: number
+  planLabel: string
+  onAdded: () => void
+  onClose: () => void
+}) {
+  const [outletName, setOutletName] = useState('')
+  const [address, setAddress] = useState('')
+  const [phone, setPhone] = useState('')
+  const [ownerName, setOwnerName] = useState('')
+  const [ownerEmail, setOwnerEmail] = useState('')
+  const [ownerPassword, setOwnerPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const outletLimit = maxOutlets === -1 ? 'Unlimited' : String(maxOutlets)
+  const reachedLimit = maxOutlets !== -1 && currentOutletCount >= maxOutlets
+
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- reset form when dialog opens
+  useEffect(() => {
+    if (!open) return
+    setOutletName(''); setAddress(''); setPhone('')
+    setOwnerName(''); setOwnerEmail(''); setOwnerPassword(''); setConfirmPassword('')
+    const t = setTimeout(() => inputRef.current?.focus(), 100)
+    return () => clearTimeout(t)
+  }, [open])
+
+  const canSubmit =
+    outletName.trim().length >= 2 &&
+    ownerName.trim().length >= 2 &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ownerEmail.trim()) &&
+    ownerPassword.length >= 8 &&
+    ownerPassword === confirmPassword &&
+    !submitting
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!canSubmit) return
+    setSubmitting(true)
+    try {
+      const res = await fetch('/api/outlet-group/outlets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: outletName.trim(),
+          address: address.trim() || undefined,
+          phone: phone.trim() || undefined,
+          ownerName: ownerName.trim(),
+          ownerEmail: ownerEmail.trim().toLowerCase(),
+          ownerPassword,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) { toast.error(data.error || 'Gagal menambah outlet'); return }
+      toast.success(data.message || `Outlet "${outletName.trim()}" berhasil ditambahkan!`)
+      onAdded()
+    } catch {
+      toast.error('Gagal menambah outlet')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
+      <DialogContent className="bg-[#0c0d12] border-white/[0.06] max-w-md w-[95vw] p-0 overflow-hidden max-h-[90vh] flex flex-col">
+        <DialogHeader className="px-5 pt-5 pb-3 border-b border-white/[0.06] shrink-0">
+          <DialogTitle className="text-sm font-bold text-white flex items-center gap-2">
+            <Plus className="h-4 w-4 text-emerald-400" />
+            Tambah Outlet Baru
+          </DialogTitle>
+          <DialogDescription className="text-[11px] text-slate-500 mt-0.5">
+            Grup: <span className="text-slate-300 font-medium">{groupName}</span>
+          </DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
+          <div className="p-5 space-y-5">
+            {/* Plan limit info */}
+            <div className="flex items-center gap-2 text-[10px] bg-white/[0.03] rounded-lg px-3 py-2 border border-white/[0.04]">
+              <Info className="h-3.5 w-3.5 text-slate-500 shrink-0" />
+              <span className="text-slate-400">
+                Paket <span className="text-white font-medium">{planLabel}</span> —
+                <span className="text-emerald-400 font-medium">{currentOutletCount}</span>/{outletLimit} outlet terpakai
+              </span>
+            </div>
+
+            {/* Section 1: Outlet Info */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-300">
+                <Store className="h-3.5 w-3.5 text-slate-500" />
+                Informasi Outlet
+              </div>
+              <div className="space-y-2">
+                <div className="space-y-1">
+                  <Label className="text-[10px] font-medium text-slate-500">Nama Outlet <span className="text-red-400">*</span></Label>
+                  <Input
+                    ref={inputRef}
+                    value={outletName}
+                    onChange={(e) => setOutletName(e.target.value)}
+                    placeholder="Contoh: RNB Kopi Kelapa Gading"
+                    required
+                    minLength={2}
+                    className="h-8 text-xs bg-white/[0.04] border-white/[0.06] text-white placeholder:text-slate-600"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px] font-medium text-slate-500">Alamat</Label>
+                  <Input
+                    value={address}
+                    onChange={(e) => setAddress(e.target.value)}
+                    placeholder="Jl. Contoh No. 123"
+                    className="h-8 text-xs bg-white/[0.04] border-white/[0.06] text-white placeholder:text-slate-600"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px] font-medium text-slate-500">Telepon</Label>
+                  <Input
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="08xxxxxxxxxx"
+                    className="h-8 text-xs bg-white/[0.04] border-white/[0.06] text-white placeholder:text-slate-600"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Divider */}
+            <div className="border-t border-white/[0.06]" />
+
+            {/* Section 2: Owner Account */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-300">
+                <KeyRound className="h-3.5 w-3.5 text-amber-400" />
+                Akun Pemilik (Owner)
+              </div>
+              <div className="space-y-2">
+                <div className="space-y-1">
+                  <Label className="text-[10px] font-medium text-slate-500">Nama Pemilik <span className="text-red-400">*</span></Label>
+                  <Input
+                    value={ownerName}
+                    onChange={(e) => setOwnerName(e.target.value)}
+                    placeholder="Nama lengkap pemilik"
+                    required
+                    minLength={2}
+                    className="h-8 text-xs bg-white/[0.04] border-white/[0.06] text-white placeholder:text-slate-600"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px] font-medium text-slate-500">Email <span className="text-red-400">*</span></Label>
+                  <Input
+                    type="email"
+                    value={ownerEmail}
+                    onChange={(e) => setOwnerEmail(e.target.value)}
+                    placeholder="owner@outlet.com"
+                    required
+                    className="h-8 text-xs bg-white/[0.04] border-white/[0.06] text-white placeholder:text-slate-600"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label className="text-[10px] font-medium text-slate-500">Password <span className="text-red-400">*</span></Label>
+                    <Input
+                      type="password"
+                      value={ownerPassword}
+                      onChange={(e) => setOwnerPassword(e.target.value)}
+                      placeholder="Min. 8 karakter"
+                      required
+                      minLength={8}
+                      className="h-8 text-xs bg-white/[0.04] border-white/[0.06] text-white placeholder:text-slate-600"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[10px] font-medium text-slate-500">Konfirmasi <span className="text-red-400">*</span></Label>
+                    <Input
+                      type="password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="Ulangi password"
+                      required
+                      minLength={8}
+                      className={cn(
+                        'h-8 text-xs bg-white/[0.04] border text-white placeholder:text-slate-600',
+                        confirmPassword && confirmPassword !== ownerPassword
+                          ? 'border-red-500/50 focus-visible:ring-red-500/30'
+                          : 'border-white/[0.06]'
+                      )}
+                    />
+                  </div>
+                </div>
+                {confirmPassword && confirmPassword !== ownerPassword && (
+                  <p className="text-[10px] text-red-400 flex items-center gap-1">
+                    <X className="h-3 w-3" />
+                    Password tidak cocok
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="px-5 py-3 border-t border-white/[0.06] flex items-center justify-end gap-2 shrink-0 bg-[#0c0d12]">
+            <Button type="button" variant="ghost" onClick={onClose} className="h-8 text-[11px] text-slate-400">
+              Batal
+            </Button>
+            <Button
+              type="submit"
+              disabled={!canSubmit || reachedLimit}
+              className="h-8 px-4 text-[11px] bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              {submitting ? 'Menambahkan...' : 'Tambah Outlet'}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
 }
 
 // ── Outlet Detail Dialog ──
@@ -344,11 +691,11 @@ function OutletDetailDialog({
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
-      <DialogContent className="bg-[#0c0d12] border-white/[0.06] max-w-2xl w-[95vw] max-h-[85vh] flex flex-col p-0 overflow-hidden">
+      <DialogContent showCloseButton={false} className="bg-[#0c0d12] border-white/[0.06] max-w-2xl w-[95vw] max-h-[85vh] flex flex-col p-0 overflow-hidden">
         {/* Header */}
-        <div className="px-5 pt-5 pb-3 border-b border-white/[0.06] shrink-0">
+        <DialogHeader className="px-5 pt-5 pb-3 border-b border-white/[0.06] shrink-0">
           <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 mb-1">
                 <DialogTitle className="text-base font-bold text-white truncate">{outlet.name}</DialogTitle>
                 {outlet.isMain && (
@@ -391,7 +738,7 @@ function OutletDetailDialog({
               ))}
             </div>
           )}
-        </div>
+        </DialogHeader>
 
         {/* Tabs + Search */}
         <div className="px-5 pt-3 pb-2 border-b border-white/[0.04] shrink-0">
@@ -666,12 +1013,15 @@ function AddCrewDialog({
   const [submitting, setSubmitting] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
-    if (open) {
-      setName(''); setEmail(''); setPassword('')
-      setTimeout(() => inputRef.current?.focus(), 100)
-    }
+    if (!open) return
+    setName(''); setEmail(''); setPassword('')
+    const t = setTimeout(() => inputRef.current?.focus(), 100)
+    return () => clearTimeout(t)
   }, [open])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -756,10 +1106,13 @@ function EditCrewDialog({
   const [submitting, setSubmitting] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     setName(crew.name); setEmail(crew.email); setPassword('')
-    setTimeout(() => inputRef.current?.focus(), 100)
+    const t = setTimeout(() => inputRef.current?.focus(), 100)
+    return () => clearTimeout(t)
   }, [crew])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -990,37 +1343,73 @@ function ProductsList({ data }: { data: ProductRow[] }) {
 // Main Component
 // ════════════════════════════════════════════════════════════
 export default function MultiOutletTerminalPage() {
+  // ── Auth & Role ──
+  const { data: session } = useSession()
+  const isOwner = session?.user?.role === 'OWNER'
+
   // ── State ──
   const [hasGroup, setHasGroup] = useState<boolean | null>(null)
   const [groupName, setGroupName] = useState('')
+  const [currentOutletName, setCurrentOutletName] = useState('')
+  const [planMeta, setPlanMeta] = useState<PlanMeta | null>(null)
   const [totals, setTotals] = useState<GroupTotals | null>(null)
   const [outlets, setOutlets] = useState<OutletSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [dateFilter, setDateFilter] = useState<DateFilter>('today')
   const [detailOutlet, setDetailOutlet] = useState<OutletSummary | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
+  const [createGroupOpen, setCreateGroupOpen] = useState(false)
+  const [addOutletOpen, setAddOutletOpen] = useState(false)
 
   // ── Fetch group + data ──
   const fetchData = useCallback(async () => {
     setLoading(true)
     try {
       const [groupRes, terminalRes] = await Promise.all([
-        fetch('/api/outlet-group'),
-        fetch(`/api/multi-outlet/dashboard?period=${dateFilterConfig[dateFilter].param}`),
+        fetch('/api/outlet-group').catch(() => null),
+        fetch(`/api/multi-outlet/dashboard?period=${dateFilterConfig[dateFilter].param}`).catch(() => null),
       ])
 
-      if (groupRes.ok) {
-        const groupData = await groupRes.json()
-        setHasGroup(!!groupData.group)
-        setGroupName(groupData.group?.name || '')
+      if (groupRes && groupRes.ok) {
+        try {
+          const groupData = await groupRes.json()
+          setHasGroup(!!groupData.hasGroup && !!groupData.groupId)
+          setGroupName(groupData.groupName || '')
+          setCurrentOutletName(groupData.outlets?.[0]?.name || '')
+          setPlanMeta(groupData.plan || null)
+        } catch {
+          setHasGroup(false)
+        }
       } else {
         setHasGroup(false)
       }
 
-      if (terminalRes.ok) {
-        const data = await terminalRes.json()
-        setTotals(data.totals || null)
-        setOutlets(data.outlets || [])
+      if (terminalRes && terminalRes.ok) {
+        try {
+          const data = await terminalRes.json()
+          setTotals(data.totals || null)
+          setOutlets((data.outlets || []).map((o: Record<string, unknown>) => ({
+            id: String(o.id || ''),
+            name: String(o.name || '-'),
+            isMain: Boolean(o.isMain),
+            address: o.address as string | undefined,
+            phone: o.phone as string | undefined,
+            accountType: String(o.accountType || ''),
+            managerName: String(o.managerName || '-'),
+            revenue: Number(o.revenue || 0),
+            brutto: Number(o.brutto || 0),
+            discount: Number(o.discount || 0),
+            tax: Number(o.tax || 0),
+            transactions: Number(o.transactions || 0),
+            yesterdayRevenue: Number(o.yesterdayRevenue || 0),
+            revenueChangePercent: Number(o.revenueChangePercent || 0),
+            totalProducts: Number(o.totalProducts || 0),
+            totalStock: Number(o.totalStock || 0),
+            totalCustomers: Number(o.totalCustomers || 0),
+          })))
+        } catch {
+          // dashboard parse failed, keep defaults
+        }
       }
     } catch {
       toast.error('Gagal memuat data')
@@ -1063,6 +1452,9 @@ export default function MultiOutletTerminalPage() {
 
   // ── No group ──
   if (!hasGroup) {
+    const canCreateGroup = isOwner && planMeta?.multiOutlet
+    const needsUpgrade = isOwner && planMeta && !planMeta.multiOutlet
+
     return (
       <motion.div
         variants={containerVariants}
@@ -1079,12 +1471,40 @@ export default function MultiOutletTerminalPage() {
             <CardContent className="py-16 text-center">
               <Building2 className="h-12 w-12 text-slate-600 mx-auto mb-4" />
               <p className="text-sm text-slate-400 font-medium">Belum ada grup outlet</p>
-              <p className="text-xs text-slate-500 mt-1.5 max-w-sm mx-auto leading-relaxed">
-                Hubungkan outlet Anda ke sebuah grup untuk melihat data agregasi dari seluruh outlet dalam satu dashboard.
+              <p className="text-xs text-slate-500 mt-1.5 max-w-sm mx-auto leading-relaxed mb-6">
+                Hubungkan outlet Anda ke sebuah grup untuk mengelola beberapa cabang dari satu dashboard.
               </p>
+              {canCreateGroup && (
+                <Button
+                  onClick={() => setCreateGroupOpen(true)}
+                  className="h-9 px-5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+                >
+                  <Plus className="h-3.5 w-3.5 mr-1.5" />
+                  Buat Grup Outlet
+                </Button>
+              )}
+              {needsUpgrade && (
+                <div className="bg-amber-500/[0.06] rounded-lg p-3 border border-amber-500/10 max-w-xs mx-auto space-y-1">
+                  <p className="text-[11px] text-amber-400 font-medium">Fitur Multi Outlet tidak tersedia</p>
+                  <p className="text-[10px] text-slate-500">
+                    Paket <span className="text-white font-medium">{planMeta?.plan}</span> Anda saat ini hanya mendukung 1 outlet.
+                    Upgrade ke <span className="text-emerald-400 font-medium">Pro</span> atau <span className="text-amber-400 font-medium">Enterprise</span> untuk mengaktifkan fitur ini.
+                  </p>
+                </div>
+              )}
+              {!isOwner && (
+                <p className="text-[10px] text-slate-500">Hanya pemilik (Owner) yang dapat membuat grup outlet.</p>
+              )}
             </CardContent>
           </Card>
         </motion.div>
+
+        <CreateGroupDialog
+          open={createGroupOpen}
+          currentOutletName={currentOutletName}
+          onCreated={() => { setCreateGroupOpen(false); void fetchData() }}
+          onClose={() => setCreateGroupOpen(false)}
+        />
       </motion.div>
     )
   }
@@ -1161,12 +1581,25 @@ export default function MultiOutletTerminalPage() {
 
       {/* Per-outlet cards */}
       <motion.div variants={itemVariants}>
-        <div className="flex items-center gap-2 mb-3">
-          <Layers className="h-4 w-4 text-slate-500" />
-          <h2 className="text-sm font-semibold text-slate-300">Outlet</h2>
-          <span className="text-[10px] text-slate-500 bg-white/[0.04] px-1.5 py-0.5 rounded-md font-medium">
-            {outlets.length}
-          </span>
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <div className="flex items-center gap-2">
+            <Layers className="h-4 w-4 text-slate-500" />
+            <h2 className="text-sm font-semibold text-slate-300">Outlet</h2>
+            <span className="text-[10px] text-slate-500 bg-white/[0.04] px-1.5 py-0.5 rounded-md font-medium">
+              {outlets.length}{planMeta?.maxOutlets !== -1 ? `/${planMeta.maxOutlets}` : ''}
+            </span>
+          </div>
+          {isOwner && (
+            <Button
+              size="sm"
+              onClick={() => setAddOutletOpen(true)}
+              disabled={planMeta?.maxOutlets !== -1 && outlets.length >= (planMeta?.maxOutlets ?? 0)}
+              className="h-7 px-2.5 text-[11px] bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              <Plus className="h-3.5 w-3.5 mr-1" />
+              Tambah Outlet
+            </Button>
+          )}
         </div>
 
         {outlets.length === 0 ? (
@@ -1277,6 +1710,7 @@ export default function MultiOutletTerminalPage() {
       <AnimatePresence>
         {detailOutlet && detailOpen && (
           <OutletDetailDialog
+            key={detailOutlet.id}
             outlet={detailOutlet}
             period={dateFilter}
             open={detailOpen}
@@ -1284,6 +1718,17 @@ export default function MultiOutletTerminalPage() {
           />
         )}
       </AnimatePresence>
+
+      {/* Add Outlet Dialog */}
+      <AddOutletDialog
+        open={addOutletOpen}
+        groupName={groupName}
+        currentOutletCount={outlets.length}
+        maxOutlets={planMeta?.maxOutlets ?? 1}
+        planLabel={planMeta?.plan ? (planMeta.plan.charAt(0).toUpperCase() + planMeta.plan.slice(1)) : 'Free'}
+        onAdded={() => { setAddOutletOpen(false); void fetchData() }}
+        onClose={() => setAddOutletOpen(false)}
+      />
     </motion.div>
   )
 }
