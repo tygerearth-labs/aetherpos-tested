@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { useSession } from 'next-auth/react'
 import { toast } from 'sonner'
 import { formatCurrency } from '@/lib/format'
 import { usePlan } from '@/hooks/use-plan'
@@ -9,9 +8,6 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Switch } from '@/components/ui/switch'
-import { Input } from '@/components/ui/input'
-import { Separator } from '@/components/ui/separator'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
   Table,
@@ -22,22 +18,10 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import {
-  ResponsiveDialog,
-  ResponsiveDialogContent,
-  ResponsiveDialogHeader,
-  ResponsiveDialogTitle,
-  ResponsiveDialogFooter,
-} from '@/components/ui/responsive-dialog'
-import {
   Crown,
-  Zap,
   Check,
   X,
   ArrowUpRight,
-  Plus,
-  Pencil,
-  Trash2,
-  Loader2,
   Tag,
   Palette,
   KeyRound,
@@ -122,14 +106,6 @@ function parseFeatures(json: string): PlanFeature {
   try { return JSON.parse(json) } catch { return {} }
 }
 
-function formatFeatureValue(value: boolean | number | string[]): string {
-  if (typeof value === 'boolean') return value ? 'Ya' : 'Tidak'
-  if (Array.isArray(value)) return value.join(', ')
-  if (value === -1) return 'Unlimited'
-  if (typeof value === 'number') return String(value)
-  return String(value)
-}
-
 function formatDuration(months: number): string {
   if (months === 1) return '/bulan'
   if (months === 3) return '/3 bulan'
@@ -147,7 +123,7 @@ function getPlanBadge(slug: string): string {
 }
 
 // ============================================================
-// Usage Ring (from settings page)
+// Usage Ring
 // ============================================================
 
 function isUnlimitedVal(value: number): boolean {
@@ -188,267 +164,16 @@ function UsageRing({ label, used, limit, icon }: { label: string; used: number; 
 }
 
 // ============================================================
-// Plan Form Dialog (Create / Edit)
-// ============================================================
-
-const ALL_FEATURE_KEYS = FEATURE_ORDER
-
-interface PlanFormData {
-  name: string
-  slug: string
-  price: number
-  duration: number
-  paymentLink: string
-  features: PlanFeature
-  active: boolean
-  sortOrder: number
-  description: string
-}
-
-const DEFAULT_FORM: PlanFormData = {
-  name: '',
-  slug: '',
-  price: 0,
-  duration: 1,
-  paymentLink: '',
-  features: {},
-  active: true,
-  sortOrder: 0,
-  description: '',
-}
-
-function PlanFormDialog({
-  open,
-  onOpenChange,
-  plan,
-  onSave,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  plan: PlanRow | null
-  onSave: () => void
-}) {
-  const [form, setForm] = useState<PlanFormData>(DEFAULT_FORM)
-  const [saving, setSaving] = useState(false)
-  const isEdit = !!plan
-
-  useEffect(() => {
-    if (plan) {
-      setForm({
-        name: plan.name,
-        slug: plan.slug,
-        price: plan.price,
-        duration: plan.duration,
-        paymentLink: plan.paymentLink || '',
-        features: parseFeatures(plan.features),
-        active: plan.active,
-        sortOrder: plan.sortOrder,
-        description: plan.description || '',
-      })
-    } else {
-      setForm(DEFAULT_FORM)
-    }
-  }, [plan, open])
-
-  const toggleFeature = (key: string) => {
-    setForm((prev) => {
-      const features = { ...prev.features }
-      const current = features[key]
-      if (typeof current === 'boolean') {
-        features[key] = !current
-      } else if (typeof current === 'number') {
-        features[key] = !current ? 50 : 0
-      } else {
-        features[key] = true
-      }
-      return { ...prev, features }
-    })
-  }
-
-  const handleSave = async () => {
-    if (!form.name.trim() || !form.slug.trim()) {
-      toast.error('Nama dan slug wajib diisi')
-      return
-    }
-    setSaving(true)
-    try {
-      const url = isEdit ? `/api/plans/${plan!.id}` : '/api/plans'
-      const method = isEdit ? 'PUT' : 'POST'
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
-      })
-      if (!res.ok) {
-        const err = await res.json()
-        throw new Error(err.error || 'Gagal menyimpan')
-      }
-      toast.success(isEdit ? 'Plan berhasil diperbarui' : 'Plan berhasil dibuat')
-      onSave()
-      onOpenChange(false)
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Gagal menyimpan plan')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <ResponsiveDialog open={open} onOpenChange={onOpenChange}>
-      <ResponsiveDialogContent className="max-w-lg !p-0 bg-nebula border-white/[0.06] max-h-[85vh] overflow-hidden flex flex-col">
-        <ResponsiveDialogHeader className="px-5 pt-5 pb-3">
-          <ResponsiveDialogTitle className="text-white">
-            {isEdit ? 'Edit Plan' : 'Buat Plan Baru'}
-          </ResponsiveDialogTitle>
-        </ResponsiveDialogHeader>
-        <div className="flex-1 overflow-y-auto px-5 pb-5 space-y-4">
-          {/* Basic info */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <label className="text-xs text-slate-400">Nama Plan *</label>
-              <Input
-                value={form.name}
-                onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
-                placeholder="e.g. Pro"
-                className="bg-white/[0.04] border-white/[0.08] text-white text-sm h-9"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs text-slate-400">Slug *</label>
-              <Input
-                value={form.slug}
-                onChange={(e) => setForm((p) => ({ ...p, slug: e.target.value.replace(/[^a-z0-9-]/gi, '-').toLowerCase() }))}
-                placeholder="e.g. pro"
-                disabled={isEdit}
-                className="bg-white/[0.04] border-white/[0.08] text-white text-sm h-9"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-3">
-            <div className="space-y-1.5">
-              <label className="text-xs text-slate-400">Harga (Rp)</label>
-              <Input
-                type="number"
-                value={form.price || ''}
-                onChange={(e) => setForm((p) => ({ ...p, price: Number(e.target.value) || 0 }))}
-                placeholder="0"
-                className="bg-white/[0.04] border-white/[0.08] text-white text-sm h-9"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs text-slate-400">Durasi (bulan)</label>
-              <Input
-                type="number"
-                value={form.duration || ''}
-                onChange={(e) => setForm((p) => ({ ...p, duration: Number(e.target.value) || 1 }))}
-                placeholder="1"
-                className="bg-white/[0.04] border-white/[0.08] text-white text-sm h-9"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs text-slate-400">Urutan</label>
-              <Input
-                type="number"
-                value={form.sortOrder || ''}
-                onChange={(e) => setForm((p) => ({ ...p, sortOrder: Number(e.target.value) || 0 }))}
-                placeholder="0"
-                className="bg-white/[0.04] border-white/[0.08] text-white text-sm h-9"
-              />
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-xs text-slate-400">Deskripsi</label>
-            <Input
-              value={form.description}
-              onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))}
-              placeholder="e.g. Untuk bisnis yang sedang berkembang"
-              className="bg-white/[0.04] border-white/[0.08] text-white text-sm h-9"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-xs text-slate-400">Link Pembayaran</label>
-            <Input
-              value={form.paymentLink}
-              onChange={(e) => setForm((p) => ({ ...p, paymentLink: e.target.value }))}
-              placeholder="https://payment.example.com/..."
-              className="bg-white/[0.04] border-white/[0.08] text-white text-sm h-9"
-            />
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs text-slate-300 font-medium">Aktif</p>
-              <p className="text-[11px] text-slate-500">Tampilkan plan di halaman pricing</p>
-            </div>
-            <Switch
-              checked={form.active}
-              onCheckedChange={(v) => setForm((p) => ({ ...p, active: v }))}
-            />
-          </div>
-
-          <Separator className="bg-white/[0.06]" />
-
-          {/* Feature checkboxes */}
-          <div>
-            <p className="text-xs text-slate-300 font-medium mb-3">Fitur Plan</p>
-            <div className="space-y-1 max-h-60 overflow-y-auto rounded-lg border border-white/[0.06] p-2">
-              {ALL_FEATURE_KEYS.map((key) => {
-                const label = FEATURE_LABELS[key] || key
-                const checked = !!form.features[key]
-                return (
-                  <label
-                    key={key}
-                    className="flex items-center justify-between px-2 py-1.5 rounded-md hover:bg-white/[0.03] cursor-pointer transition-colors"
-                  >
-                    <span className="text-xs text-slate-300">{label}</span>
-                    <Switch
-                      checked={checked}
-                      onCheckedChange={() => toggleFeature(key)}
-                      className="scale-75"
-                    />
-                  </label>
-                )
-              })}
-            </div>
-          </div>
-        </div>
-        <div className="shrink-0 px-5 py-3 border-t border-white/[0.06] flex justify-end gap-2">
-          <Button variant="outline" onClick={() => onOpenChange(false)}
-            className="border-white/[0.08] text-slate-300 hover:bg-white/[0.04] text-xs h-8">
-            Batal
-          </Button>
-          <Button onClick={handleSave} disabled={saving}
-            className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs h-8 px-4">
-            {saving && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
-            {isEdit ? 'Simpan' : 'Buat'}
-          </Button>
-        </div>
-      </ResponsiveDialogContent>
-    </ResponsiveDialog>
-  )
-}
-
-// ============================================================
-// Main Plan Page
+// Main Plan Page (View Only)
 // ============================================================
 
 export default function PlanPage() {
-  const { data: session } = useSession()
-  const isOwner = session?.user?.role === 'OWNER'
-  const { plan: currentPlanInfo, features, usage, isLoading: planLoading, refresh: refreshPlan } = usePlan()
+  const { plan: currentPlanInfo, features, usage, isLoading: planLoading } = usePlan()
   const currentPlanSlug = currentPlanInfo?.type || 'free'
 
   // Plans from database
   const [plans, setPlans] = useState<PlanRow[]>([])
   const [loadingPlans, setLoadingPlans] = useState(true)
-
-  // Form dialog
-  const [formOpen, setFormOpen] = useState(false)
-  const [editingPlan, setEditingPlan] = useState<PlanRow | null>(null)
-  const [deletingPlan, setDeletingPlan] = useState<string | null>(null)
 
   const fetchPlans = useCallback(async () => {
     try {
@@ -487,27 +212,6 @@ export default function PlanPage() {
     }
   }
 
-  // Handle delete
-  const handleDelete = async (id: string) => {
-    try {
-      const res = await fetch(`/api/plans/${id}`, { method: 'DELETE' })
-      if (res.ok) {
-        toast.success('Plan berhasil dihapus')
-        void fetchPlans()
-      } else {
-        const err = await res.json()
-        toast.error(err.error || 'Gagal menghapus')
-      }
-    } catch {
-      toast.error('Gagal menghapus plan')
-    }
-    setDeletingPlan(null)
-  }
-
-  const handleSave = () => {
-    void fetchPlans()
-  }
-
   const isLoading = planLoading || loadingPlans
 
   // Plan accent colors
@@ -536,23 +240,12 @@ export default function PlanPage() {
   return (
     <div className="space-y-5">
       {/* Page Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-base font-semibold text-white flex items-center gap-2">
-            <Crown className="h-4 w-4 text-amber-400" />
-            Plan & Pricing
-          </h1>
-          <p className="text-xs text-slate-400 mt-0.5">Kelola dan bandingkan paket langganan</p>
-        </div>
-        {isOwner && (
-          <Button
-            onClick={() => { setEditingPlan(null); setFormOpen(true) }}
-            className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs h-8 gap-1.5"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Tambah Plan
-          </Button>
-        )}
+      <div>
+        <h1 className="text-base font-semibold text-white flex items-center gap-2">
+          <Crown className="h-4 w-4 text-amber-400" />
+          Plan & Pricing
+        </h1>
+        <p className="text-xs text-slate-400 mt-0.5">Bandingkan paket langganan yang tersedia</p>
       </div>
 
       {/* Current Plan Card */}
@@ -621,24 +314,6 @@ export default function PlanPage() {
                         </p>
                       )}
                     </div>
-                    {isOwner && (
-                      <div className="flex gap-1">
-                        <button
-                          onClick={() => { setEditingPlan(plan); setFormOpen(true) }}
-                          className="p-1.5 rounded-md hover:bg-white/[0.06] text-slate-500 hover:text-slate-300 transition-colors"
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </button>
-                        {plan.slug !== 'free' && (
-                          <button
-                            onClick={() => setDeletingPlan(plan.id)}
-                            className="p-1.5 rounded-md hover:bg-red-500/10 text-slate-500 hover:text-red-400 transition-colors"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    )}
                   </div>
 
                   {/* Price */}
@@ -695,25 +370,6 @@ export default function PlanPage() {
                   {isCurrent && (
                     <div className="w-full h-9 rounded-lg border border-white/[0.08] flex items-center justify-center text-xs font-medium text-slate-500">
                       Plan aktif
-                    </div>
-                  )}
-
-                  {/* Delete confirmation */}
-                  {deletingPlan === plan.id && (
-                    <div className="flex items-center gap-2 p-2 rounded-lg bg-red-500/10 border border-red-500/20">
-                      <span className="text-[11px] text-red-400 flex-1">Hapus plan ini?</span>
-                      <button
-                        onClick={() => handleDelete(plan.id)}
-                        className="text-[11px] text-red-400 font-medium hover:underline"
-                      >
-                        Ya
-                      </button>
-                      <button
-                        onClick={() => setDeletingPlan(null)}
-                        className="text-[11px] text-slate-400 hover:underline"
-                      >
-                        Batal
-                      </button>
                     </div>
                   )}
                 </CardContent>
@@ -881,20 +537,10 @@ export default function PlanPage() {
           <CardContent className="p-8 text-center">
             <Crown className="h-8 w-8 text-slate-600 mx-auto mb-3" />
             <p className="text-sm text-slate-400 font-medium">Belum ada plan</p>
-            <p className="text-xs text-slate-500 mt-1">
-              {isOwner ? 'Klik "Tambah Plan" untuk membuat paket langganan pertama.' : 'Hubungi admin untuk mengatur plan.'}
-            </p>
+            <p className="text-xs text-slate-500 mt-1">Hubungi admin untuk mengatur plan langganan.</p>
           </CardContent>
         </Card>
       )}
-
-      {/* Plan Form Dialog */}
-      <PlanFormDialog
-        open={formOpen}
-        onOpenChange={setFormOpen}
-        plan={editingPlan}
-        onSave={handleSave}
-      />
     </div>
   )
 }
