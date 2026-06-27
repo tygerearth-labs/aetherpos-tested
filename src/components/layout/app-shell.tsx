@@ -19,6 +19,7 @@ const TransactionsPage = lazy(() => import('@/components/pages/transactions-page
 const AuditLogPage = lazy(() => import('@/components/pages/audit-log-page'))
 const CrewPage = lazy(() => import('@/components/pages/crew-page'))
 const SettingsPage = lazy(() => import('@/components/pages/settings-page'))
+const PlanPage = lazy(() => import('@/components/pages/plan-page'))
 
 // ── Page-level Suspense fallback ──
 function PageLoader() {
@@ -79,6 +80,8 @@ function AppContent() {
         return <LazyPage><AuditLogPage /></LazyPage>
       case 'crew':
         return <LazyPage><CrewPage /></LazyPage>
+      case 'plan':
+        return <LazyPage><PlanPage /></LazyPage>
       case 'settings':
         return <LazyPage><SettingsPage /></LazyPage>
       default:
