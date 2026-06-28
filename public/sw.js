@@ -1,5 +1,5 @@
 // Aether POS - Service Worker v1
-const CACHE_NAME = 'aether-pos-v3';
+const CACHE_NAME = 'aether-pos-v4';
 const STATIC_ASSETS = [
   '/',
   '/manifest.json',
@@ -67,12 +67,29 @@ self.addEventListener('fetch', (event) => {
   // Skip non-http(s) schemes for cache-first too
   if (!url.protocol.startsWith('http')) return;
 
-  // Cache-first for static assets (JS, CSS, images, fonts)
+  // Network-first for Next.js static chunks (JS/CSS) — prevents stale chunks after deploy
   if (
-    url.pathname.startsWith('/_next/static/') ||
+    url.pathname.startsWith('/_next/static/')
+  ) {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(request, clone);
+            });
+          }
+          return response;
+        })
+        .catch(() => caches.match(request))
+    );
+    return;
+  }
+
+  // Cache-first for images and fonts only
+  if (
     url.pathname.startsWith('/_next/image/') ||
-    url.pathname.endsWith('.js') ||
-    url.pathname.endsWith('.css') ||
     url.pathname.endsWith('.png') ||
     url.pathname.endsWith('.jpg') ||
     url.pathname.endsWith('.svg') ||
