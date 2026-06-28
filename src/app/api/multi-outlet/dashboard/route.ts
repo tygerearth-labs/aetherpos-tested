@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
-import { buildDateFilterTz, parseTzOffset, getTodayRangeTz, getVoidedTxIds } from '@/lib/api/api-helpers'
+import { buildDateFilterTz, parseTzOffset, getTodayRangeTz } from '@/lib/api/api-helpers'
 import { safeJson, safeJsonError, CACHE } from '@/lib/api/safe-response'
 
 /**
@@ -94,31 +94,58 @@ export async function GET(request: NextRequest) {
 
     const outletIds = group.outlets.map((o) => o.id)
 
-    // Pre-fetch voided TX IDs per outlet for exclusion
-    const voidedLogs = await db.auditLog.findMany({
-      where: {
-        entityType: 'TRANSACTION',
-        action: 'VOID',
-        outletId: { in: outletIds },
-      },
-      select: { entityId: true, outletId: true },
-    })
-
-    // Build per-outlet voided TX set
+    // Pre-fetch voided TX IDs per outlet for exclusion (graceful — skip if AuditLog table missing)
     const voidedByOutlet = new Map<string, Set<string>>()
-    for (const log of voidedLogs) {
-      if (!log.entityId || !log.outletId) continue
-      if (!voidedByOutlet.has(log.outletId)) voidedByOutlet.set(log.outletId, new Set())
-      voidedByOutlet.get(log.outletId)!.add(log.entityId)
+    try {
+      const voidedLogs = await db.auditLog.findMany({
+        where: {
+          entityType: 'TRANSACTION',
+          action: 'VOID',
+          outletId: { in: outletIds },
+        },
+        select: { entityId: true, outletId: true },
+      })
+      for (const log of voidedLogs) {
+        if (!log.entityId || !log.outletId) continue
+        if (!voidedByOutlet.has(log.outletId)) voidedByOutlet.set(log.outletId, new Set())
+        voidedByOutlet.get(log.outletId)!.add(log.entityId)
+      }
+    } catch {
+      console.warn('[/api/multi-outlet/dashboard] Void exclusion skipped (AuditLog table may not exist)')
     }
 
     // Fetch manager name per outlet
-    const managers = await db.user.findMany({
-      where: { outletId: { in: outletIds }, role: 'OWNER' },
-      select: { name: true, outletId: true },
+    let managerMap = new Map<string, string>()
+    try {
+      const managers = await db.user.findMany({
+        where: { outletId: { in: outletIds }, role: 'OWNER' },
+        select: { name: true, outletId: true },
+      })
+      for (const m of managers) managerMap.set(m.outletId, m.name)
+    } catch {
+      console.warn('[/api/multi-outlet/dashboard] Manager fetch skipped')
+    }
+
+    // Fallback outlet shape when per-outlet queries fail
+    const outletFallback = (outlet: { id: string; name: string; isMain: boolean; accountType: string; address?: string | null; phone?: string | null }) => ({
+      id: outlet.id,
+      name: outlet.name,
+      isMain: outlet.isMain,
+      accountType: outlet.accountType,
+      address: outlet.address,
+      phone: outlet.phone,
+      managerName: managerMap.get(outlet.id) || '-',
+      revenue: 0,
+      brutto: 0,
+      discount: 0,
+      tax: 0,
+      transactions: 0,
+      yesterdayRevenue: 0,
+      revenueChangePercent: 0,
+      totalProducts: 0,
+      totalStock: 0,
+      totalCustomers: 0,
     })
-    const managerMap = new Map<string, string>()
-    for (const m of managers) managerMap.set(m.outletId, m.name)
 
     // Parallel queries per outlet
     const outletData = await Promise.all(
@@ -127,67 +154,75 @@ export async function GET(request: NextRequest) {
         const voidedArr = voidedSet ? Array.from(voidedSet).filter(Boolean) as string[] : []
         const voidExclude = voidedArr.length > 0 ? { id: { notIn: voidedArr } } : {}
 
-        const [revenueAgg, txCount, productStats, stockAgg, customerCount, yesterdayRevenue] = await Promise.all([
-          // Revenue in date range (excl. voids)
-          db.transaction.aggregate({
-            where: { outletId: outlet.id, createdAt: dateFilter, ...voidExclude },
-            _sum: { total: true, brutto: true, discount: true, taxAmount: true },
-          }),
+        try {
+          const [revenueAgg, txCount, productStats, stockAgg, customerCount] = await Promise.all([
+            // Revenue in date range (excl. voids)
+            db.transaction.aggregate({
+              where: { outletId: outlet.id, createdAt: dateFilter, ...voidExclude },
+              _sum: { total: true, discount: true, taxAmount: true },
+            }),
 
-          // Transaction count in date range (excl. voids)
-          db.transaction.count({
-            where: { outletId: outlet.id, createdAt: dateFilter, ...voidExclude },
-          }),
+            // Transaction count in date range (excl. voids)
+            db.transaction.count({
+              where: { outletId: outlet.id, createdAt: dateFilter, ...voidExclude },
+            }),
 
-          // Total products in outlet
-          db.product.count({ where: { outletId: outlet.id } }),
+            // Total products in outlet
+            db.product.count({ where: { outletId: outlet.id } }),
 
-          // Sum of stock across all products
-          db.product.aggregate({
-            where: { outletId: outlet.id },
-            _sum: { stock: true },
-          }),
+            // Sum of stock across all products
+            db.product.aggregate({
+              where: { outletId: outlet.id },
+              _sum: { stock: true },
+            }),
 
-          // Total customers in outlet
-          db.customer.count({ where: { outletId: outlet.id } }),
+            // Total customers in outlet
+            db.customer.count({ where: { outletId: outlet.id } }),
+          ])
 
           // Yesterday revenue for comparison (excl. voids)
-          (() => {
+          let yestRevenue = 0
+          try {
             const yStart = new Date(dateFilter.gte!.getTime() - 86_400_000)
             const yEnd = new Date(dateFilter.gte!.getTime())
-            return db.transaction.aggregate({
+            const yestAgg = await db.transaction.aggregate({
               where: { outletId: outlet.id, createdAt: { gte: yStart, lt: yEnd }, ...voidExclude },
               _sum: { total: true },
             })
-          })(),
-        ])
+            yestRevenue = yestAgg._sum.total ?? 0
+          } catch {
+            // Skip yesterday comparison if it fails
+          }
 
-        const todayRevenue = revenueAgg._sum.total ?? 0
-        const yestRevenue = yesterdayRevenue._sum.total ?? 0
-        const changePercent = yestRevenue > 0 ? ((todayRevenue - yestRevenue) / yestRevenue) * 100 : todayRevenue > 0 ? 100 : 0
+          const todayRevenue = revenueAgg._sum.total ?? 0
+          const changePercent = yestRevenue > 0 ? ((todayRevenue - yestRevenue) / yestRevenue) * 100 : todayRevenue > 0 ? 100 : 0
 
-        return {
-          id: outlet.id,
-          name: outlet.name,
-          isMain: outlet.isMain,
-          accountType: outlet.accountType,
-          address: outlet.address,
-          phone: outlet.phone,
-          managerName: managerMap.get(outlet.id) || '-',
-          // Revenue & transactions in date range
-          revenue: todayRevenue,
-          brutto: revenueAgg._sum.brutto ?? 0,
-          discount: revenueAgg._sum.discount ?? 0,
-          tax: revenueAgg._sum.taxAmount ?? 0,
-          transactions: txCount,
-          // Comparison
-          yesterdayRevenue: yestRevenue,
-          revenueChangePercent: Math.round(changePercent * 10) / 10,
-          // Inventory
-          totalProducts: productStats,
-          totalStock: stockAgg._sum.stock ?? 0,
-          // Customer
-          totalCustomers: customerCount,
+          return {
+            id: outlet.id,
+            name: outlet.name,
+            isMain: outlet.isMain,
+            accountType: outlet.accountType,
+            address: outlet.address,
+            phone: outlet.phone,
+            managerName: managerMap.get(outlet.id) || '-',
+            // Revenue & transactions in date range
+            revenue: todayRevenue,
+            brutto: todayRevenue + (revenueAgg._sum.discount ?? 0),
+            discount: revenueAgg._sum.discount ?? 0,
+            tax: revenueAgg._sum.taxAmount ?? 0,
+            transactions: txCount,
+            // Comparison
+            yesterdayRevenue: yestRevenue,
+            revenueChangePercent: Math.round(changePercent * 10) / 10,
+            // Inventory
+            totalProducts: productStats,
+            totalStock: stockAgg._sum.stock ?? 0,
+            // Customer
+            totalCustomers: customerCount,
+          }
+        } catch (outletErr) {
+          console.error(`[/api/multi-outlet/dashboard] Error fetching stats for outlet ${outlet.id}:`, outletErr)
+          return outletFallback(outlet)
         }
       }),
     )

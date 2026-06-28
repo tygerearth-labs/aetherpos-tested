@@ -71,7 +71,7 @@ export async function GET(
  *
  * Status transitions:
  * - DRAFT → IN_TRANSIT: Deduct stock from source outlet
- * - IN_TRANSIT → RECEIVED: Add stock to destination outlet
+ * - IN_TRANSIT → RECEIVED: Add stock to destination outlet (create new product or restock)
  * - DRAFT → CANCELLED: Cancel the transfer
  */
 export async function PATCH(
@@ -166,13 +166,22 @@ export async function PATCH(
                 outletId: transfer.fromOutletId,
                 sku: item.productSku,
               },
-              })
+            })
           }
           if (!product && item.productBarcode) {
             product = await tx.product.findFirst({
               where: {
                 outletId: transfer.fromOutletId,
                 barcode: item.productBarcode,
+              },
+            })
+          }
+          if (!product) {
+            // Try by name as last resort
+            product = await tx.product.findFirst({
+              where: {
+                outletId: transfer.fromOutletId,
+                name: item.productName,
               },
             })
           }
@@ -189,8 +198,6 @@ export async function PATCH(
               data: { stock: newStock },
             })
           }
-          // If product not found by SKU/barcode, still allow transfer
-          // (product may have been deleted or SKU changed)
         }
 
         // Update transfer status
@@ -211,8 +218,8 @@ export async function PATCH(
               toOutlet: transfer.toOutlet.name,
               itemCount: transfer.items.length,
               items: transfer.items.map((i) => ({
-                name: i.productName,
-                sku: i.productSku,
+                productName: i.productName,
+                productSku: i.productSku,
                 quantity: i.quantity,
               })),
             }),
@@ -221,10 +228,10 @@ export async function PATCH(
           },
         })
 
-        // Audit log at destination outlet
+        // Audit log at destination outlet (incoming notification)
         await tx.auditLog.create({
           data: {
-            action: 'ADJUSTMENT',
+            action: 'RESTOCK',
             entityType: 'STOCK',
             entityId: id,
             details: JSON.stringify({
@@ -232,6 +239,11 @@ export async function PATCH(
               transferNumber: transfer.transferNumber,
               fromOutlet: transfer.fromOutlet.name,
               itemCount: transfer.items.length,
+              items: transfer.items.map((i) => ({
+                productName: i.productName,
+                productSku: i.productSku,
+                quantity: i.quantity,
+              })),
             }),
             outletId: transfer.toOutletId,
             userId: user.id,
@@ -255,13 +267,17 @@ export async function PATCH(
     }
 
     // ── RECEIVED: Add stock to destination outlet ──
+    // Products are created as new or restocked at the branch
     if (status === 'RECEIVED') {
+      const createdProducts: string[] = []
+      const restockedProducts: string[] = []
+
       await db.$transaction(async (tx) => {
         const destOutletId = transfer.toOutletId
 
         for (const item of transfer.items) {
           // Try to find existing product in destination by SKU first, then barcode
-          let product: { id: string } | null = null
+          let product: { id: string; name: string } | null = null
           if (item.productSku) {
             product = await tx.product.findFirst({
               where: { outletId: destOutletId, sku: item.productSku },
@@ -272,41 +288,36 @@ export async function PATCH(
               where: { outletId: destOutletId, barcode: item.productBarcode },
             })
           }
+          if (!product) {
+            // Fallback: match by name (case-insensitive via contains)
+            product = await tx.product.findFirst({
+              where: { outletId: destOutletId, name: item.productName },
+            })
+          }
 
           if (product) {
-            // Product exists in destination — increment stock
+            // Product exists in destination — increment stock (restock)
             await tx.product.update({
               where: { id: product.id },
               data: { stock: { increment: item.quantity } },
             })
+            restockedProducts.push(item.productName)
           } else {
             // Product doesn't exist — create new product in destination
-            // Check if a product with the same name already exists in destination
-            const existingByName = await tx.product.findFirst({
-              where: { outletId: destOutletId, name: item.productName },
+            await tx.product.create({
+              data: {
+                name: item.productName,
+                sku: item.productSku || null,
+                barcode: item.productBarcode || null,
+                hpp: item.hpp || 0,
+                price: item.price,
+                stock: item.quantity,
+                outletId: destOutletId,
+                lowStockAlert: 10,
+                unit: 'pcs',
+              },
             })
-
-            if (!existingByName) {
-              await tx.product.create({
-                data: {
-                  name: item.productName,
-                  sku: item.productSku || null,
-                  barcode: item.productBarcode || null,
-                  hpp: item.hpp,
-                  price: item.price,
-                  stock: item.quantity,
-                  outletId: destOutletId,
-                  lowStockAlert: 10,
-                  unit: 'pcs',
-                },
-              })
-            } else {
-              // Name match — increment stock on existing product
-              await tx.product.update({
-                where: { id: existingByName.id },
-                data: { stock: { increment: item.quantity } },
-              })
-            }
+            createdProducts.push(item.productName)
           }
         }
 
@@ -320,7 +331,7 @@ export async function PATCH(
           },
         })
 
-        // Audit log at destination outlet
+        // Audit log at destination outlet (RECEIVED)
         await tx.auditLog.create({
           data: {
             action: 'RESTOCK',
@@ -331,13 +342,34 @@ export async function PATCH(
               transferNumber: transfer.transferNumber,
               fromOutlet: transfer.fromOutlet.name,
               itemCount: transfer.items.length,
+              createdProducts: createdProducts.length > 0 ? createdProducts : undefined,
+              restockedProducts: restockedProducts.length > 0 ? restockedProducts : undefined,
               items: transfer.items.map((i) => ({
-                name: i.productName,
-                sku: i.productSku,
+                productName: i.productName,
+                productSku: i.productSku,
                 quantity: i.quantity,
+                price: i.price,
+                hpp: i.hpp,
               })),
             }),
             outletId: destOutletId,
+            userId: user.id,
+          },
+        })
+
+        // Audit log at source outlet (confirmation that branch received)
+        await tx.auditLog.create({
+          data: {
+            action: 'ADJUSTMENT',
+            entityType: 'STOCK',
+            entityId: id,
+            details: JSON.stringify({
+              action: 'TRANSFER_RECEIVED_BY_BRANCH',
+              transferNumber: transfer.transferNumber,
+              toOutlet: transfer.toOutlet.name,
+              itemCount: transfer.items.length,
+            }),
+            outletId: transfer.fromOutletId,
             userId: user.id,
           },
         })
@@ -354,9 +386,17 @@ export async function PATCH(
         },
       })
 
+      // Build success message with detail
+      const parts: string[] = []
+      if (createdProducts.length > 0) parts.push(`${createdProducts.length} produk baru ditambahkan`)
+      if (restockedProducts.length > 0) parts.push(`${restockedProducts.length} produk di-restock`)
+      const detailMsg = parts.length > 0 ? ` (${parts.join(', ')})` : ''
+
       return safeJson({
         ...updated,
-        message: `Transfer ${transfer.transferNumber} berhasil diterima`,
+        message: `Transfer ${transfer.transferNumber} berhasil diterima${detailMsg}`,
+        createdProducts,
+        restockedProducts,
       })
     }
 
@@ -378,6 +418,11 @@ export async function PATCH(
               transferNumber: transfer.transferNumber,
               toOutlet: transfer.toOutlet.name,
               itemCount: transfer.items.length,
+              items: transfer.items.map((i) => ({
+                productName: i.productName,
+                productSku: i.productSku,
+                quantity: i.quantity,
+              })),
             }),
             outletId: transfer.fromOutletId,
             userId: user.id,
@@ -408,7 +453,8 @@ export async function PATCH(
     // Distinguish validation errors from internal errors
     if (
       message.includes('Stok') ||
-      message.includes('tidak mencukupi')
+      message.includes('tidak mencukupi') ||
+      message.includes('Unique constraint')
     ) {
       return safeJsonError(message, 400)
     }

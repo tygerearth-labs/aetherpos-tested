@@ -58,6 +58,8 @@ import {
   PackageOpen,
   X,
   ShoppingCart,
+  Info,
+  CircleDot,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -69,24 +71,42 @@ interface TransferItem {
   productId: string
   productName: string
   sku?: string
+  productBarcode?: string
   quantity: number
   price: number
+  hpp?: number
   stockAtSource?: number
+}
+
+interface TransferItemApi {
+  id?: string
+  productName: string
+  productSku?: string | null
+  productBarcode?: string | null
+  quantity: number
+  hpp: number
+  price: number
 }
 
 interface Transfer {
   id: string
   transferNumber: string
   fromOutletId: string
-  fromOutletName: string
+  fromOutletName?: string
   toOutletId: string
-  toOutletName: string
+  toOutletName?: string
+  fromOutlet?: { id: string; name: string; address?: string; phone?: string }
+  toOutlet?: { id: string; name: string; address?: string; phone?: string }
+ createdBy?: { id: string; name: string; email?: string } | null
+  receivedBy?: { id: string; name: string; email?: string } | null
+  receivedAt?: string | null
   status: TransferStatus
   notes?: string | null
   createdAt: string
   updatedAt: string
-  items: TransferItem[]
+  items: TransferItem[] | TransferItemApi[]
   _count?: { items: number }
+  direction?: string
 }
 
 interface OutletOption {
@@ -98,8 +118,13 @@ interface ProductOption {
   id: string
   name: string
   sku?: string
+  barcode?: string
   price: number
+  hpp: number
   stock: number
+  hasVariants?: boolean
+  variantCount?: number
+  variants?: { id: string; name: string; sku?: string; barcode?: string; price: number; hpp: number; stock: number }[]
 }
 
 // ── Status Badge ──
@@ -216,15 +241,19 @@ export default function TransferPage() {
     const timeout = setTimeout(async () => {
       setProductSearching(true)
       try {
-        const res = await fetch(`/api/products?search=${encodeURIComponent(productSearch)}&limit=10`)
+        const res = await fetch(`/api/products/search?q=${encodeURIComponent(productSearch)}&limit=20`)
         if (res.ok) {
           const data = await res.json()
           setProductResults(data.products || [])
           setShowProductDropdown(true)
         }
-      } catch { /* ignore */ } finally {
+      } catch {
+        // Network error — silently ignore (user may be offline)
+      } finally {
         setProductSearching(false)
       }
+      // If response was not ok (e.g. 500), log for debugging but don't show toast on every keystroke
+      // The API itself handles fallback queries
     }, 300)
     return () => clearTimeout(timeout)
   }, [productSearch])
@@ -264,7 +293,9 @@ export default function TransferPage() {
     try {
       const res = await fetch(`/api/transfers/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'RECEIVED' }) })
       if (res.ok) {
-        toast.success('Transfer berhasil diterima')
+        const data = await res.json()
+        const msg = data.message || 'Transfer berhasil diterima'
+        toast.success(msg, { duration: 5000 })
         void fetchTransfers()
         setDetailOpen(false)
       } else {
@@ -316,8 +347,10 @@ export default function TransferPage() {
       productId: product.id,
       productName: product.name,
       sku: product.sku,
+      productBarcode: product.barcode,
       quantity: qty,
       price: product.price,
+      hpp: product.hpp || 0,
       stockAtSource: product.stock,
     }])
     setProductSearch('')
@@ -386,17 +419,33 @@ export default function TransferPage() {
 
   // ── Open detail ──
   const openDetail = async (transfer: Transfer) => {
-    setSelectedTransfer(transfer)
     setDetailOpen(true)
-    // If items not loaded, fetch them
-    if (!transfer.items || transfer.items.length === 0) {
-      try {
-        const res = await fetch(`/api/transfers/${transfer.id}`)
-        if (res.ok) {
-          const data = await res.json()
-          setSelectedTransfer(data.transfer || transfer)
+    // Always fetch full detail (list doesn't include items data)
+    try {
+      const res = await fetch(`/api/transfers/${transfer.id}`)
+      if (res.ok) {
+        const data = await res.json()
+        // Normalize: API returns nested fromOutlet/toOutlet objects + items as TransferItemApi
+        const normalized: Transfer = {
+          ...data,
+          fromOutletName: data.fromOutlet?.name || transfer.fromOutletName || '-',
+          toOutletName: data.toOutlet?.name || transfer.toOutletName || '-',
+          items: (data.items || []).map((item: TransferItemApi) => ({
+            productId: '',
+            productName: item.productName,
+            sku: item.productSku || undefined,
+            productBarcode: item.productBarcode || undefined,
+            quantity: item.quantity,
+            price: item.price,
+            hpp: item.hpp || 0,
+          })),
         }
-      } catch { /* keep existing data */ }
+        setSelectedTransfer(normalized)
+      } else {
+        setSelectedTransfer(transfer)
+      }
+    } catch {
+      setSelectedTransfer(transfer)
     }
   }
 
@@ -417,6 +466,25 @@ export default function TransferPage() {
 
   return (
     <motion.div className="space-y-4" variants={containerVariants} initial="hidden" animate="visible">
+      {/* Flow Instructions */}
+      <motion.div variants={itemVariants}>
+        <div className="bg-sky-500/[0.06] border border-sky-500/15 rounded-xl p-3.5">
+          <div className="flex items-start gap-3">
+            <Info className="h-4 w-4 text-sky-400 shrink-0 mt-0.5" />
+            <div className="space-y-2 min-w-0">
+              <p className="text-xs font-medium text-sky-300">Alur Transfer Stok Antar Outlet</p>
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-400">
+                <span className="flex items-center gap-1"><CircleDot className="h-2.5 w-2.5 text-amber-400" /><span className="text-slate-300">1. Buat Draft</span></span>
+                <span className="text-slate-600">→</span>
+                <span className="flex items-center gap-1"><CircleDot className="h-2.5 w-2.5 text-sky-400" /><span className="text-slate-300">2. Kirim (stok dikurangi)</span></span>
+                <span className="text-slate-600">→</span>
+                <span className="flex items-center gap-1"><CircleDot className="h-2.5 w-2.5 text-emerald-400" /><span className="text-slate-300">3. Terima cabang (stok ditambah/restock otomatis)</span></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </motion.div>
+
       {/* Header */}
       <motion.div variants={itemVariants} className="flex items-center justify-between gap-4">
         <div className="space-y-1">
@@ -683,7 +751,7 @@ export default function TransferPage() {
           </ResponsiveDialogHeader>
           {selectedTransfer && (
             <div className="space-y-4 mt-2">
-              {/* Info */}
+              {/* Info: From / To */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-white/[0.03] rounded-lg p-2.5 border border-white/[0.04]">
                   <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Asal</p>
@@ -694,12 +762,30 @@ export default function TransferPage() {
                   <p className="text-xs text-slate-200 font-medium">{selectedTransfer.toOutletName}</p>
                 </div>
               </div>
+
+              {/* Status + Meta */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <StatusBadge status={selectedTransfer.status} />
                   <span className="text-[11px] text-slate-500">{formatDate(selectedTransfer.createdAt)}</span>
                 </div>
               </div>
+
+              {/* Created By / Received By */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-white/[0.02] rounded-lg p-2 border border-white/[0.03]">
+                  <p className="text-[10px] text-slate-500 mb-0.5">Dibuat oleh</p>
+                  <p className="text-[11px] text-slate-300">{selectedTransfer.createdBy?.name || '-'}</p>
+                </div>
+                {selectedTransfer.status === 'RECEIVED' && (
+                  <div className="bg-white/[0.02] rounded-lg p-2 border border-white/[0.03]">
+                    <p className="text-[10px] text-slate-500 mb-0.5">Diterima oleh</p>
+                    <p className="text-[11px] text-slate-300">{selectedTransfer.receivedBy?.name || '-'}</p>
+                    {selectedTransfer.receivedAt && <p className="text-[10px] text-slate-500">{formatDate(selectedTransfer.receivedAt)}</p>}
+                  </div>
+                )}
+              </div>
+
               {selectedTransfer.notes && (
                 <div className="flex items-start gap-2 text-slate-400">
                   <StickyNote className="h-3.5 w-3.5 shrink-0 mt-0.5" />
@@ -709,31 +795,37 @@ export default function TransferPage() {
 
               {/* Items */}
               <div>
-                <p className="text-[11px] text-slate-500 uppercase tracking-wider font-medium mb-2">Daftar Produk</p>
-                <div className="space-y-1.5 max-h-[240px] overflow-y-auto">
-                  {selectedTransfer.items?.map((item, idx) => (
-                    <div
-                      key={item.id || idx}
-                      className="flex items-center gap-3 p-2 rounded-lg bg-white/[0.02] border border-white/[0.04]"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs text-slate-200 font-medium truncate">{item.productName}</p>
-                        {item.sku && <p className="text-[10px] text-slate-500 font-mono">{item.sku}</p>}
+                <p className="text-[11px] text-slate-500 uppercase tracking-wider font-medium mb-2">
+                  Daftar Produk ({selectedTransfer.items?.length || 0} item)
+                </p>
+                <div className="space-y-1.5 max-h-[260px] overflow-y-auto">
+                  {selectedTransfer.items && selectedTransfer.items.length > 0 ? (
+                    selectedTransfer.items.map((item, idx) => (
+                      <div
+                        key={item.id || idx}
+                        className="flex items-center gap-3 p-2.5 rounded-lg bg-white/[0.02] border border-white/[0.04]"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-slate-200 font-medium truncate">{item.productName}</p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            {item.sku && <p className="text-[10px] text-slate-500 font-mono">{item.sku}</p>}
+                            {item.hpp !== undefined && item.hpp > 0 && <p className="text-[10px] text-amber-400/70">HPP {formatCurrency(item.hpp)}</p>}
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-xs text-white font-medium">x{formatNumber(item.quantity)}</p>
+                          <p className="text-[10px] text-slate-500">{formatCurrency(item.price)}</p>
+                        </div>
                       </div>
-                      <div className="text-right shrink-0">
-                        <p className="text-xs text-white font-medium">x{formatNumber(item.quantity)}</p>
-                        <p className="text-[10px] text-slate-500">{formatCurrency(item.price)}</p>
-                      </div>
-                    </div>
-                  ))}
-                  {(!selectedTransfer.items || selectedTransfer.items.length === 0) && (
+                    ))
+                  ) : (
                     <p className="text-xs text-slate-500 text-center py-4">Tidak ada item</p>
                   )}
                 </div>
               </div>
 
               {/* Actions in dialog */}
-              {selectedTransfer.status !== 'RECEIVED' && (
+              {selectedTransfer.status !== 'RECEIVED' && selectedTransfer.status !== 'CANCELLED' && (
                 <div className="flex items-center gap-2 pt-2 border-t border-white/[0.04]">
                   {selectedTransfer.status === 'DRAFT' && tab === 'outbound' && (
                     <Button
@@ -837,15 +929,23 @@ export default function TransferPage() {
                       {productResults.map((p) => (
                         <button
                           key={p.id}
-                          className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/[0.04] transition-colors first:rounded-t-lg last:rounded-b-lg"
+                          className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-white/[0.04] transition-colors first:rounded-t-lg last:rounded-b-lg"
                           onClick={() => handleAddProduct(p)}
                         >
                           <Package className="h-3.5 w-3.5 text-slate-500 shrink-0" />
                           <div className="flex-1 min-w-0">
                             <p className="text-xs text-slate-200 truncate">{p.name}</p>
-                            {p.sku && <p className="text-[10px] text-slate-500 font-mono">{p.sku}</p>}
+                            <div className="flex items-center gap-2 mt-0.5">
+                              {p.sku && <p className="text-[10px] text-slate-500 font-mono">{p.sku}</p>}
+                              {p.hasVariants && p.variantCount && (
+                                <span className="text-[9px] text-sky-400 bg-sky-500/10 px-1 py-px rounded">{p.variantCount} varian</span>
+                              )}
+                            </div>
                           </div>
-                          <span className="text-[10px] text-slate-500 shrink-0">Stok: {formatNumber(p.stock)}</span>
+                          <div className="text-right shrink-0">
+                            <p className="text-[10px] text-slate-400">Stok: <span className={p.stock > 0 ? 'text-emerald-400 font-medium' : 'text-red-400 font-medium'}>{formatNumber(p.stock)}</span></p>
+                            <p className="text-[10px] text-amber-400/70">{formatCurrency(p.hpp)}</p>
+                          </div>
                         </button>
                       ))}
                     </div>

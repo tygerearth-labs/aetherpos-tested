@@ -164,21 +164,37 @@ export async function POST(request: NextRequest) {
         // Look up product from database
         const product = await db.product.findFirst({
           where: { id: item.productId, outletId: user.outletId },
-          select: { id: true, name: true, sku: true, barcode: true, hpp: true, price: true, stock: true },
+          select: { id: true, name: true, sku: true, barcode: true, hpp: true, price: true, stock: true, hasVariants: true, variants: { select: { stock: true, price: true, hpp: true } } },
         })
         if (!product) {
           return safeJsonError(`Produk dengan ID ${item.productId} tidak ditemukan`, 400)
         }
-        if (product.stock < item.quantity) {
-          return safeJsonError(`Stok ${product.name} tidak mencukupi (sisa: ${product.stock})`, 400)
+
+        // Compute real available stock (aggregate variants if needed)
+        const availableStock = product.hasVariants && product.variants.length > 0
+          ? product.variants.reduce((s, v) => s + v.stock, 0)
+          : product.stock
+
+        // Compute real hpp (average from variants if needed)
+        const realHpp = product.hasVariants && product.variants.length > 0
+          ? Math.round(product.variants.reduce((s, v) => s + v.hpp, 0) / product.variants.length)
+          : (product.hpp || 0)
+
+        // Compute real price (min from variants if needed)
+        const realPrice = product.hasVariants && product.variants.length > 0
+          ? Math.min(...product.variants.map(v => v.price))
+          : product.price
+
+        if (availableStock < item.quantity) {
+          return safeJsonError(`Stok ${product.name} tidak mencukupi (sisa: ${availableStock})`, 400)
         }
         enrichedItems.push({
           productName: product.name,
           productSku: product.sku || product.barcode || null,
           productBarcode: product.barcode || product.sku || null,
           quantity: item.quantity,
-          hpp: product.hpp,
-          price: product.price,
+          hpp: realHpp,
+          price: realPrice,
         })
       } else if (item.productName) {
         // Manual entry (no productId)

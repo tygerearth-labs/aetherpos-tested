@@ -68,6 +68,7 @@ export default function BatchBarcodeDialog({ open, onOpenChange, categories }: B
   const [filterCategory, setFilterCategory] = useState('')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [printing, setPrinting] = useState(false)
+  const [rowsPerLabel, setRowsPerLabel] = useState(2)
 
   const search = useDebounce(rawSearch, 300)
 
@@ -161,11 +162,19 @@ export default function BatchBarcodeDialog({ open, onOpenChange, categories }: B
       const canvas = document.createElement('canvas')
       const labels: string[] = []
 
+      // Sizing config per column count
+      const cfg: Record<number, { nameSize: number; priceSize: number; codeSize: number; barcodeH: number; barcodeW: number; labelPad: string; pageW: string; maxImgW: string }> = {
+        2: { nameSize: 10, priceSize: 12, codeSize: 9, barcodeH: 40, barcodeW: 2, labelPad: '2mm 1.5mm', pageW: '80mm', maxImgW: '34mm' },
+        3: { nameSize: 8, priceSize: 10, codeSize: 7, barcodeH: 30, barcodeW: 1.5, labelPad: '1.5mm 1mm', pageW: '80mm', maxImgW: '23mm' },
+        4: { nameSize: 7, priceSize: 9, codeSize: 6, barcodeH: 25, barcodeW: 1.2, labelPad: '1mm 0.8mm', pageW: '80mm', maxImgW: '17mm' },
+      }
+      const c = cfg[rowsPerLabel] || cfg[2]
+
       for (const item of toPrint) {
         JsBarcode(canvas, item.barcode, {
           format: 'CODE128',
-          width: 2,
-          height: 50,
+          width: c.barcodeW,
+          height: c.barcodeH,
           displayValue: false,
           margin: 0,
           background: '#FFFFFF',
@@ -185,20 +194,21 @@ export default function BatchBarcodeDialog({ open, onOpenChange, categories }: B
       if (!w) { toast.error('Pop-up diblokir. Izinkan pop-up untuk mencetak.'); setPrinting(false); return }
       w.document.write(`<!DOCTYPE html><html><head><title>Cetak ${toPrint.length} Label</title>
 <style>
-@page{size:80mm auto;margin:0}
+@page{size:${c.pageW} auto;margin:0}
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Courier New',monospace;background:#fff;color:#000;display:flex;flex-direction:column;align-items:center;padding:4mm 0}
-.label{width:72mm;padding:2.5mm 2mm;text-align:center;page-break-inside:avoid}
-.lbl-name{font-size:12px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:68mm;margin:0 auto 1px}
-.lbl-price{font-size:14px;font-weight:700;margin-bottom:3px}
-.lbl-img{width:100%;max-width:68mm;height:auto;display:block;margin:0 auto}
-.lbl-code{font-size:10px;letter-spacing:1.5px;margin-top:2px;color:#333}
+body{font-family:'Courier New',monospace;background:#fff;color:#000;display:flex;flex-direction:column;align-items:center;padding:2mm 0}
+.grid{display:grid;grid-template-columns:repeat(${rowsPerLabel},1fr);width:${c.pageW};gap:0}
+.label{padding:${c.labelPad};text-align:center;page-break-inside:avoid;overflow:hidden}
+.lbl-name{font-size:${c.nameSize}px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:${c.maxImgW};margin:0 auto 1px}
+.lbl-price{font-size:${c.priceSize}px;font-weight:700;margin-bottom:2px}
+.lbl-img{width:100%;max-width:${c.maxImgW};height:auto;display:block;margin:0 auto}
+.lbl-code{font-size:${c.codeSize}px;letter-spacing:1px;margin-top:1px;color:#333}
 .bar{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#fff;padding:14px 20px;border-radius:14px;box-shadow:0 4px 24px rgba(0,0,0,.12);display:flex;flex-direction:column;align-items:center;gap:8px}
 .bar button{cursor:pointer;border:none;border-radius:8px;font-size:14px;font-weight:600}
 .bar .bp{padding:10px 36px;background:#111;color:#fff}
 .bar .bc{padding:6px 18px;background:none;color:#888;text-decoration:underline;font-size:13px}
 @media print{.bar{display:none!important}}
-</style></head><body>${labels.join('')}
+</style></head><body><div class="grid">${labels.join('')}</div>
 <div class="bar">
   <button class="bp" onclick="window.print()">Cetak ${toPrint.length} Label</button>
   <button class="bc" onclick="window.close()">Tutup</button>
@@ -208,7 +218,7 @@ body{font-family:'Courier New',monospace;background:#fff;color:#000;display:flex
       console.error('Batch print error:', err)
       toast.error('Gagal mencetak barcode')
     } finally { setPrinting(false) }
-  }, [printableItems, selectedIds])
+  }, [printableItems, selectedIds, rowsPerLabel])
 
   /* ---- Reset everything on close ---- */
   useEffect(() => {
@@ -413,6 +423,22 @@ body{font-family:'Courier New',monospace;background:#fff;color:#000;display:flex
             )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-1 mr-1">
+              {([2, 3, 4] as const).map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => setRowsPerLabel(n)}
+                  className={`text-[11px] px-2 py-1 rounded-md border transition-colors ${
+                    rowsPerLabel === n
+                      ? 'theme-bg text-white border-transparent font-medium'
+                      : 'bg-white/[0.04] border-white/[0.06] text-slate-500 hover:text-slate-300 hover:bg-white/[0.08]'
+                  }`}
+                >
+                  {n} Baris
+                </button>
+              ))}
+            </div>
             <Button
               variant="outline"
               size="sm"

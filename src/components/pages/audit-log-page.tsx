@@ -193,6 +193,7 @@ function getEntityLabel(type: string): string {
 const DETAIL_LABELS: Record<string, string> = {
   name: 'Nama',
   productName: 'Produk',
+  productSku: 'SKU',
   customerName: 'Nama Customer',
   price: 'Harga',
   stock: 'Stok',
@@ -226,6 +227,15 @@ const DETAIL_LABELS: Record<string, string> = {
   batchOperation: 'Operasi Batch',
   changes: 'Perubahan',
   quantitySold: 'Jumlah Terjual',
+  // Multi-outlet / Transfer
+  action: 'Aksi',
+  transferNumber: 'No. Transfer',
+  toOutlet: 'Outlet Tujuan',
+  fromOutlet: 'Outlet Asal',
+  itemCount: 'Jumlah Item',
+  items: 'Daftar Item',
+  createdProducts: 'Produk Baru',
+  restockedProducts: 'Produk di-Restock',
 }
 
 function getDetailLabel(key: string): string {
@@ -269,6 +279,21 @@ function formatDetailValue(key: string, value: unknown): string {
         })
         .join(', ')
     }
+    // For transfer items array
+    if (key === 'items') {
+      return value
+        .map((item: Record<string, unknown>) => {
+          const name = typeof item.productName === 'string' ? item.productName : (typeof item.name === 'string' ? item.name : '?')
+          const sku = typeof item.productSku === 'string' ? item.productSku : ''
+          const qty = typeof item.quantity === 'number' ? item.quantity : '?'
+          return sku ? `${name} (${sku}) x${qty}` : `${name} x${qty}`
+        })
+        .join(', ')
+    }
+    // For createdProducts / restockedProducts (string arrays)
+    if (key === 'createdProducts' || key === 'restockedProducts') {
+      return value.join(', ')
+    }
     return JSON.stringify(value)
   }
   return String(value)
@@ -288,9 +313,9 @@ function DetailsDisplay({ action, details }: { action: string; details: string |
   // Sort detail keys for better display based on action type
   const priorityKeys: Record<string, string[]> = {
     SALE: ['invoiceNumber', 'productName', 'variantName', 'quantitySold', 'previousStock', 'newStock'],
-    RESTOCK: ['reason', 'productName', 'quantityAdded', 'newStock'],
+    RESTOCK: ['action', 'transferNumber', 'fromOutlet', 'toOutlet', 'itemCount', 'createdProducts', 'restockedProducts', 'reason', 'productName', 'quantityAdded', 'newStock'],
     VOID: ['invoiceNumber', 'total', 'reason', 'voidedBy', 'itemsRestored'],
-    ADJUSTMENT: ['productName', 'previousStock', 'newStock', 'reason'],
+    ADJUSTMENT: ['action', 'transferNumber', 'fromOutlet', 'toOutlet', 'itemCount', 'productName', 'previousStock', 'newStock', 'reason'],
     CREATE: ['name', 'productName', 'variantName', 'customerName', 'outletName', 'price', 'stock', 'bulkUpload', 'created', 'skipped'],
     UPDATE: ['name', 'productName', 'variantName', 'outletName', 'outletAddress', 'outletPhone', 'price', 'stock', 'ppnEnabled', 'ppnRate', 'hasVariants', 'variantCount'],
     BULK_UPDATE: ['productName', 'changes', 'batchOperation'],
