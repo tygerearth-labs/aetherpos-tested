@@ -236,6 +236,12 @@ const DETAIL_LABELS: Record<string, string> = {
   items: 'Daftar Item',
   createdProducts: 'Produk Baru',
   restockedProducts: 'Produk di-Restock',
+  productName: 'Nama Produk',
+  productSku: 'SKU Produk',
+  initialStock: 'Stok Awal',
+  previousStock: 'Stok Sebelum',
+  newStock: 'Stok Sesudah',
+  quantityAdded: 'Jumlah Ditambah',
 }
 
 function getDetailLabel(key: string): string {
@@ -259,7 +265,7 @@ function formatDetailValue(key: string, value: unknown): string {
     if (['price', 'total', 'hpp', 'discount', 'subtotal', 'paidAmount', 'change', 'taxAmount'].includes(key)) {
       return formatCurrency(value)
     }
-    if (['stock', 'previousStock', 'newStock', 'quantityAdded', 'quantityDecreased', 'qty', 'quantitySold'].includes(key)) {
+    if (['stock', 'previousStock', 'newStock', 'initialStock', 'quantityAdded', 'quantityDecreased', 'qty', 'quantitySold'].includes(key)) {
       return `${value} unit`
     }
     if (key === 'points') {
@@ -316,7 +322,7 @@ function DetailsDisplay({ action, details }: { action: string; details: string |
     RESTOCK: ['action', 'transferNumber', 'fromOutlet', 'toOutlet', 'itemCount', 'createdProducts', 'restockedProducts', 'reason', 'productName', 'quantityAdded', 'newStock'],
     VOID: ['invoiceNumber', 'total', 'reason', 'voidedBy', 'itemsRestored'],
     ADJUSTMENT: ['action', 'transferNumber', 'fromOutlet', 'toOutlet', 'itemCount', 'productName', 'previousStock', 'newStock', 'reason'],
-    CREATE: ['name', 'productName', 'variantName', 'customerName', 'outletName', 'price', 'stock', 'bulkUpload', 'created', 'skipped'],
+    CREATE: ['name', 'productName', 'action', 'transferNumber', 'fromOutlet', 'productSku', 'initialStock', 'price', 'stock', 'bulkUpload', 'created', 'skipped'],
     UPDATE: ['name', 'productName', 'variantName', 'outletName', 'outletAddress', 'outletPhone', 'price', 'stock', 'ppnEnabled', 'ppnRate', 'hasVariants', 'variantCount'],
     BULK_UPDATE: ['productName', 'changes', 'batchOperation'],
     DELETE: ['productName', 'variantName', 'price', 'stock', 'variantCount'],

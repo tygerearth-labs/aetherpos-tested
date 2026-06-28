@@ -537,11 +537,13 @@ function OutletDetailDialog({
   period,
   open,
   onClose,
+  canEdit,
 }: {
   outlet: OutletSummary
   period: DateFilter
   open: boolean
   onClose: () => void
+  canEdit: boolean
 }) {
   const [tab, setTab] = useState<DetailTab>('transactions')
   const [search, setSearch] = useState('')
@@ -573,15 +575,25 @@ function OutletDetailDialog({
         limit: '15',
       })
       if (search) params.set('search', search)
+      // Send timezone offset so server filters correctly
+      params.set('tzOffset', String(-new Date().getTimezoneOffset()))
 
       const res = await fetch(`/api/multi-outlet/outlet?${params}`)
-      if (!res.ok) throw new Error()
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}))
+        console.error('[OutletDetail] API error:', res.status, errData)
+        throw new Error(errData.error || `HTTP ${res.status}`)
+      }
       const json = await res.json()
+      console.log('[OutletDetail] Response:', { tab, dataLength: Array.isArray(json.data) ? json.data.length : 'not-array', outlet: json.outlet?.name })
       setOutletInfo(json.outlet)
-      setData(json.data || [])
+      setData(Array.isArray(json.data) ? json.data : [])
       setPagination(json.pagination || { page: 1, limit: 20, total: 0, totalPages: 0 })
-    } catch {
-      toast.error('Gagal memuat detail outlet')
+    } catch (err) {
+      console.error('[OutletDetail] Fetch error:', err)
+      const msg = err instanceof Error ? err.message : 'Gagal memuat detail outlet'
+      toast.error(msg)
+      setData([])
     } finally {
       setLoading(false)
     }
@@ -687,8 +699,9 @@ function OutletDetailDialog({
   const currentPagination = isCrewTab ? crewPagination : pagination
 
   return (
+    <>
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
-      <DialogContent className="bg-[#0c0d12] border-white/[0.06] max-w-2xl w-[95vw] max-h-[85vh] flex flex-col p-0 overflow-hidden">
+      <DialogContent showCloseButton={false} className="bg-[#0c0d12] border-white/[0.06] max-w-4xl lg:max-w-6xl w-[95vw] max-h-[88vh] flex flex-col p-0 overflow-hidden">
         {/* Header */}
         <div className="px-5 pt-5 pb-3 border-b border-white/[0.06] shrink-0">
           <div className="flex items-start justify-between gap-3">
@@ -711,7 +724,7 @@ function OutletDetailDialog({
                 )}
               </div>
             </div>
-            <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-400 hover:text-white shrink-0" onClick={onClose}>
+            <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-400 hover:text-white shrink-0 rounded-lg" onClick={onClose}>
               <X className="h-4 w-4" />
             </Button>
           </div>
@@ -756,7 +769,7 @@ function OutletDetailDialog({
               ))}
             </div>
             <div className="flex items-center gap-2">
-              {isCrewTab && (
+              {isCrewTab && canEdit && (
                 <Button
                   size="sm"
                   onClick={() => setAddCrewOpen(true)}
@@ -791,6 +804,7 @@ function OutletDetailDialog({
               loading={crewLoading}
               crewList={crewList}
               owner={crewOwner}
+              canEdit={canEdit}
               onEdit={(c) => setEditCrew(c)}
               onDelete={(c) => setDeleteCrew(c)}
             />
@@ -804,7 +818,14 @@ function OutletDetailDialog({
             <div className="p-3">
               {data.length === 0 ? (
                 <div className="py-12 text-center">
-                  <p className="text-xs text-slate-500">Tidak ada data</p>
+                  <Receipt className="h-6 w-6 text-slate-700 mx-auto mb-2" />
+                  <p className="text-xs text-slate-500 mb-2">Tidak ada data {tab === 'transactions' ? 'transaksi' : tab === 'customers' ? 'customer' : 'produk'}</p>
+                  <button
+                    onClick={() => void fetchData()}
+                    className="text-[10px] text-slate-500 hover:text-slate-300 underline transition-colors"
+                  >
+                    Coba lagi
+                  </button>
                 </div>
               ) : tab === 'transactions' ? (
                 <TransactionsList data={data as TransactionRow[]} />
@@ -842,29 +863,29 @@ function OutletDetailDialog({
           </div>
         )}
 
-        {/* Crew Dialogs */}
-        <AddCrewDialog
-          open={addCrewOpen}
-          outletName={outlet.name}
-          onClose={() => setAddCrewOpen(false)}
-          onSubmit={handleAddCrew}
-        />
-        {editCrew && (
-          <EditCrewDialog
-            crew={editCrew}
-            onClose={() => setEditCrew(null)}
-            onSubmit={handleEditCrew}
-          />
-        )}
-        {deleteCrew && (
-          <DeleteCrewDialog
-            crew={deleteCrew}
-            onClose={() => setDeleteCrew(null)}
-            onConfirm={handleDeleteCrew}
-          />
-        )}
       </DialogContent>
     </Dialog>
+    {/* Crew Dialogs — rendered outside parent DialogContent to prevent double close button */}
+    <AddCrewDialog
+      open={addCrewOpen}
+      outletName={outlet.name}
+      onClose={() => setAddCrewOpen(false)}
+      onSubmit={handleAddCrew}
+    />
+    {editCrew && (
+      <EditCrewDialog
+        crew={editCrew}
+        onClose={() => setEditCrew(null)}
+        onSubmit={handleEditCrew}
+      />
+    )}
+    {deleteCrew && (
+      <DeleteCrewDialog
+        crew={deleteCrew}
+        onClose={() => setDeleteCrew(null)}
+        onConfirm={handleDeleteCrew}
+      />
+    )}</>
   )
 }
 
@@ -886,12 +907,14 @@ function CrewListContent({
   loading,
   crewList,
   owner,
+  canEdit,
   onEdit,
   onDelete,
 }: {
   loading: boolean
   crewList: CrewMember[]
   owner: { id: string; name: string; email: string; createdAt: string } | null
+  canEdit: boolean
   onEdit: (crew: CrewMember) => void
   onDelete: (crew: CrewMember) => void
 }) {
@@ -962,6 +985,7 @@ function CrewListContent({
                 </div>
               </div>
               <div className="flex flex-col items-end gap-1 shrink-0">
+                {canEdit && (
                 <div className="flex items-center gap-1">
                   <button
                     onClick={() => onEdit(c)}
@@ -976,6 +1000,7 @@ function CrewListContent({
                     <Trash2 className="h-3 w-3" />
                   </button>
                 </div>
+                )}
                 <div className="flex items-center gap-1 text-[9px] text-slate-600">
                   <Calendar className="h-2.5 w-2.5" />
                   {new Date(c.createdAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
@@ -1729,6 +1754,7 @@ export default function MultiOutletTerminalPage() {
             period={dateFilter}
             open={detailOpen}
             onClose={() => setDetailOpen(false)}
+            canEdit={isOwner && detailOutlet.isMain}
           />
         )}
       </AnimatePresence>

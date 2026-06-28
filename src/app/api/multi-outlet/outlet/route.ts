@@ -237,8 +237,8 @@ export async function GET(request: NextRequest) {
         total: totalRecords,
         totalPages: Math.ceil(totalRecords / limit),
       },
-      data,
-    }, 200, CACHE.SHORT)
+      data: data ?? [],
+    }, 200)
   } catch (error) {
     console.error('[/api/multi-outlet/outlet] GET error:', error)
     return safeJsonError('Failed to load outlet detail')

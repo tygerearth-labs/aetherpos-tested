@@ -279,10 +279,18 @@ function getActionDescription(action: string, details: Record<string, unknown>):
   const parentLabel = parentName ? ` (${parentName})` : ''
 
   switch (action) {
-    case 'CREATE':
+    case 'CREATE': {
+      if (details.action === 'TRANSFER_IN_NEW') {
+        return `Produk baru dari transfer ${details.transferNumber || ''} — Stok awal: ${formatNumber(Number(details.initialStock) || 0)}`
+      }
       return `Product created — Price: ${formatCurrency(Number(details.price) || 0)}, Stock: ${formatNumber(Number(details.stock) || 0)}`
-    case 'RESTOCK':
+    }
+    case 'RESTOCK': {
+      if (details.action === 'TRANSFER_IN') {
+        return `+${formatNumber(Number(details.quantityAdded) || 0)} dari transfer ${details.transferNumber || ''} (${details.fromOutlet || 'outlet lain'}) — Stok: ${formatNumber(Number(details.previousStock) || 0)} → ${formatNumber(Number(details.newStock) || 0)}`
+      }
       return `+${formatNumber(Number(details.quantityAdded) || 0)} units${variantLabel} (Stock: ${formatNumber(Number(details.previousStock) || 0)} → ${formatNumber(Number(details.newStock) || 0)})`
+    }
     case 'SALE':
       return `Sold ${formatNumber(Number(details.quantitySold) || Number(details.qty) || 0)} units${variantLabel} — ${formatCurrency(Number(details.subtotal) || 0)}`
     case 'UPDATE':

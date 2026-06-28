@@ -417,9 +417,7 @@ render();
                             return (
                               <div
                                 key={v.id}
-                                className={cn(
-                                  'flex items-center gap-3 px-5 py-2.5 pl-10 hover:bg-white/[0.02] cursor-pointer transition-colors',
-                                )}
+                                className='flex items-center gap-3 px-5 py-2.5 pl-10 hover:bg-white/[0.02] cursor-pointer transition-colors'
                                 onClick={() => toggleItem(vKey)}
                               >
                                 <Checkbox

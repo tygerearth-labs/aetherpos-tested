@@ -277,7 +277,7 @@ export async function PATCH(
 
         for (const item of transfer.items) {
           // Try to find existing product in destination by SKU first, then barcode
-          let product: { id: string; name: string } | null = null
+          let product: { id: string; name: string; stock: number } | null = null
           if (item.productSku) {
             product = await tx.product.findFirst({
               where: { outletId: destOutletId, sku: item.productSku },
@@ -297,14 +297,36 @@ export async function PATCH(
 
           if (product) {
             // Product exists in destination — increment stock (restock)
+            const newStock = product.stock + item.quantity
             await tx.product.update({
               where: { id: product.id },
-              data: { stock: { increment: item.quantity } },
+              data: { stock: newStock },
             })
             restockedProducts.push(item.productName)
+
+            // Per-product audit log so it shows in product detail movement history
+            await tx.auditLog.create({
+              data: {
+                action: 'RESTOCK',
+                entityType: 'STOCK',
+                entityId: product.id,
+                details: JSON.stringify({
+                  action: 'TRANSFER_IN',
+                  transferNumber: transfer.transferNumber,
+                  fromOutlet: transfer.fromOutlet.name,
+                  productName: item.productName,
+                  productSku: item.productSku,
+                  quantityAdded: item.quantity,
+                  previousStock: product.stock,
+                  newStock,
+                }),
+                outletId: destOutletId,
+                userId: user.id,
+              },
+            })
           } else {
             // Product doesn't exist — create new product in destination
-            await tx.product.create({
+            const newProduct = await tx.product.create({
               data: {
                 name: item.productName,
                 sku: item.productSku || null,
@@ -318,6 +340,48 @@ export async function PATCH(
               },
             })
             createdProducts.push(item.productName)
+
+            // Per-product audit log: CREATE
+            await tx.auditLog.create({
+              data: {
+                action: 'CREATE',
+                entityType: 'PRODUCT',
+                entityId: newProduct.id,
+                details: JSON.stringify({
+                  action: 'TRANSFER_IN_NEW',
+                  transferNumber: transfer.transferNumber,
+                  fromOutlet: transfer.fromOutlet.name,
+                  productName: item.productName,
+                  productSku: item.productSku,
+                  initialStock: item.quantity,
+                  price: item.price,
+                  hpp: item.hpp || 0,
+                }),
+                outletId: destOutletId,
+                userId: user.id,
+              },
+            })
+
+            // Per-product audit log: RESTOCK (initial stock from transfer)
+            await tx.auditLog.create({
+              data: {
+                action: 'RESTOCK',
+                entityType: 'STOCK',
+                entityId: newProduct.id,
+                details: JSON.stringify({
+                  action: 'TRANSFER_IN',
+                  transferNumber: transfer.transferNumber,
+                  fromOutlet: transfer.fromOutlet.name,
+                  productName: item.productName,
+                  productSku: item.productSku,
+                  quantityAdded: item.quantity,
+                  previousStock: 0,
+                  newStock: item.quantity,
+                }),
+                outletId: destOutletId,
+                userId: user.id,
+              },
+            })
           }
         }
 
