@@ -1453,6 +1453,8 @@ export default function MultiOutletTerminalPage() {
       let grpName = ''
       let currentOutlet = ''
       let plan = null
+      // Keep raw outlets from outlet-group as fallback
+      let groupOutlets: Array<Record<string, unknown>> = []
 
       if (groupRes && groupRes.ok) {
         try {
@@ -1461,10 +1463,11 @@ export default function MultiOutletTerminalPage() {
           grpName = groupData.groupName || ''
           currentOutlet = groupData.outlets?.[0]?.name || ''
           plan = groupData.plan || null
+          groupOutlets = groupData.outlets || []
           // Determine if current user's outlet is main
           const userOutletId = session?.user?.outletId
           if (userOutletId) {
-            const myOutlet = groupData.outlets?.find((o: Record<string, unknown>) => o.id === userOutletId)
+            const myOutlet = groupOutlets.find((o: Record<string, unknown>) => o.id === userOutletId)
             setCurrentUserIsMain(Boolean(myOutlet?.isMain))
           }
         } catch {
@@ -1477,35 +1480,66 @@ export default function MultiOutletTerminalPage() {
       setCurrentOutletName(currentOutlet)
       setPlanMeta(plan)
 
-      // Step 2: Only fetch dashboard data if outlet has a group (avoids 400 error)
+      // Step 2: If has group, try to enrich with dashboard stats
       if (hasGrp) {
+        // Always show outlets from outlet-group (basic list)
+        const baseOutlets: OutletSummary[] = groupOutlets.map((o) => ({
+          id: String(o.id || ''),
+          name: String(o.name || '-'),
+          isMain: Boolean(o.isMain),
+          address: o.address as string | undefined,
+          phone: o.phone as string | undefined,
+          accountType: String(o.accountType || ''),
+          managerName: '-',
+          revenue: 0,
+          brutto: 0,
+          discount: 0,
+          tax: 0,
+          transactions: 0,
+          yesterdayRevenue: 0,
+          revenueChangePercent: 0,
+          totalProducts: Number(o._count?.products || 0),
+          totalStock: 0,
+          totalCustomers: Number(o._count?.customers || 0),
+        }))
+
+        // Try dashboard API for enriched stats (revenue, brutto, etc.)
         const terminalRes = await fetch(`/api/multi-outlet/dashboard?period=${dateFilterConfig[dateFilter].param}`).catch(() => null)
         if (terminalRes && terminalRes.ok) {
           try {
             const data = await terminalRes.json()
             setTotals(data.totals || null)
-            setOutlets((data.outlets || []).map((o: Record<string, unknown>) => ({
-              id: String(o.id || ''),
-              name: String(o.name || '-'),
-              isMain: Boolean(o.isMain),
-              address: o.address as string | undefined,
-              phone: o.phone as string | undefined,
-              accountType: String(o.accountType || ''),
-              managerName: String(o.managerName || '-'),
-              revenue: Number(o.revenue || 0),
-              brutto: Number(o.brutto || 0),
-              discount: Number(o.discount || 0),
-              tax: Number(o.tax || 0),
-              transactions: Number(o.transactions || 0),
-              yesterdayRevenue: Number(o.yesterdayRevenue || 0),
-              revenueChangePercent: Number(o.revenueChangePercent || 0),
-              totalProducts: Number(o.totalProducts || 0),
-              totalStock: Number(o.totalStock || 0),
-              totalCustomers: Number(o.totalCustomers || 0),
-            })))
+            if (data.outlets && data.outlets.length > 0) {
+              // Merge dashboard stats into outlet list
+              setOutlets(data.outlets.map((o: Record<string, unknown>) => ({
+                id: String(o.id || ''),
+                name: String(o.name || '-'),
+                isMain: Boolean(o.isMain),
+                address: o.address as string | undefined,
+                phone: o.phone as string | undefined,
+                accountType: String(o.accountType || ''),
+                managerName: String(o.managerName || '-'),
+                revenue: Number(o.revenue || 0),
+                brutto: Number(o.brutto || 0),
+                discount: Number(o.discount || 0),
+                tax: Number(o.tax || 0),
+                transactions: Number(o.transactions || 0),
+                yesterdayRevenue: Number(o.yesterdayRevenue || 0),
+                revenueChangePercent: Number(o.revenueChangePercent || 0),
+                totalProducts: Number(o.totalProducts || 0),
+                totalStock: Number(o.totalStock || 0),
+                totalCustomers: Number(o.totalCustomers || 0),
+              })))
+            } else {
+              setOutlets(baseOutlets)
+            }
           } catch {
-            // dashboard parse failed, keep defaults
+            // Dashboard parse failed — use base outlets
+            setOutlets(baseOutlets)
           }
+        } else {
+          // Dashboard API failed — still show base outlets
+          setOutlets(baseOutlets)
         }
       } else {
         // No group — clear dashboard data
@@ -1518,7 +1552,7 @@ export default function MultiOutletTerminalPage() {
     } finally {
       setLoading(false)
     }
-  }, [dateFilter])
+  }, [dateFilter, session?.user?.outletId])
 
   useEffect(() => {
     void fetchData()
