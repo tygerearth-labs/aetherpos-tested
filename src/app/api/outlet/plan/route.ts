@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server'
 import { resolvePlanType } from '@/lib/api/api-helpers'
 import { requireAuth } from '@/lib/auth/auth-utils'
 import { db } from '@/lib/db'
-import { getPlanFeatures, getPlanLabel } from '@/lib/config/plan-config'
+import { getPlanFeaturesFromDB, getPlanLabel } from '@/lib/config/plan-config'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 
 /**
@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
     // Derive plan type (handles suspended: prefix)
     const rawPlan = resolvePlanType(outlet.accountType)
     const isSuspended = outlet.accountType?.startsWith('suspended:') ?? false
-    const features = getPlanFeatures(rawPlan)
+    const features = await getPlanFeaturesFromDB(db, rawPlan)
 
     // Calculate usage vs limits
     const usage = {

@@ -1,25 +1,18 @@
 /**
  * usePlan.ts — Client-side Plan State Management
  *
- * Fetches the outlet's plan from the server on mount and
- * periodically (every 60s) to detect remote changes from
- * the Command Center.
+ * When used inside a <PlanProvider>, reads from the shared context
+ * (single fetch, no duplicates). When used outside a provider,
+ * falls back to local state (backward compatible).
  *
  * Usage:
  *   const { plan, features, usage, isSuspended, isLoading, refresh } = usePlan()
- *
- *   // Feature gating
- *   if (!features.exportExcel) { showUpgradeBanner() }
- *
- *   // Limit check
- *   if (!isUnlimited(features.maxProducts) && usage.products >= features.maxProducts) {
- *     toast('Produk已达上限，请升级')
- *   }
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import type { PlanFeatures } from '@/lib/config/plan-config'
 import { getPlanFeatures, isUnlimited } from '@/lib/config/plan-config'
+import { usePlanContext } from '@/context/plan-context'
 
 // ============================================================
 // Types
@@ -49,7 +42,7 @@ export interface PlanData {
   lastUpdated: string
 }
 
-interface UsePlanReturn {
+export interface UsePlanReturn {
   /** Full plan data from server (null while loading) */
   planData: PlanData | null
   /** Current plan info */
@@ -72,13 +65,13 @@ interface UsePlanReturn {
 // Hook
 // ============================================================
 
-const POLL_INTERVAL = 60_000 // 60 seconds
-const POLL_ON_FOCUS = true
-
 export function usePlan(): UsePlanReturn {
-  const [planData, setPlanData] = useState<PlanData | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const ctx = usePlanContext()
+
+  // Fallback local state — always called (hooks rules) but only used when ctx is null
+  const [localPlanData, setLocalPlanData] = useState<PlanData | null>(null)
+  const [localLoading, setLocalLoading] = useState(true)
+  const [localError, setLocalError] = useState<string | null>(null)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const hasFetchedOnce = useRef(false)
 
@@ -86,62 +79,58 @@ export function usePlan(): UsePlanReturn {
     try {
       const res = await fetch('/api/outlet/plan')
       if (!res.ok) {
-        // 401 = not logged in yet, silently ignore (don't spam console)
-        // 500 = server/DB error (e.g. no session or DB not initialized), also ignore
         if (res.status === 401 || res.status === 500) return
         throw new Error(`HTTP ${res.status}`)
       }
       const data = (await res.json()) as PlanData
-      setPlanData(data)
-      setError(null)
+      setLocalPlanData(data)
+      setLocalError(null)
       hasFetchedOnce.current = true
     } catch (err) {
-      // Only show error on first fetch attempt (not on polling/focus retries)
       if (!hasFetchedOnce.current) {
-        setError(err instanceof Error ? err.message : 'Unknown error')
+        setLocalError(err instanceof Error ? err.message : 'Unknown error')
       }
     } finally {
-      setIsLoading(false)
+      setLocalLoading(false)
     }
   }, [])
 
-  // Initial fetch — suppress lint: async data-fetch pattern (setStates inside async callback)
+  // Only run local effects when NOT inside a PlanProvider
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (ctx) return
     void fetchPlan()
-  }, [fetchPlan])
+  }, [fetchPlan, ctx])
 
-  // Polling interval
   useEffect(() => {
-    intervalRef.current = setInterval(fetchPlan, POLL_INTERVAL)
+    if (ctx) return
+    intervalRef.current = setInterval(fetchPlan, 60_000)
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current)
     }
-  }, [fetchPlan])
+  }, [fetchPlan, ctx])
 
-  // Refetch on window focus (tab switch back)
   useEffect(() => {
-    if (!POLL_ON_FOCUS) return
-
-    const onFocus = () => {
-      fetchPlan()
-    }
+    if (ctx) return
+    const onFocus = () => fetchPlan()
     window.addEventListener('focus', onFocus)
     return () => window.removeEventListener('focus', onFocus)
-  }, [fetchPlan])
+  }, [fetchPlan, ctx])
 
-  const isSuspended = planData?.plan.isSuspended ?? false
+  // Return shared context data when available, otherwise fallback
+  const source = ctx
+    ? { planData: ctx.planData, isLoading: ctx.isLoading, error: ctx.error, refresh: ctx.refresh }
+    : { planData: localPlanData, isLoading: localLoading, error: localError, refresh: fetchPlan }
 
-  return {
-    planData,
-    plan: planData?.plan ?? null,
-    features: planData?.features ?? null,
-    usage: planData?.usage ?? null,
-    isSuspended,
-    isLoading,
-    error,
-    refresh: fetchPlan,
-  }
+  return useMemo(() => ({
+    planData: source.planData,
+    plan: source.planData?.plan ?? null,
+    features: source.planData?.features ?? null,
+    usage: source.planData?.usage ?? null,
+    isSuspended: source.planData?.plan.isSuspended ?? false,
+    isLoading: source.isLoading,
+    error: source.error,
+    refresh: source.refresh,
+  }), [source.planData, source.isLoading, source.error, source.refresh])
 }
 
 // ============================================================
@@ -158,18 +147,15 @@ export function useFeatureGate(feature: keyof PlanFeatures): boolean {
 
   const value = features[feature]
 
-  // Boolean features
   if (typeof value === 'boolean') {
     return value
   }
 
-  // Array features (promoTypes)
   if (Array.isArray(value)) {
     return value.length > 0
   }
 
-  // Numeric features — check limit
-  return true // Limit checking is separate
+  return true
 }
 
 /**

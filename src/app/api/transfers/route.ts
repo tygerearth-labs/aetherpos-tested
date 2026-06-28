@@ -153,6 +153,7 @@ export async function POST(request: NextRequest) {
       quantity: number
       hpp: number
       price: number
+      productSnapshot: string | null
     }> = []
 
     for (const item of items) {
@@ -164,7 +165,13 @@ export async function POST(request: NextRequest) {
         // Look up product from database
         const product = await db.product.findFirst({
           where: { id: item.productId, outletId: user.outletId },
-          select: { id: true, name: true, sku: true, barcode: true, hpp: true, price: true, stock: true, hasVariants: true, variants: { select: { stock: true, price: true, hpp: true } } },
+          select: {
+            id: true, name: true, sku: true, barcode: true, hpp: true, price: true,
+            stock: true, hasVariants: true, image: true, unit: true,
+            lowStockAlert: true, bruto: true, netto: true,
+            category: { select: { id: true, name: true, color: true } },
+            variants: { select: { id: true, name: true, sku: true, barcode: true, hpp: true, price: true, stock: true } },
+          },
         })
         if (!product) {
           return safeJsonError(`Produk dengan ID ${item.productId} tidak ditemukan`, 400)
@@ -195,6 +202,25 @@ export async function POST(request: NextRequest) {
           quantity: item.quantity,
           hpp: realHpp,
           price: realPrice,
+          productSnapshot: JSON.stringify({
+            image: product.image || null,
+            unit: product.unit || 'pcs',
+            lowStockAlert: product.lowStockAlert || 10,
+            bruto: product.bruto || 0,
+            netto: product.netto || 0,
+            hasVariants: product.hasVariants,
+            categoryId: product.category?.id || null,
+            categoryName: product.category?.name || null,
+            categoryColor: product.category?.color || 'zinc',
+            variants: product.variants.map(v => ({
+              name: v.name,
+              sku: v.sku || null,
+              barcode: v.barcode || null,
+              hpp: v.hpp || 0,
+              price: v.price,
+              stock: v.stock,
+            })),
+          }),
         })
       } else if (item.productName) {
         // Manual entry (no productId)
@@ -208,6 +234,7 @@ export async function POST(request: NextRequest) {
           quantity: item.quantity,
           hpp: item.hpp || 0,
           price: item.price,
+          productSnapshot: null,
         })
       } else {
         return safeJsonError('Setiap item harus memiliki productId atau productName', 400)
@@ -287,6 +314,7 @@ export async function POST(request: NextRequest) {
               hpp: item.hpp || 0,
               price: item.price,
               outletId: user.outletId,
+              productSnapshot: item.productSnapshot || null,
             })),
           },
         },

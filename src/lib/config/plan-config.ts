@@ -43,6 +43,9 @@ export interface PlanFeatures {
   aiInsights: boolean            // Basic AI insight engine (health score, top insight)
   forecasting: boolean           // Revenue forecasting, stock depletion prediction, trend analysis
 
+  // Outlets
+  maxOutlets: number              // -1 = unlimited (1 = standalone only)
+
   // Advanced
   offlineMode: boolean           // Offline POS (IndexedDB)
   multiOutlet: boolean           // Multiple outlets
@@ -81,6 +84,8 @@ export const PLANS: Record<AccountType, PlanFeatures> = {
     aiInsights: false,
     forecasting: false,
 
+    maxOutlets: 1,
+
     offlineMode: true,
     multiOutlet: false,
     bulkUpload: false,
@@ -113,8 +118,10 @@ export const PLANS: Record<AccountType, PlanFeatures> = {
     aiInsights: true,
     forecasting: true,
 
+    maxOutlets: 5,
+
     offlineMode: true,
-    multiOutlet: false,
+    multiOutlet: true,
     bulkUpload: true,
     transactionSummary: true,
     apiAccess: true,
@@ -144,6 +151,8 @@ export const PLANS: Record<AccountType, PlanFeatures> = {
 
     aiInsights: true,
     forecasting: true,
+
+    maxOutlets: -1,
 
     offlineMode: true,
     multiOutlet: true,
@@ -226,4 +235,41 @@ export async function getOutletPlan(
 
   const features = getPlanFeatures(rawPlan)
   return { plan: rawPlan as AccountType, features, isSuspended }
+}
+
+/**
+ * Get plan features from DB (Plan table) merged with static defaults.
+ * DB features override static defaults — webmaster can customize via DB.
+ */
+export async function getPlanFeaturesFromDB(
+  prismaDb: { plan: { findUnique: (args: { where: { slug: string } }) => Promise<{ features: string } | null> } },
+  accountType: string
+): Promise<PlanFeatures> {
+  const staticFeatures = getPlanFeatures(accountType)
+  try {
+    const plan = await prismaDb.plan.findUnique({ where: { slug: accountType } })
+    if (!plan) return staticFeatures
+    const dbFeatures = JSON.parse(plan.features) as Partial<PlanFeatures>
+    return { ...staticFeatures, ...dbFeatures }
+  } catch {
+    return staticFeatures
+  }
+}
+
+/**
+ * Convenience: Get resolved plan features for an outlet (reads from DB).
+ */
+export async function getFeaturesForOutlet(
+  prismaDb: { outlet: { findUnique: (args: { where: { id: string }; select: { accountType: true } }) => Promise<{ accountType: string } | null> }; plan: { findUnique: (args: { where: { slug: string } }) => Promise<{ features: string } | null> } },
+  outletId: string
+): Promise<{ features: PlanFeatures; isSuspended: boolean } | null> {
+  const outlet = await prismaDb.outlet.findUnique({
+    where: { id: outletId },
+    select: { accountType: true },
+  })
+  if (!outlet) return null
+  const isSuspended = outlet.accountType.startsWith('suspended:')
+  const rawPlan = isSuspended ? outlet.accountType.replace('suspended:', '') : outlet.accountType
+  const features = await getPlanFeaturesFromDB(prismaDb, rawPlan)
+  return { features, isSuspended }
 }

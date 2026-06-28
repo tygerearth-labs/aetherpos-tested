@@ -86,7 +86,7 @@ const allMoreMenuItems: MoreMenuItem[] = [
 export default function MobileBottomNav() {
   const { currentPage, setCurrentPage } = usePageStore()
   const { data: session } = useSession()
-  const { plan, isSuspended, isLoading: planLoading } = usePlan()
+  const { plan, isSuspended, features, isLoading: planLoading } = usePlan()
   const router = useRouter()
   const [moreOpen, setMoreOpen] = useState(false)
   const [hasOutletGroup, setHasOutletGroup] = useState(false)
@@ -161,7 +161,8 @@ export default function MobileBottomNav() {
     window.location.href = '/'
   }
 
-  const moreItems = allMoreMenuItems.filter(i => !i.groupOnly || hasOutletGroup)
+  const multiOutletEnabled = features?.multiOutlet ?? false
+  const moreItems = allMoreMenuItems.filter(i => !i.groupOnly || (hasOutletGroup && multiOutletEnabled))
   const sections = ['Main', 'Admin']
 
   const isActive = (page: PageType) => currentPage === page

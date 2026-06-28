@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
+import { getFeaturesForOutlet, isUnlimited } from '@/lib/config/plan-config'
 import { safeJson, safeJsonCreated, safeJsonError } from '@/lib/api/safe-response'
 
 // GET /api/categories — list all categories for the outlet
@@ -29,6 +30,17 @@ export async function POST(request: NextRequest) {
   try {
     const user = await getAuthUser(request)
     if (!user) return unauthorized()
+
+    const planData = await getFeaturesForOutlet(db, user.outletId)
+    if (planData?.features) {
+      const { maxCategories } = planData.features
+      if (!isUnlimited(maxCategories)) {
+        const count = await db.category.count({ where: { outletId: user.outletId } })
+        if (count >= maxCategories) {
+          return safeJsonError(`Batas kategori (${maxCategories}) sudah tercapai. Upgrade plan untuk menambah kategori.`, 403)
+        }
+      }
+    }
 
     const body = await request.json()
     const { name, color } = body

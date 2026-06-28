@@ -271,6 +271,11 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Check productImage feature
+    if (image && !features.productImage) {
+      return safeJsonError('Upload gambar produk hanya tersedia di plan Pro ke atas', 403)
+    }
+
     // Check unique name per outlet
     const existing = await db.product.findFirst({
       where: { name, outletId },

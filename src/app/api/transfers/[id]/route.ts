@@ -304,6 +304,39 @@ export async function PATCH(
             })
             restockedProducts.push(item.productName)
 
+            // If snapshot has variants and destination product has none, create them
+            let snapshot: Record<string, unknown> | null = null
+            try {
+              snapshot = item.productSnapshot ? JSON.parse(item.productSnapshot) : null
+            } catch { /* ignore */ }
+
+            if (snapshot?.variants && Array.isArray(snapshot.variants) && snapshot.variants.length > 0) {
+              const existingVariants = await tx.productVariant.count({
+                where: { productId: product.id },
+              })
+              if (existingVariants === 0) {
+                for (const v of snapshot.variants) {
+                  const variant = v as { name: string; sku?: string; barcode?: string; hpp?: number; price: number; stock: number }
+                  await tx.productVariant.create({
+                    data: {
+                      productId: product.id,
+                      name: variant.name,
+                      sku: variant.sku || null,
+                      barcode: variant.barcode || null,
+                      hpp: variant.hpp || 0,
+                      price: variant.price,
+                      stock: variant.stock || 0,
+                      outletId: destOutletId,
+                    },
+                  })
+                }
+                await tx.product.update({
+                  where: { id: product.id },
+                  data: { hasVariants: true },
+                })
+              }
+            }
+
             // Per-product audit log so it shows in product detail movement history
             await tx.auditLog.create({
               data: {
@@ -326,20 +359,65 @@ export async function PATCH(
             })
           } else {
             // Product doesn't exist — create new product in destination
-            const newProduct = await tx.product.create({
-              data: {
-                name: item.productName,
-                sku: item.productSku || null,
-                barcode: item.productBarcode || null,
-                hpp: item.hpp || 0,
-                price: item.price,
-                stock: item.quantity,
-                outletId: destOutletId,
-                lowStockAlert: 10,
-                unit: 'pcs',
-              },
-            })
+            // Parse product snapshot for full data
+            let snapshot: Record<string, unknown> | null = null
+            try {
+              snapshot = item.productSnapshot ? JSON.parse(item.productSnapshot) : null
+            } catch { /* ignore */ }
+
+            const productData: Record<string, unknown> = {
+              name: item.productName,
+              sku: item.productSku || null,
+              barcode: item.productBarcode || null,
+              hpp: item.hpp || 0,
+              price: item.price,
+              stock: item.quantity,
+              outletId: destOutletId,
+              // Use snapshot data if available, otherwise defaults
+              image: (snapshot?.image as string) || null,
+              unit: (snapshot?.unit as string) || 'pcs',
+              lowStockAlert: (snapshot?.lowStockAlert as number) || 10,
+              bruto: (snapshot?.bruto as number) || 0,
+              netto: (snapshot?.netto as number) || 0,
+              hasVariants: (snapshot?.hasVariants as boolean) || false,
+            }
+
+            // Match or create category at destination
+            if (snapshot?.categoryName) {
+              let destCategory = await tx.category.findFirst({
+                where: { name: snapshot.categoryName as string, outletId: destOutletId },
+              })
+              if (!destCategory) {
+                // Auto-create category at branch if it doesn't exist
+                const color = (snapshot?.categoryColor as string) || 'zinc'
+                destCategory = await tx.category.create({
+                  data: { name: snapshot.categoryName as string, color, outletId: destOutletId },
+                })
+              }
+              productData.categoryId = destCategory.id
+            }
+
+            const newProduct = await tx.product.create({ data: productData })
             createdProducts.push(item.productName)
+
+            // Create variants if snapshot has them
+            if (snapshot?.variants && Array.isArray(snapshot.variants) && snapshot.variants.length > 0) {
+              for (const v of snapshot.variants) {
+                const variant = v as { name: string; sku?: string; barcode?: string; hpp?: number; price: number; stock: number }
+                await tx.productVariant.create({
+                  data: {
+                    productId: newProduct.id,
+                    name: variant.name,
+                    sku: variant.sku || null,
+                    barcode: variant.barcode || null,
+                    hpp: variant.hpp || 0,
+                    price: variant.price,
+                    stock: variant.stock || 0,
+                    outletId: destOutletId,
+                  },
+                })
+              }
+            }
 
             // Per-product audit log: CREATE
             await tx.auditLog.create({
