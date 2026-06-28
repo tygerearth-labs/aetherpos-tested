@@ -99,6 +99,7 @@ import dynamic from 'next/dynamic'
 
 const BarcodeDisplay = dynamic(() => import('@/components/shared/barcode-display'), { ssr: false })
 const BatchBarcodeDialog = dynamic(() => import('@/components/shared/batch-barcode-dialog'), { ssr: false })
+const BarcodeA4Dialog = dynamic(() => import('@/components/shared/barcode-a4-dialog'), { ssr: false })
 
 interface Category {
   id: string
@@ -437,6 +438,7 @@ export default function ProductsPage() {
   const [editExcelProgress, setEditExcelProgress] = useState(0)
   const [editExcelPhase, setEditExcelPhase] = useState('')
   const [batchBarcodeOpen, setBatchBarcodeOpen] = useState(false)
+  const [barcodeA4Open, setBarcodeA4Open] = useState(false)
   const [editExcelResult, setEditExcelResult] = useState<{
     updated: number
     notFound: number
@@ -1146,6 +1148,14 @@ export default function ProductsPage() {
             >
               <Printer className="mr-1.5 h-3.5 w-3.5" />
               Cetak Barcode
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setBarcodeA4Open(true)}
+              className="bg-white/[0.04] border-white/[0.04] text-slate-300 hover:text-white hover:bg-white/[0.04] h-9 text-xs font-medium shrink-0"
+            >
+              <Printer className="mr-1.5 h-3.5 w-3.5" />
+              Cetak Barcode A4
             </Button>
           <ProGate feature="bulkUpload" label="Upload Excel" description="Upload produk massal via file Excel" variant="inline">
             <Button
@@ -3372,6 +3382,13 @@ export default function ProductsPage() {
       <BatchBarcodeDialog
         open={batchBarcodeOpen}
         onOpenChange={setBatchBarcodeOpen}
+        categories={categories}
+      />
+
+      {/* Barcode A4 Print Dialog */}
+      <BarcodeA4Dialog
+        open={barcodeA4Open}
+        onOpenChange={setBarcodeA4Open}
         categories={categories}
       />
     </div>

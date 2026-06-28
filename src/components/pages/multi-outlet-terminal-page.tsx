@@ -18,6 +18,16 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
 import {
   Building2,
@@ -52,6 +62,8 @@ import {
   Lock,
   Sparkles,
   Info,
+  Copy,
+  Loader2,
 } from 'lucide-react'
 
 // ── Types ──
@@ -540,11 +552,17 @@ function OutletDetailDialog({
   period,
   open,
   onClose,
+  isOwner,
+  isCurrentUserMain,
+  mainOutletName,
 }: {
   outlet: OutletSummary
   period: DateFilter
   open: boolean
   onClose: () => void
+  isOwner: boolean
+  isCurrentUserMain: boolean
+  mainOutletName: string
 }) {
   const [tab, setTab] = useState<DetailTab>('transactions')
   const [search, setSearch] = useState('')
@@ -562,6 +580,11 @@ function OutletDetailDialog({
   const [addCrewOpen, setAddCrewOpen] = useState(false)
   const [editCrew, setEditCrew] = useState<CrewMember | null>(null)
   const [deleteCrew, setDeleteCrew] = useState<CrewMember | null>(null)
+
+  // Duplicate config state
+  const [dupConfirmOpen, setDupConfirmOpen] = useState(false)
+  const [duplicating, setDuplicating] = useState(false)
+  const showDuplicateBtn = isOwner && isCurrentUserMain && !outlet.isMain
 
   // Fetch data for transactions/customers/products tabs
   const fetchData = useCallback(async () => {
@@ -672,6 +695,29 @@ function OutletDetailDialog({
     }
   }
 
+  // Duplicate config handler
+  const handleDuplicateConfig = async () => {
+    setDupConfirmOpen(false)
+    setDuplicating(true)
+    try {
+      const res = await fetch('/api/multi-outlet/duplicate-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetOutletId: outlet.id }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        toast.error(data.error || 'Gagal menduplikat konfigurasi')
+        return
+      }
+      toast.success(data.message || `Konfigurasi berhasil diduplikasi ke "${outlet.name}"`)
+    } catch {
+      toast.error('Gagal menduplikat konfigurasi')
+    } finally {
+      setDuplicating(false)
+    }
+  }
+
   const handleDeleteCrew = async () => {
     if (!deleteCrew) return
     try {
@@ -759,6 +805,17 @@ function OutletDetailDialog({
               ))}
             </div>
             <div className="flex items-center gap-2">
+              {showDuplicateBtn && (
+                <Button
+                  size="sm"
+                  onClick={() => setDupConfirmOpen(true)}
+                  disabled={duplicating}
+                  className="h-7 px-2.5 text-[11px] bg-amber-600 hover:bg-amber-700 text-white disabled:opacity-50"
+                >
+                  {duplicating ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Copy className="h-3.5 w-3.5 mr-1" />}
+                  {duplicating ? 'Menduplikat…' : 'Duplikat Konfigurasi'}
+                </Button>
+              )}
               {isCrewTab && (
                 <Button
                   size="sm"
@@ -844,6 +901,30 @@ function OutletDetailDialog({
             </div>
           </div>
         )}
+
+        {/* Duplicate Config Confirmation */}
+        <AlertDialog open={dupConfirmOpen} onOpenChange={setDupConfirmOpen}>
+          <AlertDialogContent className="bg-[#0c0d12] border-white/[0.06]">
+            <AlertDialogHeader>
+              <AlertDialogTitle className="text-white">Duplikat Konfigurasi?</AlertDialogTitle>
+              <AlertDialogDescription className="text-slate-400 text-sm leading-relaxed">
+                Duplikasi konfigurasi dari <span className="text-amber-400 font-medium">{mainOutletName}</span> ke <span className="text-white font-medium">{outlet.name}</span>?<br /><br />
+                <span className="text-[11px] text-slate-500">Mengecek: pengaturan pembayaran, loyalitas, struk, tema, PPN, kategori, dan produk (stok direset ke 0). Data transaksi, customer, dan crew tidak terpengaruh.</span>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel className="bg-white/[0.04] border-white/[0.08] text-slate-300 hover:text-white hover:bg-white/[0.08]">
+                Batal
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleDuplicateConfig}
+                className="bg-amber-600 hover:bg-amber-700 text-white"
+              >
+                Duplikat
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         {/* Crew Dialogs */}
         <AddCrewDialog
@@ -1360,6 +1441,7 @@ export default function MultiOutletTerminalPage() {
   const [detailOpen, setDetailOpen] = useState(false)
   const [createGroupOpen, setCreateGroupOpen] = useState(false)
   const [addOutletOpen, setAddOutletOpen] = useState(false)
+  const [currentUserIsMain, setCurrentUserIsMain] = useState(false)
 
   // ── Fetch group + data ──
   const fetchData = useCallback(async () => {
@@ -1379,6 +1461,12 @@ export default function MultiOutletTerminalPage() {
           grpName = groupData.groupName || ''
           currentOutlet = groupData.outlets?.[0]?.name || ''
           plan = groupData.plan || null
+          // Determine if current user's outlet is main
+          const userOutletId = session?.user?.outletId
+          if (userOutletId) {
+            const myOutlet = groupData.outlets?.find((o: Record<string, unknown>) => o.id === userOutletId)
+            setCurrentUserIsMain(Boolean(myOutlet?.isMain))
+          }
         } catch {
           hasGrp = false
         }
@@ -1728,6 +1816,9 @@ export default function MultiOutletTerminalPage() {
             period={dateFilter}
             open={detailOpen}
             onClose={() => setDetailOpen(false)}
+            isOwner={!!isOwner}
+            isCurrentUserMain={currentUserIsMain}
+            mainOutletName={outlets.find((o) => o.isMain)?.name || currentOutletName}
           />
         )}
       </AnimatePresence>

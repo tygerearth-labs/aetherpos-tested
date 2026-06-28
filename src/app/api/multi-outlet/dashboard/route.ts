@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
-import { buildDateFilterTz, parseTzOffset, getTodayRangeTz, getVoidedTxIds } from '@/lib/api/api-helpers'
+import { buildDateFilterTz, parseTzOffset, getTodayRangeTz } from '@/lib/api/api-helpers'
 import { safeJson, safeJsonError, CACHE } from '@/lib/api/safe-response'
 
 /**
@@ -143,7 +143,7 @@ export async function GET(request: NextRequest) {
           // Revenue in date range (excl. voids)
           db.transaction.aggregate({
             where: { outletId: outlet.id, createdAt: dateFilter, ...voidExclude },
-            _sum: { total: true, brutto: true, discount: true, taxAmount: true },
+            _sum: { total: true, subtotal: true, discount: true, taxAmount: true },
           }),
 
           // Transaction count in date range (excl. voids)
@@ -188,7 +188,7 @@ export async function GET(request: NextRequest) {
           managerName: managerMap.get(outlet.id) || '-',
           // Revenue & transactions in date range
           revenue: todayRevenue,
-          brutto: revenueAgg._sum.brutto ?? 0,
+          brutto: revenueAgg._sum.subtotal ?? 0,
           discount: revenueAgg._sum.discount ?? 0,
           tax: revenueAgg._sum.taxAmount ?? 0,
           transactions: txCount,
@@ -232,7 +232,7 @@ export async function GET(request: NextRequest) {
       {
         groupId: group.id,
         groupName: group.name,
-        dateFilter: Object.keys(dateFilter).length > 0 ? dateFilter : 'today',
+        dateFilter: period,
         outlets: outletData,
         totals: groupTotals,
       },
