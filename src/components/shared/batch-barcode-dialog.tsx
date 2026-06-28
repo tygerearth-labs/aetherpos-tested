@@ -102,7 +102,7 @@ export default function BatchBarcodeDialog({ open, onOpenChange, categories }: B
   useEffect(() => {
     if (!open) return
     let cancelled = false
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+     
     setLoading(true)
     const params = new URLSearchParams()
     if (filterCategory) params.set('categoryId', filterCategory)
@@ -119,7 +119,7 @@ export default function BatchBarcodeDialog({ open, onOpenChange, categories }: B
 
   /* ---- Reset selection when filter / search changes ---- */
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+     
     if (open) setSelectedIds(new Set())
   }, [open, filterCategory, search])
 
@@ -279,7 +279,7 @@ render();
 
   /* ---- Reset everything on close ---- */
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+     
     if (!open) { setRawSearch(''); setFilterCategory(''); setSelectedIds(new Set()); setItems([]); resetAll() }
   }, [open, resetAll])
 

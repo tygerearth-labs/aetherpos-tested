@@ -487,7 +487,7 @@ export default function ProductsPage() {
   }, [])
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+     
     void fetchCategories()
   }, [fetchCategories])
 
@@ -517,7 +517,7 @@ export default function ProductsPage() {
   }, [page, search, sort, activeCategoryId])
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+     
     void fetchProducts()
   }, [fetchProducts])
 
@@ -556,7 +556,7 @@ export default function ProductsPage() {
 
   useEffect(() => {
     if (detailOpen && detailProduct) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+       
       void fetchDetail(detailProduct, detailPage)
     }
   }, [detailOpen, detailProduct, detailPage, fetchDetail])

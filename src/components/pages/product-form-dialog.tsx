@@ -136,7 +136,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
 
   useEffect(() => {
     if (product) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+       
       setForm({
         name: product.name,
         sku: product.sku || '',
@@ -423,7 +423,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                     <div
                       className="relative w-full aspect-square max-w-[160px] bg-white/[0.02] flex items-center justify-center overflow-hidden"
                     >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      { }
                       <img
                         src={form.image.trim()}
                         alt="Preview"

@@ -303,7 +303,7 @@ export default function InsightsPage() {
   }, [tzOffset])
 
   useEffect(() => {
-    if (isOwner) // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (isOwner)  
     void fetchInsights()
   }, [isOwner, fetchInsights])
 

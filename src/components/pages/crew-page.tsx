@@ -162,7 +162,7 @@ function CrewManagement() {
   }, [])
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+     
     void fetchCrew()
   }, [fetchCrew])
 
@@ -722,7 +722,7 @@ function CrewAccessTab() {
   }, [])
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+     
     void fetchPermissions()
   }, [fetchPermissions])
 
