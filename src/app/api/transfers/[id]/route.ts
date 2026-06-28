@@ -35,6 +35,17 @@ export async function GET(
         },
         items: {
           orderBy: { createdAt: 'asc' },
+          select: {
+            id: true,
+            productName: true,
+            productSku: true,
+            productBarcode: true,
+            quantity: true,
+            hpp: true,
+            price: true,
+            productSnapshot: true,
+            createdAt: true,
+          },
         },
       },
     })
@@ -103,7 +114,18 @@ export async function PATCH(
     const transfer = await db.outletTransfer.findUnique({
       where: { id },
       include: {
-        items: true,
+        items: {
+          select: {
+            id: true,
+            productName: true,
+            productSku: true,
+            productBarcode: true,
+            quantity: true,
+            hpp: true,
+            price: true,
+            productSnapshot: true,
+          },
+        },
         fromOutlet: { select: { id: true, name: true } },
         toOutlet: { select: { id: true, name: true } },
       },
@@ -256,7 +278,12 @@ export async function PATCH(
         include: {
           fromOutlet: { select: { name: true } },
           toOutlet: { select: { name: true } },
-          items: true,
+          items: {
+            select: {
+              id: true, productName: true, productSku: true, productBarcode: true,
+              quantity: true, hpp: true, price: true, productSnapshot: true,
+            },
+          },
         },
       })
 
@@ -524,7 +551,12 @@ export async function PATCH(
           toOutlet: { select: { name: true } },
           createdBy: { select: { id: true, name: true } },
           receivedBy: { select: { id: true, name: true } },
-          items: true,
+          items: {
+            select: {
+              id: true, productName: true, productSku: true, productBarcode: true,
+              quantity: true, hpp: true, price: true, productSnapshot: true,
+            },
+          },
         },
       })
 
@@ -577,7 +609,12 @@ export async function PATCH(
         include: {
           fromOutlet: { select: { name: true } },
           toOutlet: { select: { name: true } },
-          items: true,
+          items: {
+            select: {
+              id: true, productName: true, productSku: true, productBarcode: true,
+              quantity: true, hpp: true, price: true, productSnapshot: true,
+            },
+          },
         },
       })
 
