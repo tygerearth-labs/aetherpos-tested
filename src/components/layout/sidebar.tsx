@@ -354,7 +354,7 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
       )}
 
       {/* Navigation */}
-      <ScrollArea className="flex-1 px-2 py-3 scrollbar-hide">
+      <ScrollArea className="flex-1 min-h-0 overflow-hidden px-2 py-3">
         {groupedItems.map((group, groupIdx) => {
           const showSection = !isCompact
           const wrapper = isMobile ? (

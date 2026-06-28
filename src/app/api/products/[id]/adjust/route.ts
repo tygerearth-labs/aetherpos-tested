@@ -25,7 +25,7 @@ export async function POST(
 
     const existing = await db.product.findFirst({
       where: { id, outletId },
-      select: { id: true, name: true, stock: true, hasVariants: true },
+      select: { id: true, name: true, sku: true, stock: true, hasVariants: true },
     })
     if (!existing) {
       return safeJsonError('Product not found', 404)
@@ -51,6 +51,7 @@ export async function POST(
           entityId: id,
           details: JSON.stringify({
             productName: updated.name,
+            productSku: existing.sku || null,
             previousStock: existing.stock,
             newStock: updated.stock,
             adjustment: newStock - existing.stock,

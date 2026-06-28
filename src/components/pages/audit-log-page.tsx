@@ -275,13 +275,14 @@ function formatDetailValue(key: string, value: unknown): string {
   }
   if (typeof value === 'boolean') return value ? 'Ya' : 'Tidak'
   if (Array.isArray(value)) {
-    // For itemsRestored array
+    // For itemsRestored array (void transactions)
     if (key === 'itemsRestored') {
       return value
         .map((item: Record<string, unknown>) => {
           const name = typeof item.productName === 'string' ? item.productName : '?'
+          const sku = typeof item.productSku === 'string' ? item.productSku : (typeof item.variantSku === 'string' ? item.variantSku : '')
           const qty = typeof item.qty === 'number' ? item.qty : '?'
-          return `${name} (x${qty})`
+          return sku ? `${name} (${sku}) x${qty}` : `${name} x${qty}`
         })
         .join(', ')
     }
@@ -318,15 +319,15 @@ function DetailsDisplay({ action, details }: { action: string; details: string |
 
   // Sort detail keys for better display based on action type
   const priorityKeys: Record<string, string[]> = {
-    SALE: ['invoiceNumber', 'productName', 'variantName', 'quantitySold', 'previousStock', 'newStock'],
-    RESTOCK: ['action', 'transferNumber', 'fromOutlet', 'toOutlet', 'itemCount', 'createdProducts', 'restockedProducts', 'reason', 'productName', 'quantityAdded', 'newStock'],
+    SALE: ['invoiceNumber', 'productName', 'productSku', 'variantName', 'variantSku', 'quantitySold', 'previousStock', 'newStock'],
+    RESTOCK: ['productName', 'productSku', 'action', 'transferNumber', 'fromOutlet', 'toOutlet', 'itemCount', 'createdProducts', 'restockedProducts', 'reason', 'quantityAdded', 'newStock'],
     VOID: ['invoiceNumber', 'total', 'reason', 'voidedBy', 'itemsRestored'],
-    ADJUSTMENT: ['action', 'transferNumber', 'fromOutlet', 'toOutlet', 'itemCount', 'productName', 'previousStock', 'newStock', 'reason'],
+    ADJUSTMENT: ['productName', 'productSku', 'action', 'transferNumber', 'fromOutlet', 'toOutlet', 'itemCount', 'previousStock', 'newStock', 'reason'],
     CREATE: ['name', 'productName', 'action', 'transferNumber', 'fromOutlet', 'productSku', 'initialStock', 'price', 'stock', 'bulkUpload', 'created', 'skipped'],
-    UPDATE: ['name', 'productName', 'variantName', 'outletName', 'outletAddress', 'outletPhone', 'price', 'stock', 'ppnEnabled', 'ppnRate', 'hasVariants', 'variantCount'],
-    BULK_UPDATE: ['productName', 'changes', 'batchOperation'],
+    UPDATE: ['name', 'productName', 'productSku', 'variantName', 'variantSku', 'outletName', 'outletAddress', 'outletPhone', 'price', 'stock', 'ppnEnabled', 'ppnRate', 'hasVariants', 'variantCount'],
+    BULK_UPDATE: ['productName', 'productSku', 'changes', 'batchOperation'],
     DELETE: ['productName', 'variantName', 'price', 'stock', 'variantCount'],
-    VARIANT: ['productName', 'variantName', 'name', 'price', 'stock', 'changes'],
+    VARIANT: ['productName', 'productSku', 'variantName', 'variantSku', 'name', 'price', 'stock', 'changes'],
   }
 
   const sortedKeys = priorityKeys[action]
@@ -774,8 +775,10 @@ export default function AuditLogPage() {
                             {key === 'itemsRestored' && Array.isArray(value)
                               ? (value as Record<string, unknown>[]).map((item, i) => {
                                   const name = typeof item.productName === 'string' ? item.productName : '?'
+                                  const sku = typeof item.productSku === 'string' ? item.productSku : (typeof item.variantSku === 'string' ? item.variantSku : '')
                                   const qty = typeof item.qty === 'number' ? item.qty : '?'
-                                  return <span key={i}>{name} (x{qty}){i < (value as unknown[]).length - 1 ? ', ' : ''}</span>
+                                  const suffix = sku ? ` (${sku})` : ''
+                                  return <span key={i}>{name}{suffix} (x{qty}){i < (value as unknown[]).length - 1 ? ', ' : ''}</span>
                                 })
                               : formatDetailValue(key, value)}
                           </span>

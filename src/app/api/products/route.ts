@@ -367,6 +367,7 @@ export async function POST(request: NextRequest) {
           entityId: newProduct.id,
           details: JSON.stringify({
             name: newProduct.name,
+            sku: newProduct.sku || null,
             price: newProduct.price,
             stock: newProduct.stock,
             hasVariants: !!hasVariants,

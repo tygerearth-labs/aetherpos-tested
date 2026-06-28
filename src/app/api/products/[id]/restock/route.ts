@@ -21,7 +21,7 @@ export async function POST(
 
     const existing = await db.product.findFirst({
       where: { id, outletId },
-      select: { id: true, name: true, stock: true, hasVariants: true },
+      select: { id: true, name: true, sku: true, stock: true, hasVariants: true },
     })
     if (!existing) {
       return safeJsonError('Product not found', 404)
@@ -43,7 +43,7 @@ export async function POST(
       // Verify all variants belong to this product
       const existingVariants = await db.productVariant.findMany({
         where: { id: { in: variantIds }, productId: id, outletId },
-        select: { id: true, name: true, stock: true },
+        select: { id: true, name: true, sku: true, stock: true },
       })
 
       if (existingVariants.length !== variants.length) {
@@ -67,7 +67,9 @@ export async function POST(
               entityId: variantReq.id,
               details: JSON.stringify({
                 productName: existing.name,
+                productSku: existing.sku || null,
                 variantName: variantBefore.name,
+                variantSku: variantBefore.sku || null,
                 quantityAdded: variantReq.quantity,
                 previousStock: variantBefore.stock,
                 newStock: updated.stock,
@@ -114,6 +116,7 @@ export async function POST(
           entityId: id,
           details: JSON.stringify({
             productName: updated.name,
+            productSku: existing.sku || null,
             quantityAdded: quantity,
             previousStock: existing.stock,
             newStock: updated.stock,

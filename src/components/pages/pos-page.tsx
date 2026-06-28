@@ -249,6 +249,10 @@ export default function PosPage() {
               ppnEnabled: data.ppnEnabled ?? false,
               ppnRate: data.ppnRate || 11,
               manualDiscountEnabled: data.manualDiscountEnabled ?? false,
+              receiptDoublePrintEnabled: data.receiptDoublePrintEnabled ?? false,
+              receiptMerchantCopyEnabled: data.receiptMerchantCopyEnabled ?? true,
+              receiptCustomerCopyEnabled: data.receiptCustomerCopyEnabled ?? true,
+              receiptBatchOrderEnabled: data.receiptBatchOrderEnabled ?? false,
             })
             // Extract outlet info from settings response
             if (data.outlet) {
@@ -280,6 +284,10 @@ export default function PosPage() {
               ppnEnabled: (cached.ppnEnabled as boolean) ?? false,
               ppnRate: (cached.ppnRate as number) || 11,
               manualDiscountEnabled: (cached.manualDiscountEnabled as boolean) ?? false,
+              receiptDoublePrintEnabled: (cached.receiptDoublePrintEnabled as boolean) ?? false,
+              receiptMerchantCopyEnabled: (cached.receiptMerchantCopyEnabled as boolean) ?? true,
+              receiptCustomerCopyEnabled: (cached.receiptCustomerCopyEnabled as boolean) ?? true,
+              receiptBatchOrderEnabled: (cached.receiptBatchOrderEnabled as boolean) ?? false,
             })
             // Extract outlet info from cached settings
             const cachedOutlet = cached.outlet as { id: string; name: string; address: string | null; phone: string | null } | undefined
@@ -321,6 +329,10 @@ export default function PosPage() {
                 ppnEnabled: data.ppnEnabled ?? false,
                 ppnRate: data.ppnRate || 11,
                 manualDiscountEnabled: data.manualDiscountEnabled ?? false,
+                receiptDoublePrintEnabled: data.receiptDoublePrintEnabled ?? false,
+                receiptMerchantCopyEnabled: data.receiptMerchantCopyEnabled ?? true,
+                receiptCustomerCopyEnabled: data.receiptCustomerCopyEnabled ?? true,
+                receiptBatchOrderEnabled: data.receiptBatchOrderEnabled ?? false,
               })
             }
           }
