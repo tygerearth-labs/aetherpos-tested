@@ -12,7 +12,7 @@ import {
   ResponsiveDialogTitle,
   ResponsiveDialogDescription,
 } from '@/components/ui/responsive-dialog'
-import { Loader2, Search, Printer, CheckSquare, Square, PackageOpen, FileText } from 'lucide-react'
+import { Loader2, Search, Printer, CheckSquare, Square, PackageOpen } from 'lucide-react'
 import { formatCurrency } from '@/lib/format'
 import { toast } from 'sonner'
 
@@ -68,9 +68,6 @@ export default function BatchBarcodeDialog({ open, onOpenChange, categories }: B
   const [filterCategory, setFilterCategory] = useState('')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [printing, setPrinting] = useState(false)
-  const [printMode, setPrintMode] = useState<'thermal' | 'a4'>('thermal')
-  const [a4Columns, setA4Columns] = useState<2 | 3 | 4>(3)
-  const [copiesPerLabel, setCopiesPerLabel] = useState(1)
 
   const search = useDebounce(rawSearch, 300)
 
@@ -162,92 +159,31 @@ export default function BatchBarcodeDialog({ open, onOpenChange, categories }: B
       const JsBarcodeMod = await import('jsbarcode')
       const JsBarcode = JsBarcodeMod.default || JsBarcodeMod
       const canvas = document.createElement('canvas')
+      const labels: string[] = []
 
-      // Build barcode images map
-      const barcodeImages = new Map<string, string>()
       for (const item of toPrint) {
-        if (!barcodeImages.has(item.barcode)) {
-          JsBarcode(canvas, item.barcode, {
-            format: 'CODE128',
-            width: printMode === 'a4' ? 1.5 : 2,
-            height: printMode === 'a4' ? 40 : 50,
-            displayValue: false,
-            margin: 0,
-            background: '#FFFFFF',
-            lineColor: '#000000',
-          })
-          barcodeImages.set(item.barcode, canvas.toDataURL('image/png'))
-        }
-      }
-
-      // Expand items by copies
-      const expanded = toPrint.flatMap((item) =>
-        Array.from({ length: copiesPerLabel }, () => ({
-          ...item,
-          img: barcodeImages.get(item.barcode)!,
-          displayName: item.parentName ? `${item.parentName} — ${item.label}` : item.label,
-        }))
-      )
-
-      if (printMode === 'a4') {
-        // ── A4 grid layout ──
-        const cols = a4Columns
-        const totalLabels = expanded.length
-        const labelsPerRow = cols
-
-        let html = `<!DOCTYPE html><html><head><title>Cetak ${totalLabels} Label A4</title>
-<style>
-@page{size:A4 portrait;margin:8mm}
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:Arial,sans-serif;background:#fff;color:#000}
-.grid{display:grid;grid-template-columns:repeat(${cols},1fr);gap:3mm}
-.lbl{border:0.5px solid #ddd;border-radius:3px;padding:3mm 2mm;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:28mm;page-break-inside:avoid}
-.lbl-name{font-size:8px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%}
-.lbl-price{font-size:9px;font-weight:700;margin:1px 0}
-.lbl-img{width:90%;height:auto;display:block}
-.lbl-code{font-size:7px;letter-spacing:0.8px;color:#555;margin-top:1px}
-.bar{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#fff;padding:14px 20px;border-radius:14px;box-shadow:0 4px 24px rgba(0,0,0,.12);display:flex;flex-direction:column;align-items:center;gap:8px}
-.bar button{cursor:pointer;border:none;border-radius:8px;font-size:14px;font-weight:600}
-.bar .bp{padding:10px 36px;background:#111;color:#fff}
-.bar .bc{padding:6px 18px;background:none;color:#888;text-decoration:underline;font-size:13px}
-@media print{.bar{display:none!important}}
-</style></head><body><div class="grid">`
-
-        for (const item of expanded) {
-          html += `<div class="lbl">
-            <div class="lbl-name">${item.displayName}</div>
-            <div class="lbl-price">${formatCurrency(item.price)}</div>
-            <img class="lbl-img" src="${item.img}" />
-            <div class="lbl-code">${item.barcode}</div>
-          </div>`
-        }
-
-        html += `</div>
-<div class="bar">
-  <button class="bp" onclick="window.print()">Cetak ${totalLabels} Label</button>
-  <button class="bc" onclick="window.close()">Tutup</button>
-</div></body></html>`
-
-        const w = window.open('', '_blank')
-        if (!w) { toast.error('Pop-up diblokir. Izinkan pop-up untuk mencetak.'); setPrinting(false); return }
-        w.document.write(html)
-        w.document.close()
-      } else {
-        // ── Thermal 80mm ──
-        const labels: string[] = []
-        for (const item of expanded) {
-          labels.push(`
+        JsBarcode(canvas, item.barcode, {
+          format: 'CODE128',
+          width: 2,
+          height: 50,
+          displayValue: false,
+          margin: 0,
+          background: '#FFFFFF',
+          lineColor: '#000000',
+        })
+        const src = canvas.toDataURL('image/png')
+        labels.push(`
           <div class="label">
-            <div class="lbl-name">${item.displayName}</div>
+            <div class="lbl-name">${item.parentName ? `${item.parentName} — ${item.label}` : item.label}</div>
             <div class="lbl-price">${formatCurrency(item.price)}</div>
-            <img class="lbl-img" src="${item.img}" />
+            <img class="lbl-img" src="${src}" />
             <div class="lbl-code">${item.barcode}</div>
           </div>`)
-        }
+      }
 
-        const w = window.open('', '_blank', 'width=420,height=640')
-        if (!w) { toast.error('Pop-up diblokir. Izinkan pop-up untuk mencetak.'); setPrinting(false); return }
-        w.document.write(`<!DOCTYPE html><html><head><title>Cetak ${toPrint.length} Label</title>
+      const w = window.open('', '_blank', 'width=420,height=640')
+      if (!w) { toast.error('Pop-up diblokir. Izinkan pop-up untuk mencetak.'); setPrinting(false); return }
+      w.document.write(`<!DOCTYPE html><html><head><title>Cetak ${toPrint.length} Label</title>
 <style>
 @page{size:80mm auto;margin:0}
 *{margin:0;padding:0;box-sizing:border-box}
@@ -264,21 +200,20 @@ body{font-family:'Courier New',monospace;background:#fff;color:#000;display:flex
 @media print{.bar{display:none!important}}
 </style></head><body>${labels.join('')}
 <div class="bar">
-  <button class="bp" onclick="window.print()">Cetak ${expanded.length} Label</button>
+  <button class="bp" onclick="window.print()">Cetak ${toPrint.length} Label</button>
   <button class="bc" onclick="window.close()">Tutup</button>
 </div></body></html>`)
-        w.document.close()
-      }
+      w.document.close()
     } catch (err) {
       console.error('Batch print error:', err)
       toast.error('Gagal mencetak barcode')
     } finally { setPrinting(false) }
-  }, [printableItems, selectedIds, printMode, a4Columns, copiesPerLabel])
+  }, [printableItems, selectedIds])
 
   /* ---- Reset everything on close ---- */
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (!open) { setRawSearch(''); setFilterCategory(''); setSelectedIds(new Set()); setItems([]); setPrintMode('thermal'); setA4Columns(3); setCopiesPerLabel(1) }
+    if (!open) { setRawSearch(''); setFilterCategory(''); setSelectedIds(new Set()); setItems([]) }
   }, [open])
 
   /* ---- Filtered items for rendering (products with barcode) ---- */
@@ -299,72 +234,8 @@ body{font-family:'Courier New',monospace;background:#fff;color:#000;display:flex
             Cetak Barcode Massal
           </ResponsiveDialogTitle>
           <ResponsiveDialogDescription className="text-xs">
-            Pilih produk, lalu cetak semua label sekaligus.
+            Pilih produk, lalu cetak semua label sekaligus untuk printer thermal 80mm.
           </ResponsiveDialogDescription>
-
-          {/* Print mode & A4 settings row */}
-          <div className="flex items-center gap-3 mt-3 flex-wrap">
-            {/* Mode toggle */}
-            <div className="flex items-center gap-1 bg-white/[0.04] rounded-lg p-0.5">
-              <button
-                type="button"
-                onClick={() => setPrintMode('thermal')}
-                className={`text-[11px] font-medium px-2.5 py-1.5 rounded-md transition-colors flex items-center gap-1.5 ${
-                  printMode === 'thermal'
-                    ? 'bg-white/[0.08] text-white'
-                    : 'text-slate-500 hover:text-slate-300'
-                }`}
-              >
-                <Printer className="h-3 w-3" />
-                Thermal 80mm
-              </button>
-              <button
-                type="button"
-                onClick={() => setPrintMode('a4')}
-                className={`text-[11px] font-medium px-2.5 py-1.5 rounded-md transition-colors flex items-center gap-1.5 ${
-                  printMode === 'a4'
-                    ? 'bg-white/[0.08] text-white'
-                    : 'text-slate-500 hover:text-slate-300'
-                }`}
-              >
-                <FileText className="h-3 w-3" />
-                A4
-              </button>
-            </div>
-
-            {/* A4 column setting */}
-            {printMode === 'a4' && (
-              <div className="flex items-center gap-1 bg-white/[0.04] rounded-lg p-0.5">
-                {([2, 3, 4] as const).map((col) => (
-                  <button
-                    key={col}
-                    type="button"
-                    onClick={() => setA4Columns(col)}
-                    className={`text-[11px] font-medium px-2.5 py-1.5 rounded-md transition-colors ${
-                      a4Columns === col
-                        ? 'bg-white/[0.08] text-white'
-                        : 'text-slate-500 hover:text-slate-300'
-                    }`}
-                  >
-                    {col} kolom
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {/* Copies per label */}
-            <div className="flex items-center gap-1.5">
-              <span className="text-[11px] text-slate-500">Jumlah per label:</span>
-              <input
-                type="number"
-                min={1}
-                max={100}
-                value={copiesPerLabel}
-                onChange={(e) => setCopiesPerLabel(Math.max(1, Math.min(100, Number(e.target.value) || 1)))}
-                className="w-14 h-7 text-[11px] text-center bg-white/[0.04] border border-white/[0.06] rounded-md text-white focus-visible:ring-1 focus-visible:ring-zinc-600"
-              />
-            </div>
-          </div>
         </ResponsiveDialogHeader>
 
         {/* ── Search ── */}

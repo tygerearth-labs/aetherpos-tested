@@ -435,6 +435,7 @@ export default function ProductsPage() {
   const [editExcelFile, setEditExcelFile] = useState<File | null>(null)
   const [editExcelUploading, setEditExcelUploading] = useState(false)
   const [editExcelProgress, setEditExcelProgress] = useState(0)
+  const [editExcelPhase, setEditExcelPhase] = useState('')
   const [batchBarcodeOpen, setBatchBarcodeOpen] = useState(false)
   const [editExcelResult, setEditExcelResult] = useState<{
     updated: number
@@ -3373,7 +3374,6 @@ export default function ProductsPage() {
         onOpenChange={setBatchBarcodeOpen}
         categories={categories}
       />
-
-      </div>
+    </div>
   )
 }

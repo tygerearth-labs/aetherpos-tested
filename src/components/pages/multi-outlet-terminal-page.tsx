@@ -18,16 +18,6 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
 import {
   Building2,
@@ -62,8 +52,8 @@ import {
   Lock,
   Sparkles,
   Info,
-  Copy,
-  Loader2,
+  LayoutGrid,
+  Rows3,
 } from 'lucide-react'
 
 // ── Types ──
@@ -231,12 +221,8 @@ function CreateGroupDialog({
   const [submitting, setSubmitting] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- reset form when dialog opens
   useEffect(() => {
-    if (!open) return
-    setName('')
-    const t = setTimeout(() => inputRef.current?.focus(), 100)
-    return () => clearTimeout(t)
+    if (open) { setName(''); setTimeout(() => inputRef.current?.focus(), 100) }
   }, [open])
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -345,13 +331,12 @@ function AddOutletDialog({
   const outletLimit = maxOutlets === -1 ? 'Unlimited' : String(maxOutlets)
   const reachedLimit = maxOutlets !== -1 && currentOutletCount >= maxOutlets
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- reset form when dialog opens
   useEffect(() => {
-    if (!open) return
-    setOutletName(''); setAddress(''); setPhone('')
-    setOwnerName(''); setOwnerEmail(''); setOwnerPassword(''); setConfirmPassword('')
-    const t = setTimeout(() => inputRef.current?.focus(), 100)
-    return () => clearTimeout(t)
+    if (open) {
+      setOutletName(''); setAddress(''); setPhone('')
+      setOwnerName(''); setOwnerEmail(''); setOwnerPassword(''); setConfirmPassword('')
+      setTimeout(() => inputRef.current?.focus(), 100)
+    }
   }, [open])
 
   const canSubmit =
@@ -552,17 +537,11 @@ function OutletDetailDialog({
   period,
   open,
   onClose,
-  isOwner,
-  isCurrentUserMain,
-  mainOutletName,
 }: {
   outlet: OutletSummary
   period: DateFilter
   open: boolean
   onClose: () => void
-  isOwner: boolean
-  isCurrentUserMain: boolean
-  mainOutletName: string
 }) {
   const [tab, setTab] = useState<DetailTab>('transactions')
   const [search, setSearch] = useState('')
@@ -580,11 +559,6 @@ function OutletDetailDialog({
   const [addCrewOpen, setAddCrewOpen] = useState(false)
   const [editCrew, setEditCrew] = useState<CrewMember | null>(null)
   const [deleteCrew, setDeleteCrew] = useState<CrewMember | null>(null)
-
-  // Duplicate config state
-  const [dupConfirmOpen, setDupConfirmOpen] = useState(false)
-  const [duplicating, setDuplicating] = useState(false)
-  const showDuplicateBtn = isOwner && isCurrentUserMain && !outlet.isMain
 
   // Fetch data for transactions/customers/products tabs
   const fetchData = useCallback(async () => {
@@ -695,29 +669,6 @@ function OutletDetailDialog({
     }
   }
 
-  // Duplicate config handler
-  const handleDuplicateConfig = async () => {
-    setDupConfirmOpen(false)
-    setDuplicating(true)
-    try {
-      const res = await fetch('/api/multi-outlet/duplicate-config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ targetOutletId: outlet.id }),
-      })
-      const data = await res.json()
-      if (!res.ok) {
-        toast.error(data.error || 'Gagal menduplikat konfigurasi')
-        return
-      }
-      toast.success(data.message || `Konfigurasi berhasil diduplikasi ke "${outlet.name}"`)
-    } catch {
-      toast.error('Gagal menduplikat konfigurasi')
-    } finally {
-      setDuplicating(false)
-    }
-  }
-
   const handleDeleteCrew = async () => {
     if (!deleteCrew) return
     try {
@@ -737,11 +688,11 @@ function OutletDetailDialog({
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
-      <DialogContent showCloseButton={false} className="bg-[#0c0d12] border-white/[0.06] max-w-2xl w-[95vw] max-h-[85vh] flex flex-col p-0 overflow-hidden">
+      <DialogContent className="bg-[#0c0d12] border-white/[0.06] max-w-2xl w-[95vw] max-h-[85vh] flex flex-col p-0 overflow-hidden">
         {/* Header */}
-        <DialogHeader className="px-5 pt-5 pb-3 border-b border-white/[0.06] shrink-0">
+        <div className="px-5 pt-5 pb-3 border-b border-white/[0.06] shrink-0">
           <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0">
               <div className="flex items-center gap-2 mb-1">
                 <DialogTitle className="text-base font-bold text-white truncate">{outlet.name}</DialogTitle>
                 {outlet.isMain && (
@@ -784,7 +735,7 @@ function OutletDetailDialog({
               ))}
             </div>
           )}
-        </DialogHeader>
+        </div>
 
         {/* Tabs + Search */}
         <div className="px-5 pt-3 pb-2 border-b border-white/[0.04] shrink-0">
@@ -805,17 +756,6 @@ function OutletDetailDialog({
               ))}
             </div>
             <div className="flex items-center gap-2">
-              {showDuplicateBtn && (
-                <Button
-                  size="sm"
-                  onClick={() => setDupConfirmOpen(true)}
-                  disabled={duplicating}
-                  className="h-7 px-2.5 text-[11px] bg-amber-600 hover:bg-amber-700 text-white disabled:opacity-50"
-                >
-                  {duplicating ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Copy className="h-3.5 w-3.5 mr-1" />}
-                  {duplicating ? 'Menduplikat…' : 'Duplikat Konfigurasi'}
-                </Button>
-              )}
               {isCrewTab && (
                 <Button
                   size="sm"
@@ -901,30 +841,6 @@ function OutletDetailDialog({
             </div>
           </div>
         )}
-
-        {/* Duplicate Config Confirmation */}
-        <AlertDialog open={dupConfirmOpen} onOpenChange={setDupConfirmOpen}>
-          <AlertDialogContent className="bg-[#0c0d12] border-white/[0.06]">
-            <AlertDialogHeader>
-              <AlertDialogTitle className="text-white">Duplikat Konfigurasi?</AlertDialogTitle>
-              <AlertDialogDescription className="text-slate-400 text-sm leading-relaxed">
-                Duplikasi konfigurasi dari <span className="text-amber-400 font-medium">{mainOutletName}</span> ke <span className="text-white font-medium">{outlet.name}</span>?<br /><br />
-                <span className="text-[11px] text-slate-500">Mengecek: pengaturan pembayaran, loyalitas, struk, tema, PPN, kategori, dan produk (stok direset ke 0). Data transaksi, customer, dan crew tidak terpengaruh.</span>
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel className="bg-white/[0.04] border-white/[0.08] text-slate-300 hover:text-white hover:bg-white/[0.08]">
-                Batal
-              </AlertDialogCancel>
-              <AlertDialogAction
-                onClick={handleDuplicateConfig}
-                className="bg-amber-600 hover:bg-amber-700 text-white"
-              >
-                Duplikat
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
 
         {/* Crew Dialogs */}
         <AddCrewDialog
@@ -1094,15 +1010,12 @@ function AddCrewDialog({
   const [submitting, setSubmitting] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
-    if (!open) return
-    setName(''); setEmail(''); setPassword('')
-    const t = setTimeout(() => inputRef.current?.focus(), 100)
-    return () => clearTimeout(t)
+    if (open) {
+      setName(''); setEmail(''); setPassword('')
+      setTimeout(() => inputRef.current?.focus(), 100)
+    }
   }, [open])
-  /* eslint-enable react-hooks/set-state-in-effect */
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -1187,13 +1100,10 @@ function EditCrewDialog({
   const [submitting, setSubmitting] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     setName(crew.name); setEmail(crew.email); setPassword('')
-    const t = setTimeout(() => inputRef.current?.focus(), 100)
-    return () => clearTimeout(t)
+    setTimeout(() => inputRef.current?.focus(), 100)
   }, [crew])
-  /* eslint-enable react-hooks/set-state-in-effect */
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -1441,110 +1351,33 @@ export default function MultiOutletTerminalPage() {
   const [detailOpen, setDetailOpen] = useState(false)
   const [createGroupOpen, setCreateGroupOpen] = useState(false)
   const [addOutletOpen, setAddOutletOpen] = useState(false)
-  const [currentUserIsMain, setCurrentUserIsMain] = useState(false)
+  const [deleteOutlet, setDeleteOutlet] = useState<OutletSummary | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const [horizontalScroll, setHorizontalScroll] = useState(false)
 
   // ── Fetch group + data ──
   const fetchData = useCallback(async () => {
     setLoading(true)
     try {
-      // Step 1: Check group membership first
-      const groupRes = await fetch('/api/outlet-group').catch(() => null)
-      let hasGrp = false
-      let grpName = ''
-      let currentOutlet = ''
-      let plan = null
-      // Keep raw outlets from outlet-group as fallback
-      let groupOutlets: Array<Record<string, unknown>> = []
+      const [groupRes, terminalRes] = await Promise.all([
+        fetch('/api/outlet-group'),
+        fetch(`/api/multi-outlet/dashboard?period=${dateFilterConfig[dateFilter].param}`),
+      ])
 
-      if (groupRes && groupRes.ok) {
-        try {
-          const groupData = await groupRes.json()
-          hasGrp = !!(groupData.hasGroup && groupData.groupId)
-          grpName = groupData.groupName || ''
-          currentOutlet = groupData.outlets?.[0]?.name || ''
-          plan = groupData.plan || null
-          groupOutlets = groupData.outlets || []
-          // Determine if current user's outlet is main
-          const userOutletId = session?.user?.outletId
-          if (userOutletId) {
-            const myOutlet = groupOutlets.find((o: Record<string, unknown>) => o.id === userOutletId)
-            setCurrentUserIsMain(Boolean(myOutlet?.isMain))
-          }
-        } catch {
-          hasGrp = false
-        }
+      if (groupRes.ok) {
+        const groupData = await groupRes.json()
+        setHasGroup(!!groupData.hasGroup && !!groupData.groupId)
+        setGroupName(groupData.groupName || '')
+        setCurrentOutletName(groupData.outlets?.[0]?.name || '')
+        setPlanMeta(groupData.plan || null)
+      } else {
+        setHasGroup(false)
       }
 
-      setHasGroup(hasGrp)
-      setGroupName(grpName)
-      setCurrentOutletName(currentOutlet)
-      setPlanMeta(plan)
-
-      // Step 2: If has group, try to enrich with dashboard stats
-      if (hasGrp) {
-        // Always show outlets from outlet-group (basic list)
-        const baseOutlets: OutletSummary[] = groupOutlets.map((o) => ({
-          id: String(o.id || ''),
-          name: String(o.name || '-'),
-          isMain: Boolean(o.isMain),
-          address: o.address as string | undefined,
-          phone: o.phone as string | undefined,
-          accountType: String(o.accountType || ''),
-          managerName: '-',
-          revenue: 0,
-          brutto: 0,
-          discount: 0,
-          tax: 0,
-          transactions: 0,
-          yesterdayRevenue: 0,
-          revenueChangePercent: 0,
-          totalProducts: Number(o._count?.products || 0),
-          totalStock: 0,
-          totalCustomers: Number(o._count?.customers || 0),
-        }))
-
-        // Try dashboard API for enriched stats (revenue, brutto, etc.)
-        const terminalRes = await fetch(`/api/multi-outlet/dashboard?period=${dateFilterConfig[dateFilter].param}`).catch(() => null)
-        if (terminalRes && terminalRes.ok) {
-          try {
-            const data = await terminalRes.json()
-            setTotals(data.totals || null)
-            if (data.outlets && data.outlets.length > 0) {
-              // Merge dashboard stats into outlet list
-              setOutlets(data.outlets.map((o: Record<string, unknown>) => ({
-                id: String(o.id || ''),
-                name: String(o.name || '-'),
-                isMain: Boolean(o.isMain),
-                address: o.address as string | undefined,
-                phone: o.phone as string | undefined,
-                accountType: String(o.accountType || ''),
-                managerName: String(o.managerName || '-'),
-                revenue: Number(o.revenue || 0),
-                brutto: Number(o.brutto || 0),
-                discount: Number(o.discount || 0),
-                tax: Number(o.tax || 0),
-                transactions: Number(o.transactions || 0),
-                yesterdayRevenue: Number(o.yesterdayRevenue || 0),
-                revenueChangePercent: Number(o.revenueChangePercent || 0),
-                totalProducts: Number(o.totalProducts || 0),
-                totalStock: Number(o.totalStock || 0),
-                totalCustomers: Number(o.totalCustomers || 0),
-              })))
-            } else {
-              setOutlets(baseOutlets)
-            }
-          } catch {
-            // Dashboard parse failed — use base outlets
-            setOutlets(baseOutlets)
-          }
-        } else {
-          // Dashboard API failed — still show base outlets
-          setOutlets(baseOutlets)
-        }
-      } else {
-        // No group — clear dashboard data
-        setTotals(null)
-        setOutlets([])
+      if (terminalRes.ok) {
+        const data = await terminalRes.json()
+        setTotals(data.totals || null)
+        setOutlets(data.outlets || [])
       }
     } catch {
       toast.error('Gagal memuat data')
@@ -1552,7 +1385,7 @@ export default function MultiOutletTerminalPage() {
     } finally {
       setLoading(false)
     }
-  }, [dateFilter, session?.user?.outletId])
+  }, [dateFilter])
 
   useEffect(() => {
     void fetchData()
@@ -1561,6 +1394,23 @@ export default function MultiOutletTerminalPage() {
   const openDetail = (outlet: OutletSummary) => {
     setDetailOutlet(outlet)
     setDetailOpen(true)
+  }
+
+  const handleDeleteOutlet = async () => {
+    if (!deleteOutlet) return
+    setDeleting(true)
+    try {
+      const res = await fetch(`/api/outlet-group/outlets?outletId=${deleteOutlet.id}`, { method: 'DELETE' })
+      const data = await res.json()
+      if (!res.ok) { toast.error(data.error || 'Gagal menghapus outlet'); return }
+      toast.success(data.message || `Outlet berhasil dihapus`)
+      setDeleteOutlet(null)
+      void fetchData()
+    } catch {
+      toast.error('Gagal menghapus outlet')
+    } finally {
+      setDeleting(false)
+    }
   }
 
   // ── Loading skeleton ──
@@ -1622,7 +1472,7 @@ export default function MultiOutletTerminalPage() {
                 <div className="bg-amber-500/[0.06] rounded-lg p-3 border border-amber-500/10 max-w-xs mx-auto space-y-1">
                   <p className="text-[11px] text-amber-400 font-medium">Fitur Multi Outlet tidak tersedia</p>
                   <p className="text-[10px] text-slate-500">
-                    Paket <span className="text-white font-medium">{planMeta?.plan}</span> Anda saat ini hanya mendukung 1 outlet.
+                    Paket <span className="text-white font-medium">{planMeta.plan}</span> Anda saat ini hanya mendukung 1 outlet.
                     Upgrade ke <span className="text-emerald-400 font-medium">Pro</span> atau <span className="text-amber-400 font-medium">Enterprise</span> untuk mengaktifkan fitur ini.
                   </p>
                 </div>
@@ -1720,21 +1570,30 @@ export default function MultiOutletTerminalPage() {
           <div className="flex items-center gap-2">
             <Layers className="h-4 w-4 text-slate-500" />
             <h2 className="text-sm font-semibold text-slate-300">Outlet</h2>
+            {isOwner && (
+              <Button
+                size="sm"
+                onClick={() => setAddOutletOpen(true)}
+                disabled={planMeta?.maxOutlets !== -1 && outlets.length >= (planMeta?.maxOutlets ?? 0)}
+                className="h-7 px-2.5 text-[11px] bg-emerald-600 hover:bg-emerald-700 text-white"
+              >
+                <Plus className="h-3.5 w-3.5 mr-1" />
+                Tambah Outlet
+              </Button>
+            )}
+            {outlets.length > 0 && (
+              <button
+                onClick={() => setHorizontalScroll((v) => !v)}
+                className="h-7 w-7 rounded-md flex items-center justify-center text-slate-500 hover:text-white hover:bg-white/[0.06] transition-colors"
+                title={horizontalScroll ? 'Tampilan grid' : 'Tampilan horizontal scroll'}
+              >
+                {horizontalScroll ? <LayoutGrid className="h-3.5 w-3.5" /> : <Rows3 className="h-3.5 w-3.5" />}
+              </button>
+            )}
             <span className="text-[10px] text-slate-500 bg-white/[0.04] px-1.5 py-0.5 rounded-md font-medium">
               {outlets.length}{planMeta?.maxOutlets !== -1 ? `/${planMeta.maxOutlets}` : ''}
             </span>
           </div>
-          {isOwner && (
-            <Button
-              size="sm"
-              onClick={() => setAddOutletOpen(true)}
-              disabled={planMeta?.maxOutlets !== -1 && outlets.length >= (planMeta?.maxOutlets ?? 0)}
-              className="h-7 px-2.5 text-[11px] bg-emerald-600 hover:bg-emerald-700 text-white"
-            >
-              <Plus className="h-3.5 w-3.5 mr-1" />
-              Tambah Outlet
-            </Button>
-          )}
         </div>
 
         {outlets.length === 0 ? (
@@ -1745,14 +1604,22 @@ export default function MultiOutletTerminalPage() {
             </CardContent>
           </Card>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {outlets.map((outlet, idx) => (
-              <motion.div
-                key={outlet.id}
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: idx * 0.05, duration: 0.3 }}
-              >
+          <div className="relative">
+            <div
+              className={cn(
+                horizontalScroll
+                  ? 'flex gap-3 overflow-x-auto pb-2 snap-x scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/[0.08]'
+                  : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3'
+              )}
+            >
+              {outlets.map((outlet, idx) => (
+                <motion.div
+                  key={outlet.id}
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: idx * 0.05, duration: 0.3 }}
+                  className={cn(horizontalScroll && 'snap-start shrink-0 w-[280px] sm:w-[320px]')}
+                >
                 <Card
                   className="bg-nebula border-white/[0.06] hover:border-white/[0.12] transition-all cursor-pointer group"
                   onClick={() => openDetail(outlet)}
@@ -1784,6 +1651,15 @@ export default function MultiOutletTerminalPage() {
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         <ChangeBadge percent={outlet.revenueChangePercent} />
+                        {isOwner && !outlet.isMain && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setDeleteOutlet(outlet) }}
+                            className="h-6 w-6 rounded-md flex items-center justify-center text-slate-600 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                            title="Hapus outlet"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        )}
                         <Eye className="h-3.5 w-3.5 text-slate-600 group-hover:text-slate-400 transition-colors" />
                       </div>
                     </div>
@@ -1837,6 +1713,10 @@ export default function MultiOutletTerminalPage() {
                 </Card>
               </motion.div>
             ))}
+            </div>
+            {horizontalScroll && (
+              <div className="pointer-events-none absolute top-0 right-0 h-full w-12 bg-gradient-to-l from-[#0b0d12] to-transparent" />
+            )}
           </div>
         )}
       </motion.div>
@@ -1845,14 +1725,10 @@ export default function MultiOutletTerminalPage() {
       <AnimatePresence>
         {detailOutlet && detailOpen && (
           <OutletDetailDialog
-            key={detailOutlet.id}
             outlet={detailOutlet}
             period={dateFilter}
             open={detailOpen}
             onClose={() => setDetailOpen(false)}
-            isOwner={!!isOwner}
-            isCurrentUserMain={currentUserIsMain}
-            mainOutletName={outlets.find((o) => o.isMain)?.name || currentOutletName}
           />
         )}
       </AnimatePresence>
@@ -1867,6 +1743,32 @@ export default function MultiOutletTerminalPage() {
         onAdded={() => { setAddOutletOpen(false); void fetchData() }}
         onClose={() => setAddOutletOpen(false)}
       />
+
+      {/* Delete Outlet Confirmation Dialog */}
+      <Dialog open={!!deleteOutlet} onOpenChange={(v) => { if (!v) setDeleteOutlet(null) }}>
+        <DialogContent className="bg-[#0c0d12] border-white/[0.06] max-w-sm w-[92vw] p-0 overflow-hidden">
+          <DialogHeader className="px-5 pt-5 pb-3 border-b border-white/[0.06]">
+            <DialogTitle className="text-sm font-bold text-white">Hapus Outlet</DialogTitle>
+          </DialogHeader>
+          <div className="p-5 space-y-4">
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Outlet &quot;{deleteOutlet?.name}&quot; beserta seluruh data (transaksi, produk, customer, crew) akan dihapus secara permanen. Tindakan ini tidak dapat dibatalkan.
+            </p>
+            <div className="flex items-center justify-end gap-2">
+              <Button variant="ghost" onClick={() => setDeleteOutlet(null)} className="h-8 text-[11px] text-slate-400">
+                Batal
+              </Button>
+              <Button
+                onClick={() => void handleDeleteOutlet()}
+                disabled={deleting}
+                className="h-8 px-4 text-[11px] bg-red-600 hover:bg-red-700 text-white"
+              >
+                {deleting ? 'Menghapus...' : 'Hapus'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </motion.div>
   )
 }

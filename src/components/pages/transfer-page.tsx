@@ -342,45 +342,6 @@ export default function TransferPage() {
     }))
   }
 
-  // ── Refresh stock for items in create dialog ──
-  useEffect(() => {
-    if (!createOpen || createItems.length === 0) return
-    let cancelled = false
-    ;(async () => {
-      try {
-        const res = await fetch('/api/products?limit=999')
-        if (!res.ok) return
-        const data = await res.json()
-        const products: ProductOption[] = data.products || []
-        if (cancelled) return
-        setCreateItems(prev => {
-          const stockMap = new Map(products.map(p => [p.id, p.stock]))
-          let changed = false
-          const updated = prev.map(item => {
-            const fresh = stockMap.get(item.productId)
-            if (fresh !== undefined && fresh !== item.stockAtSource) {
-              changed = true
-              return { ...item, stockAtSource: fresh }
-            }
-            return item
-          })
-          // If stock dropped below current quantity, clamp it
-          if (changed) {
-            return updated.map(item => {
-              if ((item.stockAtSource ?? 0) < item.quantity) {
-                return { ...item, quantity: item.stockAtSource ?? 0 }
-              }
-              return item
-            })
-          }
-          return changed ? updated : prev
-        })
-      } catch { /* ignore */ }
-    })()
-    return () => { cancelled = true }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [createOpen, createItems.length])
-
   // ── Submit create ──
   const handleSubmitCreate = async () => {
     if (!destOutlet) {

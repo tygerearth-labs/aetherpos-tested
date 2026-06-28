@@ -82,20 +82,35 @@ export async function GET(request: NextRequest) {
       dateFilter = { gte: todayStart, lt: new Date(todayStart.getTime() + 86_400_000) }
     }
 
-    // Void exclusion
-    const voidedSet = await getVoidedTxIds(db, targetOutletId)
-    const voidedArr = Array.from(voidedSet).filter(Boolean) as string[]
-    const voidExclude = voidedArr.length > 0 ? { id: { notIn: voidedArr } } : {}
+    // Void exclusion (graceful — if AuditLog table missing, skip void filtering)
+    let voidExclude: Record<string, unknown> = {}
+    try {
+      const voidedSet = await getVoidedTxIds(db, targetOutletId)
+      const voidedArr = Array.from(voidedSet).filter(Boolean) as string[]
+      voidExclude = voidedArr.length > 0 ? { id: { notIn: voidedArr } } : {}
+    } catch {
+      console.warn('[/api/multi-outlet/outlet] Void exclusion skipped (table may not exist)')
+    }
     const skip = (page - 1) * limit
 
-    // Outlet summary (always returned)
-    const [summaryRevenue, summaryTx, summaryCustomers, summaryProducts, summaryStock] = await Promise.all([
-      db.transaction.aggregate({ where: { outletId: targetOutletId, createdAt: dateFilter, ...voidExclude }, _sum: { total: true } }),
-      db.transaction.count({ where: { outletId: targetOutletId, createdAt: dateFilter, ...voidExclude } }),
-      db.customer.count({ where: { outletId: targetOutletId } }),
-      db.product.count({ where: { outletId: targetOutletId } }),
-      db.product.aggregate({ where: { outletId: targetOutletId }, _sum: { stock: true } }),
-    ])
+    // Outlet summary (always returned) — each query wrapped for resilience
+    let summaryRevenue = { _sum: { total: null as number | null } }
+    let summaryTx = 0
+    let summaryCustomers = 0
+    let summaryProducts = 0
+    let summaryStock = { _sum: { stock: null as number | null } }
+
+    try {
+      ;[summaryRevenue, summaryTx, summaryCustomers, summaryProducts, summaryStock] = await Promise.all([
+        db.transaction.aggregate({ where: { outletId: targetOutletId, createdAt: dateFilter, ...voidExclude }, _sum: { total: true } }),
+        db.transaction.count({ where: { outletId: targetOutletId, createdAt: dateFilter, ...voidExclude } }),
+        db.customer.count({ where: { outletId: targetOutletId } }),
+        db.product.count({ where: { outletId: targetOutletId } }),
+        db.product.aggregate({ where: { outletId: targetOutletId }, _sum: { stock: true } }),
+      ])
+    } catch (summaryErr) {
+      console.error('[/api/multi-outlet/outlet] Summary query error:', summaryErr)
+    }
 
     const outletSummary = {
       ...targetOutlet,
@@ -111,88 +126,106 @@ export async function GET(request: NextRequest) {
     let totalRecords = 0
 
     if (tab === 'transactions') {
-      const whereClause = {
-        outletId: targetOutletId,
-        createdAt: dateFilter,
-        ...voidExclude,
-        ...(search ? { invoiceNumber: { contains: search } } : {}),
-      }
+      try {
+        const whereClause = {
+          outletId: targetOutletId,
+          createdAt: dateFilter,
+          ...voidExclude,
+          ...(search ? { invoiceNumber: { contains: search } } : {}),
+        }
 
-      [data, totalRecords] = await Promise.all([
-        db.transaction.findMany({
-          where: whereClause,
-          select: {
-            id: true,
-            invoiceNumber: true,
-            total: true,
-            paymentMethod: true,
-            createdAt: true,
-            customer: { select: { name: true } },
-            user: { select: { name: true } },
-          },
-          orderBy: { createdAt: 'desc' },
-          skip,
-          take: limit,
-        }),
-        db.transaction.count({ where: whereClause }),
-      ])
+        [data, totalRecords] = await Promise.all([
+          db.transaction.findMany({
+            where: whereClause,
+            select: {
+              id: true,
+              invoiceNumber: true,
+              total: true,
+              paymentMethod: true,
+              createdAt: true,
+              customer: { select: { name: true } },
+              user: { select: { name: true } },
+            },
+            orderBy: { createdAt: 'desc' },
+            skip,
+            take: limit,
+          }),
+          db.transaction.count({ where: whereClause }),
+        ])
+      } catch (tabErr) {
+        console.error('[/api/multi-outlet/outlet] Transactions tab error:', tabErr)
+        data = []
+        totalRecords = 0
+      }
     } else if (tab === 'customers') {
-      const whereClause: Record<string, unknown> = { outletId: targetOutletId }
-      if (search) {
-        whereClause.OR = [
-          { name: { contains: search } },
-          { whatsapp: { contains: search } },
-        ]
-      }
+      try {
+        const whereClause: Record<string, unknown> = { outletId: targetOutletId }
+        if (search) {
+          whereClause.OR = [
+            { name: { contains: search } },
+            { whatsapp: { contains: search } },
+          ]
+        }
 
-      [data, totalRecords] = await Promise.all([
-        db.customer.findMany({
-          where: whereClause as never,
-          select: {
-            id: true,
-            name: true,
-            whatsapp: true,
-            totalSpend: true,
-            points: true,
-            createdAt: true,
-            _count: { select: { transactions: true } },
-          },
-          orderBy: { totalSpend: 'desc' },
-          skip,
-          take: limit,
-        }),
-        db.customer.count({ where: whereClause as never }),
-      ])
+        [data, totalRecords] = await Promise.all([
+          db.customer.findMany({
+            where: whereClause as never,
+            select: {
+              id: true,
+              name: true,
+              whatsapp: true,
+              totalSpend: true,
+              points: true,
+              createdAt: true,
+              _count: { select: { transactions: true } },
+            },
+            orderBy: { totalSpend: 'desc' },
+            skip,
+            take: limit,
+          }),
+          db.customer.count({ where: whereClause as never }),
+        ])
+      } catch (tabErr) {
+        console.error('[/api/multi-outlet/outlet] Customers tab error:', tabErr)
+        data = []
+        totalRecords = 0
+      }
     } else if (tab === 'products') {
-      const whereClause: Record<string, unknown> = { outletId: targetOutletId }
-      if (search) {
-        whereClause.OR = [
-          { name: { contains: search } },
-          { sku: { contains: search } },
-          { barcode: { contains: search } },
-        ]
-      }
+      try {
+        const whereClause: Record<string, unknown> = { outletId: targetOutletId }
+        if (search) {
+          whereClause.OR = [
+            { name: { contains: search } },
+            { sku: { contains: search } },
+            { barcode: { contains: search } },
+          ]
+        }
 
-      [data, totalRecords] = await Promise.all([
-        db.product.findMany({
-          where: whereClause as never,
-          select: {
-            id: true,
-            name: true,
-            sku: true,
-            price: true,
-            hpp: true,
-            stock: true,
-            hasVariants: true,
-            category: { select: { name: true, color: true } },
-            _count: { select: { variants: true } },
-          },
-          orderBy: { name: 'asc' },
-          skip,
-          take: limit,
-        }),
-        db.product.count({ where: whereClause as never }),
-      ])
+        [data, totalRecords] = await Promise.all([
+          db.product.findMany({
+            where: whereClause as never,
+            select: {
+              id: true,
+              name: true,
+              sku: true,
+              price: true,
+              hpp: true,
+              stock: true,
+              hasVariants: true,
+              category: { select: { name: true, color: true } },
+              _count: { select: { variants: true } },
+            },
+            orderBy: { name: 'asc' },
+            skip,
+            take: limit,
+          }),
+          db.product.count({ where: whereClause as never }),
+        ])
+      } catch (tabErr) {
+        console.error('[/api/multi-outlet/outlet] Products tab error:', tabErr)
+        data = []
+        totalRecords = 0
+      }
     }
 
     return safeJson({

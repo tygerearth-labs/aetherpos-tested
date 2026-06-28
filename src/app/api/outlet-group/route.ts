@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonCreated, safeJsonError } from '@/lib/api/safe-response'
-import { getOutletPlan, isUnlimited } from '@/lib/plan-config'
+import { getOutletPlan } from '@/lib/plan-config'
 
 /**
  * GET /api/outlet-group — Get current outlet's group info
@@ -11,12 +11,11 @@ import { getOutletPlan, isUnlimited } from '@/lib/plan-config'
  * If outlet has a groupId, returns the group with all outlets
  *
  * Gracefully degrades if production DB hasn't been migrated (missing isMain/groupId columns).
- * If auth fails, returns { hasGroup: false } (no sensitive data exposed).
  */
 export async function GET(request: NextRequest) {
   try {
     const user = await getAuthUser(request)
-    if (!user) return safeJson({ hasGroup: false, outlets: [] })
+    if (!user) return unauthorized()
 
     // Try full query with new schema fields (isMain, groupId)
     // If the DB hasn't been migrated, fall back to basic query
@@ -185,7 +184,7 @@ export async function POST(request: NextRequest) {
     if (!planInfo.features.multiOutlet) {
       return safeJsonError(`Paket ${planInfo.plan} tidak mendukung multi outlet. Upgrade ke Pro atau Enterprise.`, 403)
     }
-    if (!isUnlimited(planInfo.features.maxOutlets) && planInfo.features.maxOutlets <= 1) {
+    if (planInfo.features.maxOutlets <= 1) {
       return safeJsonError(`Paket ${planInfo.plan} hanya mendukung 1 outlet. Upgrade untuk menambah cabang.`, 403)
     }
 

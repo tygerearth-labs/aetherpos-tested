@@ -146,17 +146,11 @@ export async function PUT(request: NextRequest) {
     // Manual discount toggle
     const manualDiscountEnabled = typeof body.manualDiscountEnabled === 'boolean' ? body.manualDiscountEnabled : undefined
 
-    // Double receipt print settings (accept both boolean and string 'true'/'false')
-    const toBool = (v: unknown): boolean | undefined => {
-      if (typeof v === 'boolean') return v
-      if (v === 'true') return true
-      if (v === 'false') return false
-      return undefined
-    }
-    const receiptDoublePrintEnabled = toBool(body.receiptDoublePrintEnabled)
-    const receiptMerchantCopyEnabled = toBool(body.receiptMerchantCopyEnabled)
-    const receiptCustomerCopyEnabled = toBool(body.receiptCustomerCopyEnabled)
-    const receiptBatchOrderEnabled = toBool(body.receiptBatchOrderEnabled)
+    // Double receipt print settings
+    const receiptDoublePrintEnabled = typeof body.receiptDoublePrintEnabled === 'boolean' ? body.receiptDoublePrintEnabled : undefined
+    const receiptMerchantCopyEnabled = typeof body.receiptMerchantCopyEnabled === 'boolean' ? body.receiptMerchantCopyEnabled : undefined
+    const receiptCustomerCopyEnabled = typeof body.receiptCustomerCopyEnabled === 'boolean' ? body.receiptCustomerCopyEnabled : undefined
+    const receiptBatchOrderEnabled = typeof body.receiptBatchOrderEnabled === 'boolean' ? body.receiptBatchOrderEnabled : undefined
 
     const settingsData = {
       outletId: user.outletId,
