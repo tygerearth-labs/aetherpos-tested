@@ -578,8 +578,6 @@ function fmtDate(date: Date): string {
   return `${yyyy}${mm}${dd}`;
 }
 
-// Auto-run when executed directly
-seedDatabase().catch((err) => {
-  console.error('Seed failed:', err);
-  process.exit(1);
-});
+// NOTE: Seed is NOT auto-executed on import.
+// Call seedDatabase() explicitly from /api/seed route or CLI.
+// Auto-run was removed to prevent process.exit(1) on Vercel serverless cold starts.
