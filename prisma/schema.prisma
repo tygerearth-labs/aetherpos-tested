@@ -1,5 +1,5 @@
 // ==================== AETHER POS SCHEMA ====================
-// PostgreSQL (Neon) for Vercel production
+// SQLite for local dev — switch to postgresql for Vercel/production
 
 generator client {
   provider = "prisma-client-js"

@@ -1,5 +1,4 @@
 -- AetherPOS Initial Migration (PostgreSQL / Neon)
--- Created from Prisma schema
 
 -- OutletGroup
 CREATE TABLE "OutletGroup" (
@@ -8,7 +7,6 @@ CREATE TABLE "OutletGroup" (
     "ownerId" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
-
     CONSTRAINT "OutletGroup_pkey" PRIMARY KEY ("id")
 );
 
@@ -24,7 +22,6 @@ CREATE TABLE "Outlet" (
     "groupId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
-
     CONSTRAINT "Outlet_pkey" PRIMARY KEY ("id")
 );
 
@@ -38,7 +35,6 @@ CREATE TABLE "User" (
     "outletId" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
-
     CONSTRAINT "User_pkey" PRIMARY KEY ("id")
 );
 
@@ -50,7 +46,6 @@ CREATE TABLE "Category" (
     "outletId" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
-
     CONSTRAINT "Category_pkey" PRIMARY KEY ("id")
 );
 
@@ -73,7 +68,6 @@ CREATE TABLE "Product" (
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
     "hasVariants" BOOLEAN NOT NULL DEFAULT false,
-
     CONSTRAINT "Product_pkey" PRIMARY KEY ("id")
 );
 
@@ -90,7 +84,6 @@ CREATE TABLE "ProductVariant" (
     "outletId" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
-
     CONSTRAINT "ProductVariant_pkey" PRIMARY KEY ("id")
 );
 
@@ -104,7 +97,6 @@ CREATE TABLE "Customer" (
     "outletId" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
-
     CONSTRAINT "Customer_pkey" PRIMARY KEY ("id")
 );
 
@@ -125,7 +117,6 @@ CREATE TABLE "Transaction" (
     "customerId" TEXT,
     "userId" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
     CONSTRAINT "Transaction_pkey" PRIMARY KEY ("id")
 );
 
@@ -142,7 +133,6 @@ CREATE TABLE "TransactionItem" (
     "itemDiscount" DOUBLE PRECISION NOT NULL DEFAULT 0,
     "hpp" DOUBLE PRECISION NOT NULL,
     "transactionId" TEXT NOT NULL,
-
     CONSTRAINT "TransactionItem_pkey" PRIMARY KEY ("id")
 );
 
@@ -155,7 +145,6 @@ CREATE TABLE "LoyaltyLog" (
     "customerId" TEXT NOT NULL,
     "transactionId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
     CONSTRAINT "LoyaltyLog_pkey" PRIMARY KEY ("id")
 );
 
@@ -169,7 +158,6 @@ CREATE TABLE "AuditLog" (
     "outletId" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
     CONSTRAINT "AuditLog_pkey" PRIMARY KEY ("id")
 );
 
@@ -204,7 +192,6 @@ CREATE TABLE "OutletSetting" (
     "notifyOnInsight" BOOLEAN NOT NULL DEFAULT true,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
-
     CONSTRAINT "OutletSetting_pkey" PRIMARY KEY ("id")
 );
 
@@ -223,7 +210,6 @@ CREATE TABLE "Promo" (
     "categoryId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
-
     CONSTRAINT "Promo_pkey" PRIMARY KEY ("id")
 );
 
@@ -235,7 +221,6 @@ CREATE TABLE "CrewPermission" (
     "outletId" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
-
     CONSTRAINT "CrewPermission_pkey" PRIMARY KEY ("id")
 );
 
@@ -253,7 +238,6 @@ CREATE TABLE "Plan" (
     "description" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
-
     CONSTRAINT "Plan_pkey" PRIMARY KEY ("id")
 );
 
@@ -272,7 +256,6 @@ CREATE TABLE "OutletTransfer" (
     "groupId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
-
     CONSTRAINT "OutletTransfer_pkey" PRIMARY KEY ("id")
 );
 
@@ -289,7 +272,6 @@ CREATE TABLE "TransferItem" (
     "productSnapshot" TEXT,
     "outletId" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
     CONSTRAINT "TransferItem_pkey" PRIMARY KEY ("id")
 );
 
