@@ -488,7 +488,7 @@ export default function TransferPage() {
       {/* Header */}
       <motion.div variants={itemVariants} className="flex items-center justify-between gap-4">
         <div className="space-y-1">
-          <h1 className="text-xl font-bold text-white tracking-tight">Inbound &amp; Outbound</h1>
+          <h1 className="text-xl font-bold text-white tracking-tight">Transfer Stok</h1>
           <p className="text-sm text-slate-500">Kelola transfer stok antar outlet</p>
         </div>
         {hasGroup && isOwner && (

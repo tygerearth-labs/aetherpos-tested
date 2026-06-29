@@ -232,8 +232,6 @@ export async function POST(request: NextRequest) {
               productName: item.productName,
               variantName: item.variantName,
               quantitySold: item.qty,
-              price: item.price,
-              subtotal: item.price * item.qty,
               previousStock: variant.stock,
               newStock: variant.stock - item.qty,
             }),

@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react'
 import { usePageStore, type PageType } from '@/hooks/use-page-store'
 import { usePlan } from '@/hooks/use-plan'
-import { useSidebarBadges } from '@/hooks/use-sidebar-badges'
 import { useSession } from 'next-auth/react'
 import { getPlanLabel, getPlanBadgeClass } from '@/lib/config/plan-config'
 import { Badge } from '@/components/ui/badge'
@@ -20,7 +19,7 @@ import {
   LogOut,
   Lock,
   Crown,
-  ArrowLeftRight,
+  Truck,
   Building2,
 } from 'lucide-react'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
@@ -79,7 +78,7 @@ const allMoreMenuItems: MoreMenuItem[] = [
   { page: 'audit-log', icon: <ClipboardList className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Audit Log', section: 'Admin' },
   { page: 'crew', icon: <UserCog className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Kelola Crew', section: 'Admin' },
   { page: 'plan', icon: <Crown className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Plan & Pricing', section: 'Admin' },
-  { page: 'transfer', icon: <ArrowLeftRight className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Inbound & Outbound', section: 'Admin', groupOnly: true },
+  { page: 'transfer', icon: <Truck className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Transfer', section: 'Admin', groupOnly: true },
   { page: 'multi-outlet', icon: <Building2 className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Multi Outlet', section: 'Admin', groupOnly: true },
   { page: 'settings', icon: <Settings className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Pengaturan', section: 'Admin' },
 ]
@@ -88,7 +87,6 @@ export default function MobileBottomNav() {
   const { currentPage, setCurrentPage } = usePageStore()
   const { data: session } = useSession()
   const { plan, isSuspended, isLoading: planLoading } = usePlan()
-  const { pendingInbound } = useSidebarBadges()
   const router = useRouter()
   const [moreOpen, setMoreOpen] = useState(false)
   const [hasOutletGroup, setHasOutletGroup] = useState(false)
@@ -321,11 +319,6 @@ export default function MobileBottomNav() {
                             {item.icon}
                           </span>
                           <span className="text-sm font-medium flex-1">{item.label}</span>
-                          {item.page === 'transfer' && pendingInbound > 0 && (
-                            <span className="shrink-0 min-w-[20px] h-[20px] flex items-center justify-center rounded-full text-[10px] font-bold leading-none px-1 bg-amber-500/20 text-amber-400">
-                              {pendingInbound > 99 ? '99+' : pendingInbound}
-                            </span>
-                          )}
                           {locked && (
                             <Lock className="h-3.5 w-3.5 shrink-0 text-slate-600" />
                           )}

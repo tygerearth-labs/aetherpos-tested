@@ -159,7 +159,7 @@ export async function PATCH(
         // Deduct stock from each product in the source outlet
         for (const item of transfer.items) {
           // Try to find product by SKU first, then barcode
-          let product: { id: string; name: string; stock: number; sku: string | null } | null = null
+          let product: { id: string; name: string; stock: number } | null = null
           if (item.productSku) {
             product = await tx.product.findFirst({
               where: {
@@ -187,8 +187,7 @@ export async function PATCH(
           }
 
           if (product) {
-            const previousStock = product.stock
-            const newStock = previousStock - item.quantity
+            const newStock = product.stock - item.quantity
             if (newStock < 0) {
               throw new Error(
                 `Stok ${product.name} tidak mencukupi (sisa: ${product.stock}, diminta: ${item.quantity})`,
@@ -197,27 +196,6 @@ export async function PATCH(
             await tx.product.update({
               where: { id: product.id },
               data: { stock: newStock },
-            })
-
-            // Per-product audit log so it shows in product detail movement history
-            await tx.auditLog.create({
-              data: {
-                action: 'ADJUSTMENT',
-                entityType: 'STOCK',
-                entityId: product.id,
-                details: JSON.stringify({
-                  action: 'TRANSFER_OUT',
-                  transferNumber: transfer.transferNumber,
-                  toOutlet: transfer.toOutlet.name,
-                  productName: item.productName,
-                  productSku: product.sku || item.productSku,
-                  quantityDeducted: item.quantity,
-                  previousStock,
-                  newStock,
-                }),
-                outletId: transfer.fromOutletId,
-                userId: user.id,
-              },
             })
           }
         }
@@ -228,7 +206,7 @@ export async function PATCH(
           data: { status: 'IN_TRANSIT' },
         })
 
-        // Aggregate audit log at source outlet (for audit log page)
+        // Audit log at source outlet
         await tx.auditLog.create({
           data: {
             action: 'ADJUSTMENT',
@@ -250,7 +228,7 @@ export async function PATCH(
           },
         })
 
-        // Aggregate audit log at destination outlet (incoming notification)
+        // Audit log at destination outlet (incoming notification)
         await tx.auditLog.create({
           data: {
             action: 'RESTOCK',
