@@ -230,9 +230,7 @@ export async function POST(request: NextRequest) {
             details: JSON.stringify({
               invoiceNumber,
               productName: item.productName,
-              productSku: product.sku || null,
               variantName: item.variantName,
-              variantSku: variant?.sku || null,
               quantitySold: item.qty,
               previousStock: variant.stock,
               newStock: variant.stock - item.qty,

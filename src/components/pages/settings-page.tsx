@@ -275,7 +275,7 @@ function useSettings() {
   }, [])
 
   useEffect(() => {
-     
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchSettings()
   }, [fetchSettings])
 
@@ -926,7 +926,7 @@ function PromoTab() {
   }, [])
 
   useEffect(() => {
-     
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchPromos()
   }, [fetchPromos])
 
@@ -1736,7 +1736,7 @@ function TelegramTab() {
 
   useEffect(() => {
     if (settings) {
-       
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setChatId(settings.telegramChatId || '')
       // Never expose the real token — always show placeholder
       setBotToken('')
@@ -2370,7 +2370,7 @@ function MultiOutletTab() {
     }
   }, [])
 
-   
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void fetchOutlets() }, [fetchOutlets])
 
   const handleCreate = async () => {

@@ -110,7 +110,7 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
 }) {
   const { data: session } = useSession()
   const { currentPage, setCurrentPage } = usePageStore()
-  const { plan, isSuspended, features } = usePlan()
+  const { plan, isSuspended } = usePlan()
   const router = useRouter()
 
   // ---- Crew permission-based filtering ----
@@ -159,6 +159,7 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
   }, [])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchPermissions()
   }, [fetchPermissions])
 
@@ -176,11 +177,11 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
     const map = new Map<string, boolean>()
     for (const item of navItems) {
       const hasAccess = isOwner || !allowedPages || allowedPages.includes(item.page)
-      const multiOutletOk = !item.groupOnly || (hasOutletGroup && (features?.multiOutlet ?? false))
-      map.set(item.page, hasAccess && multiOutletOk)
+      const groupOk = !item.groupOnly || hasOutletGroup
+      map.set(item.page, hasAccess && groupOk)
     }
     return map
-  }, [isOwner, allowedPages, hasOutletGroup, features])
+  }, [isOwner, allowedPages, hasOutletGroup])
 
   // Group all items by section (filter out hidden group-only items)
   const groupedItems = useMemo(() => {
@@ -188,7 +189,7 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
     const seen = new Set<string>()
     for (const item of navItems) {
       // Skip group-only items if no group
-      if (item.groupOnly && (!hasOutletGroup || !(features?.multiOutlet ?? false))) continue
+      if (item.groupOnly && !hasOutletGroup) continue
       const sec = item.section || 'main'
       if (!seen.has(sec)) {
         seen.add(sec)
@@ -354,7 +355,7 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
       )}
 
       {/* Navigation */}
-      <ScrollArea className="flex-1 min-h-0 overflow-hidden px-2 py-3">
+      <ScrollArea className="flex-1 px-2 py-3 scrollbar-hide">
         {groupedItems.map((group, groupIdx) => {
           const showSection = !isCompact
           const wrapper = isMobile ? (

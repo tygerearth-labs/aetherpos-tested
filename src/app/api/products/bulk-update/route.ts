@@ -69,11 +69,11 @@ export async function POST(request: NextRequest) {
     const existingProducts = isSelectAll
       ? await db.product.findMany({
           where: { outletId },
-          select: { id: true, name: true, sku: true, price: true, stock: true, categoryId: true, hasVariants: true },
+          select: { id: true, name: true, price: true, stock: true, categoryId: true, hasVariants: true },
         })
       : await db.product.findMany({
           where: { id: { in: productIds }, outletId },
-          select: { id: true, name: true, sku: true, price: true, stock: true, categoryId: true, hasVariants: true },
+          select: { id: true, name: true, price: true, stock: true, categoryId: true, hasVariants: true },
         })
 
     if (existingProducts.length === 0) {
@@ -149,7 +149,7 @@ export async function POST(request: NextRequest) {
           if (priceAdjustment) {
             const variants = await tx.productVariant.findMany({
               where: { productId: product.id },
-              select: { id: true, name: true, sku: true, price: true },
+              select: { id: true, price: true },
             })
 
             for (const variant of variants) {
@@ -174,9 +174,7 @@ export async function POST(request: NextRequest) {
                 entityId: variant.id,
                 details: JSON.stringify({
                   parentProductName: product.name,
-                  parentProductSku: product.sku || null,
-                  variantName: variant.name,
-                  variantSku: variant.sku || null,
+                  parentId: product.id,
                   price: { from: variant.price, to: variantNewPrice },
                   batchOperation: true,
                 }),
@@ -190,7 +188,7 @@ export async function POST(request: NextRequest) {
           if (stockAdjustment) {
             const variants = await tx.productVariant.findMany({
               where: { productId: product.id },
-              select: { id: true, name: true, sku: true, stock: true },
+              select: { id: true, stock: true },
             })
 
             for (const variant of variants) {
@@ -216,9 +214,7 @@ export async function POST(request: NextRequest) {
                 entityId: variant.id,
                 details: JSON.stringify({
                   parentProductName: product.name,
-                  parentProductSku: product.sku || null,
-                  variantName: variant.name,
-                  variantSku: variant.sku || null,
+                  parentId: product.id,
                   stock: { from: variant.stock, to: variantNewStock },
                   batchOperation: true,
                 }),
@@ -235,7 +231,6 @@ export async function POST(request: NextRequest) {
           entityId: product.id,
           details: JSON.stringify({
             productName: product.name,
-            productSku: product.sku || null,
             changes,
             batchOperation: true,
           }),

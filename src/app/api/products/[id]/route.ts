@@ -208,7 +208,7 @@ export async function PUT(
             action: 'UPDATE',
             entityType: 'PRODUCT',
             entityId: id,
-            details: JSON.stringify({ productName: updated.name, productSku: existing.sku || null, changes }),
+            details: JSON.stringify({ productName: updated.name, changes }),
             outletId,
             userId,
           },

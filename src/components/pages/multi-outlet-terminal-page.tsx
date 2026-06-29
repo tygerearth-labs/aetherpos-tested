@@ -1035,13 +1035,11 @@ function AddCrewDialog({
   const [submitting, setSubmitting] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const handleClose = useCallback(() => {
-    setName(''); setEmail(''); setPassword('')
-    onClose()
-  }, [onClose])
-
   useEffect(() => {
-    if (open) setTimeout(() => inputRef.current?.focus(), 100)
+    if (open) {
+      setName(''); setEmail(''); setPassword('')
+      setTimeout(() => inputRef.current?.focus(), 100)
+    }
   }, [open])
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1054,7 +1052,7 @@ function AddCrewDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) handleClose() }}>
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
       <DialogContent className="bg-[#0c0d12] border-white/[0.06] max-w-sm w-[92vw] p-0 overflow-hidden">
         <DialogHeader className="px-5 pt-5 pb-3 border-b border-white/[0.06]">
           <DialogTitle className="text-sm font-bold text-white">Tambah Crew</DialogTitle>
@@ -1128,8 +1126,9 @@ function EditCrewDialog({
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
+    setName(crew.name); setEmail(crew.email); setPassword('')
     setTimeout(() => inputRef.current?.focus(), 100)
-  }, [])
+  }, [crew])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
