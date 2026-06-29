@@ -4,6 +4,7 @@ import { requireAuth } from '@/lib/auth/auth-utils'
 import { db } from '@/lib/db'
 import { getPlanFeatures, getPlanLabel } from '@/lib/config/plan-config'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
+import { checkPlanExpiration } from '@/lib/plan-expiration'
 
 /**
  * GET /api/outlet/plan
@@ -22,6 +23,7 @@ export async function GET(request: NextRequest) {
         id: true,
         name: true,
         accountType: true,
+        planExpiresAt: true,
         updatedAt: true,
         setting: {
           select: {
@@ -47,8 +49,12 @@ export async function GET(request: NextRequest) {
       return safeJsonError('Outlet not found', 404)
     }
 
+    // Check and handle plan expiration
+    const planCheck = await checkPlanExpiration(outlet.id)
+    const effectivePlan = planCheck.effectivePlan
+
     // Derive plan type (handles suspended: prefix)
-    const rawPlan = resolvePlanType(outlet.accountType)
+    const rawPlan = resolvePlanType(effectivePlan)
     const isSuspended = outlet.accountType?.startsWith('suspended:') ?? false
     const features = getPlanFeatures(rawPlan)
 
@@ -73,6 +79,8 @@ export async function GET(request: NextRequest) {
       features,
       usage,
       lastUpdated: outlet.updatedAt.toISOString(),
+      planExpiresAt: outlet.planExpiresAt?.toISOString() || null,
+      isExpired: planCheck.isExpired,
     })
   } catch (error) {
     if (error instanceof Error && error.message.includes('Unauthorized')) {

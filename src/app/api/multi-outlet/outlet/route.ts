@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
     const search = searchParams.get('search') || ''
 
     const now = new Date()
-    let dateFilter: Record<string, Date>
+    let dateFilter: Record<string, Date> | undefined
 
     if (dateFromParam || dateToParam) {
       dateFilter = tzOffset !== null
@@ -68,8 +68,10 @@ export async function GET(request: NextRequest) {
             if (dateToParam) { const d = new Date(dateToParam); if (!isNaN(d.getTime())) { d.setHours(23,59,59,999); filter.lte = d } }
             return filter
           })()
+      // If the filter ended up empty, treat as no filter
+      if (dateFilter && Object.keys(dateFilter).length === 0) dateFilter = undefined
     } else if (!period) {
-      dateFilter = {} // No date filter — show all
+      dateFilter = undefined // No date filter — show all
     } else if (period === '7days' || period === '7d') {
       const start = new Date(now); start.setDate(start.getDate() - 6); start.setHours(0,0,0,0)
       dateFilter = { gte: start, lte: new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23,59,59,999) }
@@ -83,6 +85,12 @@ export async function GET(request: NextRequest) {
       const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
       dateFilter = { gte: todayStart, lt: new Date(todayStart.getTime() + 86_400_000) }
     }
+
+    // Helper: build where clause with optional date filter
+    const buildWhere = (base: Record<string, unknown>) => ({
+      ...base,
+      ...(dateFilter && Object.keys(dateFilter).length > 0 ? { createdAt: dateFilter } : {}),
+    })
 
     // Void exclusion (graceful — if AuditLog table missing, skip void filtering)
     let voidExclude: Record<string, unknown> = {}
@@ -104,8 +112,8 @@ export async function GET(request: NextRequest) {
 
     try {
       ;[summaryRevenue, summaryTx, summaryCustomers, summaryProducts, summaryStock] = await Promise.all([
-        db.transaction.aggregate({ where: { outletId: targetOutletId, createdAt: dateFilter, ...voidExclude }, _sum: { total: true } }),
-        db.transaction.count({ where: { outletId: targetOutletId, createdAt: dateFilter, ...voidExclude } }),
+        db.transaction.aggregate({ where: buildWhere({ outletId: targetOutletId, ...voidExclude }), _sum: { total: true } }),
+        db.transaction.count({ where: buildWhere({ outletId: targetOutletId, ...voidExclude }) }),
         db.customer.count({ where: { outletId: targetOutletId } }),
         db.product.count({ where: { outletId: targetOutletId } }),
         db.product.aggregate({ where: { outletId: targetOutletId }, _sum: { stock: true } }),
@@ -129,12 +137,11 @@ export async function GET(request: NextRequest) {
 
     if (tab === 'transactions') {
       try {
-        const whereClause = {
+        const whereClause = buildWhere({
           outletId: targetOutletId,
-          createdAt: dateFilter,
           ...voidExclude,
           ...(search ? { invoiceNumber: { contains: search } } : {}),
-        }
+        })
 
         [data, totalRecords] = await Promise.all([
           db.transaction.findMany({
@@ -142,11 +149,14 @@ export async function GET(request: NextRequest) {
             select: {
               id: true,
               invoiceNumber: true,
+              subtotal: true,
+              discount: true,
               total: true,
               paymentMethod: true,
               createdAt: true,
               customer: { select: { name: true } },
               user: { select: { name: true } },
+              _count: { select: { items: true } },
             },
             orderBy: { createdAt: 'desc' },
             skip,
