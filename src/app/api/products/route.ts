@@ -295,12 +295,38 @@ export async function POST(request: NextRequest) {
       return safeJsonError('Setidaknya satu varian diperlukan saat hasVariants bernilai true', 400)
     }
 
-    // Check for duplicate variant names
+    // Validate manual SKU uniqueness (auto-generated is already unique)
+    if (sku?.trim()) {
+      const trimmedSku = sku.trim()
+      const skuExists = await db.product.findFirst({
+        where: { sku: trimmedSku, outletId },
+        select: { id: true, name: true },
+      })
+      if (skuExists) {
+        return safeJsonError(`SKU "${trimmedSku}" sudah digunakan oleh produk "${skuExists.name}"`, 400)
+      }
+    }
+
+    // Check for duplicate variant names and manual variant SKUs
     if (parsedVariants.length > 0) {
       const variantNames = parsedVariants.map((v) => v.name?.trim().toLowerCase()).filter(Boolean)
       const uniqueNames = new Set(variantNames)
       if (uniqueNames.size !== variantNames.length) {
         return safeJsonError('Nama varian tidak boleh duplikat', 400)
+      }
+
+      // Check manual variant SKU duplicates against DB
+      for (const v of parsedVariants) {
+        if (v.sku?.trim()) {
+          const vSkuTrimmed = v.sku.trim()
+          const vSkuExists = await db.productVariant.findFirst({
+            where: { sku: vSkuTrimmed, outletId },
+            select: { id: true, name: true },
+          })
+          if (vSkuExists) {
+            return safeJsonError(`SKU varian "${vSkuTrimmed}" sudah digunakan oleh varian "${vSkuExists.name}"`, 400)
+          }
+        }
       }
     }
 
@@ -309,7 +335,7 @@ export async function POST(request: NextRequest) {
     // Auto-generate barcode from SKU if not provided
     const finalBarcode = barcode?.trim() || finalSku
 
-    // Auto-generate SKUs for variants that don't have one
+    // Auto-generate SKUs for variants that don't have one (already validated above)
     const variantsWithSku = await Promise.all(
       parsedVariants.map(async (v) => {
         const vSku = v.sku?.trim() || await generateVariantSKU(name, v.name, outletId)
@@ -355,6 +381,7 @@ export async function POST(request: NextRequest) {
         })
       }
 
+      // Parent product audit log
       await tx.auditLog.create({
         data: {
           action: 'CREATE',
@@ -366,11 +393,47 @@ export async function POST(request: NextRequest) {
             stock: newProduct.stock,
             hasVariants: !!hasVariants,
             variantCount: parsedVariants.length,
+            ...(!!hasVariants ? {
+              variants: parsedVariants.map((v) => ({
+                name: v.name,
+                price: v.price,
+                stock: v.stock || 0,
+                hpp: v.hpp || 0,
+              })),
+              totalVariantStock: parsedVariants.reduce((sum, v) => sum + (v.stock || 0), 0),
+            } : {}),
           }),
           outletId,
           userId,
         },
       })
+
+      // Per-variant audit logs for detailed tracking
+      if (variantsWithSku.length > 0) {
+        const createdVariants = await tx.productVariant.findMany({
+          where: { productId: newProduct.id },
+        })
+        for (const v of createdVariants) {
+          await tx.auditLog.create({
+            data: {
+              action: 'CREATE',
+              entityType: 'VARIANT',
+              entityId: v.id,
+              details: JSON.stringify({
+                productName: newProduct.name,
+                productId: newProduct.id,
+                variantName: v.name,
+                variantSku: v.sku,
+                variantPrice: v.price,
+                variantHpp: v.hpp,
+                variantStock: v.stock,
+              }),
+              outletId,
+              userId,
+            },
+          })
+        }
+      }
 
       return newProduct
     })

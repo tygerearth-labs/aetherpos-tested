@@ -105,6 +105,32 @@ export async function PUT(
       }
     }
 
+    // Validate manual SKU uniqueness (exclude current product)
+    if (sku !== undefined && sku?.trim()) {
+      const trimmedSku = sku.trim()
+      const skuExists = await db.product.findFirst({
+        where: { sku: trimmedSku, outletId, id: { not: id } },
+        select: { id: true, name: true },
+      })
+      if (skuExists) {
+        return safeJsonError(`SKU "${trimmedSku}" sudah digunakan oleh produk "${skuExists.name}"`, 400)
+      }
+    }
+
+    // Check manual variant SKU duplicates against DB
+    for (const v of parsedVariants) {
+      if (v.sku?.trim()) {
+        const vSkuTrimmed = v.sku.trim()
+        const vSkuExists = await db.productVariant.findFirst({
+          where: { sku: vSkuTrimmed, outletId, id: { not: v.id } },
+          select: { id: true, name: true },
+        })
+        if (vSkuExists) {
+          return safeJsonError(`SKU varian "${vSkuTrimmed}" sudah digunakan oleh varian "${vSkuExists.name}"`, 400)
+        }
+      }
+    }
+
     // Auto-generate SKU if empty string provided (user cleared it) or not set
     let finalSku = sku
     let finalBarcode = barcode
