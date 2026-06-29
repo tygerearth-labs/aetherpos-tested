@@ -25,15 +25,16 @@ model OutletGroup {
 
 // ==================== OUTLET ====================
 model Outlet {
-  id           String   @id @default(cuid())
-  name         String
-  address      String?
-  phone        String?
-  accountType  String   @default("free") // free, pro, enterprise
-  isMain       Boolean  @default(false)  // Main/headquarters outlet in the group
-  groupId      String?                      // Belongs to an outlet group (null = standalone)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id              String    @id @default(cuid())
+  name            String
+  address         String?
+  phone           String?
+  accountType     String    @default("free") // free, pro, enterprise
+  planExpiresAt   DateTime?                   // When the current plan expires (null = never/free)
+  isMain          Boolean   @default(false)  // Main/headquarters outlet in the group
+  groupId         String?                      // Belongs to an outlet group (null = standalone)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   group            OutletGroup?       @relation(fields: [groupId], references: [id])
   users            User[]
