@@ -1,12 +1,12 @@
 // ==================== AETHER POS SCHEMA ====================
-// PostgreSQL — production-ready for Vercel
+// PostgreSQL for Vercel / production deployment
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -25,16 +25,15 @@ model OutletGroup {
 
 // ==================== OUTLET ====================
 model Outlet {
-  id              String    @id @default(cuid())
-  name            String
-  address         String?
-  phone           String?
-  accountType     String    @default("free") // free, pro, enterprise
-  planExpiresAt   DateTime?                   // When the current plan expires (null = never/free)
-  isMain          Boolean   @default(false)  // Main/headquarters outlet in the group
-  groupId         String?                      // Belongs to an outlet group (null = standalone)
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id           String   @id @default(cuid())
+  name         String
+  address      String?
+  phone        String?
+  accountType  String   @default("free") // free, pro, enterprise
+  isMain       Boolean  @default(false)  // Main/headquarters outlet in the group
+  groupId      String?                      // Belongs to an outlet group (null = standalone)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   group            OutletGroup?       @relation(fields: [groupId], references: [id])
   users            User[]
@@ -372,7 +371,6 @@ model TransferItem {
   quantity        Int                          // Quantity transferred
   hpp             Float    @default(0)          // Cost price snapshot
   price           Float                        // Selling price snapshot
-  productSnapshot String?                      // JSON: full product data (image, unit, category, variants, etc.)
   outletId        String                       // Source outlet (for audit)
   createdAt       DateTime @default(now())
 

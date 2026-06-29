@@ -67,39 +67,30 @@ export async function GET(request: NextRequest) {
             select: { id: true, name: true },
           },
           items: {
-            select: { id: true, productName: true, quantity: true, price: true, hpp: true },
+            select: { id: true },
           },
         },
       }),
       db.outletTransfer.count({ where }),
     ])
 
-    const mappedTransfers = transfers.map((t) => {
-      const totalQty = t.items.reduce((sum, item) => sum + item.quantity, 0)
-      const totalPrice = t.items.reduce((sum, item) => sum + (item.price * item.quantity), 0)
-      const productNames = t.items.map((i) => i.productName).join(', ')
-
-      return {
-        id: t.id,
-        transferNumber: t.transferNumber,
-        fromOutletId: t.fromOutletId,
-        toOutletId: t.toOutletId,
-        fromOutletName: t.fromOutlet.name,
-        toOutletName: t.toOutlet.name,
-        status: t.status,
-        notes: t.notes,
-        itemCount: t.items.length,
-        totalQty,
-        totalPrice,
-        productNames,
-        createdAt: t.createdAt,
-        updatedAt: t.updatedAt,
-        receivedAt: t.receivedAt,
-        createdBy: t.createdBy,
-        receivedBy: t.receivedBy,
-        direction: t.fromOutletId === outletId ? 'OUTBOUND' : 'INBOUND',
-      }
-    })
+    const mappedTransfers = transfers.map((t) => ({
+      id: t.id,
+      transferNumber: t.transferNumber,
+      fromOutletId: t.fromOutletId,
+      toOutletId: t.toOutletId,
+      fromOutletName: t.fromOutlet.name,
+      toOutletName: t.toOutlet.name,
+      status: t.status,
+      notes: t.notes,
+      itemCount: t.items.length,
+      createdAt: t.createdAt,
+      updatedAt: t.updatedAt,
+      receivedAt: t.receivedAt,
+      createdBy: t.createdBy,
+      receivedBy: t.receivedBy,
+      direction: t.fromOutletId === outletId ? 'OUTBOUND' : 'INBOUND',
+    }))
 
     return safeJson(
       {

@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
-import { parsePagination, resolvePlanType, getEffectivePlanType } from '@/lib/api/api-helpers'
+import { parsePagination, resolvePlanType } from '@/lib/api/api-helpers'
 import { getPlanFeatures, isUnlimited } from '@/lib/config/plan-config'
 import { safeJson, safeJsonCreated, safeJsonError, CACHE } from '@/lib/api/safe-response'
 import { generateUniqueSKU, generateVariantSKU } from '@/lib/sku-generator'
@@ -256,8 +256,12 @@ export async function POST(request: NextRequest) {
       return safeJsonError('Product name and price are required', 400)
     }
 
-    // Dynamic product limit based on plan (branch outlets inherit main outlet's plan)
-    const accountType = await getEffectivePlanType(outletId)
+    // Dynamic product limit based on plan
+    const outlet = await db.outlet.findUnique({
+      where: { id: outletId },
+      select: { accountType: true },
+    })
+    const accountType = resolvePlanType(outlet?.accountType)
     const features = getPlanFeatures(accountType)
 
     if (!isUnlimited(features.maxProducts)) {

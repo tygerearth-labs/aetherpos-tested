@@ -3,9 +3,12 @@
 import { useState, useEffect, useCallback } from 'react'
 
 export function useOnlineStatus() {
-  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true)
+  const [isOnline, setIsOnline] = useState(true)
 
   useEffect(() => {
+    // Set initial state
+    setIsOnline(navigator.onLine)
+
     const goOnline = () => setIsOnline(true)
     const goOffline = () => setIsOnline(false)
 
