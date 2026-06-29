@@ -32,6 +32,8 @@ export interface PlanInfo {
   type: string
   label: string
   isSuspended: boolean
+  isInherited?: boolean
+  mainOutletName?: string
 }
 
 export interface PlanUsage {
@@ -52,6 +54,7 @@ export interface PlanData {
   lastUpdated: string
   planExpiresAt?: string | null  // When the current plan expires (null = never/free)
   isExpired?: boolean            // Whether the plan has expired
+  isBranch?: boolean             // Whether this is a branch outlet
 }
 
 interface UsePlanReturn {

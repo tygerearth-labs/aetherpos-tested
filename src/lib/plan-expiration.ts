@@ -1,10 +1,11 @@
 /**
- * plan-expiration.ts — Plan Expiration Service
+ * plan-expiration.ts — Plan Expiration & Inheritance Service
  *
- * Handles plan expiration logic for outlets:
+ * Handles plan logic for outlets:
  * - Free plans never expire (planExpiresAt is null or accountType is "free")
  * - Owner (main outlet): When plan expires, can still login but plan drops to "free"
- * - Branch outlet (enterprise): When main outlet's plan expires, cannot login
+ * - Branch outlet: ALWAYS inherits the main outlet's plan (accountType + planExpiresAt)
+ *   - When main outlet's plan expires, branch users cannot login
  */
 
 import { db } from '@/lib/db'
@@ -20,6 +21,8 @@ export interface PlanExpirationResult {
   mainOutletName?: string
   /** When the plan expires */
   expiresAt?: Date | null
+  /** Whether this is a branch outlet inheriting from a main outlet */
+  isInherited?: boolean
 }
 
 /**
@@ -28,7 +31,9 @@ export interface PlanExpirationResult {
  * Logic:
  * - Free plans never expire (planExpiresAt is null or accountType is "free")
  * - Owner (main outlet): When plan expires, can still login but plan drops to "free"
- * - Branch outlet (enterprise): When main outlet's plan expires, cannot login
+ * - Branch outlet: ALWAYS inherits the main outlet's plan — branch's own
+ *   accountType is ignored in favor of the main outlet's.
+ *   When main outlet's plan expires, branch users cannot login.
  */
 export async function checkPlanExpiration(outletId: string): Promise<PlanExpirationResult> {
   const outlet = await db.outlet.findUnique({
@@ -49,6 +54,62 @@ export async function checkPlanExpiration(outletId: string): Promise<PlanExpirat
 
   const now = new Date()
 
+  // ── Branch outlet: always inherit main outlet's plan ──
+  if (!outlet.isMain && outlet.groupId) {
+    const mainOutlet = await db.outlet.findFirst({
+      where: { groupId: outlet.groupId, isMain: true },
+      select: { id: true, name: true, accountType: true, planExpiresAt: true },
+    })
+
+    if (mainOutlet) {
+      // Main outlet is free or has no expiration — inherited plan is always active
+      if (mainOutlet.accountType === 'free' || !mainOutlet.planExpiresAt) {
+        return {
+          effectivePlan: mainOutlet.accountType || 'free',
+          isExpired: false,
+          isBranchBlocked: false,
+          mainOutletName: mainOutlet.name,
+          expiresAt: mainOutlet.planExpiresAt,
+          isInherited: true,
+        }
+      }
+
+      const mainExpired = mainOutlet.planExpiresAt < now
+
+      if (mainExpired) {
+        // Downgrade the main outlet's plan first
+        await db.outlet.update({
+          where: { id: mainOutlet.id },
+          data: { accountType: 'free', planExpiresAt: null },
+        })
+
+        // Main outlet's plan is expired — block branch
+        return {
+          effectivePlan: 'free',
+          isExpired: true,
+          isBranchBlocked: true,
+          mainOutletName: mainOutlet.name,
+          expiresAt: mainOutlet.planExpiresAt,
+          isInherited: true,
+        }
+      }
+
+      // Main outlet plan is active — branch inherits it
+      return {
+        effectivePlan: mainOutlet.accountType,
+        isExpired: false,
+        isBranchBlocked: false,
+        mainOutletName: mainOutlet.name,
+        expiresAt: mainOutlet.planExpiresAt,
+        isInherited: true,
+      }
+    }
+
+    // No main outlet found in group — fall through to standalone logic
+  }
+
+  // ── Main outlet or standalone outlet ──
+
   // Free plan never expires
   if (outlet.accountType === 'free' || !outlet.planExpiresAt) {
     return {
@@ -62,61 +123,20 @@ export async function checkPlanExpiration(outletId: string): Promise<PlanExpirat
   const isExpired = outlet.planExpiresAt < now
 
   // Main outlet (owner) - can still login, plan drops to free
-  if (outlet.isMain) {
-    if (isExpired) {
-      // Downgrade plan to free
-      await db.outlet.update({
-        where: { id: outletId },
-        data: { accountType: 'free', planExpiresAt: null },
-      })
-      return {
-        effectivePlan: 'free',
-        isExpired: true,
-        isBranchBlocked: false,
-        expiresAt: outlet.planExpiresAt,
-      }
-    }
+  if (isExpired) {
+    // Downgrade plan to free
+    await db.outlet.update({
+      where: { id: outletId },
+      data: { accountType: 'free', planExpiresAt: null },
+    })
     return {
-      effectivePlan: outlet.accountType,
-      isExpired: false,
+      effectivePlan: 'free',
+      isExpired: true,
       isBranchBlocked: false,
       expiresAt: outlet.planExpiresAt,
     }
   }
 
-  // Branch outlet - check main outlet's plan
-  if (outlet.groupId) {
-    const mainOutlet = await db.outlet.findFirst({
-      where: { groupId: outlet.groupId, isMain: true },
-      select: { id: true, name: true, accountType: true, planExpiresAt: true },
-    })
-
-    if (mainOutlet) {
-      const mainExpired =
-        mainOutlet.planExpiresAt &&
-        mainOutlet.planExpiresAt < now &&
-        mainOutlet.accountType !== 'free'
-
-      if (mainExpired) {
-        // Downgrade the main outlet's plan first
-        await db.outlet.update({
-          where: { id: mainOutlet.id },
-          data: { accountType: 'free', planExpiresAt: null },
-        })
-
-        // Main outlet's plan is expired - block branch login
-        return {
-          effectivePlan: 'free',
-          isExpired: true,
-          isBranchBlocked: true,
-          mainOutletName: mainOutlet.name,
-          expiresAt: mainOutlet.planExpiresAt,
-        }
-      }
-    }
-  }
-
-  // Branch with active main outlet or standalone non-main outlet
   return {
     effectivePlan: outlet.accountType,
     isExpired: false,

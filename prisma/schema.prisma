@@ -1,5 +1,5 @@
 // ==================== AETHER POS SCHEMA ====================
-// PostgreSQL for Vercel / production deployment
+// PostgreSQL — production-ready for Vercel
 
 generator client {
   provider = "prisma-client-js"
