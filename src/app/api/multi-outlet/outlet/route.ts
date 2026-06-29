@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { parseTzOffset, buildDateFilterTz, getTodayRangeTz, getVoidedTxIds } from '@/lib/api/api-helpers'
-import { safeJson, safeJsonError, CACHE } from '@/lib/api/safe-response'
+import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 
 /**
  * GET /api/multi-outlet/outlet?outletId=xxx&tab=transactions|customers|products
@@ -132,110 +132,110 @@ export async function GET(request: NextRequest) {
     }
 
     // Tab data
-    let data: unknown = null
+    let tabData: unknown = null
     let totalRecords = 0
 
     if (tab === 'transactions') {
       try {
-        const whereClause = buildWhere({
+        const txWhere = buildWhere({
           outletId: targetOutletId,
           ...voidExclude,
           ...(search ? { invoiceNumber: { contains: search } } : {}),
         })
 
-        [data, totalRecords] = await Promise.all([
-          db.transaction.findMany({
-            where: whereClause,
-            select: {
-              id: true,
-              invoiceNumber: true,
-              subtotal: true,
-              discount: true,
-              total: true,
-              paymentMethod: true,
-              createdAt: true,
-              customer: { select: { name: true } },
-              user: { select: { name: true } },
-              _count: { select: { items: true } },
-            },
-            orderBy: { createdAt: 'desc' },
-            skip,
-            take: limit,
-          }),
-          db.transaction.count({ where: whereClause }),
-        ])
+        const txRows = await db.transaction.findMany({
+          where: txWhere,
+          select: {
+            id: true,
+            invoiceNumber: true,
+            subtotal: true,
+            discount: true,
+            total: true,
+            paymentMethod: true,
+            createdAt: true,
+            customer: { select: { name: true } },
+            user: { select: { name: true } },
+            _count: { select: { items: true } },
+          },
+          orderBy: { createdAt: 'desc' },
+          skip,
+          take: limit,
+        })
+        const txCount = await db.transaction.count({ where: txWhere })
+        tabData = txRows
+        totalRecords = txCount
       } catch (tabErr) {
         console.error('[/api/multi-outlet/outlet] Transactions tab error:', tabErr)
-        data = []
+        tabData = []
         totalRecords = 0
       }
     } else if (tab === 'customers') {
       try {
-        const whereClause: Record<string, unknown> = { outletId: targetOutletId }
+        const custWhere: Record<string, unknown> = { outletId: targetOutletId }
         if (search) {
-          whereClause.OR = [
+          custWhere.OR = [
             { name: { contains: search } },
             { whatsapp: { contains: search } },
           ]
         }
 
-        [data, totalRecords] = await Promise.all([
-          db.customer.findMany({
-            where: whereClause as never,
-            select: {
-              id: true,
-              name: true,
-              whatsapp: true,
-              totalSpend: true,
-              points: true,
-              createdAt: true,
-              _count: { select: { transactions: true } },
-            },
-            orderBy: { totalSpend: 'desc' },
-            skip,
-            take: limit,
-          }),
-          db.customer.count({ where: whereClause as never }),
-        ])
+        const custRows = await db.customer.findMany({
+          where: custWhere as never,
+          select: {
+            id: true,
+            name: true,
+            whatsapp: true,
+            totalSpend: true,
+            points: true,
+            createdAt: true,
+            _count: { select: { transactions: true } },
+          },
+          orderBy: { totalSpend: 'desc' },
+          skip,
+          take: limit,
+        })
+        const custCount = await db.customer.count({ where: custWhere as never })
+        tabData = custRows
+        totalRecords = custCount
       } catch (tabErr) {
         console.error('[/api/multi-outlet/outlet] Customers tab error:', tabErr)
-        data = []
+        tabData = []
         totalRecords = 0
       }
     } else if (tab === 'products') {
       try {
-        const whereClause: Record<string, unknown> = { outletId: targetOutletId }
+        const prodWhere: Record<string, unknown> = { outletId: targetOutletId }
         if (search) {
-          whereClause.OR = [
+          prodWhere.OR = [
             { name: { contains: search } },
             { sku: { contains: search } },
             { barcode: { contains: search } },
           ]
         }
 
-        [data, totalRecords] = await Promise.all([
-          db.product.findMany({
-            where: whereClause as never,
-            select: {
-              id: true,
-              name: true,
-              sku: true,
-              price: true,
-              hpp: true,
-              stock: true,
-              hasVariants: true,
-              category: { select: { name: true, color: true } },
-              _count: { select: { variants: true } },
-            },
-            orderBy: { name: 'asc' },
-            skip,
-            take: limit,
-          }),
-          db.product.count({ where: whereClause as never }),
-        ])
+        const prodRows = await db.product.findMany({
+          where: prodWhere as never,
+          select: {
+            id: true,
+            name: true,
+            sku: true,
+            price: true,
+            hpp: true,
+            stock: true,
+            hasVariants: true,
+            category: { select: { name: true, color: true } },
+            _count: { select: { variants: true } },
+          },
+          orderBy: { name: 'asc' },
+          skip,
+          take: limit,
+        })
+        const prodCount = await db.product.count({ where: prodWhere as never })
+        tabData = prodRows
+        totalRecords = prodCount
       } catch (tabErr) {
         console.error('[/api/multi-outlet/outlet] Products tab error:', tabErr)
-        data = []
+        tabData = []
         totalRecords = 0
       }
     }
@@ -249,7 +249,7 @@ export async function GET(request: NextRequest) {
         total: totalRecords,
         totalPages: Math.ceil(totalRecords / limit),
       },
-      data: data ?? [],
+      data: tabData ?? [],
     }, 200)
   } catch (error) {
     console.error('[/api/multi-outlet/outlet] GET error:', error)
