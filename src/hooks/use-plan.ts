@@ -6,7 +6,7 @@
  * the Command Center.
  *
  * Usage:
- *   const { plan, features, usage, isSuspended, isLoading, refresh } = usePlan()
+ *   const { plan, features, usage, isSuspended, isPlanExpired, isLoading, refresh } = usePlan()
  *
  *   // Feature gating
  *   if (!features.exportExcel) { showUpgradeBanner() }
@@ -15,6 +15,9 @@
  *   if (!isUnlimited(features.maxProducts) && usage.products >= features.maxProducts) {
  *     toast('Produk已达上限，请升级')
  *   }
+ *
+ *   // Plan expired
+ *   if (isPlanExpired) { showPlanExpiredBanner() }
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react'
@@ -29,6 +32,8 @@ export interface PlanInfo {
   type: string
   label: string
   isSuspended: boolean
+  isInherited?: boolean
+  mainOutletName?: string
 }
 
 export interface PlanUsage {
@@ -47,6 +52,9 @@ export interface PlanData {
   features: PlanFeatures
   usage: PlanUsage
   lastUpdated: string
+  planExpiresAt?: string | null  // When the current plan expires (null = never/free)
+  isExpired?: boolean            // Whether the plan has expired
+  isBranch?: boolean             // Whether this is a branch outlet
 }
 
 interface UsePlanReturn {
@@ -60,6 +68,8 @@ interface UsePlanReturn {
   usage: PlanUsage | null
   /** Whether the outlet is suspended by Command Center */
   isSuspended: boolean
+  /** Whether the plan has expired */
+  isPlanExpired: boolean
   /** Loading state */
   isLoading: boolean
   /** Error message if fetch failed */
@@ -131,6 +141,7 @@ export function usePlan(): UsePlanReturn {
   }, [fetchPlan])
 
   const isSuspended = planData?.plan.isSuspended ?? false
+  const isPlanExpired = planData?.isExpired ?? false
 
   return {
     planData,
@@ -138,6 +149,7 @@ export function usePlan(): UsePlanReturn {
     features: planData?.features ?? null,
     usage: planData?.usage ?? null,
     isSuspended,
+    isPlanExpired,
     isLoading,
     error,
     refresh: fetchPlan,

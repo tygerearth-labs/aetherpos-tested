@@ -4,11 +4,13 @@ import { requireAuth } from '@/lib/auth/auth-utils'
 import { db } from '@/lib/db'
 import { getPlanFeatures, getPlanLabel } from '@/lib/config/plan-config'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
+import { checkPlanExpiration } from '@/lib/plan-expiration'
 
 /**
  * GET /api/outlet/plan
  *
  * Returns the current outlet's plan info + full feature matrix.
+ * For branch outlets (cabang), the plan is inherited from the main outlet.
  * Called by the client on mount and periodically to detect
  * plan changes from the Command Center.
  */
@@ -22,6 +24,9 @@ export async function GET(request: NextRequest) {
         id: true,
         name: true,
         accountType: true,
+        planExpiresAt: true,
+        isMain: true,
+        groupId: true,
         updatedAt: true,
         setting: {
           select: {
@@ -47,8 +52,12 @@ export async function GET(request: NextRequest) {
       return safeJsonError('Outlet not found', 404)
     }
 
+    // Check and handle plan expiration (for branches, this inherits from main outlet)
+    const planCheck = await checkPlanExpiration(outlet.id)
+    const effectivePlan = planCheck.effectivePlan
+
     // Derive plan type (handles suspended: prefix)
-    const rawPlan = resolvePlanType(outlet.accountType)
+    const rawPlan = resolvePlanType(effectivePlan)
     const isSuspended = outlet.accountType?.startsWith('suspended:') ?? false
     const features = getPlanFeatures(rawPlan)
 
@@ -62,6 +71,11 @@ export async function GET(request: NextRequest) {
       transactions: outlet._count.transactions,
     }
 
+    // For branches: show the main outlet's expiration info
+    const effectiveExpiresAt = planCheck.isInherited
+      ? planCheck.expiresAt?.toISOString() || null
+      : outlet.planExpiresAt?.toISOString() || null
+
     return safeJson({
       outletId: outlet.id,
       outletName: outlet.name,
@@ -69,10 +83,15 @@ export async function GET(request: NextRequest) {
         type: rawPlan,
         label: getPlanLabel(rawPlan),
         isSuspended,
+        isInherited: planCheck.isInherited ?? false,
+        mainOutletName: planCheck.mainOutletName,
       },
       features,
       usage,
       lastUpdated: outlet.updatedAt.toISOString(),
+      planExpiresAt: effectiveExpiresAt,
+      isExpired: planCheck.isExpired,
+      isBranch: !outlet.isMain && !!outlet.groupId,
     })
   } catch (error) {
     if (error instanceof Error && error.message.includes('Unauthorized')) {

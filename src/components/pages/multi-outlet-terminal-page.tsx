@@ -546,6 +546,7 @@ function OutletDetailDialog({
   canEdit: boolean
 }) {
   const [tab, setTab] = useState<DetailTab>('transactions')
+  const [detailPeriod, setDetailPeriod] = useState<'all' | DateFilter>('all')
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(false)
@@ -570,10 +571,12 @@ function OutletDetailDialog({
       const params = new URLSearchParams({
         outletId: outlet.id,
         tab,
-        period: dateFilterConfig[period].param,
         page: String(page),
         limit: '15',
       })
+      if (detailPeriod !== 'all') {
+        params.set('period', dateFilterConfig[detailPeriod].param)
+      }
       if (search) params.set('search', search)
       // Send timezone offset so server filters correctly
       params.set('tzOffset', String(-new Date().getTimezoneOffset()))
@@ -597,7 +600,7 @@ function OutletDetailDialog({
     } finally {
       setLoading(false)
     }
-  }, [outlet.id, tab, period, page, search])
+  }, [outlet.id, tab, detailPeriod, page, search])
 
   // Fetch crew data
   const fetchCrew = useCallback(async () => {
@@ -628,6 +631,7 @@ function OutletDetailDialog({
   useEffect(() => {
     if (open) {
       setTab('transactions')
+      setDetailPeriod('all')
       setSearch('')
       setPage(1)
       setCrewList([])
@@ -750,8 +754,31 @@ function OutletDetailDialog({
           )}
         </div>
 
+        {/* Period selector */}
+        <div className="px-5 pt-3 pb-0 shrink-0">
+          <div className="flex items-center gap-1 mb-2">
+            {([
+              { key: 'all' as const, label: 'Semua' },
+              ...Object.entries(dateFilterConfig).map(([k, v]) => ({ key: k as DateFilter, label: v.label })),
+            ]).map((item) => (
+              <button
+                key={item.key}
+                onClick={() => { setDetailPeriod(item.key); setPage(1) }}
+                className={cn(
+                  'text-[10px] font-medium px-2 py-1 rounded-md transition-colors',
+                  detailPeriod === item.key
+                    ? 'bg-white/[0.08] text-white'
+                    : 'text-slate-500 hover:text-slate-300'
+                )}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Tabs + Search */}
-        <div className="px-5 pt-3 pb-2 border-b border-white/[0.04] shrink-0">
+        <div className="px-5 pt-0 pb-2 border-b border-white/[0.04] shrink-0">
           <div className="flex items-center justify-between gap-2 mb-2">
             <div className="flex items-center gap-0.5 bg-white/[0.04] rounded-lg p-0.5">
               {(Object.entries(tabConfig) as [DetailTab, typeof tabConfig[DetailTab]][]).map(([key, cfg]) => (
@@ -1037,6 +1064,7 @@ function AddCrewDialog({
 
   useEffect(() => {
     if (open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setName(''); setEmail(''); setPassword('')
       setTimeout(() => inputRef.current?.focus(), 100)
     }
@@ -1126,6 +1154,7 @@ function EditCrewDialog({
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setName(crew.name); setEmail(crew.email); setPassword('')
     setTimeout(() => inputRef.current?.focus(), 100)
   }, [crew])
@@ -1247,11 +1276,14 @@ function DeleteCrewDialog({
 interface TransactionRow {
   id: string
   invoiceNumber: string
+  subtotal?: number
+  discount?: number
   total: number
   paymentMethod: string
   createdAt: string
   customer?: { name: string } | null
   user?: { name: string } | null
+  _count?: { items: number }
 }
 
 function TransactionsList({ data }: { data: TransactionRow[] }) {
@@ -1263,14 +1295,22 @@ function TransactionsList({ data }: { data: TransactionRow[] }) {
             <div className="flex items-center gap-2 mb-0.5">
               <p className="text-[11px] font-mono font-semibold text-white">{tx.invoiceNumber}</p>
               <Badge className="text-[8px] px-1 py-0 bg-white/[0.06] text-slate-400 border-0 hover:bg-white/[0.06]">{tx.paymentMethod}</Badge>
+              {tx._count && (
+                <span className="text-[9px] text-slate-500">{tx._count.items} item</span>
+              )}
             </div>
             <div className="flex items-center gap-2 text-[10px] text-slate-500">
               <span>{tx.user?.name || '-'}</span>
               {tx.customer && <span>• {tx.customer.name}</span>}
-              <span>• {new Date(tx.createdAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</span>
+              <span>• {new Date(tx.createdAt).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' })} {new Date(tx.createdAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</span>
             </div>
           </div>
-          <p className="text-xs font-bold text-emerald-400 shrink-0">{formatCurrency(tx.total)}</p>
+          <div className="text-right shrink-0">
+            <p className="text-xs font-bold text-emerald-400">{formatCurrency(tx.total)}</p>
+            {(tx.discount ?? 0) > 0 && (
+              <p className="text-[9px] text-red-400">-{formatCurrency(tx.discount!)}</p>
+            )}
+          </div>
         </div>
       ))}
     </div>

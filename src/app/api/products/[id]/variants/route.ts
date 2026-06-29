@@ -81,6 +81,18 @@ export async function POST(
       return safeJsonError('Variant name already exists for this product', 400)
     }
 
+    // Validate manual variant SKU uniqueness
+    if (sku?.trim()) {
+      const trimmedSku = sku.trim()
+      const skuExists = await db.productVariant.findFirst({
+        where: { sku: trimmedSku, outletId },
+        select: { id: true, name: true },
+      })
+      if (skuExists) {
+        return safeJsonError(`SKU varian "${trimmedSku}" sudah digunakan oleh varian "${skuExists.name}"`, 400)
+      }
+    }
+
     const variant = await db.$transaction(async (tx) => {
       // Auto-generate variant SKU if not provided
       const finalVariantSku = sku?.trim() || await generateVariantSKU(product.name, name.trim(), outletId)
@@ -196,30 +208,68 @@ export async function PUT(
           }
         }
 
+        // Check SKU uniqueness if being changed
+        if (v.sku !== undefined && v.sku?.trim() && v.sku.trim() !== existing.sku) {
+          const skuConflict = await tx.productVariant.findFirst({
+            where: { sku: v.sku.trim(), outletId, id: { not: v.id } },
+          })
+          if (skuConflict) {
+            throw new Error(`SKU varian "${v.sku.trim()}" sudah digunakan oleh varian lain`)
+          }
+        }
+
         const updated = await tx.productVariant.update({
           where: { id: v.id },
           data: updateData,
         })
 
+        // Per-variant audit log with detailed change tracking
+        const variantChanges: Record<string, { from: unknown; to: unknown }> = {}
+        if (v.name !== undefined && v.name !== existing.name) variantChanges.name = { from: existing.name, to: v.name }
+        if (v.sku !== undefined && v.sku !== existing.sku) variantChanges.sku = { from: existing.sku, to: v.sku?.trim() || null }
+        if (v.hpp !== undefined && v.hpp !== existing.hpp) variantChanges.hpp = { from: existing.hpp, to: v.hpp }
+        if (v.price !== undefined && v.price !== existing.price) variantChanges.price = { from: existing.price, to: v.price }
+        if (v.stock !== undefined && v.stock !== existing.stock) variantChanges.stock = { from: existing.stock, to: v.stock }
+
+        if (Object.keys(variantChanges).length > 0) {
+          await tx.auditLog.create({
+            data: {
+              action: 'UPDATE',
+              entityType: 'VARIANT',
+              entityId: v.id,
+              details: JSON.stringify({
+                productName: product.name,
+                productId: id,
+                variantName: updated.name,
+                variantSku: updated.sku,
+                changes: variantChanges,
+              }),
+              outletId,
+              userId,
+            },
+          })
+        }
+
         results.push(updated)
       }
 
-      // Create audit log
-      await tx.auditLog.create({
-        data: {
-          action: 'UPDATE',
-          entityType: 'VARIANT',
-          entityId: id,
-          details: JSON.stringify({
-            productName: product.name,
-            productId: id,
-            updatedCount: results.length,
-            variantIds: results.map((r) => r.id),
-          }),
-          outletId,
-          userId,
-        },
-      })
+      // Only create parent-level audit log if variants were updated
+      if (results.length > 0) {
+        await tx.auditLog.create({
+          data: {
+            action: 'UPDATE',
+            entityType: 'PRODUCT',
+            entityId: id,
+            details: JSON.stringify({
+              productName: product.name,
+              updatedVariantCount: results.length,
+              variantNames: results.map((r) => r.name),
+            }),
+            outletId,
+            userId,
+          },
+        })
+      }
 
       return results
     })

@@ -168,8 +168,9 @@ function UsageRing({ label, used, limit, icon }: { label: string; used: number; 
 // ============================================================
 
 export default function PlanPage() {
-  const { plan: currentPlanInfo, features, usage, isLoading: planLoading } = usePlan()
+  const { plan: currentPlanInfo, features, usage, isLoading: planLoading, planData } = usePlan()
   const currentPlanSlug = currentPlanInfo?.type || 'free'
+  const isBranch = planData?.isBranch ?? false
 
   // Plans from database
   const [plans, setPlans] = useState<PlanRow[]>([])
@@ -265,6 +266,14 @@ export default function PlanPage() {
             <Alert className="border-red-500/20 bg-red-500/5 p-3">
               <AlertDescription className="text-xs text-red-400">
                 Akun Anda saat ini ditangguhkan. Hubungi admin untuk informasi lebih lanjut.
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {isBranch && currentPlanInfo?.isInherited && (
+            <Alert className="border-blue-500/20 bg-blue-500/5 p-3">
+              <AlertDescription className="text-xs text-blue-400">
+                Plan ini diwariskan dari outlet utama <span className="font-semibold">{currentPlanInfo.mainOutletName || 'Main Outlet'}</span>. Perubahan plan hanya dapat dilakukan oleh owner outlet utama.
               </AlertDescription>
             </Alert>
           )}
