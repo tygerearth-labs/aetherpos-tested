@@ -3,7 +3,7 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { getPlanFeatures } from '@/lib/config/plan-config'
-import { buildDateFilter, resolvePlanType } from '@/lib/api/api-helpers'
+import { buildDateFilter, resolvePlanType, getEffectivePlanType } from '@/lib/api/api-helpers'
 import { safeJsonError } from '@/lib/api/safe-response'
 
 export async function GET(request: NextRequest) {
@@ -16,12 +16,8 @@ export async function GET(request: NextRequest) {
     }
     const outletId = user.outletId
 
-    // K2: Plan gating — only Pro/Enterprise can export Excel
-    const outlet = await db.outlet.findUnique({
-      where: { id: outletId },
-      select: { accountType: true },
-    })
-    const accountType = resolvePlanType(outlet?.accountType)
+    // K2: Plan gating — only Pro/Enterprise can export Excel (branch inherits main outlet's plan)
+    const accountType = await getEffectivePlanType(outletId)
     const features = getPlanFeatures(accountType)
     if (!features.exportExcel) {
       return safeJsonError('Fitur export Excel hanya tersedia untuk paket Pro ke atas. Upgrade sekarang!', 403)
