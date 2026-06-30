@@ -260,18 +260,39 @@ function getActionBadge(action: string, details?: Record<string, unknown>) {
     return <Badge className="theme-bg-very-light theme-border-light theme-text text-[10px]">Restock</Badge>
   }
   switch (action) {
-    case 'CREATE':
+    case 'CREATE': {
+      // Per-variant creation
+      if (details?.variantName && details?.variantPrice !== undefined) {
+        return <Badge className="bg-blue-500/10 border-blue-500/20 text-blue-400 text-[10px]">Varian Baru</Badge>
+      }
       return <Badge className="bg-blue-500/10 border-blue-500/20 text-blue-400 text-[10px]">Create</Badge>
-    case 'RESTOCK':
+    }
+    case 'RESTOCK': {
+      if (details?.variantName) {
+        return <Badge className="theme-bg-very-light theme-border-light theme-text text-[10px]">Restok Varian</Badge>
+      }
       return <Badge className="theme-bg-very-light theme-border-light theme-text text-[10px]">Restock</Badge>
-    case 'SALE':
+    }
+    case 'SALE': {
+      if (details?.variantName) {
+        return <Badge className="bg-amber-500/10 border-amber-500/20 text-amber-400 text-[10px]">Jual Varian</Badge>
+      }
       return <Badge className="bg-amber-500/10 border-amber-500/20 text-amber-400 text-[10px]">Sale</Badge>
-    case 'UPDATE':
+    }
+    case 'UPDATE': {
+      if (details?.variantName || details?.changes) {
+        return <Badge className="bg-violet-500/10 border-violet-500/20 text-violet-400 text-[10px]">Update Varian</Badge>
+      }
       return <Badge className="bg-violet-500/10 border-violet-500/20 text-violet-400 text-[10px]">Update</Badge>
+    }
     case 'DELETE':
       return <Badge className="bg-red-500/10 border-red-500/20 text-red-400 text-[10px]">Delete</Badge>
-    case 'ADJUSTMENT':
+    case 'ADJUSTMENT': {
+      if (details?.variantName) {
+        return <Badge className="bg-orange-500/10 border-orange-500/20 text-orange-400 text-[10px]">Adjust Varian</Badge>
+      }
       return <Badge className="bg-orange-500/10 border-orange-500/20 text-orange-400 text-[10px]">Adjustment</Badge>
+    }
     case 'BULK_UPDATE':
       return <Badge className="bg-cyan-500/10 border-cyan-500/20 text-cyan-400 text-[10px]">Bulk Update</Badge>
     default:
@@ -284,11 +305,29 @@ function getActionDescription(action: string, details: Record<string, unknown>):
   const variantLabel = variantName ? ` [${variantName}]` : ''
   const parentName = details.parentProductName as string | undefined
   const parentLabel = parentName ? ` (${parentName})` : ''
+  const productName = details.productName as string | undefined
 
   switch (action) {
     case 'CREATE': {
+      // Transfer-in new product
       if (details.action === 'TRANSFER_IN_NEW') {
         return `Produk baru dari transfer ${details.transferNumber || ''} — Stok awal: ${formatNumber(Number(details.initialStock) || 0)}`
+      }
+      // Per-variant creation log
+      if (variantName && details.variantPrice !== undefined) {
+        const vPrice = formatCurrency(Number(details.variantPrice) || 0)
+        const vStock = formatNumber(Number(details.variantStock) || 0)
+        const vHpp = Number(details.variantHpp) > 0 ? ` — HPP: ${formatCurrency(Number(details.variantHpp))}` : ''
+        return `Varian "${variantName}" ditambahkan — Harga: ${vPrice}, Stok: ${vStock}${vHpp}`
+      }
+      // Product creation with variants summary
+      if (details.hasVariants && details.variantCount && Number(details.variantCount) > 0) {
+        const vList = details.variants as Array<{ name: string; price: number; stock: number }> | undefined
+        if (vList && vList.length > 0) {
+          const variantDetails = vList.map((v) => `${v.name}: ${formatCurrency(v.price)} (stok ${v.stock})`).join(', ')
+          return `Produk dibuat dengan ${vList.length} varian — ${variantDetails}`
+        }
+        return `Produk dibuat — ${Number(details.variantCount)} varian, Total stok: ${formatNumber(Number(details.totalVariantStock) || 0)}`
       }
       return `Product created — Price: ${formatCurrency(Number(details.price) || 0)}, Stock: ${formatNumber(Number(details.stock) || 0)}`
     }
@@ -296,11 +335,44 @@ function getActionDescription(action: string, details: Record<string, unknown>):
       if (details.action === 'TRANSFER_IN') {
         return `+${formatNumber(Number(details.quantityAdded) || 0)} dari transfer ${details.transferNumber || ''} (${details.fromOutlet || 'outlet lain'}) — Stok: ${formatNumber(Number(details.previousStock) || 0)} → ${formatNumber(Number(details.newStock) || 0)}`
       }
+      if (variantName) {
+        const vPrev = formatNumber(Number(details.previousStock) || 0)
+        const vNew = formatNumber(Number(details.newStock) || 0)
+        return `+${formatNumber(Number(details.quantityAdded) || 0)} stok varian "${variantName}" (${vPrev} → ${vNew})`
+      }
       return `+${formatNumber(Number(details.quantityAdded) || 0)} units${variantLabel} (Stock: ${formatNumber(Number(details.previousStock) || 0)} → ${formatNumber(Number(details.newStock) || 0)})`
     }
-    case 'SALE':
+    case 'SALE': {
+      const invoice = details.invoiceNumber as string | undefined
+      const invoiceLabel = invoice ? ` (${invoice})` : ''
+      if (variantName) {
+        const vPrev = formatNumber(Number(details.previousStock) || 0)
+        const vNew = formatNumber(Number(details.newStock) || 0)
+        return `Terjual ${formatNumber(Number(details.quantitySold) || 0)} varian "${variantName}"${invoiceLabel} — ${formatCurrency(Number(details.subtotal) || 0)} — Stok: ${vPrev} → ${vNew}`
+      }
       return `Sold ${formatNumber(Number(details.quantitySold) || Number(details.qty) || 0)} units${variantLabel} — ${formatCurrency(Number(details.subtotal) || 0)}`
-    case 'UPDATE':
+    }
+    case 'UPDATE': {
+      // Per-variant update with changes object
+      if (details.changes && typeof details.changes === 'object' && variantName) {
+        const changes = details.changes as Record<string, { from: unknown; to: unknown }>
+        const parts: string[] = []
+        if (changes.stock) {
+          const diff = Number(changes.stock.to) - Number(changes.stock.from)
+          parts.push(`Stok: ${formatNumber(Number(changes.stock.from))} → ${formatNumber(Number(changes.stock.to))} (${diff >= 0 ? '+' : ''}${formatNumber(diff)})`)
+        }
+        if (changes.price) parts.push(`Harga: ${formatCurrency(Number(changes.price.from))} → ${formatCurrency(Number(changes.price.to))}`)
+        if (changes.name) parts.push(`Nama: ${changes.name.from} → ${changes.name.to}`)
+        if (changes.hpp) parts.push(`HPP: ${formatCurrency(Number(changes.hpp.from))} → ${formatCurrency(Number(changes.hpp.to))}`)
+        if (parts.length > 0) return `Varian "${variantName}": ${parts.join(', ')}`
+        return `Varian "${variantName}" diupdate`
+      }
+      // Parent product update with variant info
+      if (details.updatedVariantCount !== undefined) {
+        const vNames = details.variantNames as string[] | undefined
+        const nameList = vNames && vNames.length > 0 ? vNames.join(', ') : `${details.updatedVariantCount} varian`
+        return `Update ${nameList}`
+      }
       if (details.variantCount !== undefined) {
         return `Product updated — ${Number(details.variantCount)} variant(s)`
       }
@@ -318,11 +390,24 @@ function getActionDescription(action: string, details: Record<string, unknown>):
         return `Variant "${variantName}" updated`
       }
       return 'Product details updated'
-    case 'DELETE':
+    }
+    case 'DELETE': {
+      if (variantName && details.remainingVariants !== undefined) {
+        return `Varian "${variantName}" dihapus — ${Number(details.remainingVariants)} varian tersisa`
+      }
       return 'Product deleted'
+    }
     case 'ADJUSTMENT': {
       if (details.action === 'TRANSFER_OUT') {
         return `-${formatNumber(Number(details.quantityDeducted) || 0)} transfer ke ${details.toOutlet || 'outlet lain'} (${details.transferNumber || ''}) — Stok: ${formatNumber(Number(details.previousStock) || 0)} → ${formatNumber(Number(details.newStock) || 0)}`
+      }
+      // Per-variant adjustment
+      if (variantName) {
+        const prev = Number(details.previousStock)
+        const next = Number(details.newStock)
+        const diff = next - prev
+        const reasonLabel = details.reason ? ` — ${details.reason}` : ''
+        return `Adjust varian "${variantName}": ${formatNumber(prev)} → ${formatNumber(next)} (${diff >= 0 ? '+' : ''}${formatNumber(diff)})${reasonLabel}`
       }
       const prev = Number(details.previousStock)
       const next = Number(details.newStock)
@@ -589,6 +674,8 @@ export default function ProductsPage() {
       if (res.ok) {
         toast.success('Product deleted')
         fetchProducts()
+        setDetailOpen(false)
+        setDetailProduct(null)
       } else {
         toast.error('Failed to delete product')
       }
@@ -3356,7 +3443,7 @@ export default function ProductsPage() {
                                       {(log.entityType === 'VARIANT' || log.entityType === 'PRODUCT_VARIANT') && (
                                         <span className="inline-flex items-center gap-0.5 text-[10px] px-1 py-0.5 rounded bg-violet-500/10 text-violet-400 border border-violet-500/20">
                                           <Layers className="h-2 w-2" />
-                                          Variant
+                                          {log.details?.variantName ? String(log.details.variantName) : 'Variant'}
                                         </span>
                                       )}
                                     </div>

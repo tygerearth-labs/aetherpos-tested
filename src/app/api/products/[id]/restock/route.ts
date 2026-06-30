@@ -62,9 +62,9 @@ export async function POST(
 
           await tx.auditLog.create({
             data: {
-              action: 'RESTOCK',
-              entityType: 'VARIANT',
-              entityId: variantReq.id,
+              action: 'RESTOCK' as string,
+              entityType: 'VARIANT' as string,
+              entityId: variantReq.id as string,
               details: JSON.stringify({
                 productName: existing.name,
                 variantName: variantBefore.name,
