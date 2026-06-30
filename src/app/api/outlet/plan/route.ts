@@ -164,7 +164,7 @@ export async function PATCH(request: NextRequest) {
     // Get current outlet
     const outlet = await db.outlet.findUnique({
       where: { id: user.outletId },
-      select: { id: true, groupId: true },
+      select: { id: true, groupId: true, isMain: true },
     })
 
     if (!outlet) {
@@ -178,15 +178,16 @@ export async function PATCH(request: NextRequest) {
 
     let updatedCount = 0
 
-    if (applyToGroup && outlet.groupId) {
-      // Update all outlets in the group
+    // Auto-apply to group if: applyToGroup flag is set, OR this is the main outlet with a group
+    const shouldApplyToGroup = outlet.groupId && (applyToGroup || outlet.isMain)
+
+    if (shouldApplyToGroup) {
       const result = await db.outlet.updateMany({
         where: { groupId: outlet.groupId },
         data,
       })
       updatedCount = result.count
     } else {
-      // Update only this outlet
       await db.outlet.update({
         where: { id: user.outletId },
         data,
