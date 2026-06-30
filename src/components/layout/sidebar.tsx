@@ -27,6 +27,8 @@ import {
   Lock,
   Command,
   Crown,
+  Truck,
+  Building2,
 } from 'lucide-react'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -56,6 +58,7 @@ interface NavItem {
   page: PageType
   shortLabel: string
   section?: 'main' | 'operations' | 'admin'
+  groupOnly?: boolean
 }
 
 // ============================================================
@@ -71,6 +74,8 @@ const navItems: NavItem[] = [
   { label: 'Audit Log', shortLabel: 'Log', icon: <ClipboardList className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'audit-log', section: 'admin' },
   { label: 'Kelola Crew', shortLabel: 'Crew', icon: <UserCog className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'crew', section: 'admin' },
   { label: 'Plan & Pricing', shortLabel: 'Plan', icon: <Crown className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'plan', section: 'admin' },
+  { label: 'Transfer', shortLabel: 'Sj', icon: <Truck className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'transfer', section: 'admin', groupOnly: true },
+  { label: 'Multi Outlet', shortLabel: 'Mo', icon: <Building2 className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'multi-outlet', section: 'admin', groupOnly: true },
   { label: 'Pengaturan', shortLabel: 'Set', icon: <Settings className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'settings', section: 'admin' },
 ]
 
@@ -114,6 +119,7 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
 
   const [allowedPages, setAllowedPages] = useState<string[] | null>(null)
   const [permissionsLoaded, setPermissionsLoaded] = useState(false)
+  const [hasOutletGroup, setHasOutletGroup] = useState(false)
 
   const fetchPermissions = useCallback(async () => {
     if (isOwner) {
@@ -137,6 +143,21 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
     }
   }, [isOwner])
 
+  // ---- Outlet group check ----
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/outlet-group')
+        if (res.ok) {
+          const data = await res.json()
+          if (!cancelled) setHasOutletGroup(!!data.hasGroup || !!data.group)
+        }
+      } catch { /* ignore */ }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchPermissions()
@@ -155,16 +176,20 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
   const navItemAccess = useMemo(() => {
     const map = new Map<string, boolean>()
     for (const item of navItems) {
-      map.set(item.page, isOwner || !allowedPages || allowedPages.includes(item.page))
+      const hasAccess = isOwner || !allowedPages || allowedPages.includes(item.page)
+      const groupOk = !item.groupOnly || hasOutletGroup
+      map.set(item.page, hasAccess && groupOk)
     }
     return map
-  }, [isOwner, allowedPages])
+  }, [isOwner, allowedPages, hasOutletGroup])
 
-  // Group all items by section
+  // Group all items by section (filter out hidden group-only items)
   const groupedItems = useMemo(() => {
     const groups: { key: string; label: string; items: NavItem[] }[] = []
     const seen = new Set<string>()
     for (const item of navItems) {
+      // Skip group-only items if no group
+      if (item.groupOnly && !hasOutletGroup) continue
       const sec = item.section || 'main'
       if (!seen.has(sec)) {
         seen.add(sec)
@@ -173,7 +198,7 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
       groups[groups.length - 1].items.push(item)
     }
     return groups
-  }, [navItemAccess])
+  }, [navItemAccess, hasOutletGroup])
 
   const handleNav = (page: PageType) => {
     if (isOwner || !allowedPages || allowedPages.includes(page)) {
@@ -330,7 +355,7 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
       )}
 
       {/* Navigation */}
-      <ScrollArea className="flex-1 px-2 py-3">
+      <ScrollArea className="flex-1 px-2 py-3 scrollbar-hide">
         {groupedItems.map((group, groupIdx) => {
           const showSection = !isCompact
           const wrapper = isMobile ? (

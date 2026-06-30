@@ -248,6 +248,13 @@ function getStockDiff(details: Record<string, unknown>): { from: number; to: num
 }
 
 function getActionBadge(action: string, details?: Record<string, unknown>) {
+  // Transfer-specific badges (check details.action first)
+  if (details?.action === 'TRANSFER_OUT') {
+    return <Badge className="bg-sky-500/10 border-sky-500/20 text-sky-400 text-[10px]">Transfer Out</Badge>
+  }
+  if (details?.action === 'TRANSFER_IN' || details?.action === 'TRANSFER_IN_NEW') {
+    return <Badge className="bg-emerald-500/10 border-emerald-500/20 text-emerald-400 text-[10px]">Transfer In</Badge>
+  }
   // Show restock badge for stock-related bulk updates
   if (action === 'BULK_UPDATE' && hasStockChange(details)) {
     return <Badge className="theme-bg-very-light theme-border-light theme-text text-[10px]">Restock</Badge>
@@ -279,10 +286,18 @@ function getActionDescription(action: string, details: Record<string, unknown>):
   const parentLabel = parentName ? ` (${parentName})` : ''
 
   switch (action) {
-    case 'CREATE':
+    case 'CREATE': {
+      if (details.action === 'TRANSFER_IN_NEW') {
+        return `Produk baru dari transfer ${details.transferNumber || ''} — Stok awal: ${formatNumber(Number(details.initialStock) || 0)}`
+      }
       return `Product created — Price: ${formatCurrency(Number(details.price) || 0)}, Stock: ${formatNumber(Number(details.stock) || 0)}`
-    case 'RESTOCK':
+    }
+    case 'RESTOCK': {
+      if (details.action === 'TRANSFER_IN') {
+        return `+${formatNumber(Number(details.quantityAdded) || 0)} dari transfer ${details.transferNumber || ''} (${details.fromOutlet || 'outlet lain'}) — Stok: ${formatNumber(Number(details.previousStock) || 0)} → ${formatNumber(Number(details.newStock) || 0)}`
+      }
       return `+${formatNumber(Number(details.quantityAdded) || 0)} units${variantLabel} (Stock: ${formatNumber(Number(details.previousStock) || 0)} → ${formatNumber(Number(details.newStock) || 0)})`
+    }
     case 'SALE':
       return `Sold ${formatNumber(Number(details.quantitySold) || Number(details.qty) || 0)} units${variantLabel} — ${formatCurrency(Number(details.subtotal) || 0)}`
     case 'UPDATE':
@@ -306,6 +321,9 @@ function getActionDescription(action: string, details: Record<string, unknown>):
     case 'DELETE':
       return 'Product deleted'
     case 'ADJUSTMENT': {
+      if (details.action === 'TRANSFER_OUT') {
+        return `-${formatNumber(Number(details.quantityDeducted) || 0)} transfer ke ${details.toOutlet || 'outlet lain'} (${details.transferNumber || ''}) — Stok: ${formatNumber(Number(details.previousStock) || 0)} → ${formatNumber(Number(details.newStock) || 0)}`
+      }
       const prev = Number(details.previousStock)
       const next = Number(details.newStock)
       const diff = next - prev
@@ -601,6 +619,9 @@ export default function ProductsPage() {
         if (res.ok) {
           toast.success(`Restocked ${restockProduct.name} (${variantData.length} varian)`)
           fetchProducts()
+          if (detailOpen && detailProduct?.id === restockProduct.id) {
+            fetchDetail(restockProduct, detailPage)
+          }
         } else {
           toast.error('Failed to restock')
         }
@@ -3049,20 +3070,21 @@ export default function ProductsPage() {
                               {formatNumber(detailData.product.stock)}
                             </p>
                           </div>
-                          {!detailData.product.hasVariants && (
-                            <div className="col-span-2 flex gap-1.5 mt-0.5">
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-6 text-[10px] px-2 theme-bg-very-light theme-text border theme-border-light hover:theme-bg-subtle"
-                                onClick={() => {
-                                  setRestockProduct(detailProduct!)
-                                  setRestockQty('')
-                                  setRestockOpen(true)
-                                }}
-                              >
-                                <RefreshCw className="h-2.5 w-2.5 mr-0.5" /> Restock
-                              </Button>
+                          <div className="col-span-2 flex gap-1.5 mt-0.5">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-6 text-[10px] px-2 theme-bg-very-light theme-text border theme-border-light hover:theme-bg-subtle"
+                              onClick={() => {
+                                setRestockProduct(detailData.product as unknown as Product)
+                                setRestockQty('')
+                                setVariantRestocks([])
+                                setRestockOpen(true)
+                              }}
+                            >
+                              <RefreshCw className="h-2.5 w-2.5 mr-0.5" /> Restock
+                            </Button>
+                            {!detailData.product.hasVariants && (
                               <Button
                                 size="sm"
                                 variant="ghost"
@@ -3076,8 +3098,8 @@ export default function ProductsPage() {
                               >
                                 <FilePenLine className="h-2.5 w-2.5 mr-0.5" /> Penyesuaian
                               </Button>
-                            </div>
-                          )}
+                            )}
+                          </div>
                           {isOwner && (
                             <div>
                               <span className="text-slate-500 text-[11px]">HPP</span>

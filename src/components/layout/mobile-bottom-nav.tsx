@@ -19,6 +19,8 @@ import {
   LogOut,
   Lock,
   Crown,
+  Truck,
+  Building2,
 } from 'lucide-react'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -67,6 +69,7 @@ interface MoreMenuItem {
   label: string
   section?: string
   danger?: boolean
+  groupOnly?: boolean
   action?: () => void
 }
 
@@ -75,6 +78,8 @@ const allMoreMenuItems: MoreMenuItem[] = [
   { page: 'audit-log', icon: <ClipboardList className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Audit Log', section: 'Admin' },
   { page: 'crew', icon: <UserCog className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Kelola Crew', section: 'Admin' },
   { page: 'plan', icon: <Crown className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Plan & Pricing', section: 'Admin' },
+  { page: 'transfer', icon: <Truck className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Transfer', section: 'Admin', groupOnly: true },
+  { page: 'multi-outlet', icon: <Building2 className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Multi Outlet', section: 'Admin', groupOnly: true },
   { page: 'settings', icon: <Settings className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Pengaturan', section: 'Admin' },
 ]
 
@@ -84,7 +89,23 @@ export default function MobileBottomNav() {
   const { plan, isSuspended, isLoading: planLoading } = usePlan()
   const router = useRouter()
   const [moreOpen, setMoreOpen] = useState(false)
+  const [hasOutletGroup, setHasOutletGroup] = useState(false)
   const isOwner = session?.user?.role === 'OWNER'
+
+  // ---- Outlet group check ----
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/outlet-group')
+        if (res.ok) {
+          const data = await res.json()
+          if (!cancelled) setHasOutletGroup(!!data.hasGroup || !!data.group)
+        }
+      } catch { /* ignore */ }
+    })()
+    return () => { cancelled = true }
+  }, [])
 
   // ---- Crew permission-based access ----
   const [allowedPages, setAllowedPages] = useState<Set<string> | null>(null)
@@ -140,7 +161,7 @@ export default function MobileBottomNav() {
     window.location.href = '/'
   }
 
-  const moreItems = allMoreMenuItems
+  const moreItems = allMoreMenuItems.filter(i => !i.groupOnly || hasOutletGroup)
   const sections = ['Main', 'Admin']
 
   const isActive = (page: PageType) => currentPage === page

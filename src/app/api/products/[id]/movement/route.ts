@@ -125,13 +125,16 @@ export async function GET(
           where: { productId: id },
           _sum: { qty: true, subtotal: true },
         }),
-        // Last RESTOCK log date for stock aging (check both PRODUCT and variant types)
+        // Last RESTOCK log date for stock aging (check PRODUCT, VARIANT, and PRODUCT_VARIANT types)
         db.auditLog.findFirst({
           where: {
             OR: [
               { entityId: id, entityType: 'PRODUCT', action: 'RESTOCK', outletId },
               ...(variantIds.length > 0
-                ? [{ entityId: { in: variantIds }, entityType: 'PRODUCT_VARIANT', action: 'BULK_UPDATE', outletId }]
+                ? [
+                    { entityId: { in: variantIds }, entityType: 'VARIANT', action: 'RESTOCK', outletId },
+                    { entityId: { in: variantIds }, entityType: 'PRODUCT_VARIANT', action: 'BULK_UPDATE', outletId },
+                  ]
                 : []),
             ],
           },
@@ -183,6 +186,21 @@ export async function GET(
           if (details.stock && typeof details.stock === 'object' && details.stock.from !== undefined && details.stock.to !== undefined) {
             const diff = Number(details.stock.to) - Number(details.stock.from)
             if (diff > 0) totalRestocked += diff
+          }
+        } catch {
+          // Skip malformed details
+        }
+      }
+    }
+
+    // Include VARIANT type RESTOCK logs (individual variant restocks)
+    if (variantAuditLogs.length > 0) {
+      for (const log of variantAuditLogs) {
+        if (log.action !== 'RESTOCK') continue
+        try {
+          const details = JSON.parse(log.details || '{}')
+          if (details.quantityAdded) {
+            totalRestocked += Number(details.quantityAdded) || 0
           }
         } catch {
           // Skip malformed details

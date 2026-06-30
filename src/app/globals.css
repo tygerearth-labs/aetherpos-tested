@@ -150,6 +150,10 @@
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
+/* ── Hide Radix ScrollArea scrollbar ── */
+.scrollbar-hide > [data-slot="scroll-area-scrollbar"] {
+  display: none;
+}
 
 /* ── AETHER Gradient System ── */
 .aether-gradient {

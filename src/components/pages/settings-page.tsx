@@ -2475,6 +2475,14 @@ function MultiOutletTab() {
                 {outlets.length} outlet terdaftar
               </p>
             </div>
+            {canAddMore && (
+              <Button disabled
+                className="theme-btn-primary h-8 text-xs opacity-50 cursor-not-allowed flex items-center gap-1.5">
+                <Plus className="h-3.5 w-3.5" />
+                Tambah Cabang
+                <Lock className="h-3 w-3 ml-1" />
+              </Button>
+            )}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -2523,8 +2531,83 @@ function MultiOutletTab() {
               <p className="text-[11px] text-slate-600">Tambahkan outlet cabang untuk memperluas bisnis Anda</p>
             </div>
           )}
+
+          <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-2.5">
+            <p className="text-[10px] text-amber-400 text-center">
+              🔒 Fitur <span className="font-medium">Tambah Cabang</span> sedang dalam pengembangan. Segera hadir!
+            </p>
+          </div>
         </CardContent>
       </Card>
+
+      {/* Add Outlet Dialog */}
+      <ResponsiveDialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <ResponsiveDialogContent className="bg-nebula border-white/[0.06] p-4">
+          <ResponsiveDialogHeader>
+            <ResponsiveDialogTitle className="text-sm font-semibold text-white">Tambah Outlet Cabang</ResponsiveDialogTitle>
+          </ResponsiveDialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs text-slate-300">Nama Outlet *</Label>
+              <Input
+                value={formData.name}
+                onChange={(e) => setFormData((p) => ({ ...p, name: e.target.value }))}
+                placeholder="Contoh: Toko Cabang Pondok Indah"
+                className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-slate-300">Alamat</Label>
+              <Input
+                value={formData.address}
+                onChange={(e) => setFormData((p) => ({ ...p, address: e.target.value }))}
+                placeholder="Jl. Merdeka No. 10"
+                className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-slate-300">Telepon</Label>
+              <Input
+                value={formData.phone}
+                onChange={(e) => setFormData((p) => ({ ...p, phone: e.target.value }))}
+                placeholder="081234567890"
+                className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
+              />
+            </div>
+          </div>
+          <ResponsiveDialogFooter>
+            <Button type="button" variant="ghost" onClick={() => setDialogOpen(false)}
+              className="bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.06] h-8 text-xs">
+              Batal
+            </Button>
+            <Button onClick={handleCreate} disabled={saving || !formData.name.trim()}
+              className="theme-btn-primary h-8 text-xs">
+              {saving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+              Tambah Outlet
+            </Button>
+          </ResponsiveDialogFooter>
+        </ResponsiveDialogContent>
+      </ResponsiveDialog>
+
+      {/* Delete Confirmation */}
+      <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
+        <AlertDialogContent className="bg-nebula border-white/[0.06]">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-sm font-semibold text-white">Hapus Outlet</AlertDialogTitle>
+            <AlertDialogDescription className="text-xs text-slate-400">
+              Apakah Anda yakin ingin menghapus outlet ini? Semua data (produk, customer, transaksi, crew) akan dihapus permanen.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.06] h-8 text-xs" />
+            <AlertDialogAction onClick={handleDelete} disabled={deleting}
+              className="bg-red-500 hover:bg-red-600 text-white h-8 text-xs">
+              {deleting && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+              Hapus
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

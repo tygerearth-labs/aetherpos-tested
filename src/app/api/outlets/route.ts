@@ -26,35 +26,63 @@ export async function GET(request: NextRequest) {
 
     if (!isEnterprise) {
       // Non-enterprise: only return primary outlet
-      const outlet = await db.outlet.findUnique({
-        where: { id: user.outletId },
-        include: {
-          _count: { select: { users: true, products: true, transactions: true, customers: true } },
-        },
-      })
-      if (!outlet) {
-        return safeJsonError('Outlet tidak ditemukan', 404)
+      try {
+        const outlet = await db.outlet.findUnique({
+          where: { id: user.outletId },
+          include: {
+            _count: { select: { users: true, products: true, transactions: true, customers: true } },
+          },
+        })
+        if (!outlet) {
+          return safeJsonError('Outlet tidak ditemukan', 404)
+        }
+        return safeJson({
+          outlets: [{
+            id: outlet.id,
+            name: outlet.name,
+            address: outlet.address,
+            phone: outlet.phone,
+            accountType: outlet.accountType,
+            isPrimary: true,
+            createdAt: outlet.createdAt,
+            userCount: outlet._count.users,
+            productCount: outlet._count.products,
+            transactionCount: outlet._count.transactions,
+            customerCount: outlet._count.customers,
+          }],
+          canAddMore: false,
+        })
+      } catch {
+        // Fallback without customers count (schema might be old)
+        const outlet = await db.outlet.findUnique({
+          where: { id: user.outletId },
+          include: {
+            _count: { select: { users: true, products: true, transactions: true } },
+          },
+        })
+        if (!outlet) {
+          return safeJsonError('Outlet tidak ditemukan', 404)
+        }
+        return safeJson({
+          outlets: [{
+            id: outlet.id,
+            name: outlet.name,
+            address: outlet.address,
+            phone: outlet.phone,
+            accountType: outlet.accountType,
+            isPrimary: true,
+            createdAt: outlet.createdAt,
+            userCount: outlet._count.users,
+            productCount: outlet._count.products,
+            transactionCount: outlet._count.transactions,
+            customerCount: 0,
+          }],
+          canAddMore: false,
+        })
       }
-      return safeJson({
-        outlets: [{
-          id: outlet.id,
-          name: outlet.name,
-          address: outlet.address,
-          phone: outlet.phone,
-          accountType: outlet.accountType,
-          isPrimary: true,
-          createdAt: outlet.createdAt,
-          userCount: outlet._count.users,
-          productCount: outlet._count.products,
-          transactionCount: outlet._count.transactions,
-          customerCount: outlet._count.customers,
-        }],
-        canAddMore: false,
-      })
     }
 
     // Enterprise: list ALL outlets created by this owner
-    // We store the "owner email" as a way to link outlets
     const allUsers = await db.user.findMany({
       where: {
         email: user.email ?? '',
