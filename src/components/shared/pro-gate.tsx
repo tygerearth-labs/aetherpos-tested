@@ -5,7 +5,7 @@ import { Lock, Crown, Sparkles } from 'lucide-react'
 
 interface ProGateProps {
   /** The feature key from PlanFeatures to check */
-  feature: keyof import('@/lib/config/plan-config').PlanFeatures
+  feature: keyof import('@/lib/plan-config').PlanFeatures
   /** Content to render for Pro users */
   children: React.ReactNode
   /** Optional custom label for the upgrade banner */

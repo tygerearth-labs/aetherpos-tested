@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { resolvePlanType, getEffectivePlanType } from '@/lib/api/api-helpers'
+import { resolvePlanType } from '@/lib/api/api-helpers'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonCreated, safeJsonError } from '@/lib/api/safe-response'
@@ -16,9 +16,13 @@ export async function GET(request: NextRequest) {
       return safeJsonError('Hanya pemilik yang dapat mengakses', 403)
     }
 
-    // Get the owner's effective plan (branch outlets inherit from main)
-    const effectivePlan = await getEffectivePlanType(user.outletId)
-    const isEnterprise = effectivePlan === 'enterprise'
+    // Get the owner's primary outlet accountType
+    const primaryOutlet = await db.outlet.findUnique({
+      where: { id: user.outletId },
+      select: { accountType: true },
+    })
+
+    const isEnterprise = resolvePlanType(primaryOutlet?.accountType) === 'enterprise'
 
     if (!isEnterprise) {
       // Non-enterprise: only return primary outlet
@@ -132,10 +136,13 @@ export async function POST(request: NextRequest) {
       return safeJsonError('Hanya pemilik yang dapat menambah outlet cabang', 403)
     }
 
-    // Check enterprise plan (branch outlets inherit from main)
-    const effectivePlan = await getEffectivePlanType(user.outletId)
+    // Check enterprise plan
+    const primaryOutlet = await db.outlet.findUnique({
+      where: { id: user.outletId },
+      select: { accountType: true },
+    })
 
-    if (effectivePlan !== 'enterprise') {
+    if (resolvePlanType(primaryOutlet?.accountType) !== 'enterprise') {
       return safeJsonError('Multi-outlet hanya tersedia untuk akun Enterprise. Upgrade untuk mengakses fitur ini.', 403)
     }
 
