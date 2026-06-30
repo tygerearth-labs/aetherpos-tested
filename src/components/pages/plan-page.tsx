@@ -256,7 +256,11 @@ export default function PlanPage() {
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-sm font-semibold text-white">Plan Saat Ini</h2>
-              <p className="text-xs text-slate-400 mt-0.5">Informasi langganan outlet Anda</p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {currentPlanInfo?.planSource
+                  ? `Diwariskan dari outlet utama: ${currentPlanInfo.planSource}`
+                  : 'Informasi langganan outlet Anda'}
+              </p>
             </div>
             <Badge className={`${getPlanBadge(currentPlanSlug)} text-xs font-semibold px-2.5 py-1`}>
               {currentPlanSlug.charAt(0).toUpperCase() + currentPlanSlug.slice(1)}
