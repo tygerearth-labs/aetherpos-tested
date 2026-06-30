@@ -22,6 +22,10 @@ export interface PlanInfo {
   type: string
   label: string
   isSuspended: boolean
+  isExpired: boolean
+  isExpiringSoon: boolean
+  planExpiresAt: string | null
+  daysRemaining: number
 }
 
 export interface PlanUsage {

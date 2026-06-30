@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { toast } from 'sonner'
-import { formatCurrency } from '@/lib/format'
+import { formatCurrency, formatDate } from '@/lib/format'
 import { usePlan } from '@/hooks/use-plan'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -28,6 +28,8 @@ import {
   Star,
   Receipt,
   ExternalLink,
+  AlertTriangle,
+  Clock,
 } from 'lucide-react'
 
 // ============================================================
@@ -266,6 +268,62 @@ export default function PlanPage() {
               <AlertDescription className="text-xs text-red-400">
                 Akun Anda saat ini ditangguhkan. Hubungi admin untuk informasi lebih lanjut.
               </AlertDescription>
+            </Alert>
+          )}
+
+          {/* Plan Expiry Banner */}
+          {currentPlanInfo?.planExpiresAt && currentPlanInfo.type !== 'free' && (
+            <Alert className={`p-3 ${
+              currentPlanInfo.isExpired
+                ? 'border-red-500/20 bg-red-500/5'
+                : currentPlanInfo.isExpiringSoon
+                  ? 'border-amber-500/20 bg-amber-500/5'
+                  : 'border-sky-500/10 bg-sky-500/5'
+            }`}>
+              <div className="flex items-start gap-2">
+                {currentPlanInfo.isExpired ? (
+                  <AlertTriangle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />
+                ) : (
+                  <Clock className={`h-4 w-4 shrink-0 mt-0.5 ${
+                    currentPlanInfo.isExpiringSoon ? 'text-amber-400' : 'text-sky-400'
+                  }`} />
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className={`text-xs font-medium ${
+                    currentPlanInfo.isExpired
+                      ? 'text-red-400'
+                      : currentPlanInfo.isExpiringSoon
+                        ? 'text-amber-400'
+                        : 'text-sky-400'
+                  }`}>
+                    {currentPlanInfo.isExpired
+                      ? 'Plan Anda telah kedaluwarsa'
+                      : currentPlanInfo.isExpiringSoon
+                        ? `Plan akan expired dalam ${currentPlanInfo.daysRemaining} hari`
+                        : 'Status Plan Aktif'
+                    }
+                  </p>
+                  <p className={`text-[11px] mt-0.5 ${
+                    currentPlanInfo.isExpired
+                      ? 'text-red-400/70'
+                      : 'text-slate-500'
+                  }`}>
+                    {currentPlanInfo.isExpired
+                      ? 'Plan Anda sudah expired dan telah di-downgrade ke Free. Hubungi admin untuk memperpanjang.'
+                      : `Berlaku hingga ${formatDate(currentPlanInfo.planExpiresAt)}`
+                    }
+                  </p>
+                </div>
+                {!currentPlanInfo.isExpired && (
+                  <Badge className={`text-[10px] font-medium px-2 py-0 shrink-0 ${
+                    currentPlanInfo.isExpiringSoon
+                      ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+                      : 'bg-sky-500/10 border-sky-500/20 text-sky-400'
+                  }`}>
+                    {currentPlanInfo.daysRemaining} hari
+                  </Badge>
+                )}
+              </div>
             </Alert>
           )}
 

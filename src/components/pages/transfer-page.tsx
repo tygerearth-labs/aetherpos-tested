@@ -107,6 +107,10 @@ interface Transfer {
   items: TransferItem[] | TransferItemApi[]
   _count?: { items: number }
   direction?: string
+  totalQty?: number
+  totalPrice?: number
+  firstProduct?: string | null
+  itemCount?: number
 }
 
 interface OutletOption {
@@ -545,17 +549,18 @@ export default function TransferPage() {
                         <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">
                           {tab === 'outbound' ? 'Tujuan' : 'Asal'}
                         </TableHead>
+                        <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">Produk</TableHead>
+                        <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider text-right">Total Qty</TableHead>
+                        <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider text-right">Total Harga</TableHead>
                         <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">Status</TableHead>
-                        <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider text-right">Item</TableHead>
                         <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">Tanggal</TableHead>
-                        <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">Catatan</TableHead>
                         <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider text-right">Aksi</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {transfers.length === 0 ? (
                         <TableRow className="border-white/[0.04] hover:bg-transparent">
-                          <TableCell colSpan={7} className="text-center py-12">
+                          <TableCell colSpan={8} className="text-center py-12">
                             <Package className="h-8 w-8 text-slate-600 mx-auto mb-2" />
                             <p className="text-sm text-slate-500">Belum ada transfer</p>
                           </TableCell>
@@ -576,17 +581,25 @@ export default function TransferPage() {
                                 {tab === 'outbound' ? t.toOutletName : t.fromOutletName}
                               </div>
                             </TableCell>
+                            <TableCell className="text-xs text-slate-300 max-w-[180px]">
+                              <div className="flex flex-col gap-0.5">
+                                <span className="truncate">{t.firstProduct || '-'}</span>
+                                {t.itemCount > 1 && (
+                                  <span className="text-[10px] text-slate-500">+{t.itemCount - 1} produk lainnya</span>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-xs text-slate-300 text-right font-medium">
+                              {formatNumber(t.totalQty ?? 0)}
+                            </TableCell>
+                            <TableCell className="text-xs text-emerald-400 text-right font-medium">
+                              {formatCurrency(t.totalPrice ?? 0)}
+                            </TableCell>
                             <TableCell>
                               <StatusBadge status={t.status} />
                             </TableCell>
-                            <TableCell className="text-xs text-slate-400 text-right">
-                              {t._count?.items ?? t.items?.length ?? 0} produk
-                            </TableCell>
                             <TableCell className="text-xs text-slate-500">
                               {formatDate(t.createdAt)}
-                            </TableCell>
-                            <TableCell className="text-xs text-slate-500 max-w-[150px] truncate">
-                              {t.notes || '-'}
                             </TableCell>
                             <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                               <div className="flex items-center justify-end gap-1">
@@ -688,9 +701,15 @@ export default function TransferPage() {
                             <div className="flex items-center justify-between text-slate-500">
                               <div className="flex items-center gap-1.5">
                                 <Package className="h-3 w-3" />
-                                <span className="text-[11px]">{t._count?.items ?? t.items?.length ?? 0} produk</span>
+                                <span className="text-[11px]">{t.firstProduct || '-'}{t.itemCount > 1 ? ` +${t.itemCount - 1}` : ''}</span>
                               </div>
                               <span className="text-[10px]">{formatDate(t.createdAt)}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2 text-[10px]">
+                                <span className="text-slate-400">Qty: <span className="text-slate-200 font-medium">{formatNumber(t.totalQty ?? 0)}</span></span>
+                                <span className="text-emerald-400 font-medium">{formatCurrency(t.totalPrice ?? 0)}</span>
+                              </div>
                             </div>
                             {t.status !== 'RECEIVED' && (
                               <div className="flex items-center gap-1.5 pt-1 border-t border-white/[0.04]" onClick={(e) => e.stopPropagation()}>
