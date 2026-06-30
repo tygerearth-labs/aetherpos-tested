@@ -9,6 +9,7 @@ import Sidebar from '@/components/layout/sidebar'
 import MobileBottomNav from '@/components/layout/mobile-bottom-nav'
 import AuthView from '@/components/auth/auth-view'
 import LandingPage from '@/components/landing/landing-page'
+import { PlanExpiredBanner } from '@/components/shared/plan-expired-banner'
 import { Loader2, WifiOff } from 'lucide-react'
 
 // ── Lazy-loaded pages (code splitting for faster initial load) ──
@@ -126,6 +127,7 @@ function AppContent() {
             ? 'pb-20 px-3 pt-3 sm:px-4 md:h-full md:pb-0 md:px-3 md:py-2 md:overflow-y-hidden'
             : 'pb-20 md:pb-0 px-3 sm:px-4 md:py-4 lg:px-5 lg:py-4'
         }`}>
+          <PlanExpiredBanner />
           {renderPage()}
         </div>
       </main>

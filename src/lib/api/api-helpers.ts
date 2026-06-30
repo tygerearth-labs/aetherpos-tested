@@ -76,6 +76,42 @@ export function resolvePlanType(accountType: string | null | undefined): string 
     : accountType
 }
 
+/**
+ * Get the effective plan type for an outlet, accounting for branch inheritance.
+ *
+ * For branch outlets (isMain: false, groupId exists), the plan is inherited
+ * from the main outlet in the same group.
+ * For main/standalone outlets, uses their own accountType.
+ *
+ * Returns the resolved plan type (e.g. "free", "pro", "enterprise").
+ */
+export async function getEffectivePlanType(
+  outletId: string
+): Promise<string> {
+  // Use dynamic import to avoid circular deps
+  const { db } = await import('@/lib/db')
+
+  const outlet = await db.outlet.findUnique({
+    where: { id: outletId },
+    select: { accountType: true, isMain: true, groupId: true },
+  })
+
+  if (!outlet) return 'free'
+
+  // Branch outlet: inherit main outlet's plan
+  if (!outlet.isMain && outlet.groupId) {
+    const mainOutlet = await db.outlet.findFirst({
+      where: { groupId: outlet.groupId, isMain: true },
+      select: { accountType: true },
+    })
+    if (mainOutlet) {
+      return resolvePlanType(mainOutlet.accountType)
+    }
+  }
+
+  return resolvePlanType(outlet.accountType)
+}
+
 // ============================================================
 // Invoice Number
 // ============================================================

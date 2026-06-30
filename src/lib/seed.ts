@@ -7,38 +7,38 @@ import bcrypt from 'bcryptjs';
 
 const ALL_PRODUCTS = [
   // Minuman
-  { name: 'Kopi Susu Gula Aren', sku: 'KS-001', hpp: 8000, price: 18000, bruto: 350, netto: 300, stock: 50, lowStockAlert: 10, category: 'Minuman' },
-  { name: 'Es Teh Manis', sku: 'ET-002', hpp: 3000, price: 8000, bruto: 300, netto: 250, stock: 100, lowStockAlert: 15, category: 'Minuman' },
-  { name: 'Jus Alpukat', sku: 'JA-003', hpp: 7000, price: 15000, bruto: 350, netto: 300, stock: 35, lowStockAlert: 10, category: 'Minuman' },
-  { name: 'Es Jeruk Segar', sku: 'EJ-004', hpp: 2500, price: 7000, bruto: 250, netto: 200, stock: 60, lowStockAlert: 15, category: 'Minuman' },
-  { name: 'Teh Tarik', sku: 'TT-005', hpp: 3500, price: 10000, bruto: 280, netto: 240, stock: 45, lowStockAlert: 10, category: 'Minuman' },
-  { name: 'Matcha Latte', sku: 'ML-006', hpp: 9000, price: 22000, bruto: 350, netto: 300, stock: 30, lowStockAlert: 8, category: 'Minuman' },
-  { name: 'Coklat Hangat', sku: 'CH-007', hpp: 5000, price: 14000, bruto: 300, netto: 250, stock: 40, lowStockAlert: 10, category: 'Minuman' },
-  { name: 'Es Kelapa Muda', sku: 'EK-008', hpp: 4000, price: 12000, bruto: 400, netto: 350, stock: 25, lowStockAlert: 8, category: 'Minuman' },
-  { name: 'Air Mineral 600ml', sku: 'AM-009', hpp: 2000, price: 5000, bruto: 650, netto: 600, stock: 200, lowStockAlert: 50, category: 'Minuman' },
-  { name: 'Teh Botol Sosro', sku: 'TB-010', hpp: 3000, price: 7000, bruto: 450, netto: 400, stock: 80, lowStockAlert: 20, category: 'Minuman' },
+  { name: 'Kopi Susu Gula Aren', sku: 'KS-001', hpp: 8000, price: 18000, bruto: 350, netto: 300, stock: 50, lowStockAlert: 10, categoryId: null },
+  { name: 'Es Teh Manis', sku: 'ET-002', hpp: 3000, price: 8000, bruto: 300, netto: 250, stock: 100, lowStockAlert: 15, categoryId: null },
+  { name: 'Jus Alpukat', sku: 'JA-003', hpp: 7000, price: 15000, bruto: 350, netto: 300, stock: 35, lowStockAlert: 10, categoryId: null },
+  { name: 'Es Jeruk Segar', sku: 'EJ-004', hpp: 2500, price: 7000, bruto: 250, netto: 200, stock: 60, lowStockAlert: 15, categoryId: null },
+  { name: 'Teh Tarik', sku: 'TT-005', hpp: 3500, price: 10000, bruto: 280, netto: 240, stock: 45, lowStockAlert: 10, categoryId: null },
+  { name: 'Matcha Latte', sku: 'ML-006', hpp: 9000, price: 22000, bruto: 350, netto: 300, stock: 30, lowStockAlert: 8, categoryId: null },
+  { name: 'Coklat Hangat', sku: 'CH-007', hpp: 5000, price: 14000, bruto: 300, netto: 250, stock: 40, lowStockAlert: 10, categoryId: null },
+  { name: 'Es Kelapa Muda', sku: 'EK-008', hpp: 4000, price: 12000, bruto: 400, netto: 350, stock: 25, lowStockAlert: 8, categoryId: null },
+  { name: 'Air Mineral 600ml', sku: 'AM-009', hpp: 2000, price: 5000, bruto: 650, netto: 600, stock: 200, lowStockAlert: 50, categoryId: null },
+  { name: 'Teh Botol Sosro', sku: 'TB-010', hpp: 3000, price: 7000, bruto: 450, netto: 400, stock: 80, lowStockAlert: 20, categoryId: null },
   // Makanan
-  { name: 'Nasi Goreng Spesial', sku: 'NG-011', hpp: 12000, price: 25000, bruto: 500, netto: 400, stock: 30, lowStockAlert: 5, category: 'Makanan' },
-  { name: 'Mie Ayam Bakso', sku: 'MA-012', hpp: 10000, price: 20000, bruto: 450, netto: 380, stock: 25, lowStockAlert: 8, category: 'Makanan' },
-  { name: 'Ayam Geprek', sku: 'AG-013', hpp: 11000, price: 22000, bruto: 400, netto: 350, stock: 20, lowStockAlert: 5, category: 'Makanan' },
-  { name: 'Indomie Goreng', sku: 'IG-014', hpp: 4000, price: 10000, bruto: 150, netto: 120, stock: 80, lowStockAlert: 20, category: 'Makanan' },
-  { name: 'Roti Bakar Coklat', sku: 'RB-015', hpp: 5000, price: 12000, bruto: 200, netto: 180, stock: 40, lowStockAlert: 10, category: 'Snack' },
-  { name: 'Sate Ayam (10 tusuk)', sku: 'SA-016', hpp: 15000, price: 30000, bruto: 350, netto: 300, stock: 15, lowStockAlert: 5, category: 'Makanan' },
-  { name: 'Dimsum Ayam', sku: 'DM-017', hpp: 8000, price: 18000, bruto: 250, netto: 220, stock: 7, lowStockAlert: 8, category: 'Makanan' },
-  { name: 'Pisang Goreng Keju', sku: 'PG-018', hpp: 4500, price: 12000, bruto: 200, netto: 170, stock: 3, lowStockAlert: 10, category: 'Snack' },
-  { name: 'Nasi Uduk Komplit', sku: 'NU-019', hpp: 13000, price: 28000, bruto: 550, netto: 450, stock: 20, lowStockAlert: 5, category: 'Makanan' },
-  { name: 'Bakso Urat', sku: 'BU-020', hpp: 10000, price: 22000, bruto: 450, netto: 400, stock: 18, lowStockAlert: 5, category: 'Makanan' },
+  { name: 'Nasi Goreng Spesial', sku: 'NG-011', hpp: 12000, price: 25000, bruto: 500, netto: 400, stock: 30, lowStockAlert: 5, categoryId: null },
+  { name: 'Mie Ayam Bakso', sku: 'MA-012', hpp: 10000, price: 20000, bruto: 450, netto: 380, stock: 25, lowStockAlert: 8, categoryId: null },
+  { name: 'Ayam Geprek', sku: 'AG-013', hpp: 11000, price: 22000, bruto: 400, netto: 350, stock: 20, lowStockAlert: 5, categoryId: null },
+  { name: 'Indomie Goreng', sku: 'IG-014', hpp: 4000, price: 10000, bruto: 150, netto: 120, stock: 80, lowStockAlert: 20, categoryId: null },
+  { name: 'Roti Bakar Coklat', sku: 'RB-015', hpp: 5000, price: 12000, bruto: 200, netto: 180, stock: 40, lowStockAlert: 10, categoryId: null },
+  { name: 'Sate Ayam (10 tusuk)', sku: 'SA-016', hpp: 15000, price: 30000, bruto: 350, netto: 300, stock: 15, lowStockAlert: 5, categoryId: null },
+  { name: 'Dimsum Ayam', sku: 'DM-017', hpp: 8000, price: 18000, bruto: 250, netto: 220, stock: 7, lowStockAlert: 8, categoryId: null },
+  { name: 'Pisang Goreng Keju', sku: 'PG-018', hpp: 4500, price: 12000, bruto: 200, netto: 170, stock: 3, lowStockAlert: 10, categoryId: null },
+  { name: 'Nasi Uduk Komplit', sku: 'NU-019', hpp: 9000, price: 20000, bruto: 500, netto: 400, stock: 20, lowStockAlert: 5, categoryId: null },
+  { name: 'Bakso Urat', sku: 'BU-020', hpp: 10000, price: 22000, bruto: 450, netto: 400, stock: 18, lowStockAlert: 5, categoryId: null },
   // Snack & Tambahan
-  { name: 'Kerupuk Kulit', sku: 'KK-021', hpp: 1500, price: 5000, bruto: 100, netto: 80, stock: 5, lowStockAlert: 10, category: 'Snack' },
-  { name: 'Kentang Goreng', sku: 'KG-022', hpp: 5000, price: 15000, bruto: 200, netto: 180, stock: 35, lowStockAlert: 10, category: 'Snack' },
-  { name: 'Nasi Kuning', sku: 'NK-023', hpp: 9000, price: 20000, bruto: 500, netto: 400, stock: 25, lowStockAlert: 8, category: 'Makanan' },
-  { name: 'Soto Betawi', sku: 'SB-024', hpp: 14000, price: 28000, bruto: 500, netto: 450, stock: 15, lowStockAlert: 5, category: 'Makanan' },
-  { name: 'Gado-gado', sku: 'GG-025', hpp: 10000, price: 22000, bruto: 400, netto: 350, stock: 12, lowStockAlert: 5, category: 'Makanan' },
-  { name: 'Rendang Padang', sku: 'RP-026', hpp: 16000, price: 35000, bruto: 300, netto: 250, stock: 10, lowStockAlert: 3, category: 'Makanan' },
-  { name: 'Pempek Palembang', sku: 'PP-027', hpp: 8000, price: 18000, bruto: 300, netto: 250, stock: 20, lowStockAlert: 5, category: 'Makanan' },
-  { name: 'Es Campur', sku: 'EC-028', hpp: 6000, price: 15000, bruto: 400, netto: 350, stock: 30, lowStockAlert: 8, category: 'Minuman' },
-  { name: 'Klepon', sku: 'KP-029', hpp: 3000, price: 10000, bruto: 150, netto: 120, stock: 40, lowStockAlert: 10, category: 'Snack' },
-  { name: 'Martabak Manis', sku: 'MM-030', hpp: 12000, price: 28000, bruto: 400, netto: 350, stock: 8, lowStockAlert: 3, category: 'Snack' },
+  { name: 'Kerupuk Kulit', sku: 'KK-021', hpp: 1500, price: 5000, bruto: 100, netto: 80, stock: 5, lowStockAlert: 10, categoryId: null },
+  { name: 'Kentang Goreng', sku: 'KG-022', hpp: 5000, price: 15000, bruto: 200, netto: 180, stock: 35, lowStockAlert: 10, categoryId: null },
+  { name: 'Nasi Kuning', sku: 'NK-023', hpp: 9000, price: 20000, bruto: 500, netto: 400, stock: 25, lowStockAlert: 8, categoryId: null },
+  { name: 'Soto Betawi', sku: 'SB-024', hpp: 14000, price: 28000, bruto: 500, netto: 450, stock: 15, lowStockAlert: 5, categoryId: null },
+  { name: 'Gado-gado', sku: 'GG-025', hpp: 10000, price: 22000, bruto: 400, netto: 350, stock: 12, lowStockAlert: 5, categoryId: null },
+  { name: 'Rendang Padang', sku: 'RP-026', hpp: 16000, price: 35000, bruto: 300, netto: 250, stock: 10, lowStockAlert: 3, categoryId: null },
+  { name: 'Pempek Palembang', sku: 'PP-027', hpp: 8000, price: 18000, bruto: 300, netto: 250, stock: 20, lowStockAlert: 5, categoryId: null },
+  { name: 'Es Campur', sku: 'EC-028', hpp: 6000, price: 15000, bruto: 400, netto: 350, stock: 30, lowStockAlert: 8, categoryId: null },
+  { name: 'Klepon', sku: 'KP-029', hpp: 3000, price: 10000, bruto: 150, netto: 120, stock: 40, lowStockAlert: 10, categoryId: null },
+  { name: 'Martabak Manis', sku: 'MM-030', hpp: 12000, price: 28000, bruto: 400, netto: 350, stock: 8, lowStockAlert: 3, categoryId: null },
 ];
 
 const CATEGORIES = [
@@ -66,91 +66,128 @@ const CUSTOMER_NAMES = [
 ];
 
 // ============================================================
-// PLAN-SPECIFIC SEED CONFIGS
+// OUTLET SEED CONFIGS
 // ============================================================
 
-interface PlanSeedConfig {
+interface OutletSeedConfig {
   outletName: string;
   outletAddress: string;
   outletPhone: string;
   accountType: string;
   ownerEmail: string;
   ownerName: string;
-  crewCount: number;
+  crewConfigs: { name: string; email: string; pages: string }[];
   productCount: number;
   customerCount: number;
-  promoCount: number;
   transactionCount: number;
   paymentMethods: string;
-  crewPermissions: boolean;
 }
 
-const PLAN_CONFIGS: PlanSeedConfig[] = [
-  {
-    outletName: 'Warung Bahari (Free)',
-    outletAddress: 'Jl. Pasar Baru No. 45, Jakarta Selatan',
-    outletPhone: '021-7654321',
-    accountType: 'free',
-    ownerEmail: 'owner@free.aether.com',
-    ownerName: 'Pak Bahari',
-    crewCount: 1,
-    productCount: 15,
-    customerCount: 5,
-    promoCount: 2,
-    transactionCount: 5,
-    paymentMethods: 'CASH,QRIS',
-    crewPermissions: false,
-  },
-  {
-    outletName: 'Kopi Nusantara (Pro)',
-    outletAddress: 'Jl. Sudirman No. 123, Jakarta Pusat',
-    outletPhone: '021-2345678',
-    accountType: 'pro',
-    ownerEmail: 'owner@pro.aether.com',
-    ownerName: 'Bu Nusantara',
-    crewCount: 3,
-    productCount: 25,
-    customerCount: 10,
-    promoCount: 4,
-    transactionCount: 10,
-    paymentMethods: 'CASH,QRIS,DEBIT',
-    crewPermissions: true,
-  },
-  {
-    outletName: 'Restoran Maharani (Enterprise)',
-    outletAddress: 'Jl. Gatot Subroto No. 88, Jakarta Selatan',
-    outletPhone: '021-3456789',
-    accountType: 'enterprise',
-    ownerEmail: 'owner@enterprise.aether.com',
-    ownerName: 'Haji Maharani',
-    crewCount: 5,
-    productCount: 30,
-    customerCount: 15,
-    promoCount: 5,
-    transactionCount: 15,
-    paymentMethods: 'CASH,QRIS,DEBIT',
-    crewPermissions: true,
-  },
-];
+// Standalone: Free
+const FREE_CONFIG: OutletSeedConfig = {
+  outletName: 'Warung Bahari',
+  outletAddress: 'Jl. Pasar Baru No. 45, Jakarta Selatan',
+  outletPhone: '021-7654321',
+  accountType: 'free',
+  ownerEmail: 'owner@free.aether.com',
+  ownerName: 'Pak Bahari',
+  crewConfigs: [
+    { name: 'Kasir Bahari 1', email: 'crew1@free.aether.com', pages: 'pos' },
+  ],
+  productCount: 10,
+  customerCount: 5,
+  transactionCount: 5,
+  paymentMethods: 'CASH,QRIS',
+};
+
+// Main outlet of RNB Group: Pro
+const MAIN_CONFIG: OutletSeedConfig = {
+  outletName: 'RNB Kopi Sudirman',
+  outletAddress: 'Jl. Sudirman No. 123, Jakarta Pusat',
+  outletPhone: '021-2345678',
+  accountType: 'pro',
+  ownerEmail: 'owner@rnb.aether.com',
+  ownerName: 'Bu Rina Nusantara',
+  crewConfigs: [
+    { name: 'Kasir RNB 1', email: 'crew1@rnb.aether.com', pages: 'pos,products,customers,transactions' },
+    { name: 'Kasir RNB 2', email: 'crew2@rnb.aether.com', pages: 'pos,products' },
+  ],
+  productCount: 20,
+  customerCount: 8,
+  transactionCount: 12,
+  paymentMethods: 'CASH,QRIS,DEBIT',
+};
+
+// Branch outlets
+const BRANCH_1_CONFIG: OutletSeedConfig = {
+  outletName: 'RNB Senayan',
+  outletAddress: 'Jl. Asia Afrika No. 8, Jakarta Selatan',
+  outletPhone: '021-5551234',
+  accountType: 'pro',
+  ownerEmail: 'owner.branch1@rnb.aether.com', // This owner is a CREW-level manager
+  ownerName: 'Pak Joko Senayan',
+  crewConfigs: [
+    { name: 'Kasir Senayan 1', email: 'crew1@senayan.aether.com', pages: 'pos' },
+  ],
+  productCount: 15,
+  customerCount: 5,
+  transactionCount: 8,
+  paymentMethods: 'CASH,QRIS',
+};
+
+const BRANCH_2_CONFIG: OutletSeedConfig = {
+  outletName: 'RNB Kelapa Gading',
+  outletAddress: 'Jl. Boulevard Raya No. 99, Jakarta Utara',
+  outletPhone: '021-4567890',
+  accountType: 'pro',
+  ownerEmail: 'owner.branch2@rnb.aether.com',
+  ownerName: 'Bu Ani Gading',
+  crewConfigs: [
+    { name: 'Kasir Gading 1', email: 'crew1@gading.aether.com', pages: 'pos,products' },
+    { name: 'Kasir Gading 2', email: 'crew2@gading.aether.com', pages: 'pos' },
+  ],
+  productCount: 18,
+  customerCount: 6,
+  transactionCount: 10,
+  paymentMethods: 'CASH,QRIS,DEBIT',
+};
+
+// Standalone: Enterprise
+const ENTERPRISE_CONFIG: OutletSeedConfig = {
+  outletName: 'Restoran Maharani',
+  outletAddress: 'Jl. Gatot Subroto No. 88, Jakarta Selatan',
+  outletPhone: '021-3456789',
+  accountType: 'enterprise',
+  ownerEmail: 'owner@enterprise.aether.com',
+  ownerName: 'Haji Maharani',
+  crewConfigs: [
+    { name: 'Kasir Maharani 1', email: 'crew1@enterprise.aether.com', pages: 'pos,products,customers,transactions,audit-log,crew,settings' },
+    { name: 'Kasir Maharani 2', email: 'crew2@enterprise.aether.com', pages: 'pos,products,customers' },
+    { name: 'Kasir Maharani 3', email: 'crew3@enterprise.aether.com', pages: 'pos' },
+  ],
+  productCount: 25,
+  customerCount: 10,
+  transactionCount: 15,
+  paymentMethods: 'CASH,QRIS,DEBIT',
+};
 
 // ============================================================
 // MAIN SEED FUNCTION
 // ============================================================
 
 export async function seedDatabase() {
-  console.log('🌱 Multi-Plan Seeding — Aether POS...\n');
+  console.log('🌱 Multi-Outlet Seeding — Aether POS...\n');
 
   // Check if already seeded
   const existingCount = await db.outlet.count();
-  if (existingCount >= 3) {
-    console.log('✅ Database already seeded (3 outlets found) — skipping.');
-    return { message: 'Database already seeded', outlets: existingCount };
+  if (existingCount >= 5) {
+    console.log('✅ Database already seeded (5 outlets found) — skipping.');
+    return getCredentials();
   }
 
-  // If some outlets exist but not all 3, reset to avoid partial state
+  // Reset database
   if (existingCount > 0) {
-    console.log(`⚠️  Found ${existingCount} existing outlet(s) — resetting database first...`);
-    // Delete in correct order to respect foreign keys
+    console.log(`⚠️  Found ${existingCount} existing outlet(s) — resetting database...`);
     await db.loyaltyLog.deleteMany();
     await db.transactionItem.deleteMany();
     await db.transaction.deleteMany();
@@ -158,40 +195,115 @@ export async function seedDatabase() {
     await db.auditLog.deleteMany();
     await db.promo.deleteMany();
     await db.customer.deleteMany();
+    await db.productVariant.deleteMany();
     await db.product.deleteMany();
     await db.category.deleteMany();
     await db.outletSetting.deleteMany();
+    await db.outletGroup.deleteMany(); // before user (has FK to owner)
     await db.user.deleteMany();
     await db.outlet.deleteMany();
     console.log('✅ Database reset complete.\n');
   }
 
   const hashedPassword = await bcrypt.hash('password123', 10);
-  const results: Record<string, any> = {};
 
-  for (const config of PLAN_CONFIGS) {
-    console.log(`\n━━━ Seeding: ${config.outletName} (${config.accountType.toUpperCase()}) ━━━`);
-    const result = await seedOutlet(config, hashedPassword);
-    results[config.accountType] = result;
-  }
+  // 1. Seed standalone Free outlet
+  console.log('\n━━━ Seeding: Warung Bahari (FREE — Standalone) ━━━');
+  await seedOutlet(FREE_CONFIG, hashedPassword, 0);
 
-  console.log('\n🎉 All plans seeded successfully!');
+  // 2. Seed main outlet (RNB Sudirman) FIRST — we need the owner to create the group
+  console.log('\n━━━ Seeding: RNB Kopi Sudirman (PRO — Main) ━━━');
+  const mainResult = await seedOutlet(MAIN_CONFIG, hashedPassword, 1, undefined, false);
+
+  // 3. Create RNB Group with owner
+  console.log('\n━━━ Creating RNB Group ━━━');
+  const group = await db.outletGroup.create({
+    data: {
+      name: 'RNB Group',
+      ownerId: mainResult.ownerId,
+    },
+  });
+  console.log(`  ✅ Group: ${group.name} (id: ${group.id.slice(0, 8)}...)`);
+  console.log(`  ✅ Group owner: ${MAIN_CONFIG.ownerEmail}`);
+
+  // 4. Set main outlet as group member + isMain
+  await db.outlet.update({
+    where: { id: mainResult.outletId },
+    data: { groupId: group.id, isMain: true },
+  });
+  console.log(`  ✅ "${MAIN_CONFIG.outletName}" set as main outlet of group`);
+
+  // 5. Seed branch 1 (RNB Senayan)
+  console.log('\n━━━ Seeding: RNB Senayan (PRO — Branch 1) ━━━');
+  await seedOutlet(BRANCH_1_CONFIG, hashedPassword, 2, group.id, false);
+
+  // 6. Seed branch 2 (RNB Kelapa Gading)
+  console.log('\n━━━ Seeding: RNB Kelapa Gading (PRO — Branch 2) ━━━');
+  await seedOutlet(BRANCH_2_CONFIG, hashedPassword, 3, group.id, false);
+
+  // 7. Seed standalone Enterprise outlet
+  console.log('\n━━━ Seeding: Restoran Maharani (ENTERPRISE — Standalone) ━━━');
+  await seedOutlet(ENTERPRISE_CONFIG, hashedPassword, 4);
+
+  // 8. Seed default plans
+  await seedPlans();
+
+  console.log('\n🎉 All outlets seeded successfully!');
+  return getCredentials();
+}
+
+function getCredentials() {
   return {
-    message: 'All 3 plans seeded successfully',
-    results,
+    message: 'Seeded: 1 Free + 3 RNB Group + 1 Enterprise',
     credentials: {
-      free: { email: 'owner@free.aether.com', password: 'password123' },
-      pro: { email: 'owner@pro.aether.com', password: 'password123' },
-      enterprise: { email: 'owner@enterprise.aether.com', password: 'password123' },
+      free: { email: 'owner@free.aether.com', password: 'password123', note: 'Standalone outlet' },
+      rnbMain: { email: 'owner@rnb.aether.com', password: 'password123', note: 'RNB Group — Main outlet (see Multi Outlet)' },
+      rnbBranch1: { email: 'owner.branch1@rnb.aether.com', password: 'password123', note: 'RNB Group — Branch Senayan' },
+      rnbBranch2: { email: 'owner.branch2@rnb.aether.com', password: 'password123', note: 'RNB Group — Branch Kelapa Gading' },
+      enterprise: { email: 'owner@enterprise.aether.com', password: 'password123', note: 'Standalone outlet' },
     },
   };
+}
+
+// ============================================================
+// SEED PLANS
+// ============================================================
+
+async function seedPlans() {
+  const plans = [
+    { name: 'Free', slug: 'free', price: 0, duration: 1, sortOrder: 0, description: 'Untuk usaha kecil yang baru mulai', features: JSON.stringify({ maxProducts: 20, maxCategories: 5, maxCrew: 2, crewPermissions: false, promoTypes: ['PERCENTAGE'], multiOutlet: false, maxOutlets: 1, telegramNotify: false, insights: false }) },
+    { name: 'Pro', slug: 'pro', price: 99000, duration: 1, sortOrder: 1, description: 'Untuk bisnis yang sedang berkembang', features: JSON.stringify({ maxProducts: 500, maxCategories: 50, maxCrew: -1, crewPermissions: true, promoTypes: ['PERCENTAGE', 'NOMINAL', 'BUY_X_GET_DISCOUNT'], multiOutlet: true, maxOutlets: 10, telegramNotify: true, insights: true }) },
+    { name: 'Enterprise', slug: 'enterprise', price: 249000, duration: 1, sortOrder: 2, description: 'Untuk bisnis skala besar dengan banyak cabang', features: JSON.stringify({ maxProducts: -1, maxCategories: -1, maxCrew: -1, crewPermissions: true, promoTypes: ['PERCENTAGE', 'NOMINAL', 'BUY_X_GET_DISCOUNT'], multiOutlet: true, maxOutlets: -1, telegramNotify: true, insights: true, prioritySupport: true }) },
+  ];
+
+  for (const plan of plans) {
+    await db.plan.upsert({
+      where: { slug: plan.slug },
+      update: plan,
+      create: plan,
+    });
+  }
+  console.log('  ✅ Plans seeded: Free, Pro, Enterprise');
 }
 
 // ============================================================
 // PER-OUTLET SEED
 // ============================================================
 
-async function seedOutlet(config: PlanSeedConfig, hashedPassword: string) {
+interface SeedResult {
+  ownerId: string;
+  outletId: string;
+  outlet: string;
+  [key: string]: any;
+}
+
+async function seedOutlet(
+  config: OutletSeedConfig,
+  hashedPassword: string,
+  whatsappOffset: number,
+  groupId?: string,
+  isMain?: boolean,
+): Promise<SeedResult> {
   return await db.$transaction(async (tx) => {
     const now = new Date();
 
@@ -202,9 +314,11 @@ async function seedOutlet(config: PlanSeedConfig, hashedPassword: string) {
         address: config.outletAddress,
         phone: config.outletPhone,
         accountType: config.accountType,
+        groupId: groupId || null,
+        isMain: isMain || false,
       },
     });
-    console.log(`  ✅ Outlet: ${outlet.name} (id: ${outlet.id.slice(0, 8)}...)`);
+    console.log(`  ✅ Outlet: ${outlet.name} (id: ${outlet.id.slice(0, 8)}...)${isMain ? ' [MAIN]' : groupId ? ' [BRANCH]' : ' [STANDALONE]'}`);
 
     // 2. Create Owner
     const owner = await tx.user.create({
@@ -218,15 +332,13 @@ async function seedOutlet(config: PlanSeedConfig, hashedPassword: string) {
     });
     console.log(`  ✅ Owner: ${owner.email}`);
 
-    // 3. Create Crew members
+    // 3. Create Crew members with permissions
     const crews: any[] = [];
-    for (let i = 0; i < config.crewCount; i++) {
-      const crewName = `Crew ${config.accountType.charAt(0).toUpperCase() + config.accountType.slice(1)} ${i + 1}`;
-      const crewEmail = `crew${i + 1}@${config.accountType}.aether.com`;
+    for (const cc of config.crewConfigs) {
       const crew = await tx.user.create({
         data: {
-          name: crewName,
-          email: crewEmail,
+          name: cc.name,
+          email: cc.email,
           password: hashedPassword,
           role: 'CREW',
           outletId: outlet.id,
@@ -234,29 +346,51 @@ async function seedOutlet(config: PlanSeedConfig, hashedPassword: string) {
       });
       crews.push(crew);
 
-      // Create crew permission (for Pro/Enterprise)
-      if (config.crewPermissions) {
-        await tx.crewPermission.create({
-          data: {
-            userId: crew.id,
-            outletId: outlet.id,
-            pages: 'pos,inventory,customers,transactions',
-          },
-        });
-      }
+      await tx.crewPermission.create({
+        data: {
+          userId: crew.id,
+          outletId: outlet.id,
+          pages: cc.pages,
+        },
+      });
     }
     console.log(`  ✅ Crew: ${crews.length} member(s)`);
 
-    // 4. Create Products (subset based on plan)
+    // 4. Create Categories
+    const categoryMap: Record<string, string> = {};
+    for (const cat of CATEGORIES) {
+      const category = await tx.category.create({
+        data: { name: cat.name, color: cat.color, outletId: outlet.id },
+      });
+      categoryMap[cat.name] = category.id;
+    }
+
+    // 5. Create Products
     const products: any[] = [];
     for (let i = 0; i < config.productCount && i < ALL_PRODUCTS.length; i++) {
       const p = ALL_PRODUCTS[i];
+      // Assign category based on index
+      let catId: string | null = null;
+      if (i < 10) catId = categoryMap['Minuman'] || null;
+      else if (i < 20) catId = categoryMap['Makanan'] || null;
+      else catId = categoryMap['Snack'] || null;
+
       const product = await tx.product.create({
-        data: { ...p, outletId: outlet.id },
+        data: {
+          name: p.name,
+          sku: p.sku,
+          hpp: p.hpp,
+          price: p.price,
+          bruto: p.bruto,
+          netto: p.netto,
+          stock: p.stock,
+          lowStockAlert: p.lowStockAlert,
+          categoryId: catId,
+          outletId: outlet.id,
+        },
       });
       products.push(product);
 
-      // Audit log for product creation
       await tx.auditLog.create({
         data: {
           action: 'CREATE',
@@ -270,13 +404,11 @@ async function seedOutlet(config: PlanSeedConfig, hashedPassword: string) {
     }
     console.log(`  ✅ Products: ${products.length} item(s)`);
 
-    // 5. Create Customers
+    // 6. Create Customers (unique WhatsApp per outlet via offset)
     const customers: any[] = [];
     for (let i = 0; i < config.customerCount && i < CUSTOMER_NAMES.length; i++) {
       const c = CUSTOMER_NAMES[i];
-      // Offset WhatsApp number per outlet to avoid unique constraint violation
-      const offset = config.accountType === 'free' ? 0 : config.accountType === 'pro' ? 100 : 200;
-      const whatsapp = `6281${String(2345600 + offset + i).padStart(9, '0')}`;
+      const whatsapp = `6281${String(2345600 + whatsappOffset * 100 + i).padStart(9, '0')}`;
       const customer = await tx.customer.create({
         data: { name: c.name, whatsapp, outletId: outlet.id },
       });
@@ -284,36 +416,25 @@ async function seedOutlet(config: PlanSeedConfig, hashedPassword: string) {
     }
     console.log(`  ✅ Customers: ${customers.length} person(s)`);
 
-    // 6. Create Promos
-    const promos: any[] = [];
+    // 7. Create Promos
     const promoTemplates = [
       { name: 'Diskon Hemat 10%', type: 'PERCENTAGE', value: 10, minPurchase: 50000, maxDiscount: 20000 },
       { name: 'Diskon Akhir Pekan 15%', type: 'PERCENTAGE', value: 15, minPurchase: 75000, maxDiscount: 30000 },
-      { name: 'Potongan Rp 25.000', type: 'NOMINAL', value: 25000, minPurchase: 100000, maxDiscount: null },
-      { name: 'Cashback Rp 10.000', type: 'NOMINAL', value: 10000, minPurchase: 30000, maxDiscount: null },
-      { name: 'Beli 3 Diskon 10%', type: 'BUY_X_GET_DISCOUNT', value: 10, minPurchase: 0, maxDiscount: 25000, buyMinQty: 3, discountType: 'PERCENTAGE' },
-      { name: 'Grand Opening 20%', type: 'PERCENTAGE', value: 20, minPurchase: 0, maxDiscount: 50000 },
+      { name: 'Potongan Rp 25.000', type: 'NOMINAL', value: 25000, minPurchase: 100000 },
+      { name: 'Cashback Rp 10.000', type: 'NOMINAL', value: 10000, minPurchase: 30000 },
     ];
-    for (let i = 0; i < config.promoCount && i < promoTemplates.length; i++) {
+    const promos: any[] = [];
+    const promoCount = config.accountType === 'free' ? 2 : 3;
+    for (let i = 0; i < promoCount && i < promoTemplates.length; i++) {
       const pt = promoTemplates[i];
-      // Only create NOMINAL promo for Pro/Enterprise (plan gating)
-      if (pt.type === 'NOMINAL' && config.accountType === 'free') {
-        // Replace with PERCENTAGE for free plan
-        const alt = { ...pt, type: 'PERCENTAGE', value: 5, name: 'Diskon Member 5%' };
-        const promo = await tx.promo.create({
-          data: { ...alt, outletId: outlet.id },
-        });
-        promos.push(promo);
-      } else {
-        const promo = await tx.promo.create({
-          data: { ...pt, outletId: outlet.id },
-        });
-        promos.push(promo);
-      }
+      const promo = await tx.promo.create({
+        data: { ...pt, outletId: outlet.id },
+      });
+      promos.push(promo);
     }
-    console.log(`  ✅ Promos: ${promos.length} active`); // Free has 2 promos (PERCENTAGE only)
+    console.log(`  ✅ Promos: ${promos.length} active`);
 
-    // 7. Create Outlet Setting
+    // 8. Create Outlet Setting
     await tx.outletSetting.create({
       data: {
         outletId: outlet.id,
@@ -330,23 +451,18 @@ async function seedOutlet(config: PlanSeedConfig, hashedPassword: string) {
     });
     console.log(`  ✅ Outlet settings configured`);
 
-    // 8. Create Transactions (spread across past 30 days)
+    // 9. Create Transactions (spread across past 30 days)
     const transactions: any[] = [];
     const paymentMethods = config.paymentMethods.split(',');
-    const daysSpread = 30;
 
     for (let t = 0; t < config.transactionCount; t++) {
-      const daysAgo = Math.floor((t / config.transactionCount) * daysSpread) + 1;
+      const daysAgo = Math.floor((t / config.transactionCount) * 30) + 1;
       const tDate = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000);
 
-      // Random customer assignment
       const customerIdx = t % customers.length;
       const customer = customers[customerIdx];
-
-      // Random cashier assignment
       const cashier = t % 2 === 0 ? owner : crews[t % crews.length];
 
-      // Random items (1-3 items per transaction)
       const itemCount = 1 + Math.floor((t * 7 + 3) % 3);
       const items: any[] = [];
       let subtotal = 0;
@@ -367,7 +483,6 @@ async function seedOutlet(config: PlanSeedConfig, hashedPassword: string) {
         subtotal += itemSubtotal;
       }
 
-      // Apply promo occasionally (every 4th transaction for pro/enterprise)
       let discount = 0;
       if (promos.length > 0 && t % 4 === 0) {
         const promo = promos[t % promos.length];
@@ -382,8 +497,7 @@ async function seedOutlet(config: PlanSeedConfig, hashedPassword: string) {
       const paymentMethod = paymentMethods[t % paymentMethods.length];
       const paidAmount = paymentMethod === 'CASH' ? Math.ceil(total / 10000) * 10000 : total;
       const change = paymentMethod === 'CASH' ? paidAmount - total : 0;
-
-      const invoiceNumber = `INV-${formatDate(tDate)}-${1000 + t}${getPlanPrefix(config.accountType)}`;
+      const invoiceNumber = `INV-${fmtDate(tDate)}-${1000 + whatsappOffset * 100 + t}`;
 
       const transaction = await tx.transaction.create({
         data: {
@@ -402,12 +516,10 @@ async function seedOutlet(config: PlanSeedConfig, hashedPassword: string) {
         },
       });
 
-      // Create transaction items
       await tx.transactionItem.createMany({
         data: items.map(item => ({ ...item, transactionId: transaction.id })),
       });
 
-      // Decrease stock
       for (const item of items) {
         await tx.product.update({
           where: { id: item.productId },
@@ -415,7 +527,6 @@ async function seedOutlet(config: PlanSeedConfig, hashedPassword: string) {
         });
       }
 
-      // Loyalty points: floor(total / loyaltyPointsPerAmount)
       const pointsEarned = Math.floor(total / 10000);
       if (pointsEarned > 0) {
         await tx.customer.update({
@@ -426,7 +537,7 @@ async function seedOutlet(config: PlanSeedConfig, hashedPassword: string) {
           data: {
             type: 'EARN',
             points: pointsEarned,
-            description: `Earned ${pointsEarned} points from transaction ${invoiceNumber}`,
+            description: `Earned ${pointsEarned} points from ${invoiceNumber}`,
             customerId: customer.id,
             transactionId: transaction.id,
           },
@@ -438,17 +549,11 @@ async function seedOutlet(config: PlanSeedConfig, hashedPassword: string) {
         });
       }
 
-      // Audit log for transaction (entityId is null — FK only references Product)
       await tx.auditLog.create({
         data: {
           action: 'SALE',
           entityType: 'TRANSACTION',
-          details: JSON.stringify({
-            invoice: invoiceNumber,
-            total,
-            payment: paymentMethod,
-            customer: customer.name,
-          }),
+          details: JSON.stringify({ invoice: invoiceNumber, total, payment: paymentMethod, customer: customer.name }),
           outletId: outlet.id,
           userId: cashier.id,
         },
@@ -458,36 +563,7 @@ async function seedOutlet(config: PlanSeedConfig, hashedPassword: string) {
     }
     console.log(`  ✅ Transactions: ${transactions.length} record(s)`);
 
-    // 9. Create a REDEEM loyalty log for one customer (to test redeem flow)
-    if (customers.length > 0 && transactions.length > 0) {
-      const luckyCustomer = customers[0];
-      const redeemPoints = 3;
-      await tx.customer.update({
-        where: { id: luckyCustomer.id },
-        data: { points: { decrement: redeemPoints } },
-      });
-      await tx.loyaltyLog.create({
-        data: {
-          type: 'REDEEM',
-          points: -redeemPoints,
-          description: `Redeemed ${redeemPoints} points (Rp${redeemPoints * 100} discount)`,
-          customerId: luckyCustomer.id,
-          transactionId: transactions[0].id,
-        },
-      });
-      console.log(`  ✅ Loyalty redeem logged for ${luckyCustomer.name}`);
-    }
-
-    return {
-      outlet: outlet.name,
-      accountType: config.accountType,
-      owner: owner.email,
-      crews: crews.map((c: any) => c.email),
-      products: products.length,
-      customers: customers.length,
-      transactions: transactions.length,
-      promos: promos.length,
-    };
+    return { ownerId: owner.id, outletId: outlet.id, outlet: outlet.name, accountType: config.accountType };
   });
 }
 
@@ -495,18 +571,13 @@ async function seedOutlet(config: PlanSeedConfig, hashedPassword: string) {
 // HELPERS
 // ============================================================
 
-function formatDate(date: Date): string {
+function fmtDate(date: Date): string {
   const yyyy = date.getFullYear();
   const mm = String(date.getMonth() + 1).padStart(2, '0');
   const dd = String(date.getDate()).padStart(2, '0');
   return `${yyyy}${mm}${dd}`;
 }
 
-function getPlanPrefix(plan: string): string {
-  switch (plan) {
-    case 'free': return 'F';
-    case 'pro': return 'P';
-    case 'enterprise': return 'E';
-    default: return 'X';
-  }
-}
+// NOTE: Seed is NOT auto-executed on import.
+// Call seedDatabase() explicitly from /api/seed route or CLI.
+// Auto-run was removed to prevent process.exit(1) on Vercel serverless cold starts.

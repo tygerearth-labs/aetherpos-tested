@@ -3,6 +3,7 @@ import Credentials from 'next-auth/providers/credentials';
 import bcrypt from 'bcryptjs';
 import { db } from '@/lib/db';
 import NextAuth from 'next-auth';
+import { checkPlanExpiration } from '@/lib/plan-expiration';
 
 export const authOptions: NextAuthOptions = {
   // Only use secure cookies when actually on HTTPS
@@ -35,6 +36,12 @@ export const authOptions: NextAuthOptions = {
 
         if (!isPasswordValid) {
           throw new Error('Invalid password');
+        }
+
+        // Check plan expiration
+        const planCheck = await checkPlanExpiration(user.outletId)
+        if (planCheck.isBranchBlocked) {
+          throw new Error(`Langganan outlet utama (${planCheck.mainOutletName || 'owner'}) telah berakhir. Hubungi owner untuk melanjutkan langganan.`)
         }
 
         return {
