@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { parseTzOffset, buildDateFilterTz, getTodayRangeTz, getVoidedTxIds } from '@/lib/api/api-helpers'
-import { safeJson, safeJsonError, CACHE } from '@/lib/api/safe-response'
+import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 
 /**
  * GET /api/multi-outlet/outlet?outletId=xxx&tab=transactions|customers|products
@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
     const search = searchParams.get('search') || ''
 
     const now = new Date()
-    let dateFilter: Record<string, Date>
+    let dateFilter: Record<string, Date> | undefined
 
     if (dateFromParam || dateToParam) {
       dateFilter = tzOffset !== null
@@ -68,8 +68,10 @@ export async function GET(request: NextRequest) {
             if (dateToParam) { const d = new Date(dateToParam); if (!isNaN(d.getTime())) { d.setHours(23,59,59,999); filter.lte = d } }
             return filter
           })()
+      // If the filter ended up empty, treat as no filter
+      if (dateFilter && Object.keys(dateFilter).length === 0) dateFilter = undefined
     } else if (!period) {
-      dateFilter = {} // No date filter — show all
+      dateFilter = undefined // No date filter — show all
     } else if (period === '7days' || period === '7d') {
       const start = new Date(now); start.setDate(start.getDate() - 6); start.setHours(0,0,0,0)
       dateFilter = { gte: start, lte: new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23,59,59,999) }
@@ -83,6 +85,12 @@ export async function GET(request: NextRequest) {
       const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
       dateFilter = { gte: todayStart, lt: new Date(todayStart.getTime() + 86_400_000) }
     }
+
+    // Helper: build where clause with optional date filter
+    const buildWhere = (base: Record<string, unknown>) => ({
+      ...base,
+      ...(dateFilter && Object.keys(dateFilter).length > 0 ? { createdAt: dateFilter } : {}),
+    })
 
     // Void exclusion (graceful — if AuditLog table missing, skip void filtering)
     let voidExclude: Record<string, unknown> = {}
@@ -104,8 +112,8 @@ export async function GET(request: NextRequest) {
 
     try {
       ;[summaryRevenue, summaryTx, summaryCustomers, summaryProducts, summaryStock] = await Promise.all([
-        db.transaction.aggregate({ where: { outletId: targetOutletId, createdAt: dateFilter, ...voidExclude }, _sum: { total: true } }),
-        db.transaction.count({ where: { outletId: targetOutletId, createdAt: dateFilter, ...voidExclude } }),
+        db.transaction.aggregate({ where: buildWhere({ outletId: targetOutletId, ...voidExclude }), _sum: { total: true } }),
+        db.transaction.count({ where: buildWhere({ outletId: targetOutletId, ...voidExclude }) }),
         db.customer.count({ where: { outletId: targetOutletId } }),
         db.product.count({ where: { outletId: targetOutletId } }),
         db.product.aggregate({ where: { outletId: targetOutletId }, _sum: { stock: true } }),
@@ -124,108 +132,110 @@ export async function GET(request: NextRequest) {
     }
 
     // Tab data
-    let data: unknown = null
+    let tabData: unknown = null
     let totalRecords = 0
 
     if (tab === 'transactions') {
       try {
-        const whereClause = {
+        const txWhere = buildWhere({
           outletId: targetOutletId,
-          createdAt: dateFilter,
           ...voidExclude,
           ...(search ? { invoiceNumber: { contains: search } } : {}),
-        }
+        })
 
-        [data, totalRecords] = await Promise.all([
-          db.transaction.findMany({
-            where: whereClause,
-            select: {
-              id: true,
-              invoiceNumber: true,
-              total: true,
-              paymentMethod: true,
-              createdAt: true,
-              customer: { select: { name: true } },
-              user: { select: { name: true } },
-            },
-            orderBy: { createdAt: 'desc' },
-            skip,
-            take: limit,
-          }),
-          db.transaction.count({ where: whereClause }),
-        ])
+        const txRows = await db.transaction.findMany({
+          where: txWhere,
+          select: {
+            id: true,
+            invoiceNumber: true,
+            subtotal: true,
+            discount: true,
+            total: true,
+            paymentMethod: true,
+            createdAt: true,
+            customer: { select: { name: true } },
+            user: { select: { name: true } },
+            _count: { select: { items: true } },
+          },
+          orderBy: { createdAt: 'desc' },
+          skip,
+          take: limit,
+        })
+        const txCount = await db.transaction.count({ where: txWhere })
+        tabData = txRows
+        totalRecords = txCount
       } catch (tabErr) {
         console.error('[/api/multi-outlet/outlet] Transactions tab error:', tabErr)
-        data = []
+        tabData = []
         totalRecords = 0
       }
     } else if (tab === 'customers') {
       try {
-        const whereClause: Record<string, unknown> = { outletId: targetOutletId }
+        const custWhere: Record<string, unknown> = { outletId: targetOutletId }
         if (search) {
-          whereClause.OR = [
+          custWhere.OR = [
             { name: { contains: search } },
             { whatsapp: { contains: search } },
           ]
         }
 
-        [data, totalRecords] = await Promise.all([
-          db.customer.findMany({
-            where: whereClause as never,
-            select: {
-              id: true,
-              name: true,
-              whatsapp: true,
-              totalSpend: true,
-              points: true,
-              createdAt: true,
-              _count: { select: { transactions: true } },
-            },
-            orderBy: { totalSpend: 'desc' },
-            skip,
-            take: limit,
-          }),
-          db.customer.count({ where: whereClause as never }),
-        ])
+        const custRows = await db.customer.findMany({
+          where: custWhere as never,
+          select: {
+            id: true,
+            name: true,
+            whatsapp: true,
+            totalSpend: true,
+            points: true,
+            createdAt: true,
+            _count: { select: { transactions: true } },
+          },
+          orderBy: { totalSpend: 'desc' },
+          skip,
+          take: limit,
+        })
+        const custCount = await db.customer.count({ where: custWhere as never })
+        tabData = custRows
+        totalRecords = custCount
       } catch (tabErr) {
         console.error('[/api/multi-outlet/outlet] Customers tab error:', tabErr)
-        data = []
+        tabData = []
         totalRecords = 0
       }
     } else if (tab === 'products') {
       try {
-        const whereClause: Record<string, unknown> = { outletId: targetOutletId }
+        const prodWhere: Record<string, unknown> = { outletId: targetOutletId }
         if (search) {
-          whereClause.OR = [
+          prodWhere.OR = [
             { name: { contains: search } },
             { sku: { contains: search } },
             { barcode: { contains: search } },
           ]
         }
 
-        [data, totalRecords] = await Promise.all([
-          db.product.findMany({
-            where: whereClause as never,
-            select: {
-              id: true,
-              name: true,
-              sku: true,
-              price: true,
-              hpp: true,
-              stock: true,
-              hasVariants: true,
-              category: { select: { name: true, color: true } },
-              _count: { select: { variants: true } },
-            },
-            orderBy: { name: 'asc' },
-            skip,
-            take: limit,
-          }),
-          db.product.count({ where: whereClause as never }),
-        ])
+        const prodRows = await db.product.findMany({
+          where: prodWhere as never,
+          select: {
+            id: true,
+            name: true,
+            sku: true,
+            price: true,
+            hpp: true,
+            stock: true,
+            hasVariants: true,
+            category: { select: { name: true, color: true } },
+            _count: { select: { variants: true } },
+          },
+          orderBy: { name: 'asc' },
+          skip,
+          take: limit,
+        })
+        const prodCount = await db.product.count({ where: prodWhere as never })
+        tabData = prodRows
+        totalRecords = prodCount
       } catch (tabErr) {
         console.error('[/api/multi-outlet/outlet] Products tab error:', tabErr)
-        data = []
+        tabData = []
         totalRecords = 0
       }
     }
@@ -239,7 +249,7 @@ export async function GET(request: NextRequest) {
         total: totalRecords,
         totalPages: Math.ceil(totalRecords / limit),
       },
-      data: data ?? [],
+      data: tabData ?? [],
     }, 200)
   } catch (error) {
     console.error('[/api/multi-outlet/outlet] GET error:', error)

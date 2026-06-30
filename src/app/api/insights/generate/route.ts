@@ -10,7 +10,8 @@ export const maxDuration = 60
 let ZAI: any = null
 try {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  ZAI = require('z-ai-web-dev-sdk')?.default || require('z-ai-web-dev-sdk')
+  const mod = require('z-ai-web-dev-sdk')
+  ZAI = mod?.default || mod
 } catch {
   // z-ai-web-dev-sdk not installed — AI insights disabled
 }
