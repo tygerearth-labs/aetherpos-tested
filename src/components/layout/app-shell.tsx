@@ -1,16 +1,14 @@
 'use client'
 
-import { lazy, Suspense, useState, useCallback } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { SessionProvider, useSession } from 'next-auth/react'
 import { usePageStore } from '@/hooks/use-page-store'
 import { useSidebarStore } from '@/components/layout/sidebar'
-import { useOnlineStatus, useBlockRefresh } from '@/hooks/use-online-status'
 import Sidebar from '@/components/layout/sidebar'
 import MobileBottomNav from '@/components/layout/mobile-bottom-nav'
 import AuthView from '@/components/auth/auth-view'
 import LandingPage from '@/components/landing/landing-page'
-import { PlanExpiredBanner } from '@/components/shared/plan-expired-banner'
-import { Loader2, WifiOff } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 
 // ── Lazy-loaded pages (code splitting for faster initial load) ──
 const DashboardPage = lazy(() => import('@/components/pages/dashboard-page'))
@@ -22,8 +20,6 @@ const AuditLogPage = lazy(() => import('@/components/pages/audit-log-page'))
 const CrewPage = lazy(() => import('@/components/pages/crew-page'))
 const SettingsPage = lazy(() => import('@/components/pages/settings-page'))
 const PlanPage = lazy(() => import('@/components/pages/plan-page'))
-const TransferPage = lazy(() => import('@/components/pages/transfer-page'))
-const MultiOutletTerminalPage = lazy(() => import('@/components/pages/multi-outlet-terminal-page'))
 
 // ── Page-level Suspense fallback ──
 function PageLoader() {
@@ -49,11 +45,6 @@ function AppContent() {
   const { currentPage } = usePageStore()
   const { collapsed } = useSidebarStore()
   const [showAuth, setShowAuth] = useState(false)
-  const isOnline = useOnlineStatus()
-
-  // Block refresh (F5, Ctrl+R, Cmd+R, beforeunload) when offline
-  const isOffline = useCallback(() => !isOnline, [isOnline])
-  useBlockRefresh(isOffline)
 
   if (status === 'loading') {
     return (
@@ -91,10 +82,6 @@ function AppContent() {
         return <LazyPage><CrewPage /></LazyPage>
       case 'plan':
         return <LazyPage><PlanPage /></LazyPage>
-      case 'transfer':
-        return <LazyPage><TransferPage /></LazyPage>
-      case 'multi-outlet':
-        return <LazyPage><MultiOutletTerminalPage /></LazyPage>
       case 'settings':
         return <LazyPage><SettingsPage /></LazyPage>
       default:
@@ -103,16 +90,7 @@ function AppContent() {
   }
 
   return (
-    <div className={`bg-deep-space ${currentPage === 'pos' ? 'md:h-screen md:overflow-y-hidden' : 'min-h-screen'}`} data-offline-block>
-      {/* Offline Banner */}
-      {!isOnline && (
-        <div className="fixed top-0 left-0 right-0 z-[100] bg-red-600/95 backdrop-blur-sm border-b border-red-500/50">
-          <div className="flex items-center justify-center gap-2 py-1.5 px-4">
-            <WifiOff className="h-3.5 w-3.5 text-white shrink-0" />
-            <span className="text-[11px] text-white font-medium">Mode Offline — Data terakhir yang dimuat masih bisa dilihat. Refresh dinonaktifkan.</span>
-          </div>
-        </div>
-      )}
+    <div className={`bg-deep-space ${currentPage === 'pos' ? 'md:h-screen md:overflow-y-hidden' : 'min-h-screen'}`}>
       <Sidebar />
       <MobileBottomNav />
       <main
@@ -127,7 +105,6 @@ function AppContent() {
             ? 'pb-20 px-3 pt-3 sm:px-4 md:h-full md:pb-0 md:px-3 md:py-2 md:overflow-y-hidden'
             : 'pb-20 md:pb-0 px-3 sm:px-4 md:py-4 lg:px-5 lg:py-4'
         }`}>
-          <PlanExpiredBanner />
           {renderPage()}
         </div>
       </main>

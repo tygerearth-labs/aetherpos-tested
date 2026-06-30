@@ -4,7 +4,6 @@ import { useSession, signOut } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import { usePageStore, type PageType } from '@/hooks/use-page-store'
 import { usePlan } from '@/hooks/use-plan'
-import { useSidebarBadges } from '@/hooks/use-sidebar-badges'
 import { getPlanBadgeClass } from '@/lib/config/plan-config'
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
@@ -28,8 +27,6 @@ import {
   Lock,
   Command,
   Crown,
-  ArrowLeftRight,
-  Building2,
 } from 'lucide-react'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -59,7 +56,6 @@ interface NavItem {
   page: PageType
   shortLabel: string
   section?: 'main' | 'operations' | 'admin'
-  groupOnly?: boolean
 }
 
 // ============================================================
@@ -75,8 +71,6 @@ const navItems: NavItem[] = [
   { label: 'Audit Log', shortLabel: 'Log', icon: <ClipboardList className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'audit-log', section: 'admin' },
   { label: 'Kelola Crew', shortLabel: 'Crew', icon: <UserCog className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'crew', section: 'admin' },
   { label: 'Plan & Pricing', shortLabel: 'Plan', icon: <Crown className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'plan', section: 'admin' },
-  { label: 'Inbound & Outbound', shortLabel: 'Io', icon: <ArrowLeftRight className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'transfer', section: 'admin', groupOnly: true },
-  { label: 'Multi Outlet', shortLabel: 'Mo', icon: <Building2 className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'multi-outlet', section: 'admin', groupOnly: true },
   { label: 'Pengaturan', shortLabel: 'Set', icon: <Settings className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'settings', section: 'admin' },
 ]
 
@@ -112,7 +106,6 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
   const { data: session } = useSession()
   const { currentPage, setCurrentPage } = usePageStore()
   const { plan, isSuspended } = usePlan()
-  const { pendingInbound } = useSidebarBadges()
   const router = useRouter()
 
   // ---- Crew permission-based filtering ----
@@ -121,7 +114,6 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
 
   const [allowedPages, setAllowedPages] = useState<string[] | null>(null)
   const [permissionsLoaded, setPermissionsLoaded] = useState(false)
-  const [hasOutletGroup, setHasOutletGroup] = useState(false)
 
   const fetchPermissions = useCallback(async () => {
     if (isOwner) {
@@ -145,21 +137,6 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
     }
   }, [isOwner])
 
-  // ---- Outlet group check ----
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      try {
-        const res = await fetch('/api/outlet-group')
-        if (res.ok) {
-          const data = await res.json()
-          if (!cancelled) setHasOutletGroup(!!data.hasGroup || !!data.group)
-        }
-      } catch { /* ignore */ }
-    })()
-    return () => { cancelled = true }
-  }, [])
-
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchPermissions()
@@ -178,20 +155,16 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
   const navItemAccess = useMemo(() => {
     const map = new Map<string, boolean>()
     for (const item of navItems) {
-      const hasAccess = isOwner || !allowedPages || allowedPages.includes(item.page)
-      const groupOk = !item.groupOnly || hasOutletGroup
-      map.set(item.page, hasAccess && groupOk)
+      map.set(item.page, isOwner || !allowedPages || allowedPages.includes(item.page))
     }
     return map
-  }, [isOwner, allowedPages, hasOutletGroup])
+  }, [isOwner, allowedPages])
 
-  // Group all items by section (filter out hidden group-only items)
+  // Group all items by section
   const groupedItems = useMemo(() => {
     const groups: { key: string; label: string; items: NavItem[] }[] = []
     const seen = new Set<string>()
     for (const item of navItems) {
-      // Skip group-only items if no group
-      if (item.groupOnly && !hasOutletGroup) continue
       const sec = item.section || 'main'
       if (!seen.has(sec)) {
         seen.add(sec)
@@ -200,7 +173,7 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
       groups[groups.length - 1].items.push(item)
     }
     return groups
-  }, [navItemAccess, hasOutletGroup])
+  }, [navItemAccess])
 
   const handleNav = (page: PageType) => {
     if (isOwner || !allowedPages || allowedPages.includes(page)) {
@@ -276,19 +249,6 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
         </span>
         {!isCompact && (
           <span className="truncate flex-1">{item.label}</span>
-        )}
-        {/* Badge: pending inbound transfers */}
-        {item.page === 'transfer' && pendingInbound > 0 && (
-          <span className={`shrink-0 min-w-[18px] h-[18px] flex items-center justify-center rounded-full text-[10px] font-bold leading-none px-1 ${
-            isActive
-              ? 'bg-cyan-400/20 text-cyan-300'
-              : 'bg-amber-500/20 text-amber-400'
-          }`}>
-            {pendingInbound > 99 ? '99+' : pendingInbound}
-          </span>
-        )}
-        {isCompact && item.page === 'transfer' && pendingInbound > 0 && (
-          <span className="absolute -top-1 -right-0.5 min-w-[14px] h-[14px] flex items-center justify-center rounded-full text-[8px] font-bold leading-none px-0.5 bg-amber-500 text-white" />
         )}
         {!isCompact && isLocked && (
           <Lock className="h-3 w-3 shrink-0 text-slate-600" />
@@ -370,7 +330,7 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
       )}
 
       {/* Navigation */}
-      <ScrollArea className="flex-1 px-2 py-3 scrollbar-hide">
+      <ScrollArea className="flex-1 px-2 py-3">
         {groupedItems.map((group, groupIdx) => {
           const showSection = !isCompact
           const wrapper = isMobile ? (

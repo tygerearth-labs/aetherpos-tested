@@ -8,36 +8,25 @@ export async function GET(request: NextRequest) {
   if (!user) return unauthorized()
 
   try {
-    // Try to query Plan table — gracefully degrades if table doesn't exist
-    let plans: unknown[] = []
-    try {
-      plans = await db.plan.findMany({
-        where: { active: true },
-        orderBy: { sortOrder: 'asc' },
-      })
-    } catch {
-      // Plan table doesn't exist yet — return empty
-      plans = []
-    }
+    const plans = await db.plan.findMany({
+      where: { active: true },
+      orderBy: { sortOrder: 'asc' },
+    })
 
-    // Get current outlet plan slug
-    let currentPlanSlug = 'free'
-    try {
-      const outlet = await db.outlet.findUnique({
-        where: { id: user.outletId },
-        select: { accountType: true },
-      })
-      currentPlanSlug = outlet?.accountType?.startsWith('suspended:')
-        ? outlet.accountType.replace('suspended:', '')
-        : (outlet?.accountType || 'free')
-    } catch {
-      // Outlet query failed — use default
-    }
+    // Also get current outlet plan slug
+    const outlet = await db.outlet.findUnique({
+      where: { id: user.outletId },
+      select: { accountType: true },
+    })
+
+    const currentPlanSlug = outlet?.accountType?.startsWith('suspended:')
+      ? outlet.accountType.replace('suspended:', '')
+      : (outlet?.accountType || 'free')
 
     return NextResponse.json({ plans, currentPlan: currentPlanSlug })
   } catch (error) {
     console.error('[GET /api/plans]', error)
-    return NextResponse.json({ plans: [], currentPlan: 'free' }, { status: 200 })
+    return NextResponse.json({ error: 'Failed to fetch plans' }, { status: 500 })
   }
 }
 

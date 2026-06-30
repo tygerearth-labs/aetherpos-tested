@@ -110,9 +110,6 @@ async function executeCommand(
 /**
  * SET_PLAN — Change account type
  * data: { accountType: 'free' | 'pro' | 'enterprise' }
- *
- * When setting the main outlet's plan, also updates all branch outlets
- * in the same group so they inherit the same plan.
  */
 async function handleSetPlan(
   outletId: string,
@@ -130,27 +127,12 @@ async function handleSetPlan(
     )
   }
 
-  const outlet = await db.outlet.findUnique({
-    where: { id: outletId },
-    select: { accountType: true, isMain: true, groupId: true },
-  })
-  const oldType = outlet?.accountType || 'free'
+  const oldType = (await db.outlet.findUnique({ where: { id: outletId } }))?.accountType || 'free'
 
   const updated = await db.outlet.update({
     where: { id: outletId },
     data: { accountType: accountType as string },
   })
-
-  // If this is a main outlet with a group, also update all branch outlets
-  if (outlet?.isMain && outlet.groupId) {
-    const branchResult = await db.outlet.updateMany({
-      where: { groupId: outlet.groupId, isMain: false },
-      data: { accountType: accountType as string },
-    })
-    console.log(
-      `[COMMAND] SET_PLAN: Also updated ${branchResult.count} branch outlets to "${accountType}"`
-    )
-  }
 
   console.log(
     `[COMMAND] SET_PLAN: Outlet "${outletId}" ${oldType} → ${accountType}`

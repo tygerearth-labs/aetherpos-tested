@@ -1,5 +1,5 @@
 // ==================== AETHER POS SCHEMA ====================
-// SQLite for local dev — switch to postgresql for Vercel/production
+// PostgreSQL for Vercel / production deployment
 
 generator client {
   provider = "prisma-client-js"
@@ -10,46 +10,26 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ==================== OUTLET GROUP (Multi-Outlet) ====================
-model OutletGroup {
-  id        String   @id @default(cuid())
-  name      String                        // Business name: "RNB"
-  ownerId   String   @unique                   // Main account owner (User id)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  owner   User     @relation("GroupOwner", fields: [ownerId], references: [id])
-  outlets Outlet[]
-  transfers OutletTransfer[]
-}
-
 // ==================== OUTLET ====================
 model Outlet {
-  id              String    @id @default(cuid())
-  name            String
-  address         String?
-  phone           String?
-  accountType     String    @default("free") // free, pro, enterprise
-  planExpiresAt   DateTime?                   // When the current plan expires (null = never/free)
-  isMain          Boolean   @default(false)  // Main/headquarters outlet in the group
-  groupId         String?                      // Belongs to an outlet group (null = standalone)
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id           String   @id @default(cuid())
+  name         String
+  address      String?
+  phone        String?
+  accountType  String   @default("free") // free, pro, enterprise
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  group            OutletGroup?       @relation(fields: [groupId], references: [id])
-  users            User[]
-  products         Product[]
-  customers        Customer[]
-  categories       Category[]
-  transactions     Transaction[]
-  auditLogs        AuditLog[]
-  setting          OutletSetting?
-  promos           Promo[]
-  crewPermissions  CrewPermission[]
-  productVariants  ProductVariant[]
-  transferItems    TransferItem[]
-  transfersFrom    OutletTransfer[] @relation("TransferFrom")
-  transfersTo      OutletTransfer[] @relation("TransferTo")
+  users           User[]
+  products        Product[]
+  customers       Customer[]
+  categories      Category[]
+  transactions    Transaction[]
+  auditLogs       AuditLog[]
+  setting         OutletSetting?
+  promos          Promo[]
+  crewPermissions CrewPermission[]
+  productVariants ProductVariant[]
 }
 
 // ==================== USER ====================
@@ -67,9 +47,6 @@ model User {
   transactions    Transaction[]
   auditLogs       AuditLog[]
   crewPermission  CrewPermission?
-  ownedGroup      OutletGroup?     @relation("GroupOwner")
-  transfersCreated  OutletTransfer[] @relation("TransferCreator")
-  transfersReceived OutletTransfer[] @relation("TransferReceiver")
 
   @@unique([email, outletId])
 }
@@ -331,53 +308,4 @@ model Plan {
   description String?                       // Short tagline
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-}
-
-// ==================== OUTLET TRANSFER (Surat Jalan) ====================
-model OutletTransfer {
-  id             String   @id @default(cuid())
-  transferNumber String   @unique            // Auto-generated: TRF-YYYYMMDD-XXXX
-  fromOutletId   String                       // Source outlet (outbound)
-  toOutletId     String                       // Destination outlet (inbound)
-  status         String   @default("DRAFT")  // DRAFT, IN_TRANSIT, RECEIVED, CANCELLED
-  notes          String?                      // Notes / keterangan
-  receivedById   String?                      // User who received (at destination)
-  receivedAt     DateTime?                    // When received at destination
-  createdById    String                       // User who created the transfer
-  outletId       String                       // For audit trail (source outlet)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  fromOutlet   Outlet            @relation("TransferFrom", fields: [fromOutletId], references: [id])
-  toOutlet     Outlet            @relation("TransferTo", fields: [toOutletId], references: [id])
-  group        OutletGroup?      @relation(fields: [groupId], references: [id])
-  groupId      String?           // Which group this transfer belongs to
-  createdBy    User              @relation("TransferCreator", fields: [createdById], references: [id])
-  receivedBy   User?             @relation("TransferReceiver", fields: [receivedById], references: [id])
-  items        TransferItem[]
-
-  @@index([fromOutletId])
-  @@index([toOutletId])
-  @@index([groupId])
-  @@index([status])
-}
-
-// ==================== TRANSFER ITEM ====================
-model TransferItem {
-  id              String   @id @default(cuid())
-  transferId      String
-  productName     String                       // Snapshot: product name at time of transfer
-  productSku      String?                      // Snapshot: SKU
-  productBarcode  String?                      // Snapshot: barcode
-  quantity        Int                          // Quantity transferred
-  hpp             Float    @default(0)          // Cost price snapshot
-  price           Float                        // Selling price snapshot
-  productSnapshot String?                      // JSON: full product data (image, unit, category, variants, etc.)
-  outletId        String                       // Source outlet (for audit)
-  createdAt       DateTime @default(now())
-
-  transfer OutletTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
-  outlet   Outlet          @relation(fields: [outletId], references: [id])
-
-  @@index([transferId])
 }
