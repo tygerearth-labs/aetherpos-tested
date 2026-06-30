@@ -3,6 +3,7 @@ import Credentials from 'next-auth/providers/credentials';
 import bcrypt from 'bcryptjs';
 import { db } from '@/lib/db';
 import NextAuth from 'next-auth';
+import { checkPlanExpiry, downgradeExpiredPlan } from '@/lib/plan-expiry';
 
 export const authOptions: NextAuthOptions = {
   // Only use secure cookies when actually on HTTPS
@@ -35,6 +36,19 @@ export const authOptions: NextAuthOptions = {
 
         if (!isPasswordValid) {
           throw new Error('Invalid password');
+        }
+
+        // ---- Plan Expiry Check ----
+        const expiryStatus = await checkPlanExpiry(user.outletId);
+
+        if (expiryStatus.status === 'expired_branch') {
+          // Branch outlet expired → block login
+          throw new Error('PLAN_EXPIRED_BRANCH');
+        }
+
+        if (expiryStatus.status === 'expired_main') {
+          // Main outlet expired → auto-downgrade to free, allow login
+          await downgradeExpiredPlan(user.outletId);
         }
 
         return {

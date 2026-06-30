@@ -29,16 +29,16 @@ export default function CustomerFormDialog({ open, onOpenChange, customer, onSav
   const [error, setError] = useState('')
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+     
     if (customer) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+       
       setName(customer.name)
       setWhatsapp(customer.whatsapp)
     } else {
       setName('')
       setWhatsapp('')
     }
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+     
     setError('')
   }, [customer, open])
 

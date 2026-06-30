@@ -35,6 +35,17 @@ export async function GET(
         },
         items: {
           orderBy: { createdAt: 'asc' },
+          select: {
+            id: true,
+            productName: true,
+            productSku: true,
+            productBarcode: true,
+            quantity: true,
+            hpp: true,
+            price: true,
+            productSnapshot: true,
+            createdAt: true,
+          },
         },
       },
     })
@@ -103,7 +114,18 @@ export async function PATCH(
     const transfer = await db.outletTransfer.findUnique({
       where: { id },
       include: {
-        items: true,
+        items: {
+          select: {
+            id: true,
+            productName: true,
+            productSku: true,
+            productBarcode: true,
+            quantity: true,
+            hpp: true,
+            price: true,
+            productSnapshot: true,
+          },
+        },
         fromOutlet: { select: { id: true, name: true } },
         toOutlet: { select: { id: true, name: true } },
       },
@@ -159,7 +181,7 @@ export async function PATCH(
         // Deduct stock from each product in the source outlet
         for (const item of transfer.items) {
           // Try to find product by SKU first, then barcode
-          let product: { id: string; name: string; stock: number; sku: string | null } | null = null
+          let product: { id: string; name: string; stock: number } | null = null
           if (item.productSku) {
             product = await tx.product.findFirst({
               where: {
@@ -187,8 +209,7 @@ export async function PATCH(
           }
 
           if (product) {
-            const previousStock = product.stock
-            const newStock = previousStock - item.quantity
+            const newStock = product.stock - item.quantity
             if (newStock < 0) {
               throw new Error(
                 `Stok ${product.name} tidak mencukupi (sisa: ${product.stock}, diminta: ${item.quantity})`,
@@ -197,27 +218,6 @@ export async function PATCH(
             await tx.product.update({
               where: { id: product.id },
               data: { stock: newStock },
-            })
-
-            // Per-product audit log so it shows in product detail movement history
-            await tx.auditLog.create({
-              data: {
-                action: 'ADJUSTMENT',
-                entityType: 'STOCK',
-                entityId: product.id,
-                details: JSON.stringify({
-                  action: 'TRANSFER_OUT',
-                  transferNumber: transfer.transferNumber,
-                  toOutlet: transfer.toOutlet.name,
-                  productName: item.productName,
-                  productSku: product.sku || item.productSku,
-                  quantityDeducted: item.quantity,
-                  previousStock,
-                  newStock,
-                }),
-                outletId: transfer.fromOutletId,
-                userId: user.id,
-              },
             })
           }
         }
@@ -228,7 +228,7 @@ export async function PATCH(
           data: { status: 'IN_TRANSIT' },
         })
 
-        // Aggregate audit log at source outlet (for audit log page)
+        // Audit log at source outlet
         await tx.auditLog.create({
           data: {
             action: 'ADJUSTMENT',
@@ -250,7 +250,7 @@ export async function PATCH(
           },
         })
 
-        // Aggregate audit log at destination outlet (incoming notification)
+        // Audit log at destination outlet (incoming notification)
         await tx.auditLog.create({
           data: {
             action: 'RESTOCK',
@@ -278,7 +278,12 @@ export async function PATCH(
         include: {
           fromOutlet: { select: { name: true } },
           toOutlet: { select: { name: true } },
-          items: true,
+          items: {
+            select: {
+              id: true, productName: true, productSku: true, productBarcode: true,
+              quantity: true, hpp: true, price: true, productSnapshot: true,
+            },
+          },
         },
       })
 
@@ -326,6 +331,39 @@ export async function PATCH(
             })
             restockedProducts.push(item.productName)
 
+            // If snapshot has variants and destination product has none, create them
+            let snapshot: Record<string, unknown> | null = null
+            try {
+              snapshot = item.productSnapshot ? JSON.parse(item.productSnapshot) : null
+            } catch { /* ignore */ }
+
+            if (snapshot?.variants && Array.isArray(snapshot.variants) && snapshot.variants.length > 0) {
+              const existingVariants = await tx.productVariant.count({
+                where: { productId: product.id },
+              })
+              if (existingVariants === 0) {
+                for (const v of snapshot.variants) {
+                  const variant = v as { name: string; sku?: string; barcode?: string; hpp?: number; price: number; stock: number }
+                  await tx.productVariant.create({
+                    data: {
+                      productId: product.id,
+                      name: variant.name,
+                      sku: variant.sku || null,
+                      barcode: variant.barcode || null,
+                      hpp: variant.hpp || 0,
+                      price: variant.price,
+                      stock: variant.stock || 0,
+                      outletId: destOutletId,
+                    },
+                  })
+                }
+                await tx.product.update({
+                  where: { id: product.id },
+                  data: { hasVariants: true },
+                })
+              }
+            }
+
             // Per-product audit log so it shows in product detail movement history
             await tx.auditLog.create({
               data: {
@@ -348,20 +386,65 @@ export async function PATCH(
             })
           } else {
             // Product doesn't exist — create new product in destination
-            const newProduct = await tx.product.create({
-              data: {
-                name: item.productName,
-                sku: item.productSku || null,
-                barcode: item.productBarcode || null,
-                hpp: item.hpp || 0,
-                price: item.price,
-                stock: item.quantity,
-                outletId: destOutletId,
-                lowStockAlert: 10,
-                unit: 'pcs',
-              },
-            })
+            // Parse product snapshot for full data
+            let snapshot: Record<string, unknown> | null = null
+            try {
+              snapshot = item.productSnapshot ? JSON.parse(item.productSnapshot) : null
+            } catch { /* ignore */ }
+
+            const productData: Record<string, unknown> = {
+              name: item.productName,
+              sku: item.productSku || null,
+              barcode: item.productBarcode || null,
+              hpp: item.hpp || 0,
+              price: item.price,
+              stock: item.quantity,
+              outletId: destOutletId,
+              // Use snapshot data if available, otherwise defaults
+              image: (snapshot?.image as string) || null,
+              unit: (snapshot?.unit as string) || 'pcs',
+              lowStockAlert: (snapshot?.lowStockAlert as number) || 10,
+              bruto: (snapshot?.bruto as number) || 0,
+              netto: (snapshot?.netto as number) || 0,
+              hasVariants: (snapshot?.hasVariants as boolean) || false,
+            }
+
+            // Match or create category at destination
+            if (snapshot?.categoryName) {
+              let destCategory = await tx.category.findFirst({
+                where: { name: snapshot.categoryName as string, outletId: destOutletId },
+              })
+              if (!destCategory) {
+                // Auto-create category at branch if it doesn't exist
+                const color = (snapshot?.categoryColor as string) || 'zinc'
+                destCategory = await tx.category.create({
+                  data: { name: snapshot.categoryName as string, color, outletId: destOutletId },
+                })
+              }
+              productData.categoryId = destCategory.id
+            }
+
+            const newProduct = await tx.product.create({ data: productData })
             createdProducts.push(item.productName)
+
+            // Create variants if snapshot has them
+            if (snapshot?.variants && Array.isArray(snapshot.variants) && snapshot.variants.length > 0) {
+              for (const v of snapshot.variants) {
+                const variant = v as { name: string; sku?: string; barcode?: string; hpp?: number; price: number; stock: number }
+                await tx.productVariant.create({
+                  data: {
+                    productId: newProduct.id,
+                    name: variant.name,
+                    sku: variant.sku || null,
+                    barcode: variant.barcode || null,
+                    hpp: variant.hpp || 0,
+                    price: variant.price,
+                    stock: variant.stock || 0,
+                    outletId: destOutletId,
+                  },
+                })
+              }
+            }
 
             // Per-product audit log: CREATE
             await tx.auditLog.create({
@@ -468,7 +551,12 @@ export async function PATCH(
           toOutlet: { select: { name: true } },
           createdBy: { select: { id: true, name: true } },
           receivedBy: { select: { id: true, name: true } },
-          items: true,
+          items: {
+            select: {
+              id: true, productName: true, productSku: true, productBarcode: true,
+              quantity: true, hpp: true, price: true, productSnapshot: true,
+            },
+          },
         },
       })
 
@@ -521,7 +609,12 @@ export async function PATCH(
         include: {
           fromOutlet: { select: { name: true } },
           toOutlet: { select: { name: true } },
-          items: true,
+          items: {
+            select: {
+              id: true, productName: true, productSku: true, productBarcode: true,
+              quantity: true, hpp: true, price: true, productSnapshot: true,
+            },
+          },
         },
       })
 

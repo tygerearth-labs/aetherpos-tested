@@ -55,6 +55,19 @@ export async function POST(
       select: { productId: true, productName: true, variantId: true, variantName: true, qty: true },
     })
 
+    // Fetch product & variant SKUs for audit logs
+    const productIds = [...new Set(transactionItems.map(i => i.productId).filter(Boolean))]
+    const variantIds = [...new Set(transactionItems.filter(i => i.variantId).map(i => i.variantId!))]
+
+    const [productSkuMap, variantSkuMap] = await Promise.all([
+      productIds.length > 0
+        ? db.product.findMany({ where: { id: { in: productIds } }, select: { id: true, sku: true } }).then(arr => new Map(arr.map(p => [p.id, p.sku])))
+        : Promise.resolve(new Map()),
+      variantIds.length > 0
+        ? db.productVariant.findMany({ where: { id: { in: variantIds } }, select: { id: true, sku: true } }).then(arr => new Map(arr.map(v => [v.id, v.sku])))
+        : Promise.resolve(new Map()),
+    ])
+
     // Perform void in a transaction: restore stock + create audit logs
     await db.$transaction(async (tx) => {
       // Restore stock for each item
@@ -107,7 +120,9 @@ export async function POST(
             details: JSON.stringify({
               reason: `Void transaksi ${transaction.invoiceNumber}`,
               productName: item.productName,
+              productSku: productSkuMap.get(item.productId!) || null,
               variantName: item.variantName ?? undefined,
+              variantSku: item.variantId ? (variantSkuMap.get(item.variantId) || null) : undefined,
               quantityAdded: item.qty,
               newStock: isVariant
                 ? (variantStockMap.get(item.variantId!) ?? 0)
@@ -133,7 +148,9 @@ export async function POST(
             voidedAt: new Date().toISOString(),
             itemsRestored: transactionItems.map(i => ({
               productName: i.productName,
+              productSku: i.productId ? (productSkuMap.get(i.productId) || null) : null,
               variantName: i.variantName ?? undefined,
+              variantSku: i.variantId ? (variantSkuMap.get(i.variantId) || null) : undefined,
               qty: i.qty,
             })),
           }),

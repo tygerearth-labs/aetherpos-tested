@@ -249,6 +249,10 @@ export default function PosPage() {
               ppnEnabled: data.ppnEnabled ?? false,
               ppnRate: data.ppnRate || 11,
               manualDiscountEnabled: data.manualDiscountEnabled ?? false,
+              receiptDoublePrintEnabled: data.receiptDoublePrintEnabled ?? false,
+              receiptMerchantCopyEnabled: data.receiptMerchantCopyEnabled ?? true,
+              receiptCustomerCopyEnabled: data.receiptCustomerCopyEnabled ?? true,
+              receiptBatchOrderEnabled: data.receiptBatchOrderEnabled ?? false,
             })
             // Extract outlet info from settings response
             if (data.outlet) {
@@ -280,6 +284,10 @@ export default function PosPage() {
               ppnEnabled: (cached.ppnEnabled as boolean) ?? false,
               ppnRate: (cached.ppnRate as number) || 11,
               manualDiscountEnabled: (cached.manualDiscountEnabled as boolean) ?? false,
+              receiptDoublePrintEnabled: (cached.receiptDoublePrintEnabled as boolean) ?? false,
+              receiptMerchantCopyEnabled: (cached.receiptMerchantCopyEnabled as boolean) ?? true,
+              receiptCustomerCopyEnabled: (cached.receiptCustomerCopyEnabled as boolean) ?? true,
+              receiptBatchOrderEnabled: (cached.receiptBatchOrderEnabled as boolean) ?? false,
             })
             // Extract outlet info from cached settings
             const cachedOutlet = cached.outlet as { id: string; name: string; address: string | null; phone: string | null } | undefined
@@ -321,6 +329,10 @@ export default function PosPage() {
                 ppnEnabled: data.ppnEnabled ?? false,
                 ppnRate: data.ppnRate || 11,
                 manualDiscountEnabled: data.manualDiscountEnabled ?? false,
+                receiptDoublePrintEnabled: data.receiptDoublePrintEnabled ?? false,
+                receiptMerchantCopyEnabled: data.receiptMerchantCopyEnabled ?? true,
+                receiptCustomerCopyEnabled: data.receiptCustomerCopyEnabled ?? true,
+                receiptBatchOrderEnabled: data.receiptBatchOrderEnabled ?? false,
               })
             }
           }
@@ -353,9 +365,9 @@ export default function PosPage() {
         setOutletsLoading(false)
       }
     }
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+     
     setOutletsLoading(true)
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+     
     void fetchOutlets()
   }, [isOnline])
 
@@ -393,7 +405,7 @@ export default function PosPage() {
   // Reset payment method if not in available methods
   useEffect(() => {
     if (availablePaymentMethods.length > 0 && !availablePaymentMethods.includes(paymentMethod)) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+       
       setPaymentMethod(availablePaymentMethods[0])
     }
   }, [availablePaymentMethods, paymentMethod])
@@ -415,7 +427,7 @@ export default function PosPage() {
   // Calculate promo when cart changes
   useEffect(() => {
     if (cart.length === 0) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+       
       setSelectedPromo(null)
       setPromoDiscount(0)
       return
@@ -423,7 +435,7 @@ export default function PosPage() {
     const calculatePromo = async () => {
       setPromoLoading(true)
       try {
-        // eslint-disable-next-line react-hooks/immutability
+         
         const cartSubtotal = cart.reduce((sum, item) => sum + getItemPrice(item) * item.qty, 0)
         const res = await fetch('/api/promos/calculate', {
           method: 'POST',
@@ -431,7 +443,7 @@ export default function PosPage() {
           body: JSON.stringify({
             items: cart.map(item => ({
               productId: item.product.id,
-              // eslint-disable-next-line react-hooks/immutability
+               
               productName: getItemDisplayName(item),
               price: getItemPrice(item),
               qty: item.qty,
@@ -532,7 +544,7 @@ export default function PosPage() {
 
   // Online/offline detection
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+     
     setIsOnline(navigator.onLine)
     const handleOnline = () => setIsOnline(true)
     const handleOffline = () => setIsOnline(false)
@@ -585,9 +597,9 @@ export default function PosPage() {
               }
               if (synced > 0) {
                 toast.success(`${synced} transaction(s) auto-synced!`)
-                // eslint-disable-next-line react-hooks/immutability
+                 
                 fetchProducts(productSearch, productPage, selectedCategoryId)
-                // eslint-disable-next-line react-hooks/immutability
+                 
                 loadCustomersFromCache()
               }
               if (data.failed > 0) {
@@ -600,7 +612,7 @@ export default function PosPage() {
           const result = await syncAllData()
           syncSettingsFromServer() // cache settings for offline (fire-and-forget)
           fetchProducts(productSearch, productPage, selectedCategoryId)
-          // eslint-disable-next-line react-hooks/immutability
+           
           loadCategoriesFromCache()
           loadCustomersFromCache()
           const times = await getAllSyncTimes()
@@ -658,7 +670,7 @@ export default function PosPage() {
 
   // ==================== DATA LOADING ====================
 
-  // eslint-disable-next-line react-hooks/preserve-manual-memoization
+   
   const loadCategoriesFromCache = useCallback(async () => {
     try {
       const cached = await localDB.categories.toArray()
@@ -668,7 +680,7 @@ export default function PosPage() {
 
   useEffect(() => { loadCategoriesFromCache() }, [loadCategoriesFromCache])
 
-  // eslint-disable-next-line react-hooks/preserve-manual-memoization
+   
   const fetchProducts = useCallback(async (search: string, page: number, categoryId: string | null) => {
     setProductsLoading(true)
     try {
@@ -766,18 +778,18 @@ export default function PosPage() {
             (v.sku && v.sku.toLowerCase() === search) || (v.barcode && v.barcode.toLowerCase() === search)
           )
           if (matchingVariant) {
-            // eslint-disable-next-line react-hooks/immutability
+             
             addToCart(product, 1, matchingVariant as ProductVariant)
             toast.success(`${product.name} - ${matchingVariant.name} ditambahkan`)
           } else {
-            // eslint-disable-next-line react-hooks/immutability
+             
             openVariantPicker(product)
           }
         } else if (product.stock > 0) {
           addToCart(product)
           toast.success(`${product.name} ditambahkan`)
         }
-        // eslint-disable-next-line react-hooks/set-state-in-effect
+         
         setProductSearch('')
         barcodeDetectedRef.current = false
         inputCharCountRef.current = 0
@@ -785,7 +797,7 @@ export default function PosPage() {
     }
   }, [products, productsLoading, productSearch])
 
-  // eslint-disable-next-line react-hooks/preserve-manual-memoization
+   
   const loadCustomersFromCache = useCallback(async () => {
     try {
       const cached = await localDB.customers.toArray()

@@ -546,7 +546,6 @@ function OutletDetailDialog({
   canEdit: boolean
 }) {
   const [tab, setTab] = useState<DetailTab>('transactions')
-  const [detailPeriod, setDetailPeriod] = useState<'all' | DateFilter>('all')
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(false)
@@ -571,12 +570,10 @@ function OutletDetailDialog({
       const params = new URLSearchParams({
         outletId: outlet.id,
         tab,
+        period: dateFilterConfig[period].param,
         page: String(page),
         limit: '15',
       })
-      if (detailPeriod !== 'all') {
-        params.set('period', dateFilterConfig[detailPeriod].param)
-      }
       if (search) params.set('search', search)
       // Send timezone offset so server filters correctly
       params.set('tzOffset', String(-new Date().getTimezoneOffset()))
@@ -600,7 +597,7 @@ function OutletDetailDialog({
     } finally {
       setLoading(false)
     }
-  }, [outlet.id, tab, detailPeriod, page, search])
+  }, [outlet.id, tab, period, page, search])
 
   // Fetch crew data
   const fetchCrew = useCallback(async () => {
@@ -631,7 +628,6 @@ function OutletDetailDialog({
   useEffect(() => {
     if (open) {
       setTab('transactions')
-      setDetailPeriod('all')
       setSearch('')
       setPage(1)
       setCrewList([])
@@ -754,31 +750,8 @@ function OutletDetailDialog({
           )}
         </div>
 
-        {/* Period selector */}
-        <div className="px-5 pt-3 pb-0 shrink-0">
-          <div className="flex items-center gap-1 mb-2">
-            {([
-              { key: 'all' as const, label: 'Semua' },
-              ...Object.entries(dateFilterConfig).map(([k, v]) => ({ key: k as DateFilter, label: v.label })),
-            ]).map((item) => (
-              <button
-                key={item.key}
-                onClick={() => { setDetailPeriod(item.key); setPage(1) }}
-                className={cn(
-                  'text-[10px] font-medium px-2 py-1 rounded-md transition-colors',
-                  detailPeriod === item.key
-                    ? 'bg-white/[0.08] text-white'
-                    : 'text-slate-500 hover:text-slate-300'
-                )}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
         {/* Tabs + Search */}
-        <div className="px-5 pt-0 pb-2 border-b border-white/[0.04] shrink-0">
+        <div className="px-5 pt-3 pb-2 border-b border-white/[0.04] shrink-0">
           <div className="flex items-center justify-between gap-2 mb-2">
             <div className="flex items-center gap-0.5 bg-white/[0.04] rounded-lg p-0.5">
               {(Object.entries(tabConfig) as [DetailTab, typeof tabConfig[DetailTab]][]).map(([key, cfg]) => (
@@ -1062,11 +1035,13 @@ function AddCrewDialog({
   const [submitting, setSubmitting] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
+  const handleClose = useCallback(() => {
+    setName(''); setEmail(''); setPassword('')
+    onClose()
+  }, [onClose])
+
   useEffect(() => {
-    if (open) {
-      setName(''); setEmail(''); setPassword('')
-      setTimeout(() => inputRef.current?.focus(), 100)
-    }
+    if (open) setTimeout(() => inputRef.current?.focus(), 100)
   }, [open])
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1079,7 +1054,7 @@ function AddCrewDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
+    <Dialog open={open} onOpenChange={(v) => { if (!v) handleClose() }}>
       <DialogContent className="bg-[#0c0d12] border-white/[0.06] max-w-sm w-[92vw] p-0 overflow-hidden">
         <DialogHeader className="px-5 pt-5 pb-3 border-b border-white/[0.06]">
           <DialogTitle className="text-sm font-bold text-white">Tambah Crew</DialogTitle>
@@ -1153,9 +1128,8 @@ function EditCrewDialog({
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    setName(crew.name); setEmail(crew.email); setPassword('')
     setTimeout(() => inputRef.current?.focus(), 100)
-  }, [crew])
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

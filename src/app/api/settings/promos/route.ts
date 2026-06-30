@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { db } from '@/lib/db'
+import { getFeaturesForOutlet, isUnlimited } from '@/lib/config/plan-config'
 import { safeJson, safeJsonCreated, safeJsonError } from '@/lib/api/safe-response'
 
 // GET /api/settings/promos — list all promos
@@ -44,6 +45,23 @@ export async function POST(request: NextRequest) {
 
     if (!name || !type || value === undefined) {
       return safeJsonError('Nama, tipe, dan nilai diskon wajib diisi', 400)
+    }
+
+    const planData = await getFeaturesForOutlet(db, user.outletId)
+    if (planData?.features) {
+      const { maxPromos, promoTypes } = planData.features
+      if (!isUnlimited(maxPromos)) {
+        const count = await db.promo.count({ where: { outletId: user.outletId } })
+        if (count >= maxPromos) {
+          return safeJsonError(`Batas promo (${maxPromos}) sudah tercapai. Upgrade plan untuk menambah promo.`, 403)
+        }
+      }
+      if (promoTypes && promoTypes.length > 0) {
+        const allowedTypes = promoTypes as string[]
+        if (!allowedTypes.includes(type)) {
+          return safeJsonError(`Tipe promo "${type}" tidak tersedia di plan Anda. Tipe yang tersedia: ${allowedTypes.join(', ')}`, 403)
+        }
+      }
     }
 
     const numValue = Number(value)

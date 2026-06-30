@@ -214,6 +214,7 @@ export async function restockProduct(id: string, qty: number) {
         entityId: id,
         details: JSON.stringify({
           productName: updated.name,
+          productSku: existing.sku || null,
           quantityAdded: qty,
           previousStock: existing.stock,
           newStock: updated.stock,
@@ -256,6 +257,7 @@ export async function adjustStock(id: string, newStock: number) {
         entityId: id,
         details: JSON.stringify({
           productName: updated.name,
+          productSku: existing.sku || null,
           previousStock: existing.stock,
           newStock: updated.stock,
           adjustment: newStock - existing.stock,

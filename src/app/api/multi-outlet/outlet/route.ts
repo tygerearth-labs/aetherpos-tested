@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
     if (!targetOutletId) return safeJsonError('outletId wajib diisi', 400)
 
     // Verify: current user's outlet has a group, and target outlet is in the SAME group
-    const [currentUserOutlet, targetOutlet] = await Promise.all([
+    const [currentUserOutlet, targetOutlet, targetOwner] = await Promise.all([
       db.outlet.findUnique({
         where: { id: user.outletId },
         select: { id: true, groupId: true, isMain: true },
@@ -39,6 +39,10 @@ export async function GET(request: NextRequest) {
       db.outlet.findUnique({
         where: { id: targetOutletId },
         select: { id: true, groupId: true, name: true, isMain: true, address: true, phone: true },
+      }),
+      db.user.findFirst({
+        where: { outletId: targetOutletId, role: 'OWNER' },
+        select: { name: true },
       }),
     ])
 
@@ -48,7 +52,7 @@ export async function GET(request: NextRequest) {
 
     // Build date filter
     const tzOffset = parseTzOffset(searchParams)
-    const period = searchParams.get('period') || ''
+    const period = searchParams.get('period') || 'today'
     const dateFromParam = searchParams.get('dateFrom') || ''
     const dateToParam = searchParams.get('dateTo') || ''
     const tab = searchParams.get('tab') || 'transactions'
@@ -68,8 +72,6 @@ export async function GET(request: NextRequest) {
             if (dateToParam) { const d = new Date(dateToParam); if (!isNaN(d.getTime())) { d.setHours(23,59,59,999); filter.lte = d } }
             return filter
           })()
-    } else if (!period) {
-      dateFilter = {} // No date filter — show all
     } else if (period === '7days' || period === '7d') {
       const start = new Date(now); start.setDate(start.getDate() - 6); start.setHours(0,0,0,0)
       dateFilter = { gte: start, lte: new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23,59,59,999) }
@@ -116,6 +118,7 @@ export async function GET(request: NextRequest) {
 
     const outletSummary = {
       ...targetOutlet,
+      managerName: targetOwner?.name || '-',
       revenue: summaryRevenue._sum.total ?? 0,
       transactions: summaryTx,
       customers: summaryCustomers,

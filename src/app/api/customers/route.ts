@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { parsePagination } from '@/lib/api/api-helpers'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
+import { getFeaturesForOutlet, isUnlimited } from '@/lib/config/plan-config'
 import { notifyNewCustomer } from '@/lib/notify'
 import { safeJson, safeJsonCreated, safeJsonError } from '@/lib/api/safe-response'
 
@@ -72,6 +73,17 @@ export async function POST(request: NextRequest) {
       return unauthorized()
     }
     const outletId = user.outletId
+
+    const planData = await getFeaturesForOutlet(db, user.outletId)
+    if (planData?.features) {
+      const { maxCustomers } = planData.features
+      if (!isUnlimited(maxCustomers)) {
+        const count = await db.customer.count({ where: { outletId } })
+        if (count >= maxCustomers) {
+          return safeJsonError(`Batas pelanggan (${maxCustomers}) sudah tercapai. Upgrade plan untuk menambah pelanggan.`, 403)
+        }
+      }
+    }
 
     const body = await request.json()
     const { name, whatsapp } = body
