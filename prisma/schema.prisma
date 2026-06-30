@@ -32,6 +32,7 @@ model Outlet {
   accountType  String   @default("free") // free, pro, enterprise
   isMain       Boolean  @default(false)  // Main/headquarters outlet in the group
   groupId      String?                      // Belongs to an outlet group (null = standalone)
+  planExpiresAt DateTime?                   // When the current paid plan expires (null = free/never expires)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
