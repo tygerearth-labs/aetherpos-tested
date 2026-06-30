@@ -26,7 +26,6 @@ export interface PlanInfo {
   isExpiringSoon: boolean
   planExpiresAt: string | null
   daysRemaining: number
-  planSource?: string
 }
 
 export interface PlanUsage {
