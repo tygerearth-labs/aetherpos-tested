@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonCreated, safeJsonError } from '@/lib/api/safe-response'
-import { getOutletPlan, isUnlimited } from '@/lib/plan-config'
+import { getOutletPlan, isUnlimited } from '@/lib/config/plan-config'
 import bcrypt from 'bcryptjs'
 
 /**

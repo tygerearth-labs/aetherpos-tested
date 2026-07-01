@@ -67,47 +67,30 @@ export async function GET(request: NextRequest) {
             select: { id: true, name: true },
           },
           items: {
-            orderBy: { createdAt: 'asc' },
-            select: {
-              id: true,
-              productName: true,
-              productSku: true,
-              productBarcode: true,
-              quantity: true,
-              hpp: true,
-              price: true,
-            },
+            select: { id: true },
           },
         },
       }),
       db.outletTransfer.count({ where }),
     ])
 
-    const mappedTransfers = transfers.map((t) => {
-      const totalQty = t.items.reduce((sum, i) => sum + i.quantity, 0)
-      const totalPrice = t.items.reduce((sum, i) => sum + (i.price * i.quantity), 0)
-      return {
-        id: t.id,
-        transferNumber: t.transferNumber,
-        fromOutletId: t.fromOutletId,
-        toOutletId: t.toOutletId,
-        fromOutletName: t.fromOutlet.name,
-        toOutletName: t.toOutlet.name,
-        status: t.status,
-        notes: t.notes,
-        itemCount: t.items.length,
-        totalQty,
-        totalPrice,
-        items: t.items,
-        firstProduct: t.items[0]?.productName || null,
-        createdAt: t.createdAt,
-        updatedAt: t.updatedAt,
-        receivedAt: t.receivedAt,
-        createdBy: t.createdBy,
-        receivedBy: t.receivedBy,
-        direction: t.fromOutletId === outletId ? 'OUTBOUND' : 'INBOUND',
-      }
-    })
+    const mappedTransfers = transfers.map((t) => ({
+      id: t.id,
+      transferNumber: t.transferNumber,
+      fromOutletId: t.fromOutletId,
+      toOutletId: t.toOutletId,
+      fromOutletName: t.fromOutlet.name,
+      toOutletName: t.toOutlet.name,
+      status: t.status,
+      notes: t.notes,
+      itemCount: t.items.length,
+      createdAt: t.createdAt,
+      updatedAt: t.updatedAt,
+      receivedAt: t.receivedAt,
+      createdBy: t.createdBy,
+      receivedBy: t.receivedBy,
+      direction: t.fromOutletId === outletId ? 'OUTBOUND' : 'INBOUND',
+    }))
 
     return safeJson(
       {

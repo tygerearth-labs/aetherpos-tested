@@ -22,8 +22,6 @@ export async function GET(request: NextRequest) {
         name: true,
         accountType: true,
         planExpiresAt: true,
-        groupId: true,
-        isMain: true,
         updatedAt: true,
         setting: {
           select: {
@@ -49,31 +47,14 @@ export async function GET(request: NextRequest) {
       return safeJsonError('Outlet not found', 404)
     }
 
-    // Branch outlet inherits plan from main outlet in the same group
-    let effectiveAccountType = outlet.accountType
-    let effectivePlanExpiresAt = outlet.planExpiresAt
-    let planSource = 'self' as string
-
-    if (outlet.groupId && !outlet.isMain) {
-      const mainOutlet = await db.outlet.findFirst({
-        where: { groupId: outlet.groupId, isMain: true },
-        select: { id: true, name: true, accountType: true, planExpiresAt: true },
-      })
-      if (mainOutlet) {
-        effectiveAccountType = mainOutlet.accountType
-        effectivePlanExpiresAt = mainOutlet.planExpiresAt
-        planSource = mainOutlet.name
-      }
-    }
-
     // Derive plan type (handles suspended: prefix)
-    const rawPlan = resolvePlanType(effectiveAccountType)
-    const isSuspended = effectiveAccountType?.startsWith('suspended:') ?? false
+    const rawPlan = resolvePlanType(outlet.accountType)
+    const isSuspended = outlet.accountType?.startsWith('suspended:') ?? false
     const features = await getPlanFeaturesFromDB(db, rawPlan)
 
     // Plan expiry info
-    const daysRemaining = getDaysRemaining(effectivePlanExpiresAt)
-    const isExpired = isPlanExpired(effectivePlanExpiresAt)
+    const daysRemaining = getDaysRemaining(outlet.planExpiresAt)
+    const isExpired = isPlanExpired(outlet.planExpiresAt)
     const isExpiringSoon = daysRemaining >= 0 && daysRemaining <= 7
 
     // Calculate usage vs limits
@@ -95,9 +76,8 @@ export async function GET(request: NextRequest) {
         isSuspended,
         isExpired,
         isExpiringSoon,
-        planExpiresAt: effectivePlanExpiresAt?.toISOString() ?? null,
+        planExpiresAt: outlet.planExpiresAt?.toISOString() ?? null,
         daysRemaining,
-        planSource: planSource !== 'self' ? planSource : undefined,
       },
       features,
       usage,
@@ -164,7 +144,7 @@ export async function PATCH(request: NextRequest) {
     // Get current outlet
     const outlet = await db.outlet.findUnique({
       where: { id: user.outletId },
-      select: { id: true, groupId: true, isMain: true },
+      select: { id: true, groupId: true },
     })
 
     if (!outlet) {
@@ -178,16 +158,15 @@ export async function PATCH(request: NextRequest) {
 
     let updatedCount = 0
 
-    // Auto-apply to group if: applyToGroup flag is set, OR this is the main outlet with a group
-    const shouldApplyToGroup = outlet.groupId && (applyToGroup || outlet.isMain)
-
-    if (shouldApplyToGroup) {
+    if (applyToGroup && outlet.groupId) {
+      // Update all outlets in the group
       const result = await db.outlet.updateMany({
         where: { groupId: outlet.groupId },
         data,
       })
       updatedCount = result.count
     } else {
+      // Update only this outlet
       await db.outlet.update({
         where: { id: user.outletId },
         data,

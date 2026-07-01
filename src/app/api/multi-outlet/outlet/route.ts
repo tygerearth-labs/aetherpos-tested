@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
     if (!targetOutletId) return safeJsonError('outletId wajib diisi', 400)
 
     // Verify: current user's outlet has a group, and target outlet is in the SAME group
-    const [currentUserOutlet, targetOutlet, targetOwner] = await Promise.all([
+    const [currentUserOutlet, targetOutlet] = await Promise.all([
       db.outlet.findUnique({
         where: { id: user.outletId },
         select: { id: true, groupId: true, isMain: true },
@@ -39,10 +39,6 @@ export async function GET(request: NextRequest) {
       db.outlet.findUnique({
         where: { id: targetOutletId },
         select: { id: true, groupId: true, name: true, isMain: true, address: true, phone: true },
-      }),
-      db.user.findFirst({
-        where: { outletId: targetOutletId, role: 'OWNER' },
-        select: { name: true },
       }),
     ])
 
@@ -118,7 +114,6 @@ export async function GET(request: NextRequest) {
 
     const outletSummary = {
       ...targetOutlet,
-      managerName: targetOwner?.name || '-',
       revenue: summaryRevenue._sum.total ?? 0,
       transactions: summaryTx,
       customers: summaryCustomers,

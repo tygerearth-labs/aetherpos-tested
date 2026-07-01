@@ -29,7 +29,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Simple secret check — prevents unauthorized calls
-    const cronSecret = process.env.CRON_SECRET || 'aether-pos-cron-2024'
+    const cronSecret = process.env.CRON_SECRET
+    if (!cronSecret) {
+      return safeJsonError('CRON_SECRET not configured', 500)
+    }
     if (secret !== cronSecret) {
       return safeJsonError('Unauthorized', 401)
     }
