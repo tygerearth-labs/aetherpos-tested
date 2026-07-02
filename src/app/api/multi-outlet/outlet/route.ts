@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { parseTzOffset, buildDateFilterTz, getTodayRangeTz, getVoidedTxIds } from '@/lib/api/api-helpers'
-import { safeJson, safeJsonError, CACHE } from '@/lib/api/safe-response'
+import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 
 /**
  * GET /api/multi-outlet/outlet?outletId=xxx&tab=transactions|customers|products
@@ -99,6 +99,7 @@ export async function GET(request: NextRequest) {
     let summaryCustomers = 0
     let summaryProducts = 0
     let summaryStock = { _sum: { stock: null as number | null } }
+    let managerName = '-'
 
     try {
       ;[summaryRevenue, summaryTx, summaryCustomers, summaryProducts, summaryStock] = await Promise.all([
@@ -112,8 +113,24 @@ export async function GET(request: NextRequest) {
       console.error('[/api/multi-outlet/outlet] Summary query error:', summaryErr)
     }
 
+    // Fetch manager name for the outlet
+    try {
+      const owner = await db.user.findFirst({
+        where: { outletId: targetOutletId, role: 'OWNER' },
+        select: { name: true },
+      })
+      if (owner) managerName = owner.name
+    } catch {
+      // ignore
+    }
+
     const outletSummary = {
-      ...targetOutlet,
+      id: targetOutlet.id,
+      name: targetOutlet.name,
+      isMain: targetOutlet.isMain,
+      address: targetOutlet.address,
+      phone: targetOutlet.phone,
+      managerName,
       revenue: summaryRevenue._sum.total ?? 0,
       transactions: summaryTx,
       customers: summaryCustomers,

@@ -67,7 +67,10 @@ export async function GET(request: NextRequest) {
             select: { id: true, name: true },
           },
           items: {
-            select: { id: true },
+            select: { id: true, quantity: true, price: true },
+          },
+          _count: {
+            select: { items: true },
           },
         },
       }),
@@ -84,12 +87,15 @@ export async function GET(request: NextRequest) {
       status: t.status,
       notes: t.notes,
       itemCount: t.items.length,
+      totalQty: t.items.reduce((sum, i) => sum + i.quantity, 0),
+      totalPrice: t.items.reduce((sum, i) => sum + i.quantity * i.price, 0),
       createdAt: t.createdAt,
       updatedAt: t.updatedAt,
       receivedAt: t.receivedAt,
       createdBy: t.createdBy,
       receivedBy: t.receivedBy,
       direction: t.fromOutletId === outletId ? 'OUTBOUND' : 'INBOUND',
+      _count: t._count,
     }))
 
     return safeJson(
