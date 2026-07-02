@@ -24,6 +24,7 @@ const CrewPage = lazy(() => import('@/components/pages/crew-page'))
 const SettingsPage = lazy(() => import('@/components/pages/settings-page'))
 const PlanPage = lazy(() => import('@/components/pages/plan-page'))
 const TransferPage = lazy(() => import('@/components/pages/transfer-page'))
+const PurchasePage = lazy(() => import('@/components/pages/purchase-page'))
 const MultiOutletTerminalPage = lazy(() => import('@/components/pages/multi-outlet-terminal-page'))
 
 // ── Page-level Suspense fallback ──
@@ -155,6 +156,8 @@ function AppContent() {
         return <LazyPage><PlanPage /></LazyPage>
       case 'transfer':
         return <LazyPage><TransferPage /></LazyPage>
+      case 'purchase':
+        return <LazyPage><PurchasePage /></LazyPage>
       case 'multi-outlet':
         return <LazyPage><MultiOutletTerminalPage /></LazyPage>
       case 'settings':

@@ -21,6 +21,7 @@ import {
   Crown,
   Truck,
   Building2,
+  PackagePlus,
 } from 'lucide-react'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -75,6 +76,7 @@ interface MoreMenuItem {
 
 const allMoreMenuItems: MoreMenuItem[] = [
   { page: 'customers', icon: <Users className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Customers', section: 'Main' },
+  { page: 'purchase', icon: <PackagePlus className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Purchase', section: 'Main' },
   { page: 'audit-log', icon: <ClipboardList className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Audit Log', section: 'Admin' },
   { page: 'crew', icon: <UserCog className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Kelola Crew', section: 'Admin' },
   { page: 'plan', icon: <Crown className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Plan & Pricing', section: 'Admin' },

@@ -208,26 +208,49 @@ export async function PATCH(
       const totalValue = transfer.items.reduce((s, i) => s + i.quantity * i.price, 0)
 
       await db.$transaction(async (tx) => {
+        // Track per-product/variant stock changes for per-product audit logs
+        const productStockChanges: Array<{
+          productId: string
+          productName: string
+          productSku: string | null
+          quantity: number
+          price: number
+          hpp: number
+          previousStock: number
+          newStock: number
+        }> = []
+        const variantStockChanges: Array<{
+          variantId: string
+          productId: string
+          productName: string
+          variantName: string
+          quantity: number
+          price: number
+          hpp: number
+          previousStock: number
+          newStock: number
+        }> = []
+
         // Deduct stock from each product in the source outlet
         for (const item of transfer.items) {
           // Try to find product by SKU first, then barcode, then name
-          let product: { id: string; name: string; stock: number; hasVariants: boolean } | null = null
+          let product: { id: string; name: string; stock: number; hasVariants: boolean; price: number; hpp: number } | null = null
           if (item.productSku) {
             product = await tx.product.findFirst({
               where: { outletId: transfer.fromOutletId, sku: item.productSku },
-              select: { id: true, name: true, stock: true, hasVariants: true },
+              select: { id: true, name: true, stock: true, hasVariants: true, price: true, hpp: true },
             })
           }
           if (!product && item.productBarcode) {
             product = await tx.product.findFirst({
               where: { outletId: transfer.fromOutletId, barcode: item.productBarcode },
-              select: { id: true, name: true, stock: true, hasVariants: true },
+              select: { id: true, name: true, stock: true, hasVariants: true, price: true, hpp: true },
             })
           }
           if (!product) {
             product = await tx.product.findFirst({
               where: { outletId: transfer.fromOutletId, name: item.productName },
-              select: { id: true, name: true, stock: true, hasVariants: true },
+              select: { id: true, name: true, stock: true, hasVariants: true, price: true, hpp: true },
             })
           }
 
@@ -242,9 +265,10 @@ export async function PATCH(
               for (const variant of variants) {
                 const existingVariant = await tx.productVariant.findFirst({
                   where: { productId: product.id, name: variant.name, outletId: transfer.fromOutletId },
-                  select: { id: true, name: true, stock: true },
+                  select: { id: true, name: true, stock: true, price: true, hpp: true },
                 })
                 if (existingVariant) {
+                  const prevStock = existingVariant.stock
                   const newVarStock = existingVariant.stock - variant.stock
                   if (newVarStock < 0) {
                     throw new Error(`Stok variant ${variant.name} dari ${product.name} tidak mencukupi (sisa: ${existingVariant.stock}, diminta: ${variant.stock})`)
@@ -253,21 +277,57 @@ export async function PATCH(
                     where: { id: existingVariant.id },
                     data: { stock: newVarStock },
                   })
+                  // Track variant stock change for per-variant audit log
+                  variantStockChanges.push({
+                    variantId: existingVariant.id,
+                    productId: product.id,
+                    productName: product.name,
+                    variantName: existingVariant.name,
+                    quantity: variant.stock,
+                    price: existingVariant.price,
+                    hpp: existingVariant.hpp,
+                    previousStock: prevStock,
+                    newStock: newVarStock,
+                  })
                 }
               }
               // Also update parent product stock
+              const prevParentStock = product.stock
               const newParentStock = product.stock - item.quantity
               if (newParentStock < 0) {
                 throw new Error(`Stok ${product.name} tidak mencukupi (sisa: ${product.stock}, diminta: ${item.quantity})`)
               }
               await tx.product.update({ where: { id: product.id }, data: { stock: newParentStock } })
+              // Track parent product stock change for per-product audit log
+              productStockChanges.push({
+                productId: product.id,
+                productName: product.name,
+                productSku: item.productSku || null,
+                quantity: item.quantity,
+                price: product.price,
+                hpp: product.hpp,
+                previousStock: prevParentStock,
+                newStock: newParentStock,
+              })
             } else {
               // Product without variants — simple stock deduction
+              const prevStock = product.stock
               const newStock = product.stock - item.quantity
               if (newStock < 0) {
                 throw new Error(`Stok ${product.name} tidak mencukupi (sisa: ${product.stock}, diminta: ${item.quantity})`)
               }
               await tx.product.update({ where: { id: product.id }, data: { stock: newStock } })
+              // Track stock change for per-product audit log
+              productStockChanges.push({
+                productId: product.id,
+                productName: product.name,
+                productSku: item.productSku || null,
+                quantity: item.quantity,
+                price: product.price,
+                hpp: product.hpp,
+                previousStock: prevStock,
+                newStock: newStock,
+              })
             }
           }
         }
@@ -314,6 +374,58 @@ export async function PATCH(
             userId: user.id,
           },
         })
+
+        // Per-product audit logs for non-variant products (so they appear in product movement history)
+        for (const change of productStockChanges) {
+          await tx.auditLog.create({
+            data: {
+              action: 'ADJUSTMENT',
+              entityType: 'STOCK',
+              entityId: change.productId,
+              details: JSON.stringify({
+                action: 'TRANSFER_SENT',
+                productName: change.productName,
+                productSku: change.productSku,
+                transferNumber: transfer.transferNumber,
+                toOutlet: transfer.toOutlet.name,
+                quantity: change.quantity,
+                price: change.price,
+                hpp: change.hpp,
+                totalValue: change.quantity * change.hpp,
+                previousStock: change.previousStock,
+                newStock: change.newStock,
+              }),
+              outletId: transfer.fromOutletId,
+              userId: user.id,
+            },
+          })
+        }
+
+        // Per-variant audit logs for variant products
+        for (const change of variantStockChanges) {
+          await tx.auditLog.create({
+            data: {
+              action: 'ADJUSTMENT',
+              entityType: 'VARIANT',
+              entityId: change.variantId,
+              details: JSON.stringify({
+                action: 'TRANSFER_SENT',
+                productName: change.productName,
+                variantName: change.variantName,
+                transferNumber: transfer.transferNumber,
+                toOutlet: transfer.toOutlet.name,
+                quantity: change.quantity,
+                price: change.price,
+                hpp: change.hpp,
+                totalValue: change.quantity * change.hpp,
+                previousStock: change.previousStock,
+                newStock: change.newStock,
+              }),
+              outletId: transfer.fromOutletId,
+              userId: user.id,
+            },
+          })
+        }
       })
 
       const updated = await db.outletTransfer.findUnique({
@@ -415,6 +527,7 @@ export async function PATCH(
               newStock,
               hpp: item.hpp,
               price: item.price,
+              totalValue: item.quantity * item.hpp,
             }
             if (variantLog.length > 0) {
               auditDetail.hasVariants = true
@@ -528,6 +641,9 @@ export async function PATCH(
                   quantityAdded: item.quantity,
                   previousStock: 0,
                   newStock: item.quantity,
+                  price: item.price,
+                  hpp: item.hpp || 0,
+                  totalValue: item.quantity * (item.hpp || 0),
                 }),
                 outletId: destOutletId,
                 userId: user.id,

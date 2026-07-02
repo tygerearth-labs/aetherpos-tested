@@ -69,11 +69,11 @@ export async function POST(request: NextRequest) {
     const existingProducts = isSelectAll
       ? await db.product.findMany({
           where: { outletId },
-          select: { id: true, name: true, sku: true, price: true, stock: true, categoryId: true, hasVariants: true },
+          select: { id: true, name: true, sku: true, price: true, stock: true, categoryId: true, hasVariants: true, hpp: true },
         })
       : await db.product.findMany({
           where: { id: { in: productIds }, outletId },
-          select: { id: true, name: true, sku: true, price: true, stock: true, categoryId: true, hasVariants: true },
+          select: { id: true, name: true, sku: true, price: true, stock: true, categoryId: true, hasVariants: true, hpp: true },
         })
 
     if (existingProducts.length === 0) {
@@ -128,7 +128,11 @@ export async function POST(request: NextRequest) {
             newStock = Math.round(value)
           }
 
-          updates.stock = newStock
+          // For variant products, stock will be recalculated from variants later
+          // Only set parent stock directly for non-variant products
+          if (!product.hasVariants) {
+            updates.stock = newStock
+          }
           changes.stock = { from: oldStock, to: newStock }
         }
 
@@ -149,7 +153,7 @@ export async function POST(request: NextRequest) {
           if (priceAdjustment) {
             const variants = await tx.productVariant.findMany({
               where: { productId: product.id },
-              select: { id: true, name: true, sku: true, price: true },
+              select: { id: true, name: true, sku: true, price: true, stock: true, hpp: true },
             })
 
             for (const variant of variants) {
@@ -178,6 +182,7 @@ export async function POST(request: NextRequest) {
                   variantName: variant.name,
                   variantSku: variant.sku || null,
                   price: { from: variant.price, to: variantNewPrice },
+                  hpp: variant.hpp,
                   batchOperation: true,
                 }),
                 outletId,
@@ -190,7 +195,7 @@ export async function POST(request: NextRequest) {
           if (stockAdjustment) {
             const variants = await tx.productVariant.findMany({
               where: { productId: product.id },
-              select: { id: true, name: true, sku: true, stock: true },
+              select: { id: true, name: true, sku: true, stock: true, price: true, hpp: true },
             })
 
             for (const variant of variants) {
@@ -220,12 +225,30 @@ export async function POST(request: NextRequest) {
                   variantName: variant.name,
                   variantSku: variant.sku || null,
                   stock: { from: variant.stock, to: variantNewStock },
+                  price: variant.price,
+                  hpp: variant.hpp,
                   batchOperation: true,
                 }),
                 outletId,
                 userId,
               })
             }
+
+            // Recalculate parent product stock from all variants
+            const stockAgg = await tx.productVariant.aggregate({
+              where: { productId: product.id, outletId },
+              _sum: { stock: true },
+            })
+            const aggregatedStock = stockAgg._sum.stock || 0
+
+            // Write the correct aggregated stock back to the parent product
+            await tx.product.update({
+              where: { id: product.id },
+              data: { stock: aggregatedStock },
+            })
+
+            // Update the changes record to reflect actual aggregated stock
+            changes.stock = { from: product.stock, to: aggregatedStock }
           }
         }
 
@@ -237,6 +260,7 @@ export async function POST(request: NextRequest) {
             productName: product.name,
             productSku: product.sku || null,
             changes,
+            hpp: product.hpp,
             batchOperation: true,
           }),
           outletId,

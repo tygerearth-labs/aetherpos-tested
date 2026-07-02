@@ -19,7 +19,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   metadataBase: new URL("https://aethergo.id"),
   title: {
-    default: "AETHER POS — Software Kasir Modern & Gratis untuk UMKM Indonesia",
+    default: "AETHER POS — Business Operating System",
     template: "%s | AETHER POS",
   },
   description:
@@ -64,9 +64,9 @@ export const metadata: Metadata = {
     },
   },
   openGraph: {
-    title: "AETHER POS — Software Kasir Modern & Gratis untuk UMKM",
+    title: "AETHER POS — Business Operating System",
     description:
-      "Kelola toko lebih cepat, tumbuh lebih pasti. POS modern untuk coffee shop, retail, dan UMKM Indonesia. Gratis 6 bulan.",
+      "Kelola toko lebih cepat, tumbuh lebih pasti. Business Operating System untuk coffee shop, retail, dan UMKM Indonesia.",
     type: "website",
     siteName: "AETHER POS",
     locale: "id_ID",
@@ -75,15 +75,15 @@ export const metadata: Metadata = {
         url: "/og-image.png",
         width: 1200,
         height: 630,
-        alt: "AETHER POS — Software Kasir Modern untuk UMKM Indonesia",
+        alt: "AETHER POS — Business Operating System",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "AETHER POS — Software Kasir Modern & Gratis untuk UMKM",
+    title: "AETHER POS — Business Operating System",
     description:
-      "Kelola toko lebih cepat, tumbuh lebih pasti. POS modern untuk coffee shop, retail, dan UMKM Indonesia.",
+      "Kelola toko lebih cepat, tumbuh lebih pasti. Business Operating System untuk coffee shop, retail, dan UMKM Indonesia.",
     images: ["/og-image.png"],
   },
   other: {

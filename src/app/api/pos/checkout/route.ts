@@ -217,6 +217,22 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      // 7b. Recalculate parent product stock for variant products
+      const variantProductIds = new Set<string>()
+      for (const item of checkoutItems) {
+        if (item.variantId) variantProductIds.add(item.productId)
+      }
+      for (const productId of variantProductIds) {
+        const aggResult = await tx.productVariant.aggregate({
+          where: { productId, outletId },
+          _sum: { stock: true },
+        })
+        await tx.product.update({
+          where: { id: productId },
+          data: { stock: aggResult._sum.stock || 0 },
+        })
+      }
+
       // 8. Batch create audit logs
       const auditData = checkoutItems.map((item) => {
         const product = productMap.get(item.productId)!
@@ -234,6 +250,8 @@ export async function POST(request: NextRequest) {
               variantName: item.variantName,
               variantSku: variant?.sku || null,
               quantitySold: item.qty,
+              price: item.price,
+              subtotal: item.price * item.qty,
               previousStock: variant.stock,
               newStock: variant.stock - item.qty,
             }),
@@ -251,6 +269,8 @@ export async function POST(request: NextRequest) {
             productName: item.productName,
             productSku: product.sku || null,
             quantitySold: item.qty,
+            price: item.price,
+            subtotal: item.price * item.qty,
             previousStock: product.stock,
             newStock: product.stock - item.qty,
           }),

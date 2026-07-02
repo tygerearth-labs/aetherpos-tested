@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-export type PageType = 'dashboard' | 'products' | 'customers' | 'pos' | 'transactions' | 'audit-log' | 'crew' | 'plan' | 'settings' | 'transfer' | 'multi-outlet'
+export type PageType = 'dashboard' | 'products' | 'customers' | 'pos' | 'transactions' | 'audit-log' | 'crew' | 'plan' | 'settings' | 'transfer' | 'multi-outlet' | 'purchase'
 
 interface PageStore {
   currentPage: PageType
