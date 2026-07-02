@@ -562,9 +562,13 @@ function OutletDetailDialog({
   const [editCrew, setEditCrew] = useState<CrewMember | null>(null)
   const [deleteCrew, setDeleteCrew] = useState<CrewMember | null>(null)
 
+  // Version counter to prevent stale fetch responses from overwriting fresh data
+  const fetchVersionRef = useRef(0)
+
   // Fetch data for transactions/customers/products tabs
   const fetchData = useCallback(async () => {
     if (tab === 'crew') return // Crew has its own fetch
+    const version = ++fetchVersionRef.current
     setLoading(true)
     try {
       const params = new URLSearchParams({
@@ -586,15 +590,19 @@ function OutletDetailDialog({
       }
       const json = await res.json()
       console.log('[OutletDetail] Response:', { tab, dataLength: Array.isArray(json.data) ? json.data.length : 'not-array', outlet: json.outlet?.name })
+      // Guard: ignore stale responses
+      if (version !== fetchVersionRef.current) return
       setOutletInfo(json.outlet)
       setData(Array.isArray(json.data) ? json.data : [])
       setPagination(json.pagination || { page: 1, limit: 20, total: 0, totalPages: 0 })
     } catch (err) {
+      if (version !== fetchVersionRef.current) return // Stale — ignore
       console.error('[OutletDetail] Fetch error:', err)
       const msg = err instanceof Error ? err.message : 'Gagal memuat detail outlet'
       toast.error(msg)
       setData([])
     } finally {
+      if (version !== fetchVersionRef.current) return // Stale — don't update loading
       setLoading(false)
     }
   }, [outlet.id, tab, period, page, search])
@@ -627,20 +635,26 @@ function OutletDetailDialog({
   // Reset when dialog opens/tab changes
   useEffect(() => {
     if (open) {
+      fetchVersionRef.current++ // Invalidate any in-flight requests
       setTab('transactions')
       setSearch('')
       setPage(1)
+      setData([])
+      setLoading(true)
       setCrewList([])
       setCrewOwner(null)
+      setOutletInfo(null)
     }
   }, [open, outlet.id])
 
   useEffect(() => {
-    if (open) void fetchData()
+    if (!open) return
+    void fetchData()
   }, [fetchData, open])
 
   useEffect(() => {
-    if (open) void fetchCrew()
+    if (!open) return
+    void fetchCrew()
   }, [fetchCrew, open])
 
   // Crew CRUD handlers
