@@ -332,7 +332,40 @@ export async function POST(request: NextRequest) {
         },
       })
 
-      // Audit log
+      // Audit log — detailed with item breakdown including variants
+      const totalQty = enrichedItems.reduce((s, i) => s + i.quantity, 0)
+      const totalValue = enrichedItems.reduce((s, i) => s + i.quantity * i.price, 0)
+      const totalHpp = enrichedItems.reduce((s, i) => s + i.quantity * i.hpp, 0)
+
+      const auditItems = enrichedItems.map((item) => {
+        const parsed: Record<string, unknown> = {
+          productName: item.productName,
+          productSku: item.productSku,
+          productBarcode: item.productBarcode,
+          quantity: item.quantity,
+          hpp: item.hpp,
+          price: item.price,
+          subtotal: item.quantity * item.price,
+        }
+        // Parse variant info from snapshot if available
+        if (item.productSnapshot) {
+          try {
+            const snap = JSON.parse(item.productSnapshot)
+            if (snap.hasVariants && Array.isArray(snap.variants) && snap.variants.length > 0) {
+              parsed.hasVariants = true
+              parsed.variants = snap.variants.map((v: { name: string; sku?: string; barcode?: string; hpp?: number; price: number; stock: number }) => ({
+                name: v.name,
+                sku: v.sku || null,
+                price: v.price,
+                hpp: v.hpp || 0,
+                stock: v.stock,
+              }))
+            }
+          } catch { /* ignore */ }
+        }
+        return parsed
+      })
+
       await tx.auditLog.create({
         data: {
           action: 'CREATE',
@@ -343,6 +376,10 @@ export async function POST(request: NextRequest) {
             transferNumber,
             toOutlet: destOutlet.name,
             itemCount: enrichedItems.length,
+            totalQty,
+            totalValue,
+            totalHpp,
+            items: auditItems,
           }),
           outletId: user.outletId,
           userId: user.id,

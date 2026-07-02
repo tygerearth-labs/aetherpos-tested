@@ -233,15 +233,22 @@ const DETAIL_LABELS: Record<string, string> = {
   toOutlet: 'Outlet Tujuan',
   fromOutlet: 'Outlet Asal',
   itemCount: 'Jumlah Item',
+  totalQty: 'Total Qty',
+  totalValue: 'Total Nilai',
+  totalHpp: 'Total HPP',
   items: 'Daftar Item',
   createdProducts: 'Produk Baru',
   restockedProducts: 'Produk di-Restock',
   productName: 'Nama Produk',
   productSku: 'SKU Produk',
+  productBarcode: 'Barcode',
   initialStock: 'Stok Awal',
   previousStock: 'Stok Sebelum',
   newStock: 'Stok Sesudah',
   quantityAdded: 'Jumlah Ditambah',
+  hasVariants: 'Punya Varian',
+  variants: 'Varian',
+  subtotal: 'Subtotal',
 }
 
 function getDetailLabel(key: string): string {
@@ -286,14 +293,40 @@ function formatDetailValue(key: string, value: unknown): string {
         })
         .join(', ')
     }
-    // For transfer items array
+    // For transfer items array — detailed with variant info
     if (key === 'items') {
       return value
         .map((item: Record<string, unknown>) => {
           const name = typeof item.productName === 'string' ? item.productName : (typeof item.name === 'string' ? item.name : '?')
           const sku = typeof item.productSku === 'string' ? item.productSku : ''
           const qty = typeof item.quantity === 'number' ? item.quantity : '?'
-          return sku ? `${name} (${sku}) x${qty}` : `${name} x${qty}`
+          const price = typeof item.price === 'number' ? formatCurrency(item.price) : ''
+          const hpp = typeof item.hpp === 'number' ? formatCurrency(item.hpp) : ''
+          const subtotal = typeof item.subtotal === 'number' ? formatCurrency(item.subtotal) : ''
+          const hasVariants = item.hasVariants === true
+          const variantInfo = hasVariants && Array.isArray(item.variants) && (item.variants as unknown[]).length > 0
+            ? ` [${(item.variants as Record<string, unknown>[]).map((v) => `${v.name}(${typeof v.stock === 'number' ? `stok:${v.stock}` : ''}${typeof v.price === 'number' ? ` Rp${v.price.toLocaleString('id-ID')}` : ''})`).join(', ')}]`
+            : ''
+          const parts: string[] = []
+          parts.push(sku ? `${name} (${sku}) x${qty}` : `${name} x${qty}`)
+          if (hpp) parts.push(`HPP ${hpp}`)
+          if (price) parts.push(`@${price}`)
+          if (subtotal) parts.push(`= ${subtotal}`)
+          return parts.join(' ') + variantInfo
+        })
+        .join(', ')
+    }
+    // For variants array (per-product audit log)
+    if (key === 'variants') {
+      return (value as Record<string, unknown>[])
+        .map((v) => {
+          const name = typeof v.name === 'string' ? v.name : '?'
+          const sku = typeof v.sku === 'string' && v.sku ? ` (${v.sku})` : ''
+          const prev = typeof v.previousStock === 'number' ? v.previousStock : 0
+          const added = typeof v.addedStock === 'number' ? v.addedStock : 0
+          const newSt = typeof v.newStock === 'number' ? v.newStock : 0
+          const created = v.created === true ? ' [BARU]' : ''
+          return `${name}${sku}: ${prev} → +${added} = ${newSt}${created}`
         })
         .join(', ')
     }
@@ -322,8 +355,8 @@ function DetailsDisplay({ action, details }: { action: string; details: string |
     SALE: ['invoiceNumber', 'productName', 'productSku', 'variantName', 'variantSku', 'quantitySold', 'previousStock', 'newStock'],
     RESTOCK: ['productName', 'productSku', 'action', 'transferNumber', 'fromOutlet', 'toOutlet', 'itemCount', 'createdProducts', 'restockedProducts', 'reason', 'quantityAdded', 'newStock'],
     VOID: ['invoiceNumber', 'total', 'reason', 'voidedBy', 'itemsRestored'],
-    ADJUSTMENT: ['productName', 'productSku', 'action', 'transferNumber', 'fromOutlet', 'toOutlet', 'itemCount', 'previousStock', 'newStock', 'reason'],
-    CREATE: ['name', 'productName', 'action', 'transferNumber', 'fromOutlet', 'productSku', 'initialStock', 'price', 'stock', 'bulkUpload', 'created', 'skipped'],
+    ADJUSTMENT: ['productName', 'productSku', 'action', 'transferNumber', 'fromOutlet', 'toOutlet', 'itemCount', 'totalQty', 'totalValue', 'previousStock', 'newStock', 'reason', 'items'],
+    CREATE: ['name', 'productName', 'action', 'transferNumber', 'fromOutlet', 'toOutlet', 'productSku', 'itemCount', 'totalQty', 'totalValue', 'totalHpp', 'initialStock', 'price', 'stock', 'bulkUpload', 'created', 'skipped', 'items'],
     UPDATE: ['name', 'productName', 'productSku', 'variantName', 'variantSku', 'outletName', 'outletAddress', 'outletPhone', 'price', 'stock', 'ppnEnabled', 'ppnRate', 'hasVariants', 'variantCount'],
     BULK_UPDATE: ['productName', 'productSku', 'changes', 'batchOperation'],
     DELETE: ['productName', 'variantName', 'price', 'stock', 'variantCount'],
@@ -780,7 +813,59 @@ export default function AuditLogPage() {
                                   const suffix = sku ? ` (${sku})` : ''
                                   return <span key={i}>{name}{suffix} (x{qty}){i < (value as unknown[]).length - 1 ? ', ' : ''}</span>
                                 })
-                              : formatDetailValue(key, value)}
+                              : key === 'items' && Array.isArray(value)
+                                ? <div className="space-y-1">
+                                    {(value as Record<string, unknown>[]).map((item, i) => {
+                                      const name = typeof item.productName === 'string' ? item.productName : (typeof item.name === 'string' ? item.name : '?')
+                                      const sku = typeof item.productSku === 'string' ? item.productSku : ''
+                                      const qty = typeof item.quantity === 'number' ? item.quantity : '?'
+                                      const hpp = typeof item.hpp === 'number' ? formatCurrency(item.hpp) : null
+                                      const price = typeof item.price === 'number' ? formatCurrency(item.price) : null
+                                      const subtotal = typeof item.subtotal === 'number' ? formatCurrency(item.subtotal) : null
+                                      const itemVariants = Array.isArray(item.variants) ? item.variants as Record<string, unknown>[] : []
+                                      return (
+                                        <div key={i} className="text-xs">
+                                          <span className="text-slate-300">{i + 1}. {name}</span>
+                                          {sku && <span className="text-slate-500 ml-1">({sku})</span>}
+                                          <span className="text-slate-400 ml-1">x{qty}</span>
+                                          {hpp && <span className="text-amber-400/70 ml-1">HPP {hpp}</span>}
+                                          {price && <span className="text-slate-500 ml-1">@{price}</span>}
+                                          {subtotal && <span className="text-emerald-400 ml-1">= {subtotal}</span>}
+                                          {itemVariants.length > 0 && (
+                                            <div className="ml-3 mt-0.5 space-y-0.5">
+                                              {itemVariants.map((v, vi) => (
+                                                <div key={vi} className="text-[11px] text-slate-400">
+                                                  <span>{typeof v.name === 'string' ? v.name : '?'}</span>
+                                                  {typeof v.sku === 'string' && v.sku && <span className="text-slate-500 ml-1">({v.sku})</span>}
+                                                  <span className="text-slate-500 ml-1">stok:{typeof v.stock === 'number' ? v.stock : '?'}</span>
+                                                  {typeof v.price === 'number' && <span className="text-slate-500 ml-1">Rp{v.price.toLocaleString('id-ID')}</span>}
+                                                  {typeof v.hpp === 'number' && v.hpp > 0 && <span className="text-amber-400/60 ml-1">HPP Rp{v.hpp.toLocaleString('id-ID')}</span>}
+                                                </div>
+                                              ))}
+                                            </div>
+                                          )}
+                                        </div>
+                                      )
+                                    })}
+                                  </div>
+                                : key === 'variants' && Array.isArray(value)
+                                  ? <div className="space-y-0.5">
+                                      {(value as Record<string, unknown>[]).map((v, i) => {
+                                        const vName = typeof v.name === 'string' ? v.name : '?'
+                                        const vSku = typeof v.sku === 'string' && v.sku ? ` (${v.sku})` : ''
+                                        const prev = typeof v.previousStock === 'number' ? v.previousStock : 0
+                                        const added = typeof v.addedStock === 'number' ? v.addedStock : 0
+                                        const newSt = typeof v.newStock === 'number' ? v.newStock : 0
+                                        const isCreated = v.created === true
+                                        return (
+                                          <div key={i} className="text-xs text-slate-300">
+                                            {vName}{vSku}: <span className="text-slate-500">{prev}</span> → <span className="text-emerald-400">+{added}</span> = <span className="text-white">{newSt}</span>
+                                            {isCreated && <Badge className="text-[8px] px-1 py-0 bg-sky-500/10 text-sky-400 border-0 ml-1">BARU</Badge>}
+                                          </div>
+                                        )
+                                      })}
+                                    </div>
+                                  : formatDetailValue(key, value)}
                           </span>
                         </div>
                       ))}

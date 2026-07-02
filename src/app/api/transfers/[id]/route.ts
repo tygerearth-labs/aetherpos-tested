@@ -175,60 +175,107 @@ export async function PATCH(
       )
     }
 
-    // ── IN_TRANSIT: Deduct stock from source outlet ──
+    // ── IN_TRANSIT: Deduct stock from source outlet (with variant sync) ──
     if (status === 'IN_TRANSIT') {
+      // Build detailed audit items with variant info
+      const buildAuditItems = (items: typeof transfer.items) =>
+        items.map((i) => {
+          const entry: Record<string, unknown> = {
+            productName: i.productName,
+            productSku: i.productSku,
+            productBarcode: i.productBarcode,
+            quantity: i.quantity,
+            hpp: i.hpp,
+            price: i.price,
+            subtotal: i.quantity * i.price,
+          }
+          if (i.productSnapshot) {
+            try {
+              const snap = JSON.parse(i.productSnapshot)
+              if (snap.hasVariants && Array.isArray(snap.variants) && snap.variants.length > 0) {
+                entry.hasVariants = true
+                entry.variants = snap.variants.map((v: { name: string; sku?: string; barcode?: string; hpp?: number; price: number; stock: number }) => ({
+                  name: v.name, sku: v.sku || null, price: v.price, hpp: v.hpp || 0, stock: v.stock,
+                }))
+              }
+            } catch { /* ignore */ }
+          }
+          return entry
+        })
+
+      const auditItems = buildAuditItems(transfer.items)
+      const totalQty = transfer.items.reduce((s, i) => s + i.quantity, 0)
+      const totalValue = transfer.items.reduce((s, i) => s + i.quantity * i.price, 0)
+
       await db.$transaction(async (tx) => {
         // Deduct stock from each product in the source outlet
         for (const item of transfer.items) {
-          // Try to find product by SKU first, then barcode
-          let product: { id: string; name: string; stock: number } | null = null
+          // Try to find product by SKU first, then barcode, then name
+          let product: { id: string; name: string; stock: number; hasVariants: boolean } | null = null
           if (item.productSku) {
             product = await tx.product.findFirst({
-              where: {
-                outletId: transfer.fromOutletId,
-                sku: item.productSku,
-              },
+              where: { outletId: transfer.fromOutletId, sku: item.productSku },
+              select: { id: true, name: true, stock: true, hasVariants: true },
             })
           }
           if (!product && item.productBarcode) {
             product = await tx.product.findFirst({
-              where: {
-                outletId: transfer.fromOutletId,
-                barcode: item.productBarcode,
-              },
+              where: { outletId: transfer.fromOutletId, barcode: item.productBarcode },
+              select: { id: true, name: true, stock: true, hasVariants: true },
             })
           }
           if (!product) {
-            // Try by name as last resort
             product = await tx.product.findFirst({
-              where: {
-                outletId: transfer.fromOutletId,
-                name: item.productName,
-              },
+              where: { outletId: transfer.fromOutletId, name: item.productName },
+              select: { id: true, name: true, stock: true, hasVariants: true },
             })
           }
 
           if (product) {
-            const newStock = product.stock - item.quantity
-            if (newStock < 0) {
-              throw new Error(
-                `Stok ${product.name} tidak mencukupi (sisa: ${product.stock}, diminta: ${item.quantity})`,
-              )
+            // Parse snapshot for variant info
+            let snapshot: Record<string, unknown> | null = null
+            try { snapshot = item.productSnapshot ? JSON.parse(item.productSnapshot) : null } catch { /* ignore */ }
+            const variants = (snapshot?.variants && Array.isArray(snapshot.variants)) ? snapshot.variants as Array<{ name: string; sku?: string; barcode?: string; hpp?: number; price: number; stock: number }> : []
+
+            if (product.hasVariants && variants.length > 0) {
+              // Product with variants — deduct per-variant stock
+              for (const variant of variants) {
+                const existingVariant = await tx.productVariant.findFirst({
+                  where: { productId: product.id, name: variant.name, outletId: transfer.fromOutletId },
+                  select: { id: true, name: true, stock: true },
+                })
+                if (existingVariant) {
+                  const newVarStock = existingVariant.stock - variant.stock
+                  if (newVarStock < 0) {
+                    throw new Error(`Stok variant ${variant.name} dari ${product.name} tidak mencukupi (sisa: ${existingVariant.stock}, diminta: ${variant.stock})`)
+                  }
+                  await tx.productVariant.update({
+                    where: { id: existingVariant.id },
+                    data: { stock: newVarStock },
+                  })
+                }
+              }
+              // Also update parent product stock
+              const newParentStock = product.stock - item.quantity
+              if (newParentStock < 0) {
+                throw new Error(`Stok ${product.name} tidak mencukupi (sisa: ${product.stock}, diminta: ${item.quantity})`)
+              }
+              await tx.product.update({ where: { id: product.id }, data: { stock: newParentStock } })
+            } else {
+              // Product without variants — simple stock deduction
+              const newStock = product.stock - item.quantity
+              if (newStock < 0) {
+                throw new Error(`Stok ${product.name} tidak mencukupi (sisa: ${product.stock}, diminta: ${item.quantity})`)
+              }
+              await tx.product.update({ where: { id: product.id }, data: { stock: newStock } })
             }
-            await tx.product.update({
-              where: { id: product.id },
-              data: { stock: newStock },
-            })
           }
         }
 
         // Update transfer status
-        await tx.outletTransfer.update({
-          where: { id },
-          data: { status: 'IN_TRANSIT' },
-        })
+        await tx.outletTransfer.update({ where: { id }, data: { status: 'IN_TRANSIT' } })
 
-        // Audit log at source outlet
+        // Audit log at source outlet (detailed)
         await tx.auditLog.create({
           data: {
             action: 'ADJUSTMENT',
@@ -239,11 +286,9 @@ export async function PATCH(
               transferNumber: transfer.transferNumber,
               toOutlet: transfer.toOutlet.name,
               itemCount: transfer.items.length,
-              items: transfer.items.map((i) => ({
-                productName: i.productName,
-                productSku: i.productSku,
-                quantity: i.quantity,
-              })),
+              totalQty,
+              totalValue,
+              items: auditItems,
             }),
             outletId: transfer.fromOutletId,
             userId: user.id,
@@ -261,11 +306,9 @@ export async function PATCH(
               transferNumber: transfer.transferNumber,
               fromOutlet: transfer.fromOutlet.name,
               itemCount: transfer.items.length,
-              items: transfer.items.map((i) => ({
-                productName: i.productName,
-                productSku: i.productSku,
-                quantity: i.quantity,
-              })),
+              totalQty,
+              totalValue,
+              items: auditItems,
             }),
             outletId: transfer.toOutletId,
             userId: user.id,
@@ -331,55 +374,58 @@ export async function PATCH(
             })
             restockedProducts.push(item.productName)
 
-            // If snapshot has variants and destination product has none, create them
+            // Parse snapshot for variant info
             let snapshot: Record<string, unknown> | null = null
             try {
               snapshot = item.productSnapshot ? JSON.parse(item.productSnapshot) : null
             } catch { /* ignore */ }
+            const variants = (snapshot?.variants && Array.isArray(snapshot.variants)) ? snapshot.variants as Array<{ name: string; sku?: string; barcode?: string; hpp?: number; price: number; stock: number }> : []
 
-            if (snapshot?.variants && Array.isArray(snapshot.variants) && snapshot.variants.length > 0) {
-              const existingVariants = await tx.productVariant.count({
-                where: { productId: product.id },
-              })
-              if (existingVariants === 0) {
-                for (const v of snapshot.variants) {
-                  const variant = v as { name: string; sku?: string; barcode?: string; hpp?: number; price: number; stock: number }
-                  await tx.productVariant.create({
-                    data: {
-                      productId: product.id,
-                      name: variant.name,
-                      sku: variant.sku || null,
-                      barcode: variant.barcode || null,
-                      hpp: variant.hpp || 0,
-                      price: variant.price,
-                      stock: variant.stock || 0,
-                      outletId: destOutletId,
-                    },
-                  })
-                }
-                await tx.product.update({
-                  where: { id: product.id },
-                  data: { hasVariants: true },
+            // Sync variants — restock existing or create new ones
+            const variantLog: Array<{ name: string; sku: string | null; previousStock: number; addedStock: number; newStock: number; created: boolean }> = []
+            if (variants.length > 0) {
+              await tx.product.update({ where: { id: product.id }, data: { hasVariants: true } })
+              for (const v of variants) {
+                const existingVar = await tx.productVariant.findFirst({
+                  where: { productId: product.id, name: v.name, outletId: destOutletId },
+                  select: { id: true, stock: true },
                 })
+                if (existingVar) {
+                  const newVarStock = existingVar.stock + (v.stock || 0)
+                  await tx.productVariant.update({ where: { id: existingVar.id }, data: { stock: newVarStock } })
+                  variantLog.push({ name: v.name, sku: v.sku || null, previousStock: existingVar.stock, addedStock: v.stock || 0, newStock: newVarStock, created: false })
+                } else {
+                  await tx.productVariant.create({
+                    data: { productId: product.id, name: v.name, sku: v.sku || null, barcode: v.barcode || null, hpp: v.hpp || 0, price: v.price, stock: v.stock || 0, outletId: destOutletId },
+                  })
+                  variantLog.push({ name: v.name, sku: v.sku || null, previousStock: 0, addedStock: v.stock || 0, newStock: v.stock || 0, created: true })
+                }
               }
             }
 
             // Per-product audit log so it shows in product detail movement history
+            const auditDetail: Record<string, unknown> = {
+              action: 'TRANSFER_IN',
+              transferNumber: transfer.transferNumber,
+              fromOutlet: transfer.fromOutlet.name,
+              productName: item.productName,
+              productSku: item.productSku,
+              quantityAdded: item.quantity,
+              previousStock: product.stock,
+              newStock,
+              hpp: item.hpp,
+              price: item.price,
+            }
+            if (variantLog.length > 0) {
+              auditDetail.hasVariants = true
+              auditDetail.variants = variantLog
+            }
             await tx.auditLog.create({
               data: {
                 action: 'RESTOCK',
                 entityType: 'STOCK',
                 entityId: product.id,
-                details: JSON.stringify({
-                  action: 'TRANSFER_IN',
-                  transferNumber: transfer.transferNumber,
-                  fromOutlet: transfer.fromOutlet.name,
-                  productName: item.productName,
-                  productSku: item.productSku,
-                  quantityAdded: item.quantity,
-                  previousStock: product.stock,
-                  newStock,
-                }),
+                details: JSON.stringify(auditDetail),
                 outletId: destOutletId,
                 userId: user.id,
               },
@@ -500,7 +546,29 @@ export async function PATCH(
           },
         })
 
-        // Audit log at destination outlet (RECEIVED)
+        // Build detailed audit items for summary logs
+        const receivedTotalQty = transfer.items.reduce((s, i) => s + i.quantity, 0)
+        const receivedTotalValue = transfer.items.reduce((s, i) => s + i.quantity * i.price, 0)
+        const receivedAuditItems = transfer.items.map((i) => {
+          const entry: Record<string, unknown> = {
+            productName: i.productName, productSku: i.productSku, productBarcode: i.productBarcode,
+            quantity: i.quantity, hpp: i.hpp, price: i.price, subtotal: i.quantity * i.price,
+          }
+          if (i.productSnapshot) {
+            try {
+              const snap = JSON.parse(i.productSnapshot)
+              if (snap.hasVariants && Array.isArray(snap.variants) && snap.variants.length > 0) {
+                entry.hasVariants = true
+                entry.variants = snap.variants.map((v: { name: string; sku?: string; hpp?: number; price: number; stock: number }) => ({
+                  name: v.name, sku: v.sku || null, price: v.price, hpp: v.hpp || 0, stock: v.stock,
+                }))
+              }
+            } catch { /* ignore */ }
+          }
+          return entry
+        })
+
+        // Audit log at destination outlet (RECEIVED — detailed summary)
         await tx.auditLog.create({
           data: {
             action: 'RESTOCK',
@@ -511,22 +579,18 @@ export async function PATCH(
               transferNumber: transfer.transferNumber,
               fromOutlet: transfer.fromOutlet.name,
               itemCount: transfer.items.length,
+              totalQty: receivedTotalQty,
+              totalValue: receivedTotalValue,
               createdProducts: createdProducts.length > 0 ? createdProducts : undefined,
               restockedProducts: restockedProducts.length > 0 ? restockedProducts : undefined,
-              items: transfer.items.map((i) => ({
-                productName: i.productName,
-                productSku: i.productSku,
-                quantity: i.quantity,
-                price: i.price,
-                hpp: i.hpp,
-              })),
+              items: receivedAuditItems,
             }),
             outletId: destOutletId,
             userId: user.id,
           },
         })
 
-        // Audit log at source outlet (confirmation that branch received)
+        // Audit log at source outlet (confirmation that branch received — detailed)
         await tx.auditLog.create({
           data: {
             action: 'ADJUSTMENT',
@@ -537,6 +601,9 @@ export async function PATCH(
               transferNumber: transfer.transferNumber,
               toOutlet: transfer.toOutlet.name,
               itemCount: transfer.items.length,
+              totalQty: receivedTotalQty,
+              totalValue: receivedTotalValue,
+              items: receivedAuditItems,
             }),
             outletId: transfer.fromOutletId,
             userId: user.id,
@@ -576,6 +643,28 @@ export async function PATCH(
 
     // ── CANCELLED: Cancel DRAFT transfer ──
     if (status === 'CANCELLED') {
+      // Build detailed audit items with variant info
+      const cancelAuditItems = transfer.items.map((i) => {
+        const entry: Record<string, unknown> = {
+          productName: i.productName, productSku: i.productSku, productBarcode: i.productBarcode,
+          quantity: i.quantity, hpp: i.hpp, price: i.price, subtotal: i.quantity * i.price,
+        }
+        if (i.productSnapshot) {
+          try {
+            const snap = JSON.parse(i.productSnapshot)
+            if (snap.hasVariants && Array.isArray(snap.variants) && snap.variants.length > 0) {
+              entry.hasVariants = true
+              entry.variants = snap.variants.map((v: { name: string; sku?: string; hpp?: number; price: number; stock: number }) => ({
+                name: v.name, sku: v.sku || null, price: v.price, hpp: v.hpp || 0, stock: v.stock,
+              }))
+            }
+          } catch { /* ignore */ }
+        }
+        return entry
+      })
+      const cancelTotalQty = transfer.items.reduce((s, i) => s + i.quantity, 0)
+      const cancelTotalValue = transfer.items.reduce((s, i) => s + i.quantity * i.price, 0)
+
       await db.$transaction(async (tx) => {
         await tx.outletTransfer.update({
           where: { id },
@@ -592,11 +681,9 @@ export async function PATCH(
               transferNumber: transfer.transferNumber,
               toOutlet: transfer.toOutlet.name,
               itemCount: transfer.items.length,
-              items: transfer.items.map((i) => ({
-                productName: i.productName,
-                productSku: i.productSku,
-                quantity: i.quantity,
-              })),
+              totalQty: cancelTotalQty,
+              totalValue: cancelTotalValue,
+              items: cancelAuditItems,
             }),
             outletId: transfer.fromOutletId,
             userId: user.id,
