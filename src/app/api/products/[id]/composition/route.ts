@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
+import { getMaxStockFromComposition, getMaxStockFromVariantComposition } from '@/lib/comp-stock'
 
 // GET /api/products/[id]/composition — get composition items for a product
 export async function GET(
@@ -16,52 +17,131 @@ export async function GET(
     // Verify product exists and belongs to outlet
     const product = await db.product.findFirst({
       where: { id, outletId: user.outletId },
-      select: { id: true, name: true, hasComposition: true },
+      select: { id: true, name: true, hasComposition: true, hasVariants: true },
     })
     if (!product) {
       return safeJsonError('Product not found', 404)
     }
 
-    const compositions = await db.productComposition.findMany({
-      where: { productId: id },
-      include: {
-        inventoryItem: {
-          select: {
-            id: true,
-            name: true,
-            sku: true,
-            baseUnit: true,
-            avgCost: true,
-            stock: true,
+    if (product.hasVariants) {
+      // Variant product: return per-variant compositions
+      const variants = await db.productVariant.findMany({
+        where: { productId: id, outletId: user.outletId },
+        select: { id: true, name: true, stock: true, hpp: true },
+        orderBy: { createdAt: 'asc' },
+      })
+
+      const allComps = await db.productComposition.findMany({
+        where: { productId: id, variantId: { not: null } },
+        include: {
+          inventoryItem: {
+            select: {
+              id: true,
+              name: true,
+              sku: true,
+              baseUnit: true,
+              avgCost: true,
+              stock: true,
+            },
           },
         },
-      },
-      orderBy: { createdAt: 'asc' },
-    })
+        orderBy: { createdAt: 'asc' },
+      })
 
-    // Calculate autoHpp: sum of (qty * avgCost) for each composition item
-    let autoHpp = 0
-    const items = compositions.map((c) => {
-      const lineTotal = c.qty * c.inventoryItem.avgCost
-      autoHpp += lineTotal
-      return {
-        id: c.id,
-        inventoryItemId: c.inventoryItemId,
-        inventoryItemName: c.inventoryItem.name,
-        inventoryItemSku: c.inventoryItem.sku,
-        qty: c.qty,
-        baseUnit: c.baseUnit,
-        avgCost: c.inventoryItem.avgCost,
-        stock: c.inventoryItem.stock,
-        lineTotal,
+      // Group compositions by variantId
+      const variantCompositions: Record<string, Array<{
+        id: string
+        inventoryItemId: string
+        inventoryItemName: string
+        inventoryItemSku: string | null
+        qty: number
+        baseUnit: string
+        avgCost: number
+        stock: number
+        lineTotal: number
+      }>> = {}
+
+      for (const c of allComps) {
+        const vid = c.variantId!
+        if (!variantCompositions[vid]) variantCompositions[vid] = []
+        const lineTotal = c.qty * c.inventoryItem.avgCost
+        variantCompositions[vid].push({
+          id: c.id,
+          inventoryItemId: c.inventoryItemId,
+          inventoryItemName: c.inventoryItem.name,
+          inventoryItemSku: c.inventoryItem.sku,
+          qty: c.qty,
+          baseUnit: c.baseUnit,
+          avgCost: c.inventoryItem.avgCost,
+          stock: c.inventoryItem.stock,
+          lineTotal,
+        })
       }
-    })
 
-    return safeJson({
-      hasComposition: product.hasComposition,
-      autoHpp,
-      items,
-    })
+      // Calculate per-variant HPP and max stock
+      const variantData = await Promise.all(variants.map(async (v) => {
+        const comps = variantCompositions[v.id] || []
+        const autoHpp = comps.reduce((sum, c) => sum + c.lineTotal, 0)
+        const { maxStock } = await getMaxStockFromVariantComposition(v.id)
+        return {
+          variantId: v.id,
+          variantName: v.name,
+          stock: v.stock,
+          currentHpp: v.hpp,
+          autoHpp,
+          maxStock,
+          compositions: comps,
+        }
+      }))
+
+      return safeJson({
+        hasComposition: product.hasComposition,
+        hasVariants: true,
+        variantCompositions: variantData,
+      })
+    } else {
+      // Non-variant product: return product-level compositions
+      const compositions = await db.productComposition.findMany({
+        where: { productId: id, variantId: null },
+        include: {
+          inventoryItem: {
+            select: {
+              id: true,
+              name: true,
+              sku: true,
+              baseUnit: true,
+              avgCost: true,
+              stock: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'asc' },
+      })
+
+      let autoHpp = 0
+      const items = compositions.map((c) => {
+        const lineTotal = c.qty * c.inventoryItem.avgCost
+        autoHpp += lineTotal
+        return {
+          id: c.id,
+          inventoryItemId: c.inventoryItemId,
+          inventoryItemName: c.inventoryItem.name,
+          inventoryItemSku: c.inventoryItem.sku,
+          qty: c.qty,
+          baseUnit: c.baseUnit,
+          avgCost: c.inventoryItem.avgCost,
+          stock: c.inventoryItem.stock,
+          lineTotal,
+        }
+      })
+
+      return safeJson({
+        hasComposition: product.hasComposition,
+        hasVariants: false,
+        autoHpp,
+        items,
+      })
+    }
   } catch (error) {
     console.error('Product composition GET error:', error)
     return safeJsonError('Failed to load product composition')
@@ -80,13 +160,18 @@ export async function PUT(
     const { id } = await params
 
     const body = await request.json()
-    const { hasComposition, compositions } = body as {
+    const { hasComposition, compositions, variantCompositions } = body as {
       hasComposition?: boolean
       compositions?: Array<{
         inventoryItemId: string
         qty: number
         baseUnit: string
       }>
+      variantCompositions?: Record<string, Array<{
+        inventoryItemId: string
+        qty: number
+        baseUnit: string
+      }>>
     }
 
     // Verify product exists and belongs to outlet
@@ -98,9 +183,14 @@ export async function PUT(
       return safeJsonError('Product not found', 404)
     }
 
-    // Validate compositions if provided
-    if (compositions && compositions.length > 0) {
-      for (const comp of compositions) {
+    // Validate all composition items
+    const allCompItems = [
+      ...(compositions || []),
+      ...Object.values(variantCompositions || []).flat(),
+    ]
+
+    if (allCompItems.length > 0) {
+      for (const comp of allCompItems) {
         if (!comp.inventoryItemId) {
           return safeJsonError('Each composition must have an inventoryItemId', 400)
         }
@@ -113,7 +203,7 @@ export async function PUT(
       }
 
       // Verify all inventory items belong to this outlet
-      const invItemIds = compositions.map((c) => c.inventoryItemId)
+      const invItemIds = [...new Set(allCompItems.map((c) => c.inventoryItemId))]
       const invItems = await db.inventoryItem.findMany({
         where: { id: { in: invItemIds }, outletId },
         select: { id: true, name: true, avgCost: true },
@@ -124,57 +214,137 @@ export async function PUT(
     }
 
     const result = await db.$transaction(async (tx) => {
-      // 1. Delete all existing compositions for this product
+      // 1. Delete ALL existing compositions for this product (both product-level and variant-level)
       await tx.productComposition.deleteMany({
         where: { productId: id },
       })
 
-      // 2. Create new compositions
-      let autoHpp = 0
-      if (compositions && compositions.length > 0) {
-        // Fetch inventory items with avgCost for HPP calculation
-        const invItemIds = compositions.map((c) => c.inventoryItemId)
-        const invItems = await tx.inventoryItem.findMany({
-          where: { id: { in: invItemIds } },
-          select: { id: true, avgCost: true },
-        })
-        const invItemCostMap = new Map(invItems.map((ii) => [ii.id, ii.avgCost]))
+      // 2. Build inventory item cost map
+      const invItemIds = [...new Set(allCompItems.map((c) => c.inventoryItemId))]
+      const invItems = await tx.inventoryItem.findMany({
+        where: { id: { in: invItemIds } },
+        select: { id: true, avgCost: true },
+      })
+      const invItemCostMap = new Map(invItems.map((ii) => [ii.id, ii.avgCost]))
 
-        await tx.productComposition.createMany({
-          data: compositions.map((c) => ({
-            productId: id,
-            inventoryItemId: c.inventoryItemId,
-            qty: c.qty,
-            baseUnit: c.baseUnit,
-          })),
-        })
+      let productAutoHpp = 0
 
-        // 3. Calculate autoHpp
-        autoHpp = compositions.reduce((sum, c) => {
-          const avgCost = invItemCostMap.get(c.inventoryItemId) || 0
-          return sum + c.qty * avgCost
-        }, 0)
+      if (product.hasVariants) {
+        // ===== VARIANT PRODUCT: per-variant compositions =====
+        if (variantCompositions && Object.keys(variantCompositions).length > 0) {
+          // Verify all variant IDs belong to this product
+          const variantIds = Object.keys(variantCompositions)
+          const validVariants = await tx.productVariant.findMany({
+            where: { id: { in: variantIds }, productId: id, outletId },
+            select: { id: true },
+          })
+          const validVariantIds = new Set(validVariants.map((v) => v.id))
+
+          for (const [vid, comps] of Object.entries(variantCompositions)) {
+            if (!validVariantIds.has(vid)) {
+              throw new Error(`Variant ${vid} not found or does not belong to this product`)
+            }
+
+            if (comps.length === 0) continue
+
+            // Create composition records for this variant
+            await tx.productComposition.createMany({
+              data: comps.map((c) => ({
+                productId: id,
+                variantId: vid,
+                inventoryItemId: c.inventoryItemId,
+                qty: c.qty,
+                baseUnit: c.baseUnit,
+              })),
+            })
+
+            // Calculate auto HPP for this variant
+            const variantHpp = comps.reduce((sum, c) => {
+              const avgCost = invItemCostMap.get(c.inventoryItemId) || 0
+              return sum + c.qty * avgCost
+            }, 0)
+
+            // Update variant HPP
+            await tx.productVariant.update({
+              where: { id: vid },
+              data: { hpp: variantHpp },
+            })
+          }
+        }
+      } else {
+        // ===== NON-VARIANT PRODUCT: product-level composition =====
+        if (compositions && compositions.length > 0) {
+          await tx.productComposition.createMany({
+            data: compositions.map((c) => ({
+              productId: id,
+              variantId: null,
+              inventoryItemId: c.inventoryItemId,
+              qty: c.qty,
+              baseUnit: c.baseUnit,
+            })),
+          })
+
+          productAutoHpp = compositions.reduce((sum, c) => {
+            const avgCost = invItemCostMap.get(c.inventoryItemId) || 0
+            return sum + c.qty * avgCost
+          }, 0)
+        }
       }
 
-      // 4. Update product hasComposition and hpp
+      // 3. Update product hasComposition and hpp
       await tx.product.update({
         where: { id },
         data: {
           hasComposition: !!hasComposition,
-          hpp: autoHpp,
+          hpp: product.hasVariants ? 0 : productAutoHpp, // Product-level HPP only for non-variant
         },
       })
 
-      // 5. If product has variants, update all variant hpp
-      if (product.hasVariants) {
-        await tx.productVariant.updateMany({
-          where: { productId: id },
-          data: { hpp: autoHpp },
-        })
-      }
-
-      return { autoHpp }
+      return { productAutoHpp }
     })
+
+    // 4. After transaction — cap stock for non-variant products
+    if (!product.hasVariants && compositions && compositions.length > 0) {
+      const { maxStock } = await getMaxStockFromComposition(id, outletId)
+      if (maxStock !== Infinity) {
+        const current = await db.product.findUnique({
+          where: { id },
+          select: { stock: true },
+        })
+        if (current && current.stock > maxStock) {
+          await db.product.update({
+            where: { id },
+            data: { stock: maxStock },
+          })
+        }
+      }
+    }
+
+    // 5. After transaction — cap stock for variant products
+    if (product.hasVariants && variantCompositions) {
+      const variants = await db.productVariant.findMany({
+        where: { productId: id, outletId },
+        select: { id: true, name: true, stock: true },
+      })
+      for (const v of variants) {
+        const { maxStock } = await getMaxStockFromVariantComposition(v.id)
+        if (maxStock !== Infinity && v.stock > maxStock) {
+          await db.productVariant.update({
+            where: { id: v.id },
+            data: { stock: maxStock },
+          })
+        }
+      }
+      // Recalculate parent product stock
+      const aggResult = await db.productVariant.aggregate({
+        where: { productId: id, outletId },
+        _sum: { stock: true },
+      })
+      await db.product.update({
+        where: { id },
+        data: { stock: aggResult._sum.stock ?? 0 },
+      })
+    }
 
     return safeJson({
       success: true,
@@ -182,6 +352,9 @@ export async function PUT(
     })
   } catch (error) {
     console.error('Product composition PUT error:', error)
+    if (error instanceof Error) {
+      return safeJsonError(error.message, 400)
+    }
     return safeJsonError('Failed to update product composition')
   }
 }

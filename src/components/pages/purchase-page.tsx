@@ -518,15 +518,16 @@ export default function PurchasePage() {
           notes: poCreateNotes || undefined,
           items: validItems.map(i => {
             const purchaseQty = parseFloat(i.qty) || 0
-            const baseQty = parseFloat(i.baseQty) || 0
+            const isiPerUnit = parseFloat(i.baseQty) || 0
             const pricePerItem = parseFloat(i.pricePerItem) || 0
             const totalCost = pricePerItem * purchaseQty
-            const unitCost = baseQty > 0 ? totalCost / baseQty : 0
+            const totalBaseQty = purchaseQty * isiPerUnit
+            const unitCost = totalBaseQty > 0 ? totalCost / totalBaseQty : 0
             return {
               inventoryItemId: i.inventoryItemId,
               purchaseQty,
               purchaseUnit: i.unit || '',
-              baseQty,
+              baseQty: totalBaseQty,
               baseUnit: i.baseUnit,
               unitCost,
               totalCost,
@@ -1770,11 +1771,11 @@ export default function PurchasePage() {
                             />
                             <p className="text-[9px] text-slate-600">berapa {item.unit || 'unit'} yang dibeli</p>
                           </div>
-                          {/* Total Isi / Berat Aktual */}
+                          {/* Isi per 1 Satuan Beli */}
                           <div className="space-y-1">
                             <div className="flex items-center gap-1">
                               <Weight className="h-2.5 w-2.5 text-slate-500" />
-                              <label className="text-[10px] text-slate-300 font-medium">Total Isi</label>
+                              <label className="text-[10px] text-slate-300 font-medium">Isi per 1 {item.unit || 'unit'}</label>
                             </div>
                             <div className="relative">
                               <Input
@@ -1784,11 +1785,11 @@ export default function PurchasePage() {
                                 value={item.baseQty}
                                 onChange={(e) => handleUpdatePoItem(idx, 'baseQty', e.target.value)}
                                 className={cn(inputClass, 'pr-10 text-center')}
-                                placeholder="1.8"
+                                placeholder="1"
                               />
                               <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-500 pointer-events-none">{item.baseUnit || 'kg'}</span>
                             </div>
-                            <p className="text-[9px] text-slate-600">total isi dalam {item.baseUnit || 'kg'}</p>
+                            <p className="text-[9px] text-slate-600">isi dalam 1 {item.unit || 'unit'} ({item.baseUnit || 'kg'})</p>
                           </div>
                           {/* Harga per Satuan */}
                           <div className="space-y-1">
@@ -1820,11 +1821,25 @@ export default function PurchasePage() {
                             </span>
                           </div>
                         )}
+                        {/* Total base qty info */}
+                        {parseFloat(item.baseQty) > 0 && parseFloat(item.qty) > 0 && (
+                          <div className="flex items-center gap-1.5 text-[10px] text-slate-500 px-1">
+                            <ArrowRight className="h-2.5 w-2.5 shrink-0" />
+                            <span>
+                              Total stok masuk:{' '}
+                              <span className="text-slate-300 font-medium">
+                                {formatNumber(parseFloat(item.qty) * parseFloat(item.baseQty))} {item.baseUnit}
+                              </span>
+                              {' '}({item.qty} {item.unit} × {formatNumber(parseFloat(item.baseQty))} {item.baseUnit})
+                            </span>
+                          </div>
+                        )}
+                        {/* HPP per base unit */}
                         {(parseFloat(item.baseQty) > 0) && (parseFloat(item.pricePerItem) > 0) && (
                           <div className="flex items-center gap-1.5 text-[10px] text-amber-500/80 px-1">
                             <Scale className="h-2.5 w-2.5 shrink-0" />
                             <span>
-                              HPP: Rp{formatNumber(Math.round((parseFloat(item.pricePerItem) || 0) * (parseFloat(item.qty) || 0) / parseFloat(item.baseQty)))} per {item.baseUnit}
+                              HPP: Rp{formatNumber(Math.round((parseFloat(item.pricePerItem) || 0) / (parseFloat(item.baseQty) || 0)))} per {item.baseUnit}
                             </span>
                           </div>
                         )}

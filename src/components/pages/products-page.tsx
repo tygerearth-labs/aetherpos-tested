@@ -659,17 +659,18 @@ export default function ProductsPage() {
           if (detailOpen && detailProduct?.id === restockProduct.id) {
             fetchDetail(restockProduct, detailPage)
           }
+          setRestockOpen(false)
+          setRestockQty('')
+          setRestockProduct(null)
+          setVariantRestocks([])
         } else {
-          toast.error('Failed to restock')
+          const data = await res.json().catch(() => ({}))
+          toast.error(data.error || 'Gagal restock')
         }
       } catch {
-        toast.error('Failed to restock')
+        toast.error('Gagal restock')
       } finally {
         setRestocking(false)
-        setRestockOpen(false)
-        setRestockQty('')
-        setRestockProduct(null)
-        setVariantRestocks([])
       }
     } else {
       if (!restockQty || Number(restockQty) <= 0) return
@@ -686,16 +687,17 @@ export default function ProductsPage() {
           if (detailOpen && detailProduct?.id === restockProduct.id) {
             fetchDetail({ ...restockProduct, stock: restockProduct.stock + Number(restockQty) }, detailPage)
           }
+          setRestockOpen(false)
+          setRestockQty('')
+          setRestockProduct(null)
         } else {
-          toast.error('Failed to restock')
+          const data = await res.json().catch(() => ({}))
+          toast.error(data.error || 'Gagal restock')
         }
       } catch {
-        toast.error('Failed to restock')
+        toast.error('Gagal restock')
       } finally {
         setRestocking(false)
-        setRestockOpen(false)
-        setRestockQty('')
-        setRestockProduct(null)
       }
     }
   }

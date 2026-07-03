@@ -26,7 +26,6 @@ const PlanPage = lazy(() => import('@/components/pages/plan-page'))
 const TransferPage = lazy(() => import('@/components/pages/transfer-page'))
 const PurchasePage = lazy(() => import('@/components/pages/purchase-page'))
 const MultiOutletTerminalPage = lazy(() => import('@/components/pages/multi-outlet-terminal-page'))
-const InventoryMovementPage = lazy(() => import('@/components/pages/inventory-movement-page'))
 
 // ── Page-level Suspense fallback ──
 function PageLoader() {
@@ -161,8 +160,6 @@ function AppContent() {
         return <LazyPage><PurchasePage /></LazyPage>
       case 'multi-outlet':
         return <LazyPage><MultiOutletTerminalPage /></LazyPage>
-      case 'inventory-movement':
-        return <LazyPage><InventoryMovementPage /></LazyPage>
       case 'settings':
         return <LazyPage><SettingsPage /></LazyPage>
       default:

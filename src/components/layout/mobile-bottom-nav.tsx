@@ -19,10 +19,9 @@ import {
   LogOut,
   Lock,
   Crown,
-  Truck,
+  Send,
   Building2,
   PackagePlus,
-  Activity,
 } from 'lucide-react'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -76,15 +75,14 @@ interface MoreMenuItem {
 }
 
 const allMoreMenuItems: MoreMenuItem[] = [
-  { page: 'customers', icon: <Users className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Customers', section: 'Main' },
-  { page: 'purchase', icon: <PackagePlus className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Purchase', section: 'Main' },
-  { page: 'inventory-movement', icon: <Activity className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Log Stok Bahan', section: 'Main' },
-  { page: 'audit-log', icon: <ClipboardList className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Audit Log', section: 'Admin' },
-  { page: 'crew', icon: <UserCog className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Kelola Crew', section: 'Admin' },
-  { page: 'plan', icon: <Crown className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Plan & Pricing', section: 'Admin' },
-  { page: 'transfer', icon: <Truck className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Transfer', section: 'Admin', groupOnly: true },
-  { page: 'multi-outlet', icon: <Building2 className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Multi Outlet', section: 'Admin', groupOnly: true },
-  { page: 'settings', icon: <Settings className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Pengaturan', section: 'Admin' },
+  { page: 'customers', icon: <Users className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Pelanggan', section: 'Utama' },
+  { page: 'purchase', icon: <PackagePlus className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Pembelian', section: 'Operasional' },
+  { page: 'transfer', icon: <Send className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Kirim Stock/Barang', section: 'Operasional', groupOnly: true },
+  { page: 'audit-log', icon: <ClipboardList className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Audit Log', section: 'Manajemen' },
+  { page: 'settings', icon: <Settings className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Pengaturan', section: 'Manajemen' },
+  { page: 'crew', icon: <UserCog className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Kelola Crew', section: 'Manajemen' },
+  { page: 'plan', icon: <Crown className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Plan & Pricing', section: 'Manajemen' },
+  { page: 'multi-outlet', icon: <Building2 className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Multi Outlet', section: 'Manajemen', groupOnly: true },
 ]
 
 export default function MobileBottomNav() {
@@ -167,7 +165,7 @@ export default function MobileBottomNav() {
 
   const multiOutletEnabled = features?.multiOutlet ?? false
   const moreItems = allMoreMenuItems.filter(i => !i.groupOnly || (hasOutletGroup && multiOutletEnabled))
-  const sections = ['Main', 'Admin']
+  const sections = ['Utama', 'Operasional', 'Manajemen']
 
   const isActive = (page: PageType) => currentPage === page
   const isMoreActive = !bottomTabs.some(t => t.page === currentPage)
