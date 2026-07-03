@@ -1343,11 +1343,11 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
 
             <Separator className="bg-white/[0.04]" />
 
-            {/* ========== SECTION: Komposisi / Resep ========== */}
+            {/* ========== SECTION: Komposisi ========== */}
             <div className="space-y-3">
               <div className="flex items-center gap-2">
                 <div className="h-1 w-1 rounded-full theme-bg-light" />
-                <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Komposisi / Resep</span>
+                <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Komposisi</span>
               </div>
 
               <div
@@ -1502,7 +1502,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                 <div className="flex items-start gap-2.5 bg-sky-500/5 border border-sky-500/15 rounded-lg p-3">
                   <Beaker className="h-3.5 w-3.5 text-sky-400 mt-0.5 flex-shrink-0" />
                   <div className="text-[11px] text-sky-300/80 leading-relaxed">
-                    Saat komposisi aktif, <span className="font-medium text-sky-300">HPP akan dihitung otomatis</span> dari total biaya bahan baku. Setiap penjualan akan mengurangi stok bahan baku sesuai resep.
+                    Saat komposisi aktif, <span className="font-medium text-sky-300">HPP akan dihitung otomatis</span> dari total biaya bahan baku. Setiap penjualan akan mengurangi stok bahan baku sesuai komposisi.
                   </div>
                 </div>
               </div>

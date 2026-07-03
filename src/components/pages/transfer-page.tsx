@@ -303,7 +303,7 @@ export default function TransferPage() {
   const fetchTransfers = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch(`/api/transfers?direction=${tab}`)
+      const res = await fetch(`/api/transfers?direction=${tab}&itemType=PRODUCT`)
       if (res.ok) {
         const data = await res.json()
         setTransfers(data.transfers || [])

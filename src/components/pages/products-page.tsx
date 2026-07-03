@@ -1596,7 +1596,7 @@ export default function ProductsPage() {
                               {product.hasComposition && (
                                 <Badge className="bg-sky-500/10 border-sky-500/20 text-sky-400 text-[10px] px-1.5 py-0 ml-1.5 inline-flex items-center gap-0.5">
                                   <Beaker className="h-2.5 w-2.5" />
-                                  Resep
+                                  Komposisi
                                 </Badge>
                               )}
                             </span>
@@ -1824,7 +1824,7 @@ export default function ProductsPage() {
                           {product.hasComposition && (
                             <Badge className="bg-sky-500/10 border-sky-500/20 text-sky-400 text-[10px] px-1.5 py-0 ml-1.5 inline-flex items-center gap-0.5">
                               <Beaker className="h-2.5 w-2.5" />
-                              Resep
+                              Komposisi
                             </Badge>
                           )}
                         </span>
@@ -3294,8 +3294,8 @@ export default function ProductsPage() {
                         </div>
                       </div>
 
-                      {/* Barcode Card */}
-                      {detailData.product.barcode && (
+                      {/* Barcode Card — Non-variant product */}
+                      {!detailData.product.hasVariants && detailData.product.barcode && (
                         <div className="rounded-lg border border-white/[0.06] bg-nebula/50 p-3 space-y-2">
                           <h3 className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
                             <ScanBarcode className="h-3.5 w-3.5 theme-text" />
@@ -3310,15 +3310,34 @@ export default function ProductsPage() {
                               margin={2}
                               showPrint
                               label={detailData.product.name}
-                              priceLabel={(() => {
-                                const p = detailData.product
-                                const price = p.price || 0
-                                const maxP = p._maxPrice || 0
-                                return maxP && maxP !== price
-                                  ? `${formatCurrency(price)} ~ ${formatCurrency(maxP)}`
-                                  : formatCurrency(price)
-                              })()}
+                              priceLabel={formatCurrency(detailData.product.price || 0)}
                             />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Barcode Card — Variant product: show each variant barcode in its own card */}
+                      {detailData.product.hasVariants && detailData.product.variants && detailData.product.variants.some((v: any) => v.barcode) && (
+                        <div className="rounded-lg border border-white/[0.06] bg-nebula/50 p-3 space-y-2">
+                          <h3 className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                            <ScanBarcode className="h-3.5 w-3.5 theme-text" />
+                            Barcode Varian
+                          </h3>
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            {detailData.product.variants.filter((v: any) => v.barcode).map((v: any) => (
+                              <div key={v.id} className="bg-white rounded-lg p-2.5 flex flex-col items-center">
+                                <BarcodeDisplay
+                                  value={v.barcode}
+                                  width={1.5}
+                                  height={45}
+                                  fontSize={9}
+                                  margin={1}
+                                  showPrint
+                                  label={`${detailData.product.name} — ${v.name}`}
+                                  priceLabel={formatCurrency(v.price)}
+                                />
+                              </div>
+                            ))}
                           </div>
                         </div>
                       )}
@@ -3362,22 +3381,6 @@ export default function ProductsPage() {
                                       </span>
                                     </div>
                                   </div>
-                                  {v.barcode && (
-                                    <div className="mt-1.5 pt-1.5 border-t border-white/[0.03] flex flex-col items-center">
-                                      <div className="bg-white rounded p-1.5">
-                                        <BarcodeDisplay
-                                          value={v.barcode}
-                                          width={1.5}
-                                          height={35}
-                                          fontSize={9}
-                                          margin={1}
-                                          showPrint
-                                          label={`${detailData.product.name} - ${v.name}`}
-                                          priceLabel={formatCurrency(v.price)}
-                                        />
-                                      </div>
-                                    </div>
-                                  )}
                                 </div>
                               )
                             })}
