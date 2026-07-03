@@ -3318,24 +3318,26 @@ export default function ProductsPage() {
 
                       {/* Barcode Card — Variant product: show each variant barcode in its own card */}
                       {detailData.product.hasVariants && detailData.product.variants && detailData.product.variants.some((v: any) => v.barcode) && (
-                        <div className="rounded-lg border border-white/[0.06] bg-nebula/50 p-3 space-y-2">
+                        <div className="rounded-lg border border-white/[0.06] bg-nebula/50 p-3 space-y-3">
                           <h3 className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
                             <ScanBarcode className="h-3.5 w-3.5 theme-text" />
                             Barcode Varian
                           </h3>
-                          <div className="grid gap-3 sm:grid-cols-2">
+                          <div className="space-y-3">
                             {detailData.product.variants.filter((v: any) => v.barcode).map((v: any) => (
-                              <div key={v.id} className="bg-white rounded-lg p-2.5 flex flex-col items-center">
+                              <div key={v.id} className="bg-white rounded-lg p-3 flex flex-col items-center gap-1">
+                                <p className="text-[10px] font-semibold text-zinc-700 text-center">{v.name}</p>
                                 <BarcodeDisplay
                                   value={v.barcode}
-                                  width={1.5}
-                                  height={45}
-                                  fontSize={9}
-                                  margin={1}
+                                  width={2}
+                                  height={50}
+                                  displayValue={false}
+                                  margin={2}
                                   showPrint
                                   label={`${detailData.product.name} — ${v.name}`}
                                   priceLabel={formatCurrency(v.price)}
                                 />
+                                <p className="text-[10px] font-mono text-zinc-500">{v.barcode}</p>
                               </div>
                             ))}
                           </div>
