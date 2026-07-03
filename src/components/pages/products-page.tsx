@@ -91,6 +91,7 @@ import {
   FilePenLine,
   ScanBarcode,
   Printer,
+  Beaker,
 } from 'lucide-react'
 // Collapsible removed — analytics section removed in redesign
 import { ProGate } from '@/components/shared/pro-gate'
@@ -123,6 +124,7 @@ interface Product {
   category?: { id: string; name: string; color: string } | null
   unit: string
   hasVariants?: boolean
+  hasComposition?: boolean
   _variantCount?: number
   _maxPrice?: number
   variants?: Array<{
@@ -1589,6 +1591,12 @@ export default function ProductsPage() {
                                   {product._variantCount} varian
                                 </Badge>
                               )}
+                              {product.hasComposition && (
+                                <Badge className="bg-sky-500/10 border-sky-500/20 text-sky-400 text-[10px] px-1.5 py-0 ml-1.5 inline-flex items-center gap-0.5">
+                                  <Beaker className="h-2.5 w-2.5" />
+                                  Resep
+                                </Badge>
+                              )}
                             </span>
                           </div>
                         </div>
@@ -1809,6 +1817,12 @@ export default function ProductsPage() {
                             <Badge className="bg-violet-500/10 border-violet-500/20 text-violet-400 text-[10px] px-1.5 py-0 ml-1.5 inline-flex items-center gap-0.5">
                               <Layers className="h-2.5 w-2.5" />
                               {product._variantCount} varian
+                            </Badge>
+                          )}
+                          {product.hasComposition && (
+                            <Badge className="bg-sky-500/10 border-sky-500/20 text-sky-400 text-[10px] px-1.5 py-0 ml-1.5 inline-flex items-center gap-0.5">
+                              <Beaker className="h-2.5 w-2.5" />
+                              Resep
                             </Badge>
                           )}
                         </span>

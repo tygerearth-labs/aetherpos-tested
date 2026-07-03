@@ -233,6 +233,81 @@ export async function POST(request: NextRequest) {
         })
       }
 
+      // 7c. Deduct inventory for composition products (bahan baku)
+      const compProductIds = [...new Set(
+        checkoutItems
+          .map((item) => productMap.get(item.productId))
+          .filter((p) => p?.hasComposition)
+          .map((p) => p!.id)
+      )]
+
+      if (compProductIds.length > 0) {
+        const allComps = await tx.productComposition.findMany({
+          where: { productId: { in: compProductIds } },
+          include: { inventoryItem: { select: { id: true, name: true } } },
+        })
+
+        // Aggregate deductions per inventory item
+        const invDeductions = new Map<string, { qty: number; baseUnit: string; itemName: string; sources: Array<{ productName: string; variantName?: string; qty: number }> }>()
+
+        for (const item of checkoutItems) {
+          const product = productMap.get(item.productId)
+          if (!product?.hasComposition) continue
+
+          const productComps = allComps.filter((c) => c.productId === item.productId)
+          for (const comp of productComps) {
+            const deductQty = comp.qty * item.qty
+            const existing = invDeductions.get(comp.inventoryItemId)
+            if (existing) {
+              existing.qty += deductQty
+              existing.sources.push({
+                productName: item.productName,
+                variantName: item.variantName || undefined,
+                qty: deductQty,
+              })
+            } else {
+              invDeductions.set(comp.inventoryItemId, {
+                qty: deductQty,
+                baseUnit: comp.baseUnit,
+                itemName: comp.inventoryItem.name,
+                sources: [{
+                  productName: item.productName,
+                  variantName: item.variantName || undefined,
+                  qty: deductQty,
+                }],
+              })
+            }
+          }
+        }
+
+        // Deduct from inventory items
+        for (const [invItemId, deduction] of invDeductions) {
+          await tx.inventoryItem.update({
+            where: { id: invItemId },
+            data: { stock: { decrement: deduction.qty } },
+          })
+        }
+
+        // Audit logs for inventory deductions
+        const invAuditData = [...invDeductions.entries()].map(([invItemId, deduction]) => ({
+          action: 'COMPOSITION_DEDUCT' as const,
+          entityType: 'INVENTORY_ITEM' as const,
+          entityId: invItemId,
+          details: JSON.stringify({
+            invoiceNumber,
+            itemName: deduction.itemName,
+            baseUnit: deduction.baseUnit,
+            totalDeducted: deduction.qty,
+            sources: deduction.sources,
+          }),
+          outletId,
+          userId,
+        }))
+        if (invAuditData.length > 0) {
+          await tx.auditLog.createMany({ data: invAuditData })
+        }
+      }
+
       // 8. Batch create audit logs
       const auditData = checkoutItems.map((item) => {
         const product = productMap.get(item.productId)!

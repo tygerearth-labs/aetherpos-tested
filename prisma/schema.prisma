@@ -1,5 +1,5 @@
 // ==================== AETHER POS SCHEMA ====================
-// PostgreSQL for Vercel / production deployment
+// SQLite for local development
 
 generator client {
   provider = "prisma-client-js"
@@ -50,6 +50,11 @@ model Outlet {
   transferItems    TransferItem[]
   transfersFrom    OutletTransfer[] @relation("TransferFrom")
   transfersTo      OutletTransfer[] @relation("TransferTo")
+  suppliers        Supplier[]
+  inventoryItems   InventoryItem[]
+  inventoryCategories InventoryCategory[]
+  purchaseOrders   PurchaseOrder[]
+  purchaseOrderItems PurchaseOrderItem[]
 }
 
 // ==================== USER ====================
@@ -70,6 +75,7 @@ model User {
   ownedGroup      OutletGroup?     @relation("GroupOwner")
   transfersCreated  OutletTransfer[] @relation("TransferCreator")
   transfersReceived OutletTransfer[] @relation("TransferReceiver")
+  purchaseOrders    PurchaseOrder[]
 
   @@unique([email, outletId])
 }
@@ -110,10 +116,12 @@ model Product {
   updatedAt     DateTime @updatedAt
 
   hasVariants      Boolean        @default(false) // Has product variants
+  hasComposition   Boolean        @default(false) // Uses inventory composition (BOM/recipe)
   outlet           Outlet           @relation(fields: [outletId], references: [id])
   category        Category?        @relation(fields: [categoryId], references: [id])
   transactionItems TransactionItem[]
   variants         ProductVariant[]
+  compositions     ProductComposition[]
 
   @@unique([name, outletId])
 }
@@ -356,10 +364,7 @@ model OutletTransfer {
   receivedBy   User?             @relation("TransferReceiver", fields: [receivedById], references: [id])
   items        TransferItem[]
 
-  @@index([fromOutletId])
-  @@index([toOutletId])
-  @@index([groupId])
-  @@index([status])
+  // SQLite indexes removed for compatibility
 }
 
 // ==================== TRANSFER ITEM ====================
@@ -379,5 +384,108 @@ model TransferItem {
   transfer OutletTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
   outlet   Outlet          @relation(fields: [outletId], references: [id])
 
-  @@index([transferId])
+  // SQLite indexes removed for compatibility
+}
+
+// ==================== SUPPLIER ====================
+model Supplier {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String?
+  address   String?
+  notes     String?
+  outletId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  outlet    Outlet          @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  purchases PurchaseOrder[]
+}
+
+// ==================== INVENTORY CATEGORY ====================
+model InventoryCategory {
+  id        String   @id @default(cuid())
+  name      String
+  color     String   @default("zinc") // Tailwind color name
+  outletId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  outlet Outlet          @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  items  InventoryItem[]
+
+  @@unique([name, outletId])
+}
+
+// ==================== INVENTORY ITEM (Raw Material) ====================
+model InventoryItem {
+  id            String   @id @default(cuid())
+  name          String
+  sku           String?
+  baseUnit      String                      // Always tracked in base unit: gr, ml, kg, liter, meter, pcs
+  stock         Float    @default(0)          // Current stock in base units (Float for precision)
+  avgCost       Float    @default(0)          // Weighted average cost per base unit
+  lowStockAlert Float    @default(0)
+  outletId      String
+  categoryId    String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  outlet         Outlet              @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  category       InventoryCategory?  @relation(fields: [categoryId], references: [id])
+  purchaseItems  PurchaseOrderItem[]
+  compositions   ProductComposition[]
+}
+
+// ==================== PURCHASE ORDER ====================
+model PurchaseOrder {
+  id          String   @id @default(cuid())
+  orderNumber String   @unique            // Auto-generated: PO-YYYYMMDD-XXXX
+  supplierId  String?
+  totalCost   Float    @default(0)
+  notes       String?
+  outletId    String
+  userId      String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  outlet    Outlet             @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  createdBy  User               @relation(fields: [userId], references: [id])
+  supplier  Supplier?          @relation(fields: [supplierId], references: [id])
+  items     PurchaseOrderItem[]
+}
+
+// ==================== PURCHASE ORDER ITEM ====================
+model PurchaseOrderItem {
+  id              String   @id @default(cuid())
+  purchaseOrderId String
+  inventoryItemId String
+  name            String                       // Snapshot of inventory item name
+  purchaseQty     Float                        // Qty in purchase unit (e.g. 1 Ekor)
+  purchaseUnit    String                       // Display unit (e.g. "Ekor", "Jerigen", "Roll")
+  baseQty         Float                        // Converted to base unit (e.g. 1.85 kg)
+  baseUnit        String                       // Base unit (e.g. "kg", "ml")
+  unitCost        Float                        // Cost per base unit
+  totalCost       Float                        // baseQty * unitCost
+  outletId        String                       // For audit trail
+
+  purchaseOrder  PurchaseOrder  @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  inventoryItem  InventoryItem  @relation(fields: [inventoryItemId], references: [id])
+  outlet         Outlet         @relation(fields: [outletId], references: [id])
+}
+
+// ==================== PRODUCT COMPOSITION (Recipe / BOM) ====================
+model ProductComposition {
+  id              String   @id @default(cuid())
+  productId       String
+  inventoryItemId String
+  qty             Float                        // Quantity consumed per 1 unit of product (in base unit)
+  baseUnit        String                       // Base unit of the inventory item
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  product       Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id])
+
+  @@unique([productId, inventoryItemId])
 }

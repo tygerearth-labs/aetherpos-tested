@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useSession } from 'next-auth/react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -24,6 +24,7 @@ import {
   AlertCircle,
   Copy,
   X,
+  Beaker,
 } from 'lucide-react'
 import { formatCurrency, formatNumber } from '@/lib/format'
 
@@ -56,6 +57,14 @@ interface Category {
   name: string
   color: string
   _count?: { products: number }
+}
+
+interface CompositionItem {
+  inventoryItemId: string
+  inventoryItemName: string
+  qty: string
+  baseUnit: string
+  avgCost: number
 }
 
 interface ProductFormDialogProps {
@@ -101,6 +110,12 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
   // Mass fill state for variants
   const [massFill, setMassFill] = useState({ price: '', hpp: '', stock: '' })
 
+  // Composition / Recipe state
+  const [hasComposition, setHasComposition] = useState(false)
+  const [compositions, setCompositions] = useState<CompositionItem[]>([])
+  const [inventoryItems, setInventoryItems] = useState<Array<{ id: string; name: string; baseUnit: string; avgCost: number; stock: number }>>([])
+  const initialHasComposition = useRef(false)
+
   const [form, setForm] = useState({
     name: '',
     sku: '',
@@ -125,6 +140,12 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
     return { totalStock, minPrice, maxPrice, filledCount, totalHpp, priceRange: minPrice !== maxPrice }
   }, [hasVariants, variants])
 
+  // Auto-calculated HPP from composition
+  const autoHpp = useMemo(() => {
+    if (!hasComposition || compositions.length === 0) return 0
+    return compositions.reduce((sum, c) => sum + (Number(c.qty) || 0) * (c.avgCost || 0), 0)
+  }, [hasComposition, compositions])
+
   useEffect(() => {
     if (open) {
       fetch('/api/categories')
@@ -133,6 +154,16 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
         .catch(() => {})
     }
   }, [open])
+
+  // Load inventory items when composition is enabled
+  useEffect(() => {
+    if (open && hasComposition) {
+      fetch('/api/inventory/items')
+        .then((res) => res.json())
+        .then((data) => setInventoryItems(data.items || []))
+        .catch(() => {})
+    }
+  }, [open, hasComposition])
 
   useEffect(() => {
     if (product) {
@@ -165,6 +196,32 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
       } else {
         setVariants([])
       }
+
+      // Load composition data
+      fetch(`/api/products/${product.id}/composition`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.hasComposition && data.items && data.items.length > 0) {
+            setHasComposition(true)
+            initialHasComposition.current = true
+            setCompositions(data.items.map((item: any) => ({
+              inventoryItemId: item.inventoryItemId,
+              inventoryItemName: item.inventoryItemName,
+              qty: String(item.qty),
+              baseUnit: item.baseUnit,
+              avgCost: item.avgCost || 0,
+            })))
+          } else {
+            setHasComposition(false)
+            setCompositions([])
+            initialHasComposition.current = false
+          }
+        })
+        .catch(() => {
+          setHasComposition(false)
+          setCompositions([])
+          initialHasComposition.current = false
+        })
     } else {
       setForm({
         name: '',
@@ -181,6 +238,9 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
       setVariants([])
       setExpandedVariant(0)
       setMassFill({ price: '', hpp: '', stock: '' })
+      setHasComposition(false)
+      setCompositions([])
+      initialHasComposition.current = false
     }
   }, [product, open])
 
@@ -250,6 +310,20 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
       }
     }
 
+    // Validate composition
+    if (hasComposition && compositions.length === 0) {
+      toast.error('Tambahkan minimal 1 bahan baku untuk komposisi')
+      return
+    }
+    if (hasComposition) {
+      for (let i = 0; i < compositions.length; i++) {
+        if (!compositions[i].inventoryItemId || !Number(compositions[i].qty) || Number(compositions[i].qty) <= 0) {
+          toast.error(`Komposisi ${i + 1}: isi jumlah bahan`)
+          return
+        }
+      }
+    }
+
     setSaving(true)
     try {
       const body: Record<string, any> = {
@@ -283,6 +357,32 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
       })
 
       if (res.ok) {
+        const savedProduct = await res.json()
+        const productId = isEdit ? product!.id : savedProduct.id
+
+        // Sync composition state
+        const shouldSync = hasComposition || (isEdit && initialHasComposition.current)
+        if (shouldSync) {
+          const compData = hasComposition
+            ? compositions
+                .filter((c) => c.inventoryItemId && Number(c.qty) > 0)
+                .map((c) => ({
+                  inventoryItemId: c.inventoryItemId,
+                  qty: Number(c.qty),
+                  baseUnit: c.baseUnit,
+                }))
+            : []
+
+          await fetch(`/api/products/${productId}/composition`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              hasComposition: compData.length > 0,
+              compositions: compData,
+            }),
+          })
+        }
+
         toast.success(isEdit ? 'Produk berhasil diperbarui' : 'Produk berhasil ditambahkan')
         onOpenChange(false)
         onSaved()
@@ -319,6 +419,31 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
 
   const clearMassFill = () => {
     setMassFill({ price: '', hpp: '', stock: '' })
+  }
+
+  // Composition helpers
+  const addComposition = (inventoryItemId: string) => {
+    const item = inventoryItems.find((i) => i.id === inventoryItemId)
+    if (!item) return
+    if (compositions.some((c) => c.inventoryItemId === inventoryItemId)) {
+      toast.error('Bahan ini sudah ditambahkan')
+      return
+    }
+    setCompositions((prev) => [...prev, {
+      inventoryItemId: item.id,
+      inventoryItemName: item.name,
+      qty: '',
+      baseUnit: item.baseUnit,
+      avgCost: item.avgCost,
+    }])
+  }
+
+  const removeComposition = (index: number) => {
+    setCompositions((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  const updateCompositionQty = (index: number, value: string) => {
+    setCompositions((prev) => prev.map((c, i) => (i === index ? { ...c, qty: value } : c)))
   }
 
   return (
@@ -920,6 +1045,152 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                 <Info className="h-3.5 w-3.5 text-amber-400 mt-0.5 flex-shrink-0" />
                 <div className="text-[11px] text-amber-300/80 leading-relaxed">
                   Saat varian aktif, <span className="font-medium text-amber-300">harga, HPP, dan stok diatur per varian</span>. Kolom harga & stok utama akan disembunyikan. Total stok produk adalah penjumlahan stok semua varian.
+                </div>
+              </div>
+            )}
+
+            <Separator className="bg-white/[0.04]" />
+
+            {/* ========== SECTION: Komposisi / Resep ========== */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="h-1 w-1 rounded-full theme-bg-light" />
+                <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Komposisi / Resep</span>
+              </div>
+
+              <div
+                className={`rounded-xl border p-4 transition-all duration-200 cursor-pointer ${
+                  hasComposition
+                    ? 'theme-bg-ultra-light theme-border-medium ring-1 theme-ring'
+                    : 'bg-nebula/40 border-white/[0.06] hover:border-white/[0.08]'
+                }`}
+                onClick={() => {
+                  if (!hasComposition) setHasComposition(true)
+                }}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className={`h-9 w-9 rounded-lg flex items-center justify-center transition-colors ${
+                      hasComposition ? 'theme-bg-lighter' : 'bg-white/[0.04]'
+                    }`}>
+                      <Beaker className={`h-4 w-4 transition-colors ${hasComposition ? 'theme-text' : 'text-slate-500'}`} />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-slate-200">Aktifkan Komposisi</p>
+                      <p className="text-[11px] text-slate-500">
+                        {hasComposition
+                          ? 'HPP dihitung otomatis dari bahan baku'
+                          : 'Produk dibuat dari bahan baku inventory?'}
+                      </p>
+                    </div>
+                  </div>
+                  <Switch
+                    checked={hasComposition}
+                    onCheckedChange={(checked) => {
+                      setHasComposition(checked)
+                      if (!checked) setCompositions([])
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {hasComposition && (
+              <div className="space-y-3">
+                {/* Auto HPP display */}
+                <div className="bg-nebula/80 border border-white/[0.06] rounded-lg p-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] text-slate-500">Auto HPP (dari komposisi)</span>
+                    <span className="text-sm font-semibold theme-text">{formatCurrency(autoHpp)}</span>
+                  </div>
+                  {compositions.length > 0 && (
+                    <p className="text-[10px] text-slate-600 mt-1">
+                      {compositions.length} bahan × qty = HPP per {form.unit || 'pcs'}
+                    </p>
+                  )}
+                </div>
+
+                {/* Composition items */}
+                <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1 custom-scrollbar">
+                  {compositions.map((comp, idx) => (
+                    <div key={comp.inventoryItemId} className="bg-nebula border border-white/[0.06] rounded-xl p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="h-6 w-6 rounded-md bg-emerald-500/10 flex items-center justify-center flex-shrink-0">
+                            <Beaker className="h-3 w-3 text-emerald-400" />
+                          </div>
+                          <span className="text-xs font-medium text-slate-200 truncate">{comp.inventoryItemName}</span>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeComposition(idx)}
+                          className="h-6 w-6 p-0 text-slate-600 hover:text-red-400 hover:bg-red-500/10"
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1">
+                          <Input
+                            type="number"
+                            min="0"
+                            step="any"
+                            value={comp.qty}
+                            onChange={(e) => updateCompositionQty(idx, e.target.value)}
+                            placeholder="0"
+                            className="bg-white/[0.05] border-white/[0.08] text-white placeholder:text-slate-600 h-9 text-xs rounded-lg focus-visible:theme-ring focus-visible:theme-border"
+                          />
+                        </div>
+                        <span className="text-xs text-slate-400 w-12 text-right flex-shrink-0">{comp.baseUnit}</span>
+                      </div>
+                      {Number(comp.qty) > 0 && comp.avgCost > 0 && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] text-slate-600">
+                            {Number(comp.qty)} {comp.baseUnit} × {formatCurrency(comp.avgCost)}
+                          </span>
+                          <span className="text-[10px] font-medium text-slate-400">
+                            {formatCurrency(Number(comp.qty) * comp.avgCost)}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Add ingredient */}
+                <div className="space-y-1.5">
+                  <Label className="text-[11px] text-slate-500">Tambah Bahan Baku</Label>
+                  <select
+                    value=""
+                    onChange={(e) => {
+                      if (e.target.value) addComposition(e.target.value)
+                      e.target.value = ''
+                    }}
+                    className="w-full h-10 text-sm bg-nebula border border-white/[0.06] text-white rounded-lg px-3 focus:outline-none focus:ring-1 focus:theme-ring focus:theme-border appearance-none cursor-pointer"
+                  >
+                    <option value="" disabled>Pilih bahan baku...</option>
+                    {inventoryItems
+                      .filter((item) => !compositions.some((c) => c.inventoryItemId === item.id))
+                      .map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name} (stok: {formatNumber(item.stock)} {item.baseUnit})
+                        </option>
+                      ))}
+                  </select>
+                  {inventoryItems.length === 0 && (
+                    <p className="text-[10px] text-slate-600">Belum ada bahan baku. Tambahkan di halaman Pembelian → Inventory.</p>
+                  )}
+                </div>
+
+                {/* Info note */}
+                <div className="flex items-start gap-2.5 bg-sky-500/5 border border-sky-500/15 rounded-lg p-3">
+                  <Beaker className="h-3.5 w-3.5 text-sky-400 mt-0.5 flex-shrink-0" />
+                  <div className="text-[11px] text-sky-300/80 leading-relaxed">
+                    Saat komposisi aktif, <span className="font-medium text-sky-300">HPP akan dihitung otomatis</span> dari total biaya bahan baku. Setiap penjualan akan mengurangi stok bahan baku sesuai resep.
+                  </div>
                 </div>
               </div>
             )}
