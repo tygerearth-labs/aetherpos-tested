@@ -57,6 +57,7 @@ import {
   ShoppingCart,
   Package,
   PackagePlus,
+  PackageOpen,
   X,
   Settings2,
   Tags,
@@ -66,6 +67,14 @@ import {
   Scale,
   Edit3,
   SlidersHorizontal,
+  FileText,
+  Ruler,
+  Hash,
+  Weight,
+  Banknote,
+  Info,
+  ArrowRight,
+  CheckCircle2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -95,7 +104,7 @@ interface PurchaseOrderItem {
   qty: string
   unit: string
   baseQty: string
-  totalCost: string
+  pricePerItem: string  // harga per unit pembelian (e.g., 72000 per ekor)
 }
 
 interface PurchaseOrder {
@@ -221,19 +230,24 @@ export default function PurchasePage() {
   // Purchase create dialog
   const [poCreateOpen, setPoCreateOpen] = useState(false)
   const [poCreateLoading, setPoCreateLoading] = useState(false)
-  const [poCreateSupplier, setPoCreateSupplier] = useState('')
   const [poCreateNotes, setPoCreateNotes] = useState('')
   const [poCreateItems, setPoCreateItems] = useState<PurchaseOrderItem[]>([
-    { inventoryItemId: '', inventoryItemName: '', baseUnit: '', qty: '1', unit: '', baseQty: '0', totalCost: '0' },
+    { inventoryItemId: '', inventoryItemName: '', baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0' },
   ])
 
-  // Inventory item search for purchase
-  const [invItemSearch, setInvItemSearch] = useState('')
-  const [invItemResults, setInvItemResults] = useState<InventoryItemOption[]>([])
-  const [invItemSearching, setInvItemSearching] = useState(false)
-  const [showInvItemDropdown, setShowInvItemDropdown] = useState(false)
+  // Item picker for purchase dialog (pre-loaded)
+  const [poItemOptions, setPoItemOptions] = useState<InventoryItemOption[]>([])
+  const [poItemOptionsLoading, setPoItemOptionsLoading] = useState(false)
+  const [showItemPicker, setShowItemPicker] = useState(false)
   const [activeItemSearchIdx, setActiveItemSearchIdx] = useState<number | null>(null)
+  const [itemPickerFilter, setItemPickerFilter] = useState('')
   const invItemSearchRefs = useRef<Record<number, HTMLDivElement | null>>({})
+
+  // Quick add new item from purchase dialog
+  const [showQuickAddItem, setShowQuickAddItem] = useState(false)
+  const [quickItemName, setQuickItemName] = useState('')
+  const [quickItemUnit, setQuickItemUnit] = useState('kg')
+  const [quickItemCreating, setQuickItemCreating] = useState(false)
 
   // Suppliers
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
@@ -410,39 +424,54 @@ export default function PurchasePage() {
   }, [fetchCategories])
 
   // ══════════════════════════════════════════════════════════
-  // Inventory item search for purchase (debounced)
+  // Fetch: Pre-load item options for purchase dialog
   // ══════════════════════════════════════════════════════════
-  useEffect(() => {
-    if (!invItemSearch.trim()) {
-      setInvItemResults([])
-      setShowInvItemDropdown(false)
-      return
-    }
-    const t = setTimeout(async () => {
-      setInvItemSearching(true)
-      try {
-        const res = await fetch(`/api/inventory/items?search=${encodeURIComponent(invItemSearch)}&limit=20`)
-        if (res.ok) {
-          const data = await res.json()
-          setInvItemResults(data.items || [])
-          setShowInvItemDropdown(true)
-        }
-      } catch {
-        // silent
-      } finally {
-        setInvItemSearching(false)
+  const fetchPoItemOptions = useCallback(async () => {
+    setPoItemOptionsLoading(true)
+    try {
+      const res = await fetch('/api/inventory/items?limit=200')
+      if (res.ok) {
+        const data = await res.json()
+        setPoItemOptions((data.items || []).map((i: { id: string; name: string; baseUnit: string; stock: number }) => ({
+          id: i.id,
+          name: i.name,
+          baseUnit: i.baseUnit,
+          stock: i.stock ?? 0,
+        })))
       }
-    }, 300)
-    return () => clearTimeout(t)
-  }, [invItemSearch])
+    } catch {
+      // silent
+    } finally {
+      setPoItemOptionsLoading(false)
+    }
+  }, [])
 
-  // Close dropdown on outside click
+  // Pre-load items when purchase dialog opens
+  useEffect(() => {
+    if (poCreateOpen) {
+      fetchPoItemOptions()
+      setShowItemPicker(false)
+      setActiveItemSearchIdx(null)
+      setItemPickerFilter('')
+      setShowQuickAddItem(false)
+    }
+  }, [poCreateOpen, fetchPoItemOptions])
+
+  // Client-side filter for item picker
+  const filteredItemOptions = useMemo(() => {
+    const q = itemPickerFilter.trim().toLowerCase()
+    if (!q) return poItemOptions
+    return poItemOptions.filter(i => i.name.toLowerCase().includes(q))
+  }, [poItemOptions, itemPickerFilter])
+
+  // Close picker on outside click
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (activeItemSearchIdx === null) return
       const el = invItemSearchRefs.current[activeItemSearchIdx]
       if (el && !el.contains(e.target as Node)) {
-        setShowInvItemDropdown(false)
+        setShowItemPicker(false)
+        setShowQuickAddItem(false)
       }
     }
     document.addEventListener('mousedown', handleClick)
@@ -477,7 +506,7 @@ export default function PurchasePage() {
   const handlePoCreateSubmit = async () => {
     const validItems = poCreateItems.filter(i => i.inventoryItemId)
     if (validItems.length === 0) {
-      toast.error('Tambahkan minimal 1 item bahan')
+      toast.error('Pilih minimal 1 item')
       return
     }
     setPoCreateLoading(true)
@@ -486,15 +515,16 @@ export default function PurchasePage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          supplierId: poCreateSupplier || undefined,
           notes: poCreateNotes || undefined,
           items: validItems.map(i => {
+            const purchaseQty = parseFloat(i.qty) || 0
             const baseQty = parseFloat(i.baseQty) || 0
-            const totalCost = parseFloat(i.totalCost) || 0
+            const pricePerItem = parseFloat(i.pricePerItem) || 0
+            const totalCost = pricePerItem * purchaseQty
             const unitCost = baseQty > 0 ? totalCost / baseQty : 0
             return {
               inventoryItemId: i.inventoryItemId,
-              purchaseQty: parseFloat(i.qty) || 0,
+              purchaseQty,
               purchaseUnit: i.unit || '',
               baseQty,
               baseUnit: i.baseUnit,
@@ -521,15 +551,18 @@ export default function PurchasePage() {
   }
 
   const resetPoCreateForm = () => {
-    setPoCreateSupplier('')
     setPoCreateNotes('')
-    setPoCreateItems([{ inventoryItemId: '', inventoryItemName: '', baseUnit: '', qty: '1', unit: '', baseQty: '0', totalCost: '0' }])
+    setPoCreateItems([{ inventoryItemId: '', inventoryItemName: '', baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0' }])
+    setShowItemPicker(false)
+    setActiveItemSearchIdx(null)
+    setItemPickerFilter('')
+    setShowQuickAddItem(false)
   }
 
   const handleAddPoItem = () => {
     setPoCreateItems(prev => [
       ...prev,
-      { inventoryItemId: '', inventoryItemName: '', baseUnit: '', qty: '1', unit: '', baseQty: '0', totalCost: '0' },
+      { inventoryItemId: '', inventoryItemName: '', baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0' },
     ])
   }
 
@@ -548,13 +581,50 @@ export default function PurchasePage() {
         ? { ...it, inventoryItemId: item.id, inventoryItemName: item.name, baseUnit: item.baseUnit }
         : it
     ))
-    setInvItemSearch('')
-    setShowInvItemDropdown(false)
+    setShowItemPicker(false)
     setActiveItemSearchIdx(null)
+    setItemPickerFilter('')
+  }
+
+  // Quick add new inventory item from purchase dialog
+  const handleQuickAddItem = async (targetIdx: number) => {
+    if (!quickItemName.trim()) {
+      toast.error('Nama item wajib diisi')
+      return
+    }
+    setQuickItemCreating(true)
+    try {
+      const res = await fetch('/api/inventory/items', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: quickItemName.trim(), baseUnit: quickItemUnit, stock: 0, avgCost: 0 }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        const newItem: InventoryItemOption = { id: data.id, name: data.name, baseUnit: data.baseUnit, stock: 0 }
+        setPoItemOptions(prev => [newItem, ...prev])
+        handleSelectInvItem(targetIdx, newItem)
+        setShowQuickAddItem(false)
+        setQuickItemName('')
+        setQuickItemUnit('kg')
+        toast.success('Item baru ditambahkan')
+      } else {
+        const err = await res.json()
+        toast.error(err.error || 'Gagal menambahkan item')
+      }
+    } catch {
+      toast.error('Gagal menambahkan item')
+    } finally {
+      setQuickItemCreating(false)
+    }
   }
 
   const poTotalCost = useMemo(() => {
-    return poCreateItems.reduce((sum, i) => sum + (parseFloat(i.totalCost) || 0), 0)
+    return poCreateItems.reduce((sum, i) => {
+      const qty = parseFloat(i.qty) || 0
+      const price = parseFloat(i.pricePerItem) || 0
+      return sum + (price * qty)
+    }, 0)
   }, [poCreateItems])
 
   // ══════════════════════════════════════════════════════════
@@ -1082,7 +1152,7 @@ export default function PurchasePage() {
                 <Input
                   value={invSearch}
                   onChange={(e) => { setInvSearch(e.target.value); setInvPage(1) }}
-                  placeholder="Cari bahan..."
+                  placeholder="Cari item..."
                   className={cn(inputClass, 'pl-8')}
                 />
               </div>
@@ -1431,80 +1501,85 @@ export default function PurchasePage() {
           setPoCreateOpen(open)
         }}
       >
-        <ResponsiveDialogContent className="sm:max-w-2xl">
+        <ResponsiveDialogContent className="sm:max-w-2xl flex flex-col max-h-[90vh]">
           <ResponsiveDialogHeader>
-            <ResponsiveDialogTitle className="text-white text-base">Buat Pembelian Baru</ResponsiveDialogTitle>
+            <ResponsiveDialogTitle className="text-white text-base flex items-center gap-2">
+              <ShoppingCart className="h-4 w-4 text-emerald-400" />
+              Pembelian Baru
+            </ResponsiveDialogTitle>
             <ResponsiveDialogDescription className="text-slate-400 text-xs">
-              Pilih supplier dan tambahkan item bahan yang dibeli
+              Catat pembelian bahan baku untuk stok toko
             </ResponsiveDialogDescription>
           </ResponsiveDialogHeader>
-          <div className="space-y-4 mt-2">
-            {/* Supplier */}
-            <div className="space-y-1.5">
-              <label className={labelClass}>Supplier</label>
-              <Select value={poCreateSupplier} onValueChange={setPoCreateSupplier}>
-                <SelectTrigger className={cn(inputClass, 'w-full')}>
-                  <SelectValue placeholder="Pilih supplier (opsional)" />
-                </SelectTrigger>
-                <SelectContent className="bg-nebula border-white/[0.06]">
-                  {suppliers.map((s) => (
-                    <SelectItem key={s.id} value={s.id} className="text-slate-200 text-xs focus:bg-white/[0.06] focus:text-white">
-                      {s.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+
+          <div className="space-y-4 mt-2 flex-1 overflow-y-auto">
+            {/* ── Step flow guide ── */}
+            <div className="flex items-center gap-1.5 px-1">
+              <div className="flex items-center gap-1.5 text-[10px]">
+                <span className="w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-medium text-[9px]">1</span>
+                <span className="text-slate-300">Pilih Item</span>
+              </div>
+              <ArrowRight className="h-2.5 w-2.5 text-slate-600" />
+              <div className="flex items-center gap-1.5 text-[10px]">
+                <span className="w-4 h-4 rounded-full bg-white/[0.06] text-slate-500 flex items-center justify-center font-medium text-[9px]">2</span>
+                <span className="text-slate-500">Isi Detail</span>
+              </div>
+              <ArrowRight className="h-2.5 w-2.5 text-slate-600" />
+              <div className="flex items-center gap-1.5 text-[10px]">
+                <span className="w-4 h-4 rounded-full bg-white/[0.06] text-slate-500 flex items-center justify-center font-medium text-[9px]">3</span>
+                <span className="text-slate-500">Simpan</span>
+              </div>
             </div>
 
-            {/* Notes */}
+            {/* Catatan */}
             <div className="space-y-1.5">
-              <label className={labelClass}>Catatan</label>
+              <div className="flex items-center gap-1.5">
+                <FileText className="h-3 w-3 text-slate-500" />
+                <label className="text-[11px] text-slate-300 font-medium">Catatan</label>
+                <span className="text-[10px] text-slate-600">(opsional)</span>
+              </div>
               <Textarea
                 value={poCreateNotes}
                 onChange={(e) => setPoCreateNotes(e.target.value)}
-                placeholder="Catatan pembelian (opsional)"
-                className="bg-white/[0.04] border-white/[0.04] text-white text-xs min-h-[60px] rounded-lg resize-none placeholder:text-slate-500"
+                placeholder="Cth: Bayar tempo 7 hari, PO dari PT Indomaret..."
+                className="bg-white/[0.04] border-white/[0.04] text-white text-xs min-h-[48px] rounded-lg resize-none placeholder:text-slate-500"
               />
             </div>
 
             <Separator className="bg-white/[0.06]" />
 
             {/* Items */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <label className={labelClass}>Item Pembelian ({poCreateItems.filter(i => i.inventoryItemId).length})</label>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 text-[10px] gap-1 text-slate-400 hover:text-white hover:bg-white/[0.04]"
-                  onClick={handleAddPoItem}
-                >
-                  <Plus className="h-3 w-3" />
-                  Tambah Item
-                </Button>
+            <div className="space-y-3">
+              <div className="flex items-center gap-1.5 px-1">
+                <Package className="h-3 w-3 text-slate-500" />
+                <span className="text-[11px] text-slate-300 font-medium">
+                  Item Pembelian
+                </span>
+                {poCreateItems.filter(i => i.inventoryItemId).length > 0 && (
+                  <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded-full font-medium">
+                    {poCreateItems.filter(i => i.inventoryItemId).length}
+                  </span>
+                )}
               </div>
 
-              <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+              <div className="space-y-2">
                 {poCreateItems.map((item, idx) => (
-                  <div key={idx} className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.04] space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] text-slate-500 font-medium">Item #{idx + 1}</span>
-                      {poCreateItems.length > 1 && (
-                        <button
-                          className="w-5 h-5 rounded bg-red-500/10 flex items-center justify-center text-red-400 hover:text-red-300 hover:bg-red-500/20 transition-colors"
-                          onClick={() => handleRemovePoItem(idx)}
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Item search/select */}
+                  <div key={idx} className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.04] space-y-3">
+                    {/* Item picker / selected display */}
                     <div className="relative" ref={(el) => { invItemSearchRefs.current[idx] = el }}>
                       {item.inventoryItemId ? (
-                        <div className="flex items-center gap-2 bg-white/[0.04] rounded-lg px-2.5 h-9">
-                          <Package className="h-3.5 w-3.5 text-slate-500 shrink-0" />
-                          <span className="text-xs text-slate-200 truncate flex-1">{item.inventoryItemName}</span>
+                        <div className="flex items-center gap-2 bg-emerald-500/[0.06] rounded-lg px-2.5 h-9 border border-emerald-500/10">
+                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                          <span className="text-xs text-emerald-300 truncate flex-1 font-medium">{item.inventoryItemName}</span>
+                          {poCreateItems.length > 1 && (
+                            <button
+                              className="w-5 h-5 rounded bg-red-500/10 flex items-center justify-center text-red-400 hover:text-red-300 hover:bg-red-500/20 transition-colors mr-0.5"
+                              onClick={() => handleRemovePoItem(idx)}
+                              title="Hapus item ini"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          )}
                           <button
                             className="w-5 h-5 rounded hover:bg-white/[0.08] flex items-center justify-center text-slate-400 hover:text-white"
                             onClick={() => {
@@ -1512,144 +1587,302 @@ export default function PurchasePage() {
                               handleUpdatePoItem(idx, 'inventoryItemName', '')
                               handleUpdatePoItem(idx, 'baseUnit', '')
                             }}
+                            title="Ganti item"
                           >
                             <X className="h-3 w-3" />
                           </button>
                         </div>
                       ) : (
                         <>
-                          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
-                          <Input
-                            value={activeItemSearchIdx === idx ? invItemSearch : ''}
-                            onFocus={() => { setActiveItemSearchIdx(idx); setInvItemSearch('') }}
-                            onChange={(e) => setInvItemSearch(e.target.value)}
-                            placeholder="Cari bahan..."
-                            className={cn(inputClass, 'pl-8')}
-                          />
-                          {activeItemSearchIdx === idx && showInvItemDropdown && invItemResults.length > 0 && (
-                            <div className="absolute top-full left-0 right-0 mt-1 bg-nebula border border-white/[0.06] rounded-lg shadow-xl z-50 max-h-[180px] overflow-y-auto">
-                              {invItemResults.map((r) => (
-                                <button
-                                  key={r.id}
-                                  className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-white/[0.04] transition-colors first:rounded-t-lg last:rounded-b-lg"
-                                  onClick={() => handleSelectInvItem(idx, r)}
-                                >
-                                  <Package className="h-3.5 w-3.5 text-slate-500 shrink-0" />
-                                  <div className="flex-1 min-w-0">
-                                    <p className="text-xs text-slate-200 truncate">{r.name}</p>
-                                    <p className="text-[10px] text-slate-500">Stok: {formatNumber(r.stock)} {r.baseUnit}</p>
-                                  </div>
-                                </button>
-                              ))}
+                          {/* Clickable trigger to open picker */}
+                          <button
+                            className="w-full flex items-center gap-2.5 bg-white/[0.04] rounded-lg px-3 h-10 text-left hover:bg-white/[0.06] transition-colors border border-dashed border-white/[0.08]"
+                            onClick={() => { setActiveItemSearchIdx(idx); setShowItemPicker(true); setItemPickerFilter(''); setShowQuickAddItem(false) }}
+                          >
+                            <Package className="h-4 w-4 text-slate-500 shrink-0" />
+                            <div className="flex-1">
+                              <span className="text-xs text-slate-400">Tap untuk pilih item...</span>
                             </div>
-                          )}
-                          {activeItemSearchIdx === idx && invItemSearching && (
-                            <div className="absolute top-full left-0 right-0 mt-1 flex items-center justify-center gap-2 py-3 text-slate-500">
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                              <span className="text-[10px]">Mencari...</span>
+                            <ArrowRight className="h-3 w-3 text-slate-600" />
+                          </button>
+
+                          {/* Picker dropdown */}
+                          {activeItemSearchIdx === idx && showItemPicker && (
+                            <div className="absolute top-full left-0 right-0 mt-1 bg-nebula border border-white/[0.06] rounded-lg shadow-xl z-50">
+                              {/* Filter search */}
+                              <div className="p-2 border-b border-white/[0.06]">
+                                <div className="relative">
+                                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-500" />
+                                  <input
+                                    autoFocus
+                                    value={itemPickerFilter}
+                                    onChange={(e) => { setItemPickerFilter(e.target.value); setShowQuickAddItem(false) }}
+                                    placeholder="Ketik nama item untuk filter..."
+                                    className="w-full bg-white/[0.04] border-white/[0.04] text-white text-xs h-8 rounded-md pl-8 pr-2 outline-none placeholder:text-slate-500"
+                                  />
+                                </div>
+                              </div>
+
+                              {/* Loading */}
+                              {poItemOptionsLoading ? (
+                                <div className="flex items-center justify-center gap-2 py-4 text-slate-500">
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                  <span className="text-[10px]">Memuat daftar item...</span>
+                                </div>
+                              ) : /* No results + not in quick-add mode */
+                              filteredItemOptions.length === 0 && !showQuickAddItem ? (
+                                <div className="py-6 text-center px-3">
+                                  <Package className="h-6 w-6 text-slate-600 mx-auto mb-2" />
+                                  {poItemOptions.length === 0 ? (
+                                    <>
+                                      <p className="text-[11px] text-slate-400 mb-1">Belum ada item di inventory</p>
+                                      <p className="text-[10px] text-slate-600 mb-3">Buat item baru langsung dari sini</p>
+                                    </>
+                                  ) : (
+                                    <p className="text-[11px] text-slate-400 mb-3">Tidak ada item yang cocok</p>
+                                  )}
+                                  <button
+                                    className="inline-flex items-center gap-1.5 text-[11px] text-emerald-400 hover:text-emerald-300 font-medium"
+                                    onClick={() => setShowQuickAddItem(true)}
+                                  >
+                                    <PackageOpen className="h-3 w-3" />
+                                    Buat Item Baru
+                                  </button>
+                                </div>
+                              ) : /* Normal list */
+                              !showQuickAddItem ? (
+                                <div className="max-h-[180px] overflow-y-auto">
+                                  {filteredItemOptions.map((r) => (
+                                    <button
+                                      key={r.id}
+                                      className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-white/[0.04] transition-colors"
+                                      onClick={() => handleSelectInvItem(idx, r)}
+                                    >
+                                      <Package className="h-3.5 w-3.5 text-slate-500 shrink-0" />
+                                      <div className="flex-1 min-w-0">
+                                        <p className="text-xs text-slate-200 truncate">{r.name}</p>
+                                        <p className="text-[10px] text-slate-500">Stok: {formatNumber(r.stock)} {r.baseUnit}</p>
+                                      </div>
+                                    </button>
+                                  ))}
+                                  {/* Add new item option at bottom */}
+                                  <button
+                                    className="w-full flex items-center justify-center gap-1.5 px-3 py-2.5 text-left border-t border-white/[0.06] text-emerald-400 hover:bg-emerald-500/[0.06] transition-colors"
+                                    onClick={() => setShowQuickAddItem(true)}
+                                  >
+                                    <PackageOpen className="h-3 w-3" />
+                                    <span className="text-[11px] font-medium">Buat Item Baru</span>
+                                  </button>
+                                </div>
+                              ) : null}
+
+                              {/* Quick add inline form */}
+                              {showQuickAddItem && (
+                                <div className="p-3 border-t border-white/[0.06] space-y-2.5">
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-1.5">
+                                      <PackageOpen className="h-3.5 w-3.5 text-emerald-400" />
+                                      <span className="text-[11px] text-slate-300 font-medium">Buat Item Baru</span>
+                                    </div>
+                                    <button
+                                      className="w-5 h-5 rounded hover:bg-white/[0.08] flex items-center justify-center text-slate-400 hover:text-white"
+                                      onClick={() => setShowQuickAddItem(false)}
+                                    >
+                                      <X className="h-3 w-3" />
+                                    </button>
+                                  </div>
+                                  <p className="text-[10px] text-slate-500">Item akan otomatis masuk ke inventory toko</p>
+                                  <div className="grid grid-cols-[1fr_auto] gap-2">
+                                    <div className="space-y-1">
+                                      <input
+                                        autoFocus
+                                        value={quickItemName}
+                                        onChange={(e) => setQuickItemName(e.target.value)}
+                                        onKeyDown={(e) => { if (e.key === 'Enter') handleQuickAddItem(idx) }}
+                                        placeholder="Nama item — cth: Susu UHT Full Cream"
+                                        className="w-full bg-white/[0.04] border-white/[0.04] text-white text-xs h-8 rounded-md px-2.5 outline-none placeholder:text-slate-500"
+                                      />
+                                    </div>
+                                    <select
+                                      value={quickItemUnit}
+                                      onChange={(e) => setQuickItemUnit(e.target.value)}
+                                      className="bg-white/[0.04] border-white/[0.04] text-white text-xs h-8 rounded-md px-2 outline-none min-w-[70px]"
+                                    >
+                                      {BASE_UNIT_OPTIONS.map(u => (
+                                        <option key={u} value={u} className="bg-zinc-900">{u}</option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                  <button
+                                    className="w-full h-8 rounded-md bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
+                                    onClick={() => handleQuickAddItem(idx)}
+                                    disabled={quickItemCreating || !quickItemName.trim()}
+                                  >
+                                    {quickItemCreating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+                                    Buat & Pilih Item
+                                  </button>
+                                </div>
+                              )}
                             </div>
                           )}
                         </>
                       )}
                     </div>
 
-                    {/* Item fields */}
-                    <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-                      <div className="space-y-1">
-                        <label className="text-[10px] text-slate-500">Qty</label>
-                        <Input
-                          type="number"
-                          min="0"
-                          step="any"
-                          value={item.qty}
-                          onChange={(e) => handleUpdatePoItem(idx, 'qty', e.target.value)}
-                          className={cn(inputClass, 'text-center')}
-                          placeholder="1"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] text-slate-500">Unit</label>
-                        <Input
-                          value={item.unit}
-                          onChange={(e) => handleUpdatePoItem(idx, 'unit', e.target.value)}
-                          className={inputClass}
-                          placeholder="Ekor"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] text-slate-500">Berat/Volume</label>
-                        <Input
-                          type="number"
-                          min="0"
-                          step="any"
-                          value={item.baseQty}
-                          onChange={(e) => handleUpdatePoItem(idx, 'baseQty', e.target.value)}
-                          className={cn(inputClass, 'text-center')}
-                          placeholder="1.85"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] text-slate-500">Base Unit</label>
-                        <div className="bg-white/[0.02] border border-white/[0.04] text-slate-400 text-xs h-9 rounded-lg flex items-center px-2.5">
-                          {item.baseUnit || 'kg'}
+                    {/* Unit → Qty → Berat Aktual → Harga — with icons & helper text */}
+                    {item.inventoryItemId && (
+                      <div className="space-y-2.5 pl-0.5">
+                        {/* Info banner */}
+                        <div className="flex items-start gap-1.5 text-[10px] text-slate-500">
+                          <Info className="h-3 w-3 mt-0.5 shrink-0" />
+                          <span>Isi detail pembelian item <span className="text-slate-300">{item.inventoryItemName}</span> di bawah ini</span>
                         </div>
-                      </div>
-                      <div className="space-y-1 col-span-2">
-                        <label className="text-[10px] text-slate-500">Harga Total (Rp)</label>
-                        <Input
-                          type="number"
-                          min="0"
-                          value={item.totalCost}
-                          onChange={(e) => handleUpdatePoItem(idx, 'totalCost', e.target.value)}
-                          className={inputClass}
-                          placeholder="72000"
-                        />
-                      </div>
-                    </div>
 
-                    {/* Unit Cost (calculated) */}
-                    {(parseFloat(item.baseQty) > 0 && parseFloat(item.totalCost) > 0) && (
-                      <div className="flex items-center gap-1.5 text-[10px]">
-                        <Scale className="h-3 w-3 text-amber-400/70" />
-                        <span className="text-slate-500">
-                          HPP Satuan: <span className="text-amber-400 font-medium">{formatCurrency(parseFloat(item.totalCost) / parseFloat(item.baseQty))}/{item.baseUnit}</span>
-                        </span>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                          {/* Satuan Beli */}
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-1">
+                              <Ruler className="h-2.5 w-2.5 text-slate-500" />
+                              <label className="text-[10px] text-slate-300 font-medium">Satuan Beli</label>
+                            </div>
+                            <Input
+                              value={item.unit}
+                              onChange={(e) => handleUpdatePoItem(idx, 'unit', e.target.value)}
+                              className={inputClass}
+                              placeholder="Cth: sak"
+                            />
+                            <p className="text-[9px] text-slate-600">satuan dari supplier</p>
+                          </div>
+                          {/* Jumlah */}
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-1">
+                              <Hash className="h-2.5 w-2.5 text-slate-500" />
+                              <label className="text-[10px] text-slate-300 font-medium">Jumlah</label>
+                            </div>
+                            <Input
+                              type="number"
+                              min="0"
+                              step="any"
+                              value={item.qty}
+                              onChange={(e) => handleUpdatePoItem(idx, 'qty', e.target.value)}
+                              className={cn(inputClass, 'text-center')}
+                              placeholder="1"
+                            />
+                            <p className="text-[9px] text-slate-600">berapa {item.unit || 'unit'} yang dibeli</p>
+                          </div>
+                          {/* Total Isi / Berat Aktual */}
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-1">
+                              <Weight className="h-2.5 w-2.5 text-slate-500" />
+                              <label className="text-[10px] text-slate-300 font-medium">Total Isi</label>
+                            </div>
+                            <div className="relative">
+                              <Input
+                                type="number"
+                                min="0"
+                                step="any"
+                                value={item.baseQty}
+                                onChange={(e) => handleUpdatePoItem(idx, 'baseQty', e.target.value)}
+                                className={cn(inputClass, 'pr-10 text-center')}
+                                placeholder="1.8"
+                              />
+                              <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-500 pointer-events-none">{item.baseUnit || 'kg'}</span>
+                            </div>
+                            <p className="text-[9px] text-slate-600">total isi dalam {item.baseUnit || 'kg'}</p>
+                          </div>
+                          {/* Harga per Satuan */}
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-1">
+                              <Banknote className="h-2.5 w-2.5 text-slate-500" />
+                              <label className="text-[10px] text-slate-300 font-medium">Harga</label>
+                            </div>
+                            <Input
+                              type="number"
+                              min="0"
+                              value={item.pricePerItem}
+                              onChange={(e) => handleUpdatePoItem(idx, 'pricePerItem', e.target.value)}
+                              className={inputClass}
+                              placeholder="72000"
+                            />
+                            <p className="text-[9px] text-slate-600">per 1 {item.unit || 'satuan beli'} (Rp)</p>
+                          </div>
+                        </div>
+
+                        {/* Example calculation hint */}
+                        {item.unit && parseFloat(item.qty) > 0 && parseFloat(item.pricePerItem) > 0 && (
+                          <div className="flex items-center gap-1.5 text-[10px] text-slate-500 px-1">
+                            <Info className="h-2.5 w-2.5 shrink-0" />
+                            <span>
+                              {item.qty} {item.unit} × Rp{formatNumber(parseFloat(item.pricePerItem))} ={' '}
+                              <span className="text-slate-300 font-medium">
+                                {formatCurrency((parseFloat(item.pricePerItem) || 0) * (parseFloat(item.qty) || 0))}
+                              </span>
+                            </span>
+                          </div>
+                        )}
+                        {(parseFloat(item.baseQty) > 0) && (parseFloat(item.pricePerItem) > 0) && (
+                          <div className="flex items-center gap-1.5 text-[10px] text-amber-500/80 px-1">
+                            <Scale className="h-2.5 w-2.5 shrink-0" />
+                            <span>
+                              HPP: Rp{formatNumber(Math.round((parseFloat(item.pricePerItem) || 0) * (parseFloat(item.qty) || 0) / parseFloat(item.baseQty)))} per {item.baseUnit}
+                            </span>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
                 ))}
-              </div>
-            </div>
 
-            {/* Summary */}
-            <div className="bg-white/[0.03] rounded-lg p-3 border border-white/[0.04]">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-slate-400">Total Biaya</span>
-                <span className="text-base font-bold text-emerald-400">{formatCurrency(poTotalCost)}</span>
+                {/* ── Tambah Item button ── */}
+                <button
+                  className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-lg border border-dashed border-white/[0.08] text-slate-500 hover:text-slate-300 hover:border-white/[0.15] transition-colors text-xs"
+                  onClick={handleAddPoItem}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Tambah Item Lain
+                </button>
               </div>
             </div>
           </div>
-          <ResponsiveDialogFooter className="mt-4 gap-2">
-            <Button
-              variant="ghost"
-              className="flex-1 h-9 text-xs text-slate-400 hover:text-white hover:bg-white/[0.04]"
-              onClick={() => setPoCreateOpen(false)}
-            >
-              Batal
-            </Button>
-            <Button
-              className="flex-1 h-9 text-xs theme-bg theme-hover text-white"
-              disabled={poCreateLoading || poCreateItems.filter(i => i.inventoryItemId).length === 0}
-              onClick={handlePoCreateSubmit}
-            >
-              {poCreateLoading ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Plus className="h-3.5 w-3.5" />
+
+          {/* ── Sticky Total Biaya + Footer ── */}
+          <div className="pt-3 mt-auto border-t border-white/[0.06]">
+            <div className="bg-emerald-500/[0.06] rounded-lg p-3 border border-emerald-500/[0.1] mb-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <Banknote className="h-3.5 w-3.5 text-emerald-400" />
+                  <span className="text-xs text-slate-400">Total Pembelian</span>
+                </div>
+                <span className="text-lg font-bold text-emerald-400">{formatCurrency(poTotalCost)}</span>
+              </div>
+              {poCreateItems.filter(i => i.inventoryItemId).length > 0 && (
+                <p className="text-[9px] text-slate-600 mt-1">
+                  {poCreateItems.filter(i => i.inventoryItemId).length} item • Stok akan otomatis bertambah setelah disimpan
+                </p>
               )}
-              Simpan
-            </Button>
-          </ResponsiveDialogFooter>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="ghost"
+                className="flex-1 h-9 text-xs text-slate-400 hover:text-white hover:bg-white/[0.04]"
+                onClick={() => setPoCreateOpen(false)}
+              >
+                Batal
+              </Button>
+              <Button
+                className="flex-1 h-9 text-xs theme-bg theme-hover text-white"
+                disabled={poCreateLoading || poCreateItems.filter(i => i.inventoryItemId).length === 0}
+                onClick={handlePoCreateSubmit}
+              >
+                {poCreateLoading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                )}
+                Simpan Pembelian
+              </Button>
+            </div>
+          </div>
         </ResponsiveDialogContent>
       </ResponsiveDialog>
 

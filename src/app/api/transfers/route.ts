@@ -19,6 +19,7 @@ export async function GET(request: NextRequest) {
     const { page, limit, skip } = parsePagination(searchParams, { limit: 20 })
     const status = searchParams.get('status') || ''
     const direction = searchParams.get('direction') || '' // 'outbound' or 'inbound'
+    const itemType = searchParams.get('itemType') || '' // 'PRODUCT' or 'INVENTORY'
 
     const outletId = user.outletId
 
@@ -38,6 +39,10 @@ export async function GET(request: NextRequest) {
       where.status = status
     }
 
+    if (itemType) {
+      where.itemType = itemType
+    }
+
     const [transfers, total] = await Promise.all([
       db.outletTransfer.findMany({
         where,
@@ -50,6 +55,7 @@ export async function GET(request: NextRequest) {
           fromOutletId: true,
           toOutletId: true,
           status: true,
+          itemType: true,
           notes: true,
           createdAt: true,
           updatedAt: true,
@@ -69,6 +75,9 @@ export async function GET(request: NextRequest) {
           items: {
             select: { id: true, quantity: true, price: true },
           },
+          inventoryTransferItems: {
+            select: { id: true, itemName: true, itemSku: true, baseUnit: true, quantity: true, avgCost: true },
+          },
           _count: {
             select: { items: true },
           },
@@ -85,10 +94,17 @@ export async function GET(request: NextRequest) {
       fromOutletName: t.fromOutlet.name,
       toOutletName: t.toOutlet.name,
       status: t.status,
+      itemType: t.itemType,
       notes: t.notes,
-      itemCount: t.items.length,
-      totalQty: t.items.reduce((sum, i) => sum + i.quantity, 0),
-      totalPrice: t.items.reduce((sum, i) => sum + i.quantity * i.price, 0),
+      itemCount: t.itemType === 'INVENTORY'
+        ? t.inventoryTransferItems.length
+        : t.items.length,
+      totalQty: t.itemType === 'INVENTORY'
+        ? t.inventoryTransferItems.reduce((sum, i) => sum + i.quantity, 0)
+        : t.items.reduce((sum, i) => sum + i.quantity, 0),
+      totalPrice: t.itemType === 'INVENTORY'
+        ? t.inventoryTransferItems.reduce((sum, i) => sum + i.quantity * i.avgCost, 0)
+        : t.items.reduce((sum, i) => sum + i.quantity * i.price, 0),
       createdAt: t.createdAt,
       updatedAt: t.updatedAt,
       receivedAt: t.receivedAt,
@@ -128,11 +144,14 @@ export async function POST(request: NextRequest) {
       toOutletId,
       notes,
       items,
+      itemType = 'PRODUCT',
     } = body as {
       toOutletId?: string
       notes?: string
+      itemType?: string
       items?: Array<{
         productId?: string
+        inventoryItemId?: string
         productName: string
         productSku?: string
         productBarcode?: string
@@ -150,6 +169,164 @@ export async function POST(request: NextRequest) {
     if (!items || !Array.isArray(items) || items.length === 0) {
       return safeJsonError('Transfer harus memiliki minimal 1 item', 400)
     }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // INVENTORY (Bahan Baku) Transfer
+    // ═══════════════════════════════════════════════════════════════════
+    if (itemType === 'INVENTORY') {
+      // Validate each item has inventoryItemId
+      const enrichedInventoryItems: Array<{
+        inventoryItemId: string
+        itemName: string
+        itemSku: string | null
+        baseUnit: string
+        quantity: number
+        avgCost: number
+      }> = []
+
+      for (const item of items) {
+        if (!item.quantity || item.quantity <= 0) {
+          return safeJsonError('Setiap item harus memiliki quantity > 0', 400)
+        }
+        if (!item.inventoryItemId) {
+          return safeJsonError('Transfer bahan baku harus memiliki inventoryItemId pada setiap item', 400)
+        }
+
+        const invItem = await db.inventoryItem.findFirst({
+          where: { id: item.inventoryItemId, outletId: user.outletId },
+          select: { id: true, name: true, sku: true, baseUnit: true, stock: true, avgCost: true },
+        })
+        if (!invItem) {
+          return safeJsonError(`Bahan baku dengan ID ${item.inventoryItemId} tidak ditemukan`, 400)
+        }
+        if (invItem.stock < item.quantity) {
+          return safeJsonError(`Stok ${invItem.name} tidak mencukupi (sisa: ${invItem.stock})`, 400)
+        }
+        enrichedInventoryItems.push({
+          inventoryItemId: invItem.id,
+          itemName: invItem.name,
+          itemSku: invItem.sku || null,
+          baseUnit: invItem.baseUnit,
+          quantity: item.quantity,
+          avgCost: invItem.avgCost || 0,
+        })
+      }
+
+      // Verify outlet group
+      const currentOutlet = await db.outlet.findUnique({
+        where: { id: user.outletId },
+        select: { id: true, name: true, groupId: true },
+      })
+      if (!currentOutlet?.groupId) {
+        return safeJsonError('Outlet belum tergabung dalam grup', 400)
+      }
+      const destOutlet = await db.outlet.findFirst({
+        where: { id: toOutletId, groupId: currentOutlet.groupId },
+        select: { id: true, name: true },
+      })
+      if (!destOutlet) {
+        return safeJsonError('Outlet tujuan tidak ditemukan atau tidak dalam grup yang sama', 400)
+      }
+      if (toOutletId === user.outletId) {
+        return safeJsonError('Tidak dapat transfer ke outlet yang sama', 400)
+      }
+
+      // Generate transfer number: TRF-INV-YYYYMMDD-XXXX
+      const now = new Date()
+      const dateStr =
+        now.getFullYear().toString() +
+        String(now.getMonth() + 1).padStart(2, '0') +
+        String(now.getDate()).padStart(2, '0')
+      const prefix = `TRF-INV-${dateStr}-`
+      const todayTransfers = await db.outletTransfer.findMany({
+        where: { transferNumber: { startsWith: prefix } },
+        select: { transferNumber: true },
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+      })
+      let seq = 1
+      if (todayTransfers.length > 0) {
+        const lastSeq = parseInt(todayTransfers[0].transferNumber.slice(prefix.length), 10)
+        if (!isNaN(lastSeq)) seq = lastSeq + 1
+      }
+      const transferNumber = `${prefix}${String(seq).padStart(4, '0')}`
+
+      // Create transfer with inventory items in a transaction
+      const result = await db.$transaction(async (tx) => {
+        const transfer = await tx.outletTransfer.create({
+          data: {
+            transferNumber,
+            fromOutletId: user.outletId,
+            toOutletId,
+            itemType: 'INVENTORY',
+            status: 'DRAFT',
+            notes: notes?.trim() || null,
+            createdById: user.id,
+            outletId: user.outletId,
+            groupId: currentOutlet.groupId,
+            inventoryTransferItems: {
+              create: enrichedInventoryItems.map((item) => ({
+                inventoryItemId: item.inventoryItemId,
+                itemName: item.itemName,
+                itemSku: item.itemSku,
+                baseUnit: item.baseUnit,
+                quantity: item.quantity,
+                avgCost: item.avgCost,
+                outletId: user.outletId,
+              })),
+            },
+          },
+          include: {
+            fromOutlet: { select: { id: true, name: true } },
+            toOutlet: { select: { id: true, name: true } },
+            createdBy: { select: { id: true, name: true } },
+            inventoryTransferItems: true,
+          },
+        })
+
+        // Audit log
+        const totalQty = enrichedInventoryItems.reduce((s, i) => s + i.quantity, 0)
+        const totalValue = enrichedInventoryItems.reduce((s, i) => s + i.quantity * i.avgCost, 0)
+        await tx.auditLog.create({
+          data: {
+            action: 'CREATE',
+            entityType: 'STOCK',
+            entityId: transfer.id,
+            details: JSON.stringify({
+              action: 'TRANSFER_DRAFT',
+              itemType: 'INVENTORY',
+              transferNumber,
+              toOutlet: destOutlet.name,
+              itemCount: enrichedInventoryItems.length,
+              totalQty,
+              totalValue,
+              items: enrichedInventoryItems.map((i) => ({
+                inventoryItemId: i.inventoryItemId,
+                itemName: i.itemName,
+                itemSku: i.itemSku,
+                baseUnit: i.baseUnit,
+                quantity: i.quantity,
+                avgCost: i.avgCost,
+                subtotal: i.quantity * i.avgCost,
+              })),
+            }),
+            outletId: user.outletId,
+            userId: user.id,
+          },
+        })
+
+        return transfer
+      })
+
+      return safeJsonCreated({
+        ...result,
+        _count: { items: result.inventoryTransferItems.length },
+      })
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // PRODUCT Transfer (existing logic)
+    // ═══════════════════════════════════════════════════════════════════
 
     // Look up products by productId and enrich with name/sku/barcode/hpp/price
     const enrichedItems: Array<{

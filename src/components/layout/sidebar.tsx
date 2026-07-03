@@ -30,6 +30,7 @@ import {
   Truck,
   Building2,
   PackagePlus,
+  Activity,
 } from 'lucide-react'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -77,6 +78,7 @@ const navItems: NavItem[] = [
   { label: 'Plan & Pricing', shortLabel: 'Plan', icon: <Crown className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'plan', section: 'admin' },
   { label: 'Transfer', shortLabel: 'Sj', icon: <Truck className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'transfer', section: 'admin', groupOnly: true },
   { label: 'Purchase', shortLabel: 'PO', icon: <PackagePlus className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'purchase', section: 'operations' },
+  { label: 'Log Stok Bahan', shortLabel: 'Stok', icon: <Activity className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'inventory-movement', section: 'operations' },
   { label: 'Multi Outlet', shortLabel: 'Mo', icon: <Building2 className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'multi-outlet', section: 'admin', groupOnly: true },
   { label: 'Pengaturan', shortLabel: 'Set', icon: <Settings className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'settings', section: 'admin' },
 ]
