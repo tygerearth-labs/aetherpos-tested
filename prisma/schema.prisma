@@ -1,13 +1,13 @@
 // ==================== AETHER POS SCHEMA ====================
-// SQLite for local development
+// PostgreSQL (Neon / Vercel / Railway / Supabase)
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
 }
 
 // ==================== OUTLET GROUP (Multi-Outlet) ====================
@@ -55,6 +55,8 @@ model Outlet {
   inventoryCategories InventoryCategory[]
   purchaseOrders   PurchaseOrder[]
   purchaseOrderItems PurchaseOrderItem[]
+  inventoryMovements    InventoryMovement[]
+  inventoryTransferItems InventoryTransferItem[]
 }
 
 // ==================== USER ====================
@@ -76,6 +78,7 @@ model User {
   transfersCreated  OutletTransfer[] @relation("TransferCreator")
   transfersReceived OutletTransfer[] @relation("TransferReceiver")
   purchaseOrders    PurchaseOrder[]
+  inventoryMovements InventoryMovement[] @relation("MovementUser")
 
   @@unique([email, outletId])
 }
@@ -344,9 +347,10 @@ model Plan {
 // ==================== OUTLET TRANSFER (Surat Jalan) ====================
 model OutletTransfer {
   id             String   @id @default(cuid())
-  transferNumber String   @unique            // Auto-generated: TRF-YYYYMMDD-XXXX
+  transferNumber String   @unique            // Auto-generated: TRF-YYYYMMDD-XXXX or TRF-INV-YYYYMMDD-XXXX
   fromOutletId   String                       // Source outlet (outbound)
   toOutletId     String                       // Destination outlet (inbound)
+  itemType       String   @default("PRODUCT") // PRODUCT = finished goods, INVENTORY = raw materials (bahan baku)
   status         String   @default("DRAFT")  // DRAFT, IN_TRANSIT, RECEIVED, CANCELLED
   notes          String?                      // Notes / keterangan
   receivedById   String?                      // User who received (at destination)
@@ -363,6 +367,7 @@ model OutletTransfer {
   createdBy    User              @relation("TransferCreator", fields: [createdById], references: [id])
   receivedBy   User?             @relation("TransferReceiver", fields: [receivedById], references: [id])
   items        TransferItem[]
+  inventoryTransferItems InventoryTransferItem[]
 
   // SQLite indexes removed for compatibility
 }
@@ -435,6 +440,8 @@ model InventoryItem {
   category       InventoryCategory?  @relation(fields: [categoryId], references: [id])
   purchaseItems  PurchaseOrderItem[]
   compositions   ProductComposition[]
+  movements      InventoryMovement[]
+  inventoryTransferItems InventoryTransferItem[]
 }
 
 // ==================== PURCHASE ORDER ====================
@@ -488,4 +495,42 @@ model ProductComposition {
   inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id])
 
   @@unique([productId, inventoryItemId])
+}
+
+// ==================== INVENTORY MOVEMENT (Log Pergerakan Stok Bahan) ====================
+model InventoryMovement {
+  id             String   @id @default(cuid())
+  type           String                       // RESTOCK, ADJUSTMENT, CONSUMPTION, TRANSFER_OUT, TRANSFER_IN, PURCHASE
+  quantity       Float                        // Positive for stock in, negative for stock out
+  previousStock  Float                        // Stock before movement
+  newStock       Float                        // Stock after movement
+  referenceId    String?                      // ID of related record (transferId, purchaseOrderId, etc.)
+  referenceType  String?                      // TRANSFER, PURCHASE_ORDER, ADJUSTMENT, CONSUMPTION
+  notes          String?                      // Additional notes
+  outletId       String
+  inventoryItemId String
+  userId         String?                      // User who triggered the movement
+  createdAt      DateTime @default(now())
+
+  outlet          Outlet          @relation(fields: [outletId], references: [id])
+  inventoryItem   InventoryItem   @relation(fields: [inventoryItemId], references: [id])
+  user            User?           @relation("MovementUser", fields: [userId], references: [id])
+}
+
+// ==================== INVENTORY TRANSFER ITEM (Bahan Baku Transfer) ====================
+model InventoryTransferItem {
+  id               String   @id @default(cuid())
+  transferId       String
+  inventoryItemId  String                       // Reference to InventoryItem (bahan baku)
+  itemName         String                       // Snapshot: item name at time of transfer
+  itemSku          String?                      // Snapshot: SKU
+  baseUnit         String                       // Snapshot: base unit (kg, gr, ml, etc.)
+  quantity         Float                        // Quantity transferred (in base units)
+  avgCost          Float    @default(0)         // Cost snapshot
+  outletId         String                       // Source outlet (for audit)
+  createdAt        DateTime @default(now())
+
+  transfer       OutletTransfer  @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  inventoryItem  InventoryItem   @relation(fields: [inventoryItemId], references: [id])
+  outlet         Outlet          @relation(fields: [outletId], references: [id])
 }
