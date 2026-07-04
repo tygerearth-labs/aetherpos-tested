@@ -9,7 +9,6 @@ import { safeJson, safeJsonCreated, safeJsonError, CACHE } from '@/lib/api/safe-
  *
  * Returns both sent (fromOutlet) and received (toOutlet) transfers.
  * Supports filtering by status and pagination.
- * Includes inventoryTransferItems when itemType is INVENTORY.
  */
 export async function GET(request: NextRequest) {
   try {
@@ -20,7 +19,7 @@ export async function GET(request: NextRequest) {
     const { page, limit, skip } = parsePagination(searchParams, { limit: 20 })
     const status = searchParams.get('status') || ''
     const direction = searchParams.get('direction') || '' // 'outbound' or 'inbound'
-    const itemTypeFilter = searchParams.get('itemType') || '' // 'PRODUCT' or 'INVENTORY'
+    const itemType = searchParams.get('itemType') || '' // 'PRODUCT' or 'INVENTORY'
 
     const outletId = user.outletId
 
@@ -40,8 +39,8 @@ export async function GET(request: NextRequest) {
       where.status = status
     }
 
-    if (itemTypeFilter === 'PRODUCT' || itemTypeFilter === 'INVENTORY') {
-      where.itemType = itemTypeFilter
+    if (itemType) {
+      where.itemType = itemType
     }
 
     const [transfers, total] = await Promise.all([
@@ -77,45 +76,43 @@ export async function GET(request: NextRequest) {
             select: { id: true, quantity: true, price: true },
           },
           inventoryTransferItems: {
-            select: { id: true, itemName: true, itemSku: true, itemBaseUnit: true, quantity: true, avgCost: true },
+            select: { id: true, itemName: true, itemSku: true, baseUnit: true, quantity: true, avgCost: true },
           },
           _count: {
-            select: { items: true, inventoryTransferItems: true },
+            select: { items: true },
           },
         },
       }),
       db.outletTransfer.count({ where }),
     ])
 
-    const mappedTransfers = transfers.map((t) => {
-      const isInventory = t.itemType === 'INVENTORY'
-      const listItems = isInventory ? t.inventoryTransferItems : t.items
-      return {
-        id: t.id,
-        transferNumber: t.transferNumber,
-        fromOutletId: t.fromOutletId,
-        toOutletId: t.toOutletId,
-        fromOutletName: t.fromOutlet.name,
-        toOutletName: t.toOutlet.name,
-        status: t.status,
-        itemType: t.itemType,
-        notes: t.notes,
-        itemCount: listItems.length,
-        totalQty: isInventory
-          ? t.inventoryTransferItems.reduce((sum, i) => sum + i.quantity, 0)
-          : t.items.reduce((sum, i) => sum + i.quantity, 0),
-        totalPrice: isInventory
-          ? t.inventoryTransferItems.reduce((sum, i) => sum + i.quantity * i.avgCost, 0)
-          : t.items.reduce((sum, i) => sum + i.quantity * i.price, 0),
-        createdAt: t.createdAt,
-        updatedAt: t.updatedAt,
-        receivedAt: t.receivedAt,
-        createdBy: t.createdBy,
-        receivedBy: t.receivedBy,
-        direction: t.fromOutletId === outletId ? 'OUTBOUND' : 'INBOUND',
-        _count: t._count,
-      }
-    })
+    const mappedTransfers = transfers.map((t) => ({
+      id: t.id,
+      transferNumber: t.transferNumber,
+      fromOutletId: t.fromOutletId,
+      toOutletId: t.toOutletId,
+      fromOutletName: t.fromOutlet.name,
+      toOutletName: t.toOutlet.name,
+      status: t.status,
+      itemType: t.itemType,
+      notes: t.notes,
+      itemCount: t.itemType === 'INVENTORY'
+        ? t.inventoryTransferItems.length
+        : t.items.length,
+      totalQty: t.itemType === 'INVENTORY'
+        ? t.inventoryTransferItems.reduce((sum, i) => sum + i.quantity, 0)
+        : t.items.reduce((sum, i) => sum + i.quantity, 0),
+      totalPrice: t.itemType === 'INVENTORY'
+        ? t.inventoryTransferItems.reduce((sum, i) => sum + i.quantity * i.avgCost, 0)
+        : t.items.reduce((sum, i) => sum + i.quantity * i.price, 0),
+      createdAt: t.createdAt,
+      updatedAt: t.updatedAt,
+      receivedAt: t.receivedAt,
+      createdBy: t.createdBy,
+      receivedBy: t.receivedBy,
+      direction: t.fromOutletId === outletId ? 'OUTBOUND' : 'INBOUND',
+      _count: t._count,
+    }))
 
     return safeJson(
       {
@@ -136,10 +133,6 @@ export async function GET(request: NextRequest) {
  *
  * Creates a DRAFT transfer. Stock is NOT deducted at this point.
  * Stock deduction happens when status changes to IN_TRANSIT.
- *
- * Supports two item types:
- * - PRODUCT (default): existing product transfer behavior
- * - INVENTORY: raw material / inventory item transfer
  */
 export async function POST(request: NextRequest) {
   try {
@@ -151,15 +144,22 @@ export async function POST(request: NextRequest) {
       toOutletId,
       notes,
       items,
-      itemType,
+      itemType = 'PRODUCT',
     } = body as {
       toOutletId?: string
       notes?: string
-      itemType?: 'PRODUCT' | 'INVENTORY'
-      items?: unknown[]
+      itemType?: string
+      items?: Array<{
+        productId?: string
+        inventoryItemId?: string
+        productName: string
+        productSku?: string
+        productBarcode?: string
+        quantity: number
+        hpp: number
+        price: number
+      }>
     }
-
-    const resolvedItemType = itemType || 'PRODUCT'
 
     // Validate required fields
     if (!toOutletId) {
@@ -170,83 +170,65 @@ export async function POST(request: NextRequest) {
       return safeJsonError('Transfer harus memiliki minimal 1 item', 400)
     }
 
-    // Verify current outlet has a group
-    const currentOutlet = await db.outlet.findUnique({
-      where: { id: user.outletId },
-      select: { id: true, name: true, groupId: true },
-    })
-
-    if (!currentOutlet?.groupId) {
-      return safeJsonError('Outlet belum tergabung dalam grup', 400)
-    }
-
-    // Verify destination outlet is in the same group
-    const destOutlet = await db.outlet.findFirst({
-      where: { id: toOutletId, groupId: currentOutlet.groupId },
-      select: { id: true, name: true },
-    })
-
-    if (!destOutlet) {
-      return safeJsonError('Outlet tujuan tidak ditemukan atau tidak dalam grup yang sama', 400)
-    }
-
-    if (toOutletId === user.outletId) {
-      return safeJsonError('Tidak dapat transfer ke outlet yang sama', 400)
-    }
-
-    // ── INVENTORY TRANSFER ──
-    if (resolvedItemType === 'INVENTORY') {
-      const invItems = items as Array<{
-        inventoryItemId?: string
-        itemName?: string
-        itemSku?: string
-        itemBaseUnit?: string
-        quantity?: number
-        avgCost?: number
-      }>
-
+    // ═══════════════════════════════════════════════════════════════════
+    // INVENTORY (Bahan Baku) Transfer
+    // ═══════════════════════════════════════════════════════════════════
+    if (itemType === 'INVENTORY') {
       // Validate each item has inventoryItemId
-      for (const item of invItems) {
-        if (!item.inventoryItemId) {
-          return safeJsonError('Setiap item inventory harus memiliki inventoryItemId', 400)
-        }
-        if (!item.quantity || item.quantity <= 0) {
-          return safeJsonError('Setiap item harus memiliki quantity > 0', 400)
-        }
-      }
-
-      // Look up and validate inventory items from source outlet
-      const enrichedInvItems: Array<{
+      const enrichedInventoryItems: Array<{
         inventoryItemId: string
         itemName: string
         itemSku: string | null
-        itemBaseUnit: string
+        baseUnit: string
         quantity: number
         avgCost: number
       }> = []
 
-      for (const item of invItems) {
+      for (const item of items) {
+        if (!item.quantity || item.quantity <= 0) {
+          return safeJsonError('Setiap item harus memiliki quantity > 0', 400)
+        }
+        if (!item.inventoryItemId) {
+          return safeJsonError('Transfer bahan baku harus memiliki inventoryItemId pada setiap item', 400)
+        }
+
         const invItem = await db.inventoryItem.findFirst({
-          where: { id: item.inventoryItemId!, outletId: user.outletId },
+          where: { id: item.inventoryItemId, outletId: user.outletId },
           select: { id: true, name: true, sku: true, baseUnit: true, stock: true, avgCost: true },
         })
-
         if (!invItem) {
-          return safeJsonError(`Item inventory dengan ID ${item.inventoryItemId} tidak ditemukan di outlet ini`, 400)
+          return safeJsonError(`Bahan baku dengan ID ${item.inventoryItemId} tidak ditemukan`, 400)
         }
-
-        if (invItem.stock < item.quantity!) {
+        if (invItem.stock < item.quantity) {
           return safeJsonError(`Stok ${invItem.name} tidak mencukupi (sisa: ${invItem.stock})`, 400)
         }
-
-        enrichedInvItems.push({
+        enrichedInventoryItems.push({
           inventoryItemId: invItem.id,
           itemName: invItem.name,
           itemSku: invItem.sku || null,
-          itemBaseUnit: invItem.baseUnit,
-          quantity: item.quantity!,
+          baseUnit: invItem.baseUnit,
+          quantity: item.quantity,
           avgCost: invItem.avgCost || 0,
         })
+      }
+
+      // Verify outlet group
+      const currentOutlet = await db.outlet.findUnique({
+        where: { id: user.outletId },
+        select: { id: true, name: true, groupId: true },
+      })
+      if (!currentOutlet?.groupId) {
+        return safeJsonError('Outlet belum tergabung dalam grup', 400)
+      }
+      const destOutlet = await db.outlet.findFirst({
+        where: { id: toOutletId, groupId: currentOutlet.groupId },
+        select: { id: true, name: true },
+      })
+      if (!destOutlet) {
+        return safeJsonError('Outlet tujuan tidak ditemukan atau tidak dalam grup yang sama', 400)
+      }
+      if (toOutletId === user.outletId) {
+        return safeJsonError('Tidak dapat transfer ke outlet yang sama', 400)
       }
 
       // Generate transfer number: TRF-INV-YYYYMMDD-XXXX
@@ -255,7 +237,6 @@ export async function POST(request: NextRequest) {
         now.getFullYear().toString() +
         String(now.getMonth() + 1).padStart(2, '0') +
         String(now.getDate()).padStart(2, '0')
-
       const prefix = `TRF-INV-${dateStr}-`
       const todayTransfers = await db.outletTransfer.findMany({
         where: { transferNumber: { startsWith: prefix } },
@@ -263,14 +244,10 @@ export async function POST(request: NextRequest) {
         orderBy: { createdAt: 'desc' },
         take: 1,
       })
-
       let seq = 1
       if (todayTransfers.length > 0) {
-        const lastNumber = todayTransfers[0].transferNumber
-        const lastSeq = parseInt(lastNumber.slice(prefix.length), 10)
-        if (!isNaN(lastSeq)) {
-          seq = lastSeq + 1
-        }
+        const lastSeq = parseInt(todayTransfers[0].transferNumber.slice(prefix.length), 10)
+        if (!isNaN(lastSeq)) seq = lastSeq + 1
       }
       const transferNumber = `${prefix}${String(seq).padStart(4, '0')}`
 
@@ -288,11 +265,11 @@ export async function POST(request: NextRequest) {
             outletId: user.outletId,
             groupId: currentOutlet.groupId,
             inventoryTransferItems: {
-              create: enrichedInvItems.map((item) => ({
+              create: enrichedInventoryItems.map((item) => ({
                 inventoryItemId: item.inventoryItemId,
                 itemName: item.itemName,
                 itemSku: item.itemSku,
-                itemBaseUnit: item.itemBaseUnit,
+                baseUnit: item.baseUnit,
                 quantity: item.quantity,
                 avgCost: item.avgCost,
                 outletId: user.outletId,
@@ -308,9 +285,8 @@ export async function POST(request: NextRequest) {
         })
 
         // Audit log
-        const totalQty = enrichedInvItems.reduce((s, i) => s + i.quantity, 0)
-        const totalValue = enrichedInvItems.reduce((s, i) => s + i.quantity * i.avgCost, 0)
-
+        const totalQty = enrichedInventoryItems.reduce((s, i) => s + i.quantity, 0)
+        const totalValue = enrichedInventoryItems.reduce((s, i) => s + i.quantity * i.avgCost, 0)
         await tx.auditLog.create({
           data: {
             action: 'CREATE',
@@ -321,16 +297,17 @@ export async function POST(request: NextRequest) {
               itemType: 'INVENTORY',
               transferNumber,
               toOutlet: destOutlet.name,
-              itemCount: enrichedInvItems.length,
+              itemCount: enrichedInventoryItems.length,
               totalQty,
               totalValue,
-              items: enrichedInvItems.map((item) => ({
-                itemName: item.itemName,
-                itemSku: item.itemSku,
-                itemBaseUnit: item.itemBaseUnit,
-                quantity: item.quantity,
-                avgCost: item.avgCost,
-                subtotal: item.quantity * item.avgCost,
+              items: enrichedInventoryItems.map((i) => ({
+                inventoryItemId: i.inventoryItemId,
+                itemName: i.itemName,
+                itemSku: i.itemSku,
+                baseUnit: i.baseUnit,
+                quantity: i.quantity,
+                avgCost: i.avgCost,
+                subtotal: i.quantity * i.avgCost,
               })),
             }),
             outletId: user.outletId,
@@ -343,20 +320,13 @@ export async function POST(request: NextRequest) {
 
       return safeJsonCreated({
         ...result,
-        _count: { inventoryTransferItems: result.inventoryTransferItems.length },
+        _count: { items: result.inventoryTransferItems.length },
       })
     }
 
-    // ── PRODUCT TRANSFER (default, existing behavior) ──
-    const productItems = items as Array<{
-      productId?: string
-      productName: string
-      productSku?: string
-      productBarcode?: string
-      quantity: number
-      hpp: number
-      price: number
-    }>
+    // ═══════════════════════════════════════════════════════════════════
+    // PRODUCT Transfer (existing logic)
+    // ═══════════════════════════════════════════════════════════════════
 
     // Look up products by productId and enrich with name/sku/barcode/hpp/price
     const enrichedItems: Array<{
@@ -369,7 +339,7 @@ export async function POST(request: NextRequest) {
       productSnapshot: string | null
     }> = []
 
-    for (const item of productItems) {
+    for (const item of items) {
       if (!item.quantity || item.quantity <= 0) {
         return safeJsonError('Setiap item harus memiliki quantity > 0', 400)
       }
@@ -454,6 +424,30 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Verify current outlet has a group
+    const currentOutlet = await db.outlet.findUnique({
+      where: { id: user.outletId },
+      select: { id: true, name: true, groupId: true },
+    })
+
+    if (!currentOutlet?.groupId) {
+      return safeJsonError('Outlet belum tergabung dalam grup', 400)
+    }
+
+    // Verify destination outlet is in the same group
+    const destOutlet = await db.outlet.findFirst({
+      where: { id: toOutletId, groupId: currentOutlet.groupId },
+      select: { id: true, name: true },
+    })
+
+    if (!destOutlet) {
+      return safeJsonError('Outlet tujuan tidak ditemukan atau tidak dalam grup yang sama', 400)
+    }
+
+    if (toOutletId === user.outletId) {
+      return safeJsonError('Tidak dapat transfer ke outlet yang sama', 400)
+    }
+
     // Generate transfer number: TRF-YYYYMMDD-XXXX
     const now = new Date()
     const dateStr =
@@ -489,7 +483,6 @@ export async function POST(request: NextRequest) {
           transferNumber,
           fromOutletId: user.outletId,
           toOutletId,
-          itemType: 'PRODUCT',
           status: 'DRAFT',
           notes: notes?.trim() || null,
           createdById: user.id,
@@ -557,7 +550,6 @@ export async function POST(request: NextRequest) {
           entityId: transfer.id,
           details: JSON.stringify({
             action: 'TRANSFER_DRAFT',
-            itemType: 'PRODUCT',
             transferNumber,
             toOutlet: destOutlet.name,
             itemCount: enrichedItems.length,

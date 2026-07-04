@@ -54,7 +54,7 @@ export async function GET(
             inventoryItemId: true,
             itemName: true,
             itemSku: true,
-            itemBaseUnit: true,
+            baseUnit: true,
             quantity: true,
             avgCost: true,
             createdAt: true,
@@ -97,7 +97,6 @@ export async function GET(
  * - DRAFT → IN_TRANSIT: Deduct stock from source outlet
  * - IN_TRANSIT → RECEIVED: Add stock to destination outlet (create new product or restock)
  * - DRAFT → CANCELLED: Cancel the transfer
- * - IN_TRANSIT → CANCELLED: Cancel inventory transfer in-transit (return stock)
  */
 export async function PATCH(
   request: NextRequest,
@@ -124,7 +123,7 @@ export async function PATCH(
       )
     }
 
-    // Fetch transfer with items (both product and inventory)
+    // Fetch transfer with items
     const transfer = await db.outletTransfer.findUnique({
       where: { id },
       include: {
@@ -146,7 +145,7 @@ export async function PATCH(
             inventoryItemId: true,
             itemName: true,
             itemSku: true,
-            itemBaseUnit: true,
+            baseUnit: true,
             quantity: true,
             avgCost: true,
           },
@@ -159,8 +158,6 @@ export async function PATCH(
     if (!transfer) {
       return safeJsonError('Transfer tidak ditemukan', 404)
     }
-
-    const isInventory = transfer.itemType === 'INVENTORY'
 
     // Validate the outlet is involved
     if (
@@ -179,16 +176,11 @@ export async function PATCH(
       return safeJsonError('Hanya transfer IN_TRANSIT yang dapat diterima', 400)
     }
 
-    if (status === 'CANCELLED') {
-      // Allow IN_TRANSIT → CANCELLED for inventory transfers (to return stock)
-      if (isInventory && transfer.status === 'IN_TRANSIT') {
-        // allowed
-      } else if (transfer.status !== 'DRAFT') {
-        return safeJsonError('Hanya transfer DRAFT yang dapat dibatalkan', 400)
-      }
+    if (status === 'CANCELLED' && transfer.status !== 'DRAFT' && !(transfer.itemType === 'INVENTORY' && transfer.status === 'IN_TRANSIT')) {
+      return safeJsonError('Hanya transfer DRAFT yang dapat dibatalkan', 400)
     }
 
-    // Only sender can mark as IN_TRANSIT or CANCELLED
+    // Only sender can mark as IN_TRANSIT or CANCELLED (CANCELLED from IN_TRANSIT also by sender)
     if (
       (status === 'IN_TRANSIT' || status === 'CANCELLED') &&
       transfer.fromOutletId !== user.outletId
@@ -207,52 +199,43 @@ export async function PATCH(
       )
     }
 
-    // ── IN_TRANSIT ──
+    // ── IN_TRANSIT: Deduct stock from source outlet ──
     if (status === 'IN_TRANSIT') {
-      // ── INVENTORY: Deduct stock from source outlet's InventoryItem ──
-      if (isInventory) {
+      // ── INVENTORY: Deduct InventoryItem stock + create InventoryMovement ──
+      if (transfer.itemType === 'INVENTORY') {
         const invItems = transfer.inventoryTransferItems
+        const totalQty = invItems.reduce((s, i) => s + i.quantity, 0)
+        const totalValue = invItems.reduce((s, i) => s + i.quantity * i.avgCost, 0)
 
         await db.$transaction(async (tx) => {
-          // Deduct stock from each inventory item at source
           for (const item of invItems) {
-            if (!item.inventoryItemId) {
-              throw new Error(`Item ${item.itemName} tidak memiliki inventoryItemId`)
-            }
-
             const invItem = await tx.inventoryItem.findFirst({
               where: { id: item.inventoryItemId, outletId: transfer.fromOutletId },
               select: { id: true, name: true, stock: true },
             })
-
             if (!invItem) {
-              throw new Error(`Item inventory ${item.itemName} tidak ditemukan di outlet pengirim`)
+              throw new Error(`Bahan baku ${item.itemName} tidak ditemukan di outlet pengirim`)
             }
-
             const prevStock = invItem.stock
             const newStock = invItem.stock - item.quantity
-
             if (newStock < 0) {
-              throw new Error(`Stok ${invItem.name} tidak mencukupi (sisa: ${invItem.stock}, diminta: ${item.quantity})`)
+              throw new Error(`Stok ${item.itemName} tidak mencukupi (sisa: ${invItem.stock}, diminta: ${item.quantity})`)
             }
-
             await tx.inventoryItem.update({
               where: { id: invItem.id },
               data: { stock: newStock },
             })
-
-            // Create InventoryMovement record
             await tx.inventoryMovement.create({
               data: {
-                inventoryItemId: invItem.id,
                 type: 'TRANSFER_OUT',
                 quantity: -item.quantity,
                 previousStock: prevStock,
-                newStock: newStock,
+                newStock,
                 referenceId: id,
                 referenceType: 'TRANSFER',
                 notes: `Transfer ke ${transfer.toOutlet.name} (${transfer.transferNumber})`,
                 outletId: transfer.fromOutletId,
+                inventoryItemId: invItem.id,
                 userId: user.id,
               },
             })
@@ -262,9 +245,6 @@ export async function PATCH(
           await tx.outletTransfer.update({ where: { id }, data: { status: 'IN_TRANSIT' } })
 
           // Audit log at source outlet
-          const totalQty = invItems.reduce((s, i) => s + i.quantity, 0)
-          const totalValue = invItems.reduce((s, i) => s + i.quantity * i.avgCost, 0)
-
           await tx.auditLog.create({
             data: {
               action: 'ADJUSTMENT',
@@ -279,12 +259,8 @@ export async function PATCH(
                 totalQty,
                 totalValue,
                 items: invItems.map((i) => ({
-                  itemName: i.itemName,
-                  itemSku: i.itemSku,
-                  itemBaseUnit: i.itemBaseUnit,
-                  quantity: i.quantity,
-                  avgCost: i.avgCost,
-                  subtotal: i.quantity * i.avgCost,
+                  itemName: i.itemName, itemSku: i.itemSku, baseUnit: i.baseUnit,
+                  quantity: i.quantity, avgCost: i.avgCost, subtotal: i.quantity * i.avgCost,
                 })),
               }),
               outletId: transfer.fromOutletId,
@@ -292,7 +268,7 @@ export async function PATCH(
             },
           })
 
-          // Audit log at destination outlet (incoming notification)
+          // Audit log at destination outlet
           await tx.auditLog.create({
             data: {
               action: 'RESTOCK',
@@ -307,12 +283,8 @@ export async function PATCH(
                 totalQty,
                 totalValue,
                 items: invItems.map((i) => ({
-                  itemName: i.itemName,
-                  itemSku: i.itemSku,
-                  itemBaseUnit: i.itemBaseUnit,
-                  quantity: i.quantity,
-                  avgCost: i.avgCost,
-                  subtotal: i.quantity * i.avgCost,
+                  itemName: i.itemName, itemSku: i.itemSku, baseUnit: i.baseUnit,
+                  quantity: i.quantity, avgCost: i.avgCost, subtotal: i.quantity * i.avgCost,
                 })),
               }),
               outletId: transfer.toOutletId,
@@ -326,7 +298,12 @@ export async function PATCH(
           include: {
             fromOutlet: { select: { name: true } },
             toOutlet: { select: { name: true } },
-            inventoryTransferItems: true,
+            inventoryTransferItems: {
+              select: {
+                id: true, inventoryItemId: true, itemName: true, itemSku: true,
+                baseUnit: true, quantity: true, avgCost: true,
+              },
+            },
           },
         })
 
@@ -336,7 +313,7 @@ export async function PATCH(
         })
       }
 
-      // ── PRODUCT: Existing product stock deduction logic (unchanged) ──
+      // ── PRODUCT: Deduct stock from source outlet (with variant sync) ──
       // Build detailed audit items with variant info
       const buildAuditItems = (items: typeof transfer.items) =>
         items.map((i) => {
@@ -503,7 +480,6 @@ export async function PATCH(
             entityId: id,
             details: JSON.stringify({
               action: 'TRANSFER_SENT',
-              itemType: 'PRODUCT',
               transferNumber: transfer.transferNumber,
               toOutlet: transfer.toOutlet.name,
               itemCount: transfer.items.length,
@@ -524,7 +500,6 @@ export async function PATCH(
             entityId: id,
             details: JSON.stringify({
               action: 'TRANSFER_INCOMING',
-              itemType: 'PRODUCT',
               transferNumber: transfer.transferNumber,
               fromOutlet: transfer.fromOutlet.name,
               itemCount: transfer.items.length,
@@ -611,85 +586,59 @@ export async function PATCH(
     }
 
     // ── RECEIVED: Add stock to destination outlet ──
-    // Products are created as new or restocked at the branch
     if (status === 'RECEIVED') {
-      // ── INVENTORY: Add stock to destination outlet's InventoryItem ──
-      if (isInventory) {
+      // ── INVENTORY: Add stock to destination InventoryItems ──
+      if (transfer.itemType === 'INVENTORY') {
         const invItems = transfer.inventoryTransferItems
-        const createdItems: string[] = []
+        const addedItems: string[] = []
         const restockedItems: string[] = []
+        const destOutletId = transfer.toOutletId
 
         await db.$transaction(async (tx) => {
-          const destOutletId = transfer.toOutletId
-
           for (const item of invItems) {
-            // Try to find existing inventory item at destination by SKU first, then by name
-            let destInvItem: { id: string; name: string; stock: number; avgCost: number; baseUnit: string } | null = null
+            // Try to find existing InventoryItem at destination by name
+            const existingItem = await tx.inventoryItem.findFirst({
+              where: { name: item.itemName, outletId: destOutletId },
+              select: { id: true, name: true, stock: true },
+            })
 
-            if (item.itemSku) {
-              destInvItem = await tx.inventoryItem.findFirst({
-                where: { outletId: destOutletId, sku: item.itemSku },
-                select: { id: true, name: true, stock: true, avgCost: true, baseUnit: true },
-              })
-            }
-
-            if (!destInvItem) {
-              destInvItem = await tx.inventoryItem.findFirst({
-                where: { outletId: destOutletId, name: item.itemName },
-                select: { id: true, name: true, stock: true, avgCost: true, baseUnit: true },
-              })
-            }
-
-            if (destInvItem) {
-              // Existing item — add stock and recalculate avg cost
-              const prevStock = destInvItem.stock
-              const totalOldValue = prevStock * destInvItem.avgCost
-              const totalNewValue = item.quantity * item.avgCost
-              const newStock = prevStock + item.quantity
-              const newAvgCost = newStock > 0 ? (totalOldValue + totalNewValue) / newStock : destInvItem.avgCost
-
+            if (existingItem) {
+              // Increment stock
+              const prevStock = existingItem.stock
+              const newStock = existingItem.stock + item.quantity
               await tx.inventoryItem.update({
-                where: { id: destInvItem.id },
-                data: { stock: newStock, avgCost: newAvgCost },
+                where: { id: existingItem.id },
+                data: { stock: newStock },
               })
-
-              restockedItems.push(item.itemName)
-
-              // Create InventoryMovement record at destination
               await tx.inventoryMovement.create({
                 data: {
-                  inventoryItemId: destInvItem.id,
                   type: 'TRANSFER_IN',
                   quantity: item.quantity,
                   previousStock: prevStock,
-                  newStock: newStock,
+                  newStock,
                   referenceId: id,
                   referenceType: 'TRANSFER',
                   notes: `Transfer dari ${transfer.fromOutlet.name} (${transfer.transferNumber})`,
                   outletId: destOutletId,
+                  inventoryItemId: existingItem.id,
                   userId: user.id,
                 },
               })
+              restockedItems.push(item.itemName)
             } else {
-              // Item doesn't exist at destination — create new
-              const newInvItem = await tx.inventoryItem.create({
+              // Create new InventoryItem at destination
+              const newItem = await tx.inventoryItem.create({
                 data: {
                   name: item.itemName,
-                  sku: item.itemSku || null,
-                  baseUnit: item.itemBaseUnit,
+                  sku: item.itemSku,
+                  baseUnit: item.baseUnit,
                   stock: item.quantity,
                   avgCost: item.avgCost,
-                  lowStockAlert: 0,
                   outletId: destOutletId,
                 },
               })
-
-              createdItems.push(item.itemName)
-
-              // Create InventoryMovement record at destination
               await tx.inventoryMovement.create({
                 data: {
-                  inventoryItemId: newInvItem.id,
                   type: 'TRANSFER_IN',
                   quantity: item.quantity,
                   previousStock: 0,
@@ -698,9 +647,11 @@ export async function PATCH(
                   referenceType: 'TRANSFER',
                   notes: `Transfer dari ${transfer.fromOutlet.name} (${transfer.transferNumber}) — item baru`,
                   outletId: destOutletId,
+                  inventoryItemId: newItem.id,
                   userId: user.id,
                 },
               })
+              addedItems.push(item.itemName)
             }
           }
 
@@ -714,10 +665,10 @@ export async function PATCH(
             },
           })
 
-          // Audit log at destination outlet
-          const receivedTotalQty = invItems.reduce((s, i) => s + i.quantity, 0)
-          const receivedTotalValue = invItems.reduce((s, i) => s + i.quantity * i.avgCost, 0)
+          const totalQty = invItems.reduce((s, i) => s + i.quantity, 0)
+          const totalValue = invItems.reduce((s, i) => s + i.quantity * i.avgCost, 0)
 
+          // Audit log at destination
           await tx.auditLog.create({
             data: {
               action: 'RESTOCK',
@@ -729,17 +680,13 @@ export async function PATCH(
                 transferNumber: transfer.transferNumber,
                 fromOutlet: transfer.fromOutlet.name,
                 itemCount: invItems.length,
-                totalQty: receivedTotalQty,
-                totalValue: receivedTotalValue,
-                createdItems: createdItems.length > 0 ? createdItems : undefined,
+                totalQty,
+                totalValue,
+                addedItems: addedItems.length > 0 ? addedItems : undefined,
                 restockedItems: restockedItems.length > 0 ? restockedItems : undefined,
                 items: invItems.map((i) => ({
-                  itemName: i.itemName,
-                  itemSku: i.itemSku,
-                  itemBaseUnit: i.itemBaseUnit,
-                  quantity: i.quantity,
-                  avgCost: i.avgCost,
-                  subtotal: i.quantity * i.avgCost,
+                  itemName: i.itemName, itemSku: i.itemSku, baseUnit: i.baseUnit,
+                  quantity: i.quantity, avgCost: i.avgCost, subtotal: i.quantity * i.avgCost,
                 })),
               }),
               outletId: destOutletId,
@@ -747,7 +694,7 @@ export async function PATCH(
             },
           })
 
-          // Audit log at source outlet (confirmation)
+          // Audit log at source outlet
           await tx.auditLog.create({
             data: {
               action: 'ADJUSTMENT',
@@ -759,15 +706,11 @@ export async function PATCH(
                 transferNumber: transfer.transferNumber,
                 toOutlet: transfer.toOutlet.name,
                 itemCount: invItems.length,
-                totalQty: receivedTotalQty,
-                totalValue: receivedTotalValue,
+                totalQty,
+                totalValue,
                 items: invItems.map((i) => ({
-                  itemName: i.itemName,
-                  itemSku: i.itemSku,
-                  itemBaseUnit: i.itemBaseUnit,
-                  quantity: i.quantity,
-                  avgCost: i.avgCost,
-                  subtotal: i.quantity * i.avgCost,
+                  itemName: i.itemName, itemSku: i.itemSku, baseUnit: i.baseUnit,
+                  quantity: i.quantity, avgCost: i.avgCost, subtotal: i.quantity * i.avgCost,
                 })),
               }),
               outletId: transfer.fromOutletId,
@@ -783,25 +726,29 @@ export async function PATCH(
             toOutlet: { select: { name: true } },
             createdBy: { select: { id: true, name: true } },
             receivedBy: { select: { id: true, name: true } },
-            inventoryTransferItems: true,
+            inventoryTransferItems: {
+              select: {
+                id: true, inventoryItemId: true, itemName: true, itemSku: true,
+                baseUnit: true, quantity: true, avgCost: true,
+              },
+            },
           },
         })
 
-        // Build success message
         const parts: string[] = []
-        if (createdItems.length > 0) parts.push(`${createdItems.length} item inventory baru ditambahkan`)
-        if (restockedItems.length > 0) parts.push(`${restockedItems.length} item inventory di-restock`)
+        if (addedItems.length > 0) parts.push(`${addedItems.length} bahan baku baru ditambahkan`)
+        if (restockedItems.length > 0) parts.push(`${restockedItems.length} bahan baku di-restock`)
         const detailMsg = parts.length > 0 ? ` (${parts.join(', ')})` : ''
 
         return safeJson({
           ...updated,
           message: `Transfer ${transfer.transferNumber} berhasil diterima${detailMsg}`,
-          createdItems,
+          createdItems: addedItems,
           restockedItems,
         })
       }
 
-      // ── PRODUCT: Existing product stock addition logic (unchanged) ──
+      // ── PRODUCT: Products are created as new or restocked at the branch ──
       const createdProducts: string[] = []
       const restockedProducts: string[] = []
 
@@ -869,7 +816,6 @@ export async function PATCH(
             // Per-product audit log so it shows in product detail movement history
             const auditDetail: Record<string, unknown> = {
               action: 'TRANSFER_IN',
-              itemType: 'PRODUCT',
               transferNumber: transfer.transferNumber,
               fromOutlet: transfer.fromOutlet.name,
               productName: item.productName,
@@ -965,7 +911,6 @@ export async function PATCH(
                 entityId: newProduct.id,
                 details: JSON.stringify({
                   action: 'TRANSFER_IN_NEW',
-                  itemType: 'PRODUCT',
                   transferNumber: transfer.transferNumber,
                   fromOutlet: transfer.fromOutlet.name,
                   productName: item.productName,
@@ -987,7 +932,6 @@ export async function PATCH(
                 entityId: newProduct.id,
                 details: JSON.stringify({
                   action: 'TRANSFER_IN',
-                  itemType: 'PRODUCT',
                   transferNumber: transfer.transferNumber,
                   fromOutlet: transfer.fromOutlet.name,
                   productName: item.productName,
@@ -1046,7 +990,6 @@ export async function PATCH(
             entityId: id,
             details: JSON.stringify({
               action: 'TRANSFER_RECEIVED',
-              itemType: 'PRODUCT',
               transferNumber: transfer.transferNumber,
               fromOutlet: transfer.fromOutlet.name,
               itemCount: transfer.items.length,
@@ -1069,7 +1012,6 @@ export async function PATCH(
             entityId: id,
             details: JSON.stringify({
               action: 'TRANSFER_RECEIVED_BY_BRANCH',
-              itemType: 'PRODUCT',
               transferNumber: transfer.transferNumber,
               toOutlet: transfer.toOutlet.name,
               itemCount: transfer.items.length,
@@ -1113,46 +1055,40 @@ export async function PATCH(
       })
     }
 
-    // ── CANCELLED ──
+    // ── CANCELLED: Cancel transfer ──
     if (status === 'CANCELLED') {
-      // ── INVENTORY from IN_TRANSIT: Return stock to source outlet ──
-      if (isInventory && transfer.status === 'IN_TRANSIT') {
+      // ── INVENTORY: CANCELLED from IN_TRANSIT — return stock to source ──
+      if (transfer.itemType === 'INVENTORY' && transfer.status === 'IN_TRANSIT') {
         const invItems = transfer.inventoryTransferItems
 
         await db.$transaction(async (tx) => {
           for (const item of invItems) {
-            if (!item.inventoryItemId) continue
-
             const invItem = await tx.inventoryItem.findFirst({
               where: { id: item.inventoryItemId, outletId: transfer.fromOutletId },
               select: { id: true, name: true, stock: true },
             })
-
-            if (!invItem) continue
-
-            const prevStock = invItem.stock
-            const newStock = invItem.stock + item.quantity
-
-            await tx.inventoryItem.update({
-              where: { id: invItem.id },
-              data: { stock: newStock },
-            })
-
-            // Create InventoryMovement record (TRANSFER_IN, reversing the out)
-            await tx.inventoryMovement.create({
-              data: {
-                inventoryItemId: invItem.id,
-                type: 'TRANSFER_IN',
-                quantity: item.quantity,
-                previousStock: prevStock,
-                newStock: newStock,
-                referenceId: id,
-                referenceType: 'TRANSFER',
-                notes: `Pembatalan transfer ke ${transfer.toOutlet.name} (${transfer.transferNumber}) — stok dikembalikan`,
-                outletId: transfer.fromOutletId,
-                userId: user.id,
-              },
-            })
+            if (invItem) {
+              const prevStock = invItem.stock
+              const newStock = invItem.stock + item.quantity
+              await tx.inventoryItem.update({
+                where: { id: invItem.id },
+                data: { stock: newStock },
+              })
+              await tx.inventoryMovement.create({
+                data: {
+                  type: 'ADJUSTMENT',
+                  quantity: item.quantity,
+                  previousStock: prevStock,
+                  newStock,
+                  referenceId: id,
+                  referenceType: 'TRANSFER',
+                  notes: `Pembatalan transfer ke ${transfer.toOutlet.name} (${transfer.transferNumber}) — stok dikembalikan`,
+                  outletId: transfer.fromOutletId,
+                  inventoryItemId: invItem.id,
+                  userId: user.id,
+                },
+              })
+            }
           }
 
           // Update transfer status
@@ -1161,10 +1097,10 @@ export async function PATCH(
             data: { status: 'CANCELLED' },
           })
 
-          // Audit log
-          const cancelTotalQty = invItems.reduce((s, i) => s + i.quantity, 0)
-          const cancelTotalValue = invItems.reduce((s, i) => s + i.quantity * i.avgCost, 0)
+          const totalQty = invItems.reduce((s, i) => s + i.quantity, 0)
+          const totalValue = invItems.reduce((s, i) => s + i.quantity * i.avgCost, 0)
 
+          // Audit log
           await tx.auditLog.create({
             data: {
               action: 'ADJUSTMENT',
@@ -1176,93 +1112,13 @@ export async function PATCH(
                 transferNumber: transfer.transferNumber,
                 toOutlet: transfer.toOutlet.name,
                 previousStatus: 'IN_TRANSIT',
-                stockReturned: true,
                 itemCount: invItems.length,
-                totalQty: cancelTotalQty,
-                totalValue: cancelTotalValue,
+                totalQty,
+                totalValue,
+                stockReverted: true,
                 items: invItems.map((i) => ({
-                  itemName: i.itemName,
-                  itemSku: i.itemSku,
-                  itemBaseUnit: i.itemBaseUnit,
-                  quantity: i.quantity,
-                  avgCost: i.avgCost,
-                  subtotal: i.quantity * i.avgCost,
-                })),
-              }),
-              outletId: transfer.fromOutletId,
-              userId: user.id,
-            },
-          })
-
-          // Notify destination outlet
-          await tx.auditLog.create({
-            data: {
-              action: 'ADJUSTMENT',
-              entityType: 'STOCK',
-              entityId: id,
-              details: JSON.stringify({
-                action: 'TRANSFER_CANCELLED',
-                itemType: 'INVENTORY',
-                transferNumber: transfer.transferNumber,
-                fromOutlet: transfer.fromOutlet.name,
-                itemCount: invItems.length,
-                totalQty: cancelTotalQty,
-                totalValue: cancelTotalValue,
-              }),
-              outletId: transfer.toOutletId,
-              userId: user.id,
-            },
-          })
-        })
-
-        const updated = await db.outletTransfer.findUnique({
-          where: { id },
-          include: {
-            fromOutlet: { select: { name: true } },
-            toOutlet: { select: { name: true } },
-            inventoryTransferItems: true,
-          },
-        })
-
-        return safeJson({
-          ...updated,
-          message: `Transfer ${transfer.transferNumber} dibatalkan, stok inventory dikembalikan`,
-        })
-      }
-
-      // ── DRAFT cancellation (both PRODUCT and INVENTORY, or default) ──
-      if (isInventory) {
-        // INVENTORY DRAFT cancellation — no stock to return
-        const invItems = transfer.inventoryTransferItems
-        const cancelTotalQty = invItems.reduce((s, i) => s + i.quantity, 0)
-        const cancelTotalValue = invItems.reduce((s, i) => s + i.quantity * i.avgCost, 0)
-
-        await db.$transaction(async (tx) => {
-          await tx.outletTransfer.update({
-            where: { id },
-            data: { status: 'CANCELLED' },
-          })
-
-          await tx.auditLog.create({
-            data: {
-              action: 'ADJUSTMENT',
-              entityType: 'STOCK',
-              entityId: id,
-              details: JSON.stringify({
-                action: 'TRANSFER_CANCELLED',
-                itemType: 'INVENTORY',
-                transferNumber: transfer.transferNumber,
-                toOutlet: transfer.toOutlet.name,
-                itemCount: invItems.length,
-                totalQty: cancelTotalQty,
-                totalValue: cancelTotalValue,
-                items: invItems.map((i) => ({
-                  itemName: i.itemName,
-                  itemSku: i.itemSku,
-                  itemBaseUnit: i.itemBaseUnit,
-                  quantity: i.quantity,
-                  avgCost: i.avgCost,
-                  subtotal: i.quantity * i.avgCost,
+                  itemName: i.itemName, itemSku: i.itemSku, baseUnit: i.baseUnit,
+                  quantity: i.quantity, avgCost: i.avgCost, subtotal: i.quantity * i.avgCost,
                 })),
               }),
               outletId: transfer.fromOutletId,
@@ -1276,17 +1132,22 @@ export async function PATCH(
           include: {
             fromOutlet: { select: { name: true } },
             toOutlet: { select: { name: true } },
-            inventoryTransferItems: true,
+            inventoryTransferItems: {
+              select: {
+                id: true, inventoryItemId: true, itemName: true, itemSku: true,
+                baseUnit: true, quantity: true, avgCost: true,
+              },
+            },
           },
         })
 
         return safeJson({
           ...updated,
-          message: `Transfer ${transfer.transferNumber} dibatalkan`,
+          message: `Transfer ${transfer.transferNumber} dibatalkan, stok bahan baku dikembalikan`,
         })
       }
 
-      // ── PRODUCT DRAFT cancellation (existing behavior) ──
+      // ── DRAFT → CANCELLED (existing logic for both PRODUCT and INVENTORY) ──
       // Build detailed audit items with variant info
       const cancelAuditItems = transfer.items.map((i) => {
         const entry: Record<string, unknown> = {
@@ -1322,7 +1183,6 @@ export async function PATCH(
             entityId: id,
             details: JSON.stringify({
               action: 'TRANSFER_CANCELLED',
-              itemType: 'PRODUCT',
               transferNumber: transfer.transferNumber,
               toOutlet: transfer.toOutlet.name,
               itemCount: transfer.items.length,

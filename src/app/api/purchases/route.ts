@@ -9,7 +9,7 @@ async function recalculateHppForAffectedProducts(
   tx: Parameters<Parameters<typeof db.$transaction>[0]>[0],
   inventoryItemIds: string[]
 ) {
-  // Find all products that have composition using these inventory items AND hasComposition = true
+  // Find all compositions using these inventory items
   const compositions = await tx.productComposition.findMany({
     where: {
       inventoryItemId: { in: inventoryItemIds },
@@ -22,6 +22,11 @@ async function recalculateHppForAffectedProducts(
           hasVariants: true,
         },
       },
+      variant: {
+        select: {
+          id: true,
+        },
+      },
       inventoryItem: {
         select: {
           avgCost: true,
@@ -30,39 +35,34 @@ async function recalculateHppForAffectedProducts(
     },
   })
 
-  // Group by productId
-  const productMap = new Map<string, Array<{ qty: number; avgCost: number }>>()
-  for (const comp of compositions) {
-    if (!productMap.has(comp.productId)) {
-      productMap.set(comp.productId, [])
-    }
-    productMap.get(comp.productId)!.push({
-      qty: comp.qty,
-      avgCost: comp.inventoryItem.avgCost,
-    })
-  }
+  if (compositions.length === 0) return
 
-  // For each affected product, calculate new HPP and update
-  for (const [productId, items] of productMap) {
-    const newHpp = items.reduce((sum, item) => sum + item.qty * item.avgCost, 0)
-    const product = items.length > 0
-      ? await tx.productComposition.findFirst({
-          where: { productId },
-          select: { product: { select: { hasVariants: true } } },
+  // Get the set of affected product IDs
+  const affectedProductIds = [...new Set(compositions.map((c) => c.productId))]
+
+  for (const productId of affectedProductIds) {
+    const productComps = compositions.filter((c) => c.productId === productId)
+    const hasVariants = productComps[0].product.hasVariants
+
+    if (hasVariants) {
+      // Per-variant HPP recalculation
+      const variantIds = [...new Set(productComps.filter((c) => c.variantId).map((c) => c.variantId!))]
+      for (const variantId of variantIds) {
+        const variantComps = productComps.filter((c) => c.variantId === variantId)
+        const newHpp = variantComps.reduce((sum, c) => sum + c.qty * c.inventoryItem.avgCost, 0)
+        await tx.productVariant.update({
+          where: { id: variantId },
+          data: { hpp: newHpp },
         })
-      : null
-
-    if (product?.product.hasVariants) {
-      // Update product hpp and all variant hpp
+      }
+      // Product-level HPP stays 0 for variant products
       await tx.product.update({
         where: { id: productId },
-        data: { hpp: newHpp },
-      })
-      await tx.productVariant.updateMany({
-        where: { productId },
-        data: { hpp: newHpp },
+        data: { hpp: 0 },
       })
     } else {
+      // Non-variant: recalculate product-level HPP
+      const newHpp = productComps.reduce((sum, c) => sum + c.qty * c.inventoryItem.avgCost, 0)
       await tx.product.update({
         where: { id: productId },
         data: { hpp: newHpp },
