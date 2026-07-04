@@ -120,7 +120,7 @@ export default function RootLayout({
           </QueryProvider>
         </ThemeProvider>
         <Toaster />
-        <PwaRegister />
+        {/* <PwaRegister /> — disabled in dev sandbox */}
       </body>
     </html>
   );

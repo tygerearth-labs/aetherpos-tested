@@ -60,7 +60,7 @@ import {
   ShoppingCart,
   Info,
   CircleDot,
-  FlaskConical,
+  Beaker,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -89,6 +89,36 @@ interface TransferItemApi {
   price: number
 }
 
+interface InventoryItemOption {
+  id: string
+  name: string
+  sku?: string
+  baseUnit: string
+  stock: number
+  avgCost: number
+  category?: { id: string; name: string; color: string } | null
+}
+
+interface InventoryTransferForm {
+  inventoryItemId: string
+  itemName: string
+  itemSku?: string | null
+  itemBaseUnit: string
+  quantity: number
+  avgCost: number
+  stockAtSource: number
+}
+
+interface InventoryTransferItemApi {
+  id: string
+  inventoryItemId?: string
+  itemName: string
+  itemSku?: string | null
+  itemBaseUnit: string
+  quantity: number
+  avgCost: number
+}
+
 interface Transfer {
   id: string
   transferNumber: string
@@ -98,7 +128,7 @@ interface Transfer {
   toOutletName?: string
   fromOutlet?: { id: string; name: string; address?: string; phone?: string }
   toOutlet?: { id: string; name: string; address?: string; phone?: string }
- createdBy?: { id: string; name: string; email?: string } | null
+  createdBy?: { id: string; name: string; email?: string } | null
   receivedBy?: { id: string; name: string; email?: string } | null
   receivedAt?: string | null
   status: TransferStatus
@@ -107,15 +137,7 @@ interface Transfer {
   updatedAt: string
   items: TransferItem[] | TransferItemApi[]
   itemType?: string
-  inventoryTransferItems?: Array<{
-    id: string
-    inventoryItemId: string
-    itemName: string
-    itemSku?: string | null
-    baseUnit: string
-    quantity: number
-    avgCost: number
-  }>
+  inventoryTransferItems?: InventoryTransferItemApi[]
   _count?: { items: number }
   itemCount?: number
   totalQty?: number
@@ -139,58 +161,6 @@ interface ProductOption {
   hasVariants?: boolean
   variantCount?: number
   variants?: { id: string; name: string; sku?: string; barcode?: string; price: number; hpp: number; stock: number }[]
-}
-
-interface InventoryTransferItem {
-  id?: string
-  inventoryItemId: string
-  itemName: string
-  itemSku?: string | null
-  baseUnit: string
-  quantity: number
-  avgCost: number
-  stockAtSource?: number
-}
-
-interface InventoryTransfer {
-  id: string
-  transferNumber: string
-  fromOutletId: string
-  fromOutletName?: string
-  toOutletId: string
-  toOutletName?: string
-  fromOutlet?: { id: string; name: string; address?: string; phone?: string }
-  toOutlet?: { id: string; name: string; address?: string; phone?: string }
-  createdBy?: { id: string; name: string; email?: string } | null
-  receivedBy?: { id: string; name: string; email?: string } | null
-  receivedAt?: string | null
-  status: TransferStatus
-  itemType: 'INVENTORY'
-  notes?: string | null
-  createdAt: string
-  updatedAt: string
-  inventoryTransferItems?: Array<{
-    id: string
-    inventoryItemId: string
-    itemName: string
-    itemSku?: string | null
-    baseUnit: string
-    quantity: number
-    avgCost: number
-  }>
-  itemCount?: number
-  totalQty?: number
-  direction?: string
-}
-
-interface InventoryItemOption {
-  id: string
-  name: string
-  sku?: string | null
-  baseUnit: string
-  stock: number
-  avgCost: number
-  category?: { id: string; name: string; color: string } | null
 }
 
 // ── Status Badge ──
@@ -226,7 +196,10 @@ export default function TransferPage() {
   const { data: session } = useSession()
   const isOwner = session?.user?.role === 'OWNER'
 
-  // ── State ──
+  // ── Top-level mode ──
+  const [transferMode, setTransferMode] = useState<'PRODUCT' | 'INVENTORY'>('PRODUCT')
+
+  // ── State (Product) ──
   const [transfers, setTransfers] = useState<Transfer[]>([])
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<string>('outbound')
@@ -237,7 +210,7 @@ export default function TransferPage() {
   const [detailOpen, setDetailOpen] = useState(false)
   const [selectedTransfer, setSelectedTransfer] = useState<Transfer | null>(null)
 
-  // Create dialog
+  // Create dialog (product)
   const [createOpen, setCreateOpen] = useState(false)
   const [createLoading, setCreateLoading] = useState(false)
   const [destOutlet, setDestOutlet] = useState('')
@@ -252,30 +225,28 @@ export default function TransferPage() {
   const searchRef = useRef<HTMLDivElement>(null)
   const [addQty, setAddQty] = useState('1')
 
-  // Action loading
-  const [actionLoading, setActionLoading] = useState<string | null>(null)
-
-  // ── Top-level tab (produk vs bahan-baku) ──
-  const [mainTab, setMainTab] = useState('produk')
-
-  // ── Bahan Baku (Inventory) state ──
-  const [invTransfers, setInvTransfers] = useState<InventoryTransfer[]>([])
+  // ── State (Inventory) ──
+  const [invTransfers, setInvTransfers] = useState<Transfer[]>([])
   const [invLoading, setInvLoading] = useState(true)
-  const [invTab, setInvTab] = useState('outbound')
-  const [invDetailOpen, setInvDetailOpen] = useState(false)
-  const [invSelectedTransfer, setInvSelectedTransfer] = useState<InventoryTransfer | null>(null)
+  const [invTab, setInvTab] = useState<string>('outbound')
+
+  // Inventory create dialog
   const [invCreateOpen, setInvCreateOpen] = useState(false)
   const [invCreateLoading, setInvCreateLoading] = useState(false)
   const [invDestOutlet, setInvDestOutlet] = useState('')
   const [invCreateNotes, setInvCreateNotes] = useState('')
-  const [invCreateItems, setInvCreateItems] = useState<InventoryTransferItem[]>([])
+  const [invCreateItems, setInvCreateItems] = useState<InventoryTransferForm[]>([])
+
+  // Inventory search
   const [invSearch, setInvSearch] = useState('')
-  const [invSearchResults, setInvSearchResults] = useState<InventoryItemOption[]>([])
+  const [invResults, setInvResults] = useState<InventoryItemOption[]>([])
   const [invSearching, setInvSearching] = useState(false)
-  const [invShowDropdown, setInvShowDropdown] = useState(false)
-  const [invSearchRef] = useState({ current: null as HTMLDivElement | null })
+  const [showInvDropdown, setShowInvDropdown] = useState(false)
+  const invSearchRef = useRef<HTMLDivElement>(null)
   const [invAddQty, setInvAddQty] = useState('1')
-  const [invActionLoading, setInvActionLoading] = useState<string | null>(null)
+
+  // Action loading
+  const [actionLoading, setActionLoading] = useState<string | null>(null)
 
   // ── Fetch outlet group ──
   useEffect(() => {
@@ -299,14 +270,14 @@ export default function TransferPage() {
     return () => { cancelled = true }
   }, [session?.user?.outletId])
 
-  // ── Fetch transfers ──
+  // ── Fetch transfers (Product) ──
   const fetchTransfers = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch(`/api/transfers?direction=${tab}&itemType=PRODUCT`)
+      const res = await fetch(`/api/transfers?direction=${tab}`)
       if (res.ok) {
         const data = await res.json()
-        setTransfers(data.transfers || [])
+        setTransfers((data.transfers || []).filter((t: Transfer) => t.itemType !== 'INVENTORY'))
       }
     } catch {
       toast.error('Gagal memuat data transfer')
@@ -318,6 +289,26 @@ export default function TransferPage() {
   useEffect(() => {
     void fetchTransfers()
   }, [fetchTransfers])
+
+  // ── Fetch transfers (Inventory) ──
+  const fetchInvTransfers = useCallback(async () => {
+    setInvLoading(true)
+    try {
+      const res = await fetch(`/api/transfers?direction=${invTab}&itemType=INVENTORY`)
+      if (res.ok) {
+        const data = await res.json()
+        setInvTransfers(data.transfers || [])
+      }
+    } catch {
+      toast.error('Gagal memuat data transfer bahan baku')
+    } finally {
+      setInvLoading(false)
+    }
+  }, [invTab])
+
+  useEffect(() => {
+    if (hasGroup) void fetchInvTransfers()
+  }, [fetchInvTransfers, hasGroup])
 
   // ── Product search (debounced) ──
   useEffect(() => {
@@ -346,7 +337,7 @@ export default function TransferPage() {
     return () => clearTimeout(timeout)
   }, [productSearch])
 
-  // Close dropdown on outside click
+  // Close dropdown on outside click (product)
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
@@ -357,234 +348,43 @@ export default function TransferPage() {
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
 
-  // ══════════════════════════════════════════
-  // Bahan Baku (Inventory Transfer) Logic
-  // ══════════════════════════════════════════
-
-  // ── Fetch inventory transfers ──
-  const fetchInvTransfers = useCallback(async () => {
-    setInvLoading(true)
-    try {
-      const res = await fetch(`/api/transfers?direction=${invTab}&itemType=INVENTORY`)
-      if (res.ok) {
-        const data = await res.json()
-        setInvTransfers(data.transfers || [])
-      }
-    } catch {
-      toast.error('Gagal memuat data transfer bahan baku')
-    } finally {
-      setInvLoading(false)
-    }
-  }, [invTab])
-
-  useEffect(() => {
-    void fetchInvTransfers()
-  }, [fetchInvTransfers])
-
-  // ── Inventory item search (debounced) ──
+  // ── Inventory search (debounced) ──
   useEffect(() => {
     if (!invSearch.trim()) {
-      setInvSearchResults([])
-      setInvShowDropdown(false)
+      setInvResults([])
+      setShowInvDropdown(false)
       return
     }
     const timeout = setTimeout(async () => {
       setInvSearching(true)
       try {
-        const res = await fetch(`/api/inventory/items?search=${encodeURIComponent(invSearch)}&limit=20`)
+        const res = await fetch(`/api/inventory/items?search=${encodeURIComponent(invSearch)}`)
         if (res.ok) {
           const data = await res.json()
-          setInvSearchResults(data.items || data || [])
-          setInvShowDropdown(true)
+          setInvResults(data.items || [])
+          setShowInvDropdown(true)
         }
-      } catch { /* ignore */ } finally {
+      } catch {
+        // ignore
+      } finally {
         setInvSearching(false)
       }
     }, 300)
     return () => clearTimeout(timeout)
   }, [invSearch])
 
-  // ── Close inv dropdown on outside click ──
+  // Close dropdown on outside click (inventory)
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (invSearchRef.current && !invSearchRef.current.contains(e.target as Node)) {
-        setInvShowDropdown(false)
+        setShowInvDropdown(false)
       }
     }
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
 
-  // ── Inv Actions ──
-  const invHandleSend = async (id: string) => {
-    setInvActionLoading(id)
-    try {
-      const res = await fetch(`/api/transfers/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'IN_TRANSIT' }) })
-      if (res.ok) {
-        toast.success('Transfer bahan baku berhasil dikirim')
-        void fetchInvTransfers()
-      } else {
-        const data = await res.json()
-        toast.error(data.error || 'Gagal mengirim transfer')
-      }
-    } catch {
-      toast.error('Gagal mengirim transfer')
-    } finally {
-      setInvActionLoading(null)
-    }
-  }
-
-  const invHandleReceive = async (id: string) => {
-    setInvActionLoading(id)
-    try {
-      const res = await fetch(`/api/transfers/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'RECEIVED' }) })
-      if (res.ok) {
-        const data = await res.json()
-        toast.success(data.message || 'Transfer bahan baku berhasil diterima', { duration: 5000 })
-        void fetchInvTransfers()
-        setInvDetailOpen(false)
-      } else {
-        const data = await res.json()
-        toast.error(data.error || 'Gagal menerima transfer')
-      }
-    } catch {
-      toast.error('Gagal menerima transfer')
-    } finally {
-      setInvActionLoading(null)
-    }
-  }
-
-  const invHandleCancel = async (id: string) => {
-    setInvActionLoading(id)
-    try {
-      const res = await fetch(`/api/transfers/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'CANCELLED' }) })
-      if (res.ok) {
-        toast.success('Transfer bahan baku dibatalkan')
-        void fetchInvTransfers()
-        setInvDetailOpen(false)
-      } else {
-        const data = await res.json()
-        toast.error(data.error || 'Gagal membatalkan transfer')
-      }
-    } catch {
-      toast.error('Gagal membatalkan transfer')
-    } finally {
-      setInvActionLoading(null)
-    }
-  }
-
-  // ── Inv open detail ──
-  const invOpenDetail = async (transfer: InventoryTransfer) => {
-    setInvDetailOpen(true)
-    try {
-      const res = await fetch(`/api/transfers/${transfer.id}`)
-      if (res.ok) {
-        const data = await res.json()
-        const normalized: InventoryTransfer = {
-          ...data,
-          fromOutletName: data.fromOutlet?.name || transfer.fromOutletName || '-',
-          toOutletName: data.toOutlet?.name || transfer.toOutletName || '-',
-          inventoryTransferItems: data.inventoryTransferItems || [],
-        }
-        setInvSelectedTransfer(normalized)
-      } else {
-        setInvSelectedTransfer(transfer)
-      }
-    } catch {
-      setInvSelectedTransfer(transfer)
-    }
-  }
-
-  // ── Inv add item ──
-  const invHandleAddItem = (item: InventoryItemOption) => {
-    if (invCreateItems.find(i => i.inventoryItemId === item.id)) {
-      toast.error('Bahan baku sudah ditambahkan')
-      return
-    }
-    const qty = parseFloat(invAddQty) || 1
-    if (qty > item.stock) {
-      toast.error(`Stok tersedia hanya ${formatNumber(item.stock)} ${item.baseUnit}`)
-      return
-    }
-    if (qty <= 0) {
-      toast.error('Jumlah harus lebih dari 0')
-      return
-    }
-    setInvCreateItems(prev => [...prev, {
-      inventoryItemId: item.id,
-      itemName: item.name,
-      itemSku: item.sku,
-      baseUnit: item.baseUnit,
-      quantity: qty,
-      avgCost: item.avgCost,
-      stockAtSource: item.stock,
-    }])
-    setInvSearch('')
-    setInvShowDropdown(false)
-    setInvAddQty('1')
-  }
-
-  const invHandleRemoveItem = (inventoryItemId: string) => {
-    setInvCreateItems(prev => prev.filter(i => i.inventoryItemId !== inventoryItemId))
-  }
-
-  const invHandleUpdateQty = (inventoryItemId: string, qty: number) => {
-    setInvCreateItems(prev => prev.map(i => {
-      if (i.inventoryItemId === inventoryItemId) {
-        if (qty > (i.stockAtSource ?? 9999)) {
-          toast.error(`Stok tersedia hanya ${formatNumber(i.stockAtSource ?? 0)} ${i.baseUnit}`)
-          return i
-        }
-        return { ...i, quantity: qty }
-      }
-      return i
-    }))
-  }
-
-  // ── Inv submit create ──
-  const invHandleSubmitCreate = async () => {
-    if (!invDestOutlet) {
-      toast.error('Pilih outlet tujuan')
-      return
-    }
-    if (invCreateItems.length === 0) {
-      toast.error('Tambahkan minimal 1 bahan baku')
-      return
-    }
-    setInvCreateLoading(true)
-    try {
-      const res = await fetch('/api/transfers', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          toOutletId: invDestOutlet,
-          notes: invCreateNotes || undefined,
-          itemType: 'INVENTORY',
-          items: invCreateItems.map(i => ({
-            inventoryItemId: i.inventoryItemId,
-            quantity: i.quantity,
-          })),
-        }),
-      })
-      if (res.ok) {
-        toast.success('Transfer bahan baku berhasil dibuat')
-        setInvCreateOpen(false)
-        setInvDestOutlet('')
-        setInvCreateNotes('')
-        setInvCreateItems([])
-        void fetchInvTransfers()
-      } else {
-        const data = await res.json()
-        toast.error(data.error || 'Gagal membuat transfer')
-      }
-    } catch {
-      toast.error('Gagal membuat transfer')
-    } finally {
-      setInvCreateLoading(false)
-    }
-  }
-
-  // ── Actions ──
+  // ── Actions (shared for both modes) ──
   const handleSend = async (id: string) => {
     setActionLoading(id)
     try {
@@ -592,6 +392,7 @@ export default function TransferPage() {
       if (res.ok) {
         toast.success('Transfer berhasil dikirim')
         void fetchTransfers()
+        void fetchInvTransfers()
       } else {
         const data = await res.json()
         toast.error(data.error || 'Gagal mengirim transfer')
@@ -612,6 +413,7 @@ export default function TransferPage() {
         const msg = data.message || 'Transfer berhasil diterima'
         toast.success(msg, { duration: 5000 })
         void fetchTransfers()
+        void fetchInvTransfers()
         setDetailOpen(false)
       } else {
         const data = await res.json()
@@ -631,6 +433,7 @@ export default function TransferPage() {
       if (res.ok) {
         toast.success('Transfer dibatalkan')
         void fetchTransfers()
+        void fetchInvTransfers()
         setDetailOpen(false)
       } else {
         const data = await res.json()
@@ -690,7 +493,53 @@ export default function TransferPage() {
     }))
   }
 
-  // ── Submit create ──
+  // ── Add inventory item to create list ──
+  const handleAddInvItem = (item: InventoryItemOption) => {
+    if (invCreateItems.find(i => i.inventoryItemId === item.id)) {
+      toast.error('Bahan baku sudah ditambahkan')
+      return
+    }
+    const qty = parseInt(invAddQty) || 1
+    if (qty > item.stock) {
+      toast.error(`Stok tersedia hanya ${item.stock} ${item.baseUnit}`)
+      return
+    }
+    if (qty <= 0) {
+      toast.error('Jumlah harus lebih dari 0')
+      return
+    }
+    setInvCreateItems(prev => [...prev, {
+      inventoryItemId: item.id,
+      itemName: item.name,
+      itemSku: item.sku || null,
+      itemBaseUnit: item.baseUnit,
+      quantity: qty,
+      avgCost: item.avgCost || 0,
+      stockAtSource: item.stock,
+    }])
+    setInvSearch('')
+    setShowInvDropdown(false)
+    setInvAddQty('1')
+  }
+
+  const handleRemoveInvCreateItem = (inventoryItemId: string) => {
+    setInvCreateItems(prev => prev.filter(i => i.inventoryItemId !== inventoryItemId))
+  }
+
+  const handleUpdateInvCreateQty = (inventoryItemId: string, qty: number) => {
+    setInvCreateItems(prev => prev.map(i => {
+      if (i.inventoryItemId === inventoryItemId) {
+        if (qty > (i.stockAtSource ?? 9999)) {
+          toast.error(`Stok tersedia hanya ${i.stockAtSource} ${i.itemBaseUnit}`)
+          return i
+        }
+        return { ...i, quantity: qty }
+      }
+      return i
+    }))
+  }
+
+  // ── Submit create (Product) ──
   const handleSubmitCreate = async () => {
     if (!destOutlet) {
       toast.error('Pilih outlet tujuan')
@@ -732,6 +581,49 @@ export default function TransferPage() {
     }
   }
 
+  // ── Submit create (Inventory) ──
+  const handleSubmitInvCreate = async () => {
+    if (!invDestOutlet) {
+      toast.error('Pilih outlet tujuan')
+      return
+    }
+    if (invCreateItems.length === 0) {
+      toast.error('Tambahkan minimal 1 bahan baku')
+      return
+    }
+    setInvCreateLoading(true)
+    try {
+      const res = await fetch('/api/transfers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          itemType: 'INVENTORY',
+          toOutletId: invDestOutlet,
+          notes: invCreateNotes || undefined,
+          items: invCreateItems.map(i => ({
+            inventoryItemId: i.inventoryItemId,
+            quantity: i.quantity,
+          })),
+        }),
+      })
+      if (res.ok) {
+        toast.success('Transfer bahan baku berhasil dibuat')
+        setInvCreateOpen(false)
+        setInvDestOutlet('')
+        setInvCreateNotes('')
+        setInvCreateItems([])
+        void fetchInvTransfers()
+      } else {
+        const data = await res.json()
+        toast.error(data.error || 'Gagal membuat transfer bahan baku')
+      }
+    } catch {
+      toast.error('Gagal membuat transfer bahan baku')
+    } finally {
+      setInvCreateLoading(false)
+    }
+  }
+
   // ── Open detail ──
   const openDetail = async (transfer: Transfer) => {
     setDetailOpen(true)
@@ -740,22 +632,35 @@ export default function TransferPage() {
       const res = await fetch(`/api/transfers/${transfer.id}`)
       if (res.ok) {
         const data = await res.json()
-        // Normalize: API returns nested fromOutlet/toOutlet objects + items as TransferItemApi
-        const normalized: Transfer = {
-          ...data,
-          fromOutletName: data.fromOutlet?.name || transfer.fromOutletName || '-',
-          toOutletName: data.toOutlet?.name || transfer.toOutletName || '-',
-          items: (data.items || []).map((item: TransferItemApi) => ({
-            productId: '',
-            productName: item.productName,
-            sku: item.productSku || undefined,
-            productBarcode: item.productBarcode || undefined,
-            quantity: item.quantity,
-            price: item.price,
-            hpp: item.hpp || 0,
-          })),
+        if (data.itemType === 'INVENTORY') {
+          // Normalize inventory transfer
+          const normalized: Transfer = {
+            ...data,
+            fromOutletName: data.fromOutlet?.name || transfer.fromOutletName || '-',
+            toOutletName: data.toOutlet?.name || transfer.toOutletName || '-',
+            items: [],
+            inventoryTransferItems: data.inventoryTransferItems || [],
+          }
+          setSelectedTransfer(normalized)
+        } else {
+          // Normalize product transfer
+          const normalized: Transfer = {
+            ...data,
+            fromOutletName: data.fromOutlet?.name || transfer.fromOutletName || '-',
+            toOutletName: data.toOutlet?.name || transfer.toOutletName || '-',
+            items: (data.items || []).map((item: TransferItemApi) => ({
+              productId: '',
+              productName: item.productName,
+              sku: item.productSku || undefined,
+              productBarcode: item.productBarcode || undefined,
+              quantity: item.quantity,
+              price: item.price,
+              hpp: item.hpp || 0,
+            })),
+            inventoryTransferItems: [],
+          }
+          setSelectedTransfer(normalized)
         }
-        setSelectedTransfer(normalized)
       } else {
         setSelectedTransfer(transfer)
       }
@@ -764,8 +669,279 @@ export default function TransferPage() {
     }
   }
 
+  // ── Render transfer list (reusable for both modes) ──
+  const renderTransferList = (
+    transfersList: Transfer[],
+    currentTab: string,
+    isLoading: boolean,
+    isInventory: boolean,
+  ) => {
+    if (isLoading) {
+      return (
+        <div className="space-y-3 mt-4">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Skeleton key={i} className="h-16 bg-nebula rounded-xl" />
+          ))}
+        </div>
+      )
+    }
+
+    return (
+      <>
+        {/* Desktop Table */}
+        <div className="hidden md:block mt-4">
+          <Card className="bg-nebula border-white/[0.06] overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow className="border-white/[0.06] hover:bg-transparent">
+                  <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">No. Transfer</TableHead>
+                  <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">
+                    {currentTab === 'outbound' ? 'Tujuan' : 'Asal'}
+                  </TableHead>
+                  <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">Status</TableHead>
+                  <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider text-right">Item</TableHead>
+                  <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider text-right">Qty</TableHead>
+                  <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider text-right">Total</TableHead>
+                  <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">Tanggal</TableHead>
+                  <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">Catatan</TableHead>
+                  <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider text-right">Aksi</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {transfersList.length === 0 ? (
+                  <TableRow className="border-white/[0.04] hover:bg-transparent">
+                    <TableCell colSpan={9} className="text-center py-12">
+                      {isInventory ? (
+                        <Beaker className="h-8 w-8 text-slate-600 mx-auto mb-2" />
+                      ) : (
+                        <Package className="h-8 w-8 text-slate-600 mx-auto mb-2" />
+                      )}
+                      <p className="text-sm text-slate-500">Belum ada transfer</p>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  transfersList.map((t) => (
+                    <TableRow
+                      key={t.id}
+                      className="border-white/[0.04] hover:bg-transparent cursor-pointer"
+                      onClick={() => openDetail(t)}
+                    >
+                      <TableCell className="text-xs text-slate-200 font-medium font-mono">
+                        <div className="flex items-center gap-1.5">
+                          {t.transferNumber}
+                          {isInventory && (
+                            <Badge className="text-[8px] px-1 py-0 leading-none bg-violet-500/10 border-violet-500/20 text-violet-400 font-medium">
+                              Bahan Baku
+                            </Badge>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-xs text-slate-200">
+                        <div className="flex items-center gap-1.5">
+                          <Store className="h-3 w-3 text-slate-500 shrink-0" />
+                          {currentTab === 'outbound' ? t.toOutletName : t.fromOutletName}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <StatusBadge status={t.status} />
+                      </TableCell>
+                      <TableCell className="text-xs text-slate-400 text-right">
+                        {isInventory
+                          ? `${t._count?.items ?? t.itemCount ?? (t.inventoryTransferItems?.length ?? 0)} bahan`
+                          : `${t._count?.items ?? t.itemCount ?? t.items?.length ?? 0} produk`
+                        }
+                      </TableCell>
+                      <TableCell className="text-xs text-slate-300 text-right font-medium">
+                        {formatNumber(t.totalQty ?? 0)}
+                        {isInventory && t.inventoryTransferItems && t.inventoryTransferItems.length > 0 && (
+                          <span className="text-slate-500 ml-1 text-[10px]">{t.inventoryTransferItems[0].itemBaseUnit}</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-xs text-emerald-400 text-right font-medium">
+                        {formatCurrency(t.totalPrice ?? 0)}
+                      </TableCell>
+                      <TableCell className="text-xs text-slate-500">
+                        {formatDate(t.createdAt)}
+                      </TableCell>
+                      <TableCell className="text-xs text-slate-500 max-w-[150px] truncate">
+                        {t.notes || '-'}
+                      </TableCell>
+                      <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-slate-400 hover:text-white hover:bg-white/[0.04]"
+                            onClick={() => openDetail(t)}
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                          </Button>
+                          {t.status === 'DRAFT' && currentTab === 'outbound' && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 px-2 text-sky-400 hover:text-sky-300 hover:bg-sky-500/[0.06] gap-1"
+                              disabled={actionLoading === t.id}
+                              onClick={() => handleSend(t.id)}
+                            >
+                              {actionLoading === t.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                              <span className="text-[10px]">Kirim</span>
+                            </Button>
+                          )}
+                          {t.status === 'IN_TRANSIT' && currentTab === 'inbound' && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 px-2 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/[0.06] gap-1"
+                              disabled={actionLoading === t.id}
+                              onClick={() => handleReceive(t.id)}
+                            >
+                              {actionLoading === t.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                              <span className="text-[10px]">Terima</span>
+                            </Button>
+                          )}
+                          {t.status !== 'RECEIVED' && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 px-2 text-red-400 hover:text-red-300 hover:bg-red-500/[0.06] gap-1"
+                              disabled={actionLoading === t.id}
+                              onClick={() => handleCancel(t.id)}
+                            >
+                              {actionLoading === t.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Ban className="h-3.5 w-3.5" />}
+                              <span className="text-[10px]">Batalkan</span>
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </Card>
+        </div>
+
+        {/* Mobile Cards */}
+        <div className="md:hidden mt-4 space-y-2">
+          {transfersList.length === 0 ? (
+            <Card className="bg-nebula border-white/[0.06]">
+              <CardContent className="py-12 text-center">
+                {isInventory ? (
+                  <Beaker className="h-8 w-8 text-slate-600 mx-auto mb-2" />
+                ) : (
+                  <Package className="h-8 w-8 text-slate-600 mx-auto mb-2" />
+                )}
+                <p className="text-sm text-slate-500">Belum ada transfer</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <AnimatePresence>
+              {transfersList.map((t) => (
+                <motion.div
+                  key={t.id}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <Card
+                    className="bg-nebula border-white/[0.06] cursor-pointer active:scale-[0.98] transition-transform"
+                    onClick={() => openDetail(t)}
+                  >
+                    <CardContent className="p-3 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          {currentTab === 'outbound' ? (
+                            <ArrowRight className="h-3.5 w-3.5 text-sky-400 shrink-0" />
+                          ) : (
+                            <ArrowLeft className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                          )}
+                          <span className="text-xs text-white font-medium font-mono">{t.transferNumber}</span>
+                          {isInventory && (
+                            <Badge className="text-[8px] px-1 py-0 leading-none bg-violet-500/10 border-violet-500/20 text-violet-400 font-medium">
+                              Bahan Baku
+                            </Badge>
+                          )}
+                        </div>
+                        <StatusBadge status={t.status} />
+                      </div>
+                      <div className="flex items-center gap-1.5 text-slate-400">
+                        <Store className="h-3 w-3 shrink-0" />
+                        <span className="text-[11px]">
+                          {currentTab === 'outbound' ? 'Ke' : 'Dari'} {currentTab === 'outbound' ? t.toOutletName : t.fromOutletName}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-slate-500">
+                        <div className="flex items-center gap-1.5">
+                          {isInventory ? (
+                            <Beaker className="h-3 w-3" />
+                          ) : (
+                            <Package className="h-3 w-3" />
+                          )}
+                          <span className="text-[11px]">
+                            {isInventory
+                              ? `${t._count?.items ?? t.itemCount ?? (t.inventoryTransferItems?.length ?? 0)} bahan`
+                              : `${t._count?.items ?? t.itemCount ?? t.items?.length ?? 0} produk`
+                            }
+                          </span>
+                          <span className="text-[10px]">•</span>
+                          <span className="text-[11px] text-slate-300">Qty {formatNumber(t.totalQty ?? 0)}</span>
+                          {isInventory && t.inventoryTransferItems && t.inventoryTransferItems.length > 0 && (
+                            <span className="text-[10px] text-slate-500">{t.inventoryTransferItems[0].itemBaseUnit}</span>
+                          )}
+                        </div>
+                        <span className="text-xs font-medium text-emerald-400">{formatCurrency(t.totalPrice ?? 0)}</span>
+                      </div>
+                      {t.status !== 'RECEIVED' && (
+                        <div className="flex items-center gap-1.5 pt-1 border-t border-white/[0.04]" onClick={(e) => e.stopPropagation()}>
+                          {t.status === 'DRAFT' && currentTab === 'outbound' && (
+                            <Button
+                              size="sm"
+                              className="flex-1 h-7 text-[10px] gap-1 bg-sky-500/10 text-sky-400 hover:bg-sky-500/20 border border-sky-500/20"
+                              disabled={actionLoading === t.id}
+                              onClick={() => handleSend(t.id)}
+                            >
+                              {actionLoading === t.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
+                              Kirim
+                            </Button>
+                          )}
+                          {t.status === 'IN_TRANSIT' && currentTab === 'inbound' && (
+                            <Button
+                              size="sm"
+                              className="flex-1 h-7 text-[10px] gap-1 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20"
+                              disabled={actionLoading === t.id}
+                              onClick={() => handleReceive(t.id)}
+                            >
+                              {actionLoading === t.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
+                              Terima
+                            </Button>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 text-[10px] gap-1 text-red-400 hover:text-red-300 hover:bg-red-500/[0.06]"
+                            disabled={actionLoading === t.id}
+                            onClick={() => handleCancel(t.id)}
+                          >
+                            {actionLoading === t.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Ban className="h-3 w-3" />}
+                            Batalkan
+                          </Button>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              ))}
+            </AnimatePresence>
+          )}
+        </div>
+      </>
+    )
+  }
+
   // ── Skeleton ──
-  if (loading) {
+  if (loading && !invLoading) {
     return (
       <div className="space-y-4">
         <Skeleton className="h-7 w-40 bg-white/[0.04]" />
@@ -809,11 +985,16 @@ export default function TransferPage() {
         {hasGroup && isOwner && (
           <Button
             size="sm"
-            onClick={() => mainTab === 'bahan-baku' ? setInvCreateOpen(true) : setCreateOpen(true)}
+            onClick={() => {
+              if (transferMode === 'PRODUCT') setCreateOpen(true)
+              else setInvCreateOpen(true)
+            }}
             className="theme-bg theme-hover text-white text-xs font-medium h-8 px-3 rounded-lg gap-1.5 shrink-0"
           >
             <Plus className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">{mainTab === 'bahan-baku' ? 'Transfer BB' : 'Buat Transfer'}</span>
+            <span className="hidden sm:inline">
+              {transferMode === 'PRODUCT' ? 'Buat Transfer' : 'Transfer Bahan Baku'}
+            </span>
           </Button>
         )}
       </motion.div>
@@ -829,519 +1010,89 @@ export default function TransferPage() {
           </Card>
         </motion.div>
       ) : (
-        <Tabs value={mainTab} onValueChange={setMainTab}>
+        <>
+          {/* Mode Switcher Tabs */}
           <motion.div variants={itemVariants}>
-            <TabsList className="bg-white/[0.04] border border-white/[0.06] h-9 p-0.5 rounded-lg">
-              <TabsTrigger
-                value="produk"
-                className="text-xs font-medium h-7 rounded-md data-[state=active]:bg-white/[0.08] data-[state=active]:text-white text-slate-400 px-3 gap-1.5"
-              >
-                <Package className="h-3 w-3" />
-                Transfer Produk
-              </TabsTrigger>
-              <TabsTrigger
-                value="bahan-baku"
-                className="text-xs font-medium h-7 rounded-md data-[state=active]:bg-white/[0.08] data-[state=active]:text-white text-slate-400 px-3 gap-1.5"
-              >
-                <FlaskConical className="h-3 w-3" />
-                Transfer Bahan Baku
-              </TabsTrigger>
-            </TabsList>
-          </motion.div>
-          <TabsContent value="produk">
-          {/* Tabs */}
-          <motion.div variants={itemVariants}>
-            <Tabs value={tab} onValueChange={setTab}>
+            <Tabs value={transferMode} onValueChange={(v) => setTransferMode(v as 'PRODUCT' | 'INVENTORY')}>
               <TabsList className="bg-white/[0.04] border border-white/[0.06] h-9 p-0.5 rounded-lg">
                 <TabsTrigger
-                  value="outbound"
+                  value="PRODUCT"
                   className="text-xs font-medium h-7 rounded-md data-[state=active]:bg-white/[0.08] data-[state=active]:text-white text-slate-400 px-3 gap-1.5"
                 >
-                  <ArrowUpFromLine className="h-3 w-3" />
-                  Outbound
+                  <Package className="h-3 w-3" />
+                  Transfer Produk
                 </TabsTrigger>
                 <TabsTrigger
-                  value="inbound"
+                  value="INVENTORY"
                   className="text-xs font-medium h-7 rounded-md data-[state=active]:bg-white/[0.08] data-[state=active]:text-white text-slate-400 px-3 gap-1.5"
                 >
-                  <Inbox className="h-3 w-3" />
-                  Inbound
+                  <Beaker className="h-3 w-3" />
+                  Transfer Bahan Baku
                 </TabsTrigger>
               </TabsList>
 
-              {/* Desktop Table */}
-              <div className="hidden md:block mt-4">
-                <Card className="bg-nebula border-white/[0.06] overflow-hidden">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="border-white/[0.06] hover:bg-transparent">
-                        <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">No. Transfer</TableHead>
-                        <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">
-                          {tab === 'outbound' ? 'Tujuan' : 'Asal'}
-                        </TableHead>
-                        <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">Status</TableHead>
-                        <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider text-right">Item</TableHead>
-                        <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider text-right">Qty</TableHead>
-                        <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider text-right">Total</TableHead>
-                        <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">Tanggal</TableHead>
-                        <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">Catatan</TableHead>
-                        <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider text-right">Aksi</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {transfers.length === 0 ? (
-                        <TableRow className="border-white/[0.04] hover:bg-transparent">
-                          <TableCell colSpan={9} className="text-center py-12">
-                            <Package className="h-8 w-8 text-slate-600 mx-auto mb-2" />
-                            <p className="text-sm text-slate-500">Belum ada transfer</p>
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        transfers.map((t) => (
-                          <TableRow
-                            key={t.id}
-                            className="border-white/[0.04] hover:bg-transparent cursor-pointer"
-                            onClick={() => openDetail(t)}
-                          >
-                            <TableCell className="text-xs text-slate-200 font-medium font-mono">
-                              {t.transferNumber}
-                            </TableCell>
-                            <TableCell className="text-xs text-slate-200">
-                              <div className="flex items-center gap-1.5">
-                                <Store className="h-3 w-3 text-slate-500 shrink-0" />
-                                {tab === 'outbound' ? t.toOutletName : t.fromOutletName}
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <StatusBadge status={t.status} />
-                            </TableCell>
-                            <TableCell className="text-xs text-slate-400 text-right">
-                              {t._count?.items ?? t.itemCount ?? t.items?.length ?? 0} produk
-                            </TableCell>
-                            <TableCell className="text-xs text-slate-300 text-right font-medium">
-                              {formatNumber(t.totalQty ?? 0)}
-                            </TableCell>
-                            <TableCell className="text-xs text-emerald-400 text-right font-medium">
-                              {formatCurrency(t.totalPrice ?? 0)}
-                            </TableCell>
-                            <TableCell className="text-xs text-slate-500">
-                              {formatDate(t.createdAt)}
-                            </TableCell>
-                            <TableCell className="text-xs text-slate-500 max-w-[150px] truncate">
-                              {t.notes || '-'}
-                            </TableCell>
-                            <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                              <div className="flex items-center justify-end gap-1">
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-7 px-2 text-slate-400 hover:text-white hover:bg-white/[0.04]"
-                                  onClick={() => openDetail(t)}
-                                >
-                                  <Eye className="h-3.5 w-3.5" />
-                                </Button>
-                                {t.status === 'DRAFT' && tab === 'outbound' && (
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-7 px-2 text-sky-400 hover:text-sky-300 hover:bg-sky-500/[0.06] gap-1"
-                                    disabled={actionLoading === t.id}
-                                    onClick={() => handleSend(t.id)}
-                                  >
-                                    {actionLoading === t.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-                                    <span className="text-[10px]">Kirim</span>
-                                  </Button>
-                                )}
-                                {t.status === 'IN_TRANSIT' && tab === 'inbound' && (
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-7 px-2 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/[0.06] gap-1"
-                                    disabled={actionLoading === t.id}
-                                    onClick={() => handleReceive(t.id)}
-                                  >
-                                    {actionLoading === t.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
-                                    <span className="text-[10px]">Terima</span>
-                                  </Button>
-                                )}
-                                {t.status !== 'RECEIVED' && (
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-7 px-2 text-red-400 hover:text-red-300 hover:bg-red-500/[0.06] gap-1"
-                                    disabled={actionLoading === t.id}
-                                    onClick={() => handleCancel(t.id)}
-                                  >
-                                    {actionLoading === t.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Ban className="h-3.5 w-3.5" />}
-                                    <span className="text-[10px]">Batalkan</span>
-                                  </Button>
-                                )}
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
-                </Card>
-              </div>
+              {/* ═══ PRODUCT Mode ═══ */}
+              <TabsContent value="PRODUCT" className="mt-0">
+                <Tabs value={tab} onValueChange={setTab}>
+                  <TabsList className="bg-white/[0.04] border border-white/[0.06] h-9 p-0.5 rounded-lg mt-4">
+                    <TabsTrigger
+                      value="outbound"
+                      className="text-xs font-medium h-7 rounded-md data-[state=active]:bg-white/[0.08] data-[state=active]:text-white text-slate-400 px-3 gap-1.5"
+                    >
+                      <ArrowUpFromLine className="h-3 w-3" />
+                      Outbound
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="inbound"
+                      className="text-xs font-medium h-7 rounded-md data-[state=active]:bg-white/[0.08] data-[state=active]:text-white text-slate-400 px-3 gap-1.5"
+                    >
+                      <Inbox className="h-3 w-3" />
+                      Inbound
+                    </TabsTrigger>
+                  </TabsList>
+                  {renderTransferList(transfers, tab, loading, false)}
+                </Tabs>
+              </TabsContent>
 
-              {/* Mobile Cards */}
-              <div className="md:hidden mt-4 space-y-2">
-                {transfers.length === 0 ? (
-                  <Card className="bg-nebula border-white/[0.06]">
-                    <CardContent className="py-12 text-center">
-                      <Package className="h-8 w-8 text-slate-600 mx-auto mb-2" />
-                      <p className="text-sm text-slate-500">Belum ada transfer</p>
-                    </CardContent>
-                  </Card>
-                ) : (
-                  <AnimatePresence>
-                    {transfers.map((t) => (
-                      <motion.div
-                        key={t.id}
-                        initial={{ opacity: 0, y: 8 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -8 }}
-                        transition={{ duration: 0.2 }}
-                      >
-                        <Card
-                          className="bg-nebula border-white/[0.06] cursor-pointer active:scale-[0.98] transition-transform"
-                          onClick={() => openDetail(t)}
-                        >
-                          <CardContent className="p-3 space-y-2.5">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                {tab === 'outbound' ? (
-                                  <ArrowRight className="h-3.5 w-3.5 text-sky-400 shrink-0" />
-                                ) : (
-                                  <ArrowLeft className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-                                )}
-                                <span className="text-xs text-white font-medium font-mono">{t.transferNumber}</span>
-                              </div>
-                              <StatusBadge status={t.status} />
-                            </div>
-                            <div className="flex items-center gap-1.5 text-slate-400">
-                              <Store className="h-3 w-3 shrink-0" />
-                              <span className="text-[11px]">
-                                {tab === 'outbound' ? 'Ke' : 'Dari'} {tab === 'outbound' ? t.toOutletName : t.fromOutletName}
-                              </span>
-                            </div>
-                            <div className="flex items-center justify-between text-slate-500">
-                              <div className="flex items-center gap-1.5">
-                                <Package className="h-3 w-3" />
-                                <span className="text-[11px]">{t._count?.items ?? t.itemCount ?? t.items?.length ?? 0} produk</span>
-                                <span className="text-[10px]">•</span>
-                                <span className="text-[11px] text-slate-300">Qty {formatNumber(t.totalQty ?? 0)}</span>
-                              </div>
-                              <span className="text-xs font-medium text-emerald-400">{formatCurrency(t.totalPrice ?? 0)}</span>
-                            </div>
-                            {t.status !== 'RECEIVED' && (
-                              <div className="flex items-center gap-1.5 pt-1 border-t border-white/[0.04]" onClick={(e) => e.stopPropagation()}>
-                                {t.status === 'DRAFT' && tab === 'outbound' && (
-                                  <Button
-                                    size="sm"
-                                    className="flex-1 h-7 text-[10px] gap-1 bg-sky-500/10 text-sky-400 hover:bg-sky-500/20 border border-sky-500/20"
-                                    disabled={actionLoading === t.id}
-                                    onClick={() => handleSend(t.id)}
-                                  >
-                                    {actionLoading === t.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
-                                    Kirim
-                                  </Button>
-                                )}
-                                {t.status === 'IN_TRANSIT' && tab === 'inbound' && (
-                                  <Button
-                                    size="sm"
-                                    className="flex-1 h-7 text-[10px] gap-1 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20"
-                                    disabled={actionLoading === t.id}
-                                    onClick={() => handleReceive(t.id)}
-                                  >
-                                    {actionLoading === t.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
-                                    Terima
-                                  </Button>
-                                )}
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-7 text-[10px] gap-1 text-red-400 hover:text-red-300 hover:bg-red-500/[0.06]"
-                                  disabled={actionLoading === t.id}
-                                  onClick={() => handleCancel(t.id)}
-                                >
-                                  {actionLoading === t.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Ban className="h-3 w-3" />}
-                                  Batalkan
-                                </Button>
-                              </div>
-                            )}
-                          </CardContent>
-                        </Card>
-                      </motion.div>
-                    ))}
-                  </AnimatePresence>
-                )}
-              </div>
+              {/* ═══ INVENTORY (Bahan Baku) Mode ═══ */}
+              <TabsContent value="INVENTORY" className="mt-0">
+                <Tabs value={invTab} onValueChange={setInvTab}>
+                  <TabsList className="bg-white/[0.04] border border-white/[0.06] h-9 p-0.5 rounded-lg mt-4">
+                    <TabsTrigger
+                      value="outbound"
+                      className="text-xs font-medium h-7 rounded-md data-[state=active]:bg-white/[0.08] data-[state=active]:text-white text-slate-400 px-3 gap-1.5"
+                    >
+                      <ArrowUpFromLine className="h-3 w-3" />
+                      Outbound
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="inbound"
+                      className="text-xs font-medium h-7 rounded-md data-[state=active]:bg-white/[0.08] data-[state=active]:text-white text-slate-400 px-3 gap-1.5"
+                    >
+                      <Inbox className="h-3 w-3" />
+                      Inbound
+                    </TabsTrigger>
+                  </TabsList>
+                  {renderTransferList(invTransfers, invTab, invLoading, true)}
+                </Tabs>
+              </TabsContent>
             </Tabs>
           </motion.div>
-          </TabsContent>
-
-          {/* ═══ Bahan Baku Tab Content ═══ */}
-          <TabsContent value="bahan-baku">
-            <motion.div variants={itemVariants}>
-              <Tabs value={invTab} onValueChange={setInvTab}>
-                <TabsList className="bg-white/[0.04] border border-white/[0.06] h-9 p-0.5 rounded-lg">
-                  <TabsTrigger
-                    value="outbound"
-                    className="text-xs font-medium h-7 rounded-md data-[state=active]:bg-white/[0.08] data-[state=active]:text-white text-slate-400 px-3 gap-1.5"
-                  >
-                    <ArrowUpFromLine className="h-3 w-3" />
-                    Outbound
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="inbound"
-                    className="text-xs font-medium h-7 rounded-md data-[state=active]:bg-white/[0.08] data-[state=active]:text-white text-slate-400 px-3 gap-1.5"
-                  >
-                    <Inbox className="h-3 w-3" />
-                    Inbound
-                  </TabsTrigger>
-                </TabsList>
-
-                {/* Desktop Table */}
-                <div className="hidden md:block mt-4">
-                  <Card className="bg-nebula border-white/[0.06] overflow-hidden">
-                    <Table>
-                      <TableHeader>
-                        <TableRow className="border-white/[0.06] hover:bg-transparent">
-                          <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">No. Transfer</TableHead>
-                          <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">
-                            {invTab === 'outbound' ? 'Tujuan' : 'Asal'}
-                          </TableHead>
-                          <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">Status</TableHead>
-                          <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider text-right">Item</TableHead>
-                          <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider text-right">Qty</TableHead>
-                          <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">Tanggal</TableHead>
-                          <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">Catatan</TableHead>
-                          <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider text-right">Aksi</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {invLoading ? (
-                          <TableRow className="border-white/[0.04] hover:bg-transparent">
-                            <TableCell colSpan={8} className="text-center py-8">
-                              <Loader2 className="h-5 w-5 text-slate-500 animate-spin mx-auto mb-2" />
-                              <p className="text-xs text-slate-500">Memuat data...</p>
-                            </TableCell>
-                          </TableRow>
-                        ) : invTransfers.length === 0 ? (
-                          <TableRow className="border-white/[0.04] hover:bg-transparent">
-                            <TableCell colSpan={8} className="text-center py-12">
-                              <PackageOpen className="h-8 w-8 text-slate-600 mx-auto mb-2" />
-                              <p className="text-sm text-slate-500">Belum ada transfer bahan baku</p>
-                            </TableCell>
-                          </TableRow>
-                        ) : (
-                          invTransfers.map((t) => (
-                            <TableRow
-                              key={t.id}
-                              className="border-white/[0.04] hover:bg-transparent cursor-pointer"
-                              onClick={() => invOpenDetail(t)}
-                            >
-                              <TableCell className="text-xs text-slate-200 font-medium font-mono">
-                                <div className="flex items-center gap-2">
-                                  {t.transferNumber}
-                                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 leading-none border bg-violet-500/10 border-violet-500/20 text-violet-400 font-medium">
-                                    Bahan Baku
-                                  </Badge>
-                                </div>
-                              </TableCell>
-                              <TableCell className="text-xs text-slate-200">
-                                <div className="flex items-center gap-1.5">
-                                  <Store className="h-3 w-3 text-slate-500 shrink-0" />
-                                  {invTab === 'outbound' ? t.toOutletName : t.fromOutletName}
-                                </div>
-                              </TableCell>
-                              <TableCell>
-                                <StatusBadge status={t.status} />
-                              </TableCell>
-                              <TableCell className="text-xs text-slate-400 text-right">
-                                {t.inventoryTransferItems?.length ?? t.itemCount ?? 0} item
-                              </TableCell>
-                              <TableCell className="text-xs text-slate-300 text-right font-medium">
-                                {formatNumber(t.totalQty ?? 0)}
-                              </TableCell>
-                              <TableCell className="text-xs text-slate-500">
-                                {formatDate(t.createdAt)}
-                              </TableCell>
-                              <TableCell className="text-xs text-slate-500 max-w-[150px] truncate">
-                                {t.notes || '-'}
-                              </TableCell>
-                              <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                                <div className="flex items-center justify-end gap-1">
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-7 px-2 text-slate-400 hover:text-white hover:bg-white/[0.04]"
-                                    onClick={() => invOpenDetail(t)}
-                                  >
-                                    <Eye className="h-3.5 w-3.5" />
-                                  </Button>
-                                  {t.status === 'DRAFT' && invTab === 'outbound' && (
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-7 px-2 text-sky-400 hover:text-sky-300 hover:bg-sky-500/[0.06] gap-1"
-                                      disabled={invActionLoading === t.id}
-                                      onClick={() => invHandleSend(t.id)}
-                                    >
-                                      {invActionLoading === t.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-                                      <span className="text-[10px]">Kirim</span>
-                                    </Button>
-                                  )}
-                                  {t.status === 'IN_TRANSIT' && invTab === 'inbound' && (
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-7 px-2 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/[0.06] gap-1"
-                                      disabled={invActionLoading === t.id}
-                                      onClick={() => invHandleReceive(t.id)}
-                                    >
-                                      {invActionLoading === t.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
-                                      <span className="text-[10px]">Terima</span>
-                                    </Button>
-                                  )}
-                                  {t.status !== 'RECEIVED' && (
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-7 px-2 text-red-400 hover:text-red-300 hover:bg-red-500/[0.06] gap-1"
-                                      disabled={invActionLoading === t.id}
-                                      onClick={() => invHandleCancel(t.id)}
-                                    >
-                                      {invActionLoading === t.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Ban className="h-3.5 w-3.5" />}
-                                      <span className="text-[10px]">Batalkan</span>
-                                    </Button>
-                                  )}
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                          ))
-                        )}
-                      </TableBody>
-                    </Table>
-                  </Card>
-                </div>
-
-                {/* Mobile Cards */}
-                <div className="md:hidden mt-4 space-y-2">
-                  {invLoading ? (
-                    <Card className="bg-nebula border-white/[0.06]">
-                      <CardContent className="py-8 text-center">
-                        <Loader2 className="h-5 w-5 text-slate-500 animate-spin mx-auto mb-2" />
-                        <p className="text-xs text-slate-500">Memuat data...</p>
-                      </CardContent>
-                    </Card>
-                  ) : invTransfers.length === 0 ? (
-                    <Card className="bg-nebula border-white/[0.06]">
-                      <CardContent className="py-12 text-center">
-                        <PackageOpen className="h-8 w-8 text-slate-600 mx-auto mb-2" />
-                        <p className="text-sm text-slate-500">Belum ada transfer bahan baku</p>
-                      </CardContent>
-                    </Card>
-                  ) : (
-                    <AnimatePresence>
-                      {invTransfers.map((t) => (
-                        <motion.div
-                          key={t.id}
-                          initial={{ opacity: 0, y: 8 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -8 }}
-                          transition={{ duration: 0.2 }}
-                        >
-                          <Card
-                            className="bg-nebula border-white/[0.06] cursor-pointer active:scale-[0.98] transition-transform"
-                            onClick={() => invOpenDetail(t)}
-                          >
-                            <CardContent className="p-3 space-y-2.5">
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                  {invTab === 'outbound' ? (
-                                    <ArrowRight className="h-3.5 w-3.5 text-sky-400 shrink-0" />
-                                  ) : (
-                                    <ArrowLeft className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-                                  )}
-                                  <span className="text-xs text-white font-medium font-mono">{t.transferNumber}</span>
-                                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 leading-none border bg-violet-500/10 border-violet-500/20 text-violet-400 font-medium">
-                                    Bahan Baku
-                                  </Badge>
-                                </div>
-                                <StatusBadge status={t.status} />
-                              </div>
-                              <div className="flex items-center gap-1.5 text-slate-400">
-                                <Store className="h-3 w-3 shrink-0" />
-                                <span className="text-[11px]">
-                                  {invTab === 'outbound' ? 'Ke' : 'Dari'} {invTab === 'outbound' ? t.toOutletName : t.fromOutletName}
-                                </span>
-                              </div>
-                              <div className="flex items-center justify-between text-slate-500">
-                                <div className="flex items-center gap-1.5">
-                                  <PackageOpen className="h-3 w-3" />
-                                  <span className="text-[11px]">{t.inventoryTransferItems?.length ?? t.itemCount ?? 0} item</span>
-                                  <span className="text-[10px]">•</span>
-                                  <span className="text-[11px] text-slate-300">Qty {formatNumber(t.totalQty ?? 0)}</span>
-                                </div>
-                              </div>
-                              {t.status !== 'RECEIVED' && (
-                                <div className="flex items-center gap-1.5 pt-1 border-t border-white/[0.04]" onClick={(e) => e.stopPropagation()}>
-                                  {t.status === 'DRAFT' && invTab === 'outbound' && (
-                                    <Button
-                                      size="sm"
-                                      className="flex-1 h-7 text-[10px] gap-1 bg-sky-500/10 text-sky-400 hover:bg-sky-500/20 border border-sky-500/20"
-                                      disabled={invActionLoading === t.id}
-                                      onClick={() => invHandleSend(t.id)}
-                                    >
-                                      {invActionLoading === t.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
-                                      Kirim
-                                    </Button>
-                                  )}
-                                  {t.status === 'IN_TRANSIT' && invTab === 'inbound' && (
-                                    <Button
-                                      size="sm"
-                                      className="flex-1 h-7 text-[10px] gap-1 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20"
-                                      disabled={invActionLoading === t.id}
-                                      onClick={() => invHandleReceive(t.id)}
-                                    >
-                                      {invActionLoading === t.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
-                                      Terima
-                                    </Button>
-                                  )}
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    className="h-7 text-[10px] gap-1 text-red-400 hover:text-red-300 hover:bg-red-500/[0.06]"
-                                    disabled={invActionLoading === t.id}
-                                    onClick={() => invHandleCancel(t.id)}
-                                  >
-                                    {invActionLoading === t.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Ban className="h-3 w-3" />}
-                                    Batalkan
-                                  </Button>
-                                </div>
-                              )}
-                            </CardContent>
-                          </Card>
-                        </motion.div>
-                      ))}
-                    </AnimatePresence>
-                  )}
-                </div>
-              </Tabs>
-            </motion.div>
-          </TabsContent>
-        </Tabs>
+        </>
       )}
 
       {/* ═══ Detail Dialog ═══ */}
       <ResponsiveDialog open={detailOpen} onOpenChange={setDetailOpen}>
         <ResponsiveDialogContent className="sm:max-w-lg">
           <ResponsiveDialogHeader>
-            <ResponsiveDialogTitle className="text-white text-base">Detail Transfer</ResponsiveDialogTitle>
+            <div className="flex items-center gap-2">
+              <ResponsiveDialogTitle className="text-white text-base">Detail Transfer</ResponsiveDialogTitle>
+              {selectedTransfer?.itemType === 'INVENTORY' && (
+                <Badge className="text-[9px] px-1.5 py-0.5 leading-none bg-violet-500/10 border-violet-500/20 text-violet-400 font-medium">
+                  Bahan Baku
+                </Badge>
+              )}
+            </div>
             <ResponsiveDialogDescription className="text-slate-400 text-xs">
               {selectedTransfer?.transferNumber}
             </ResponsiveDialogDescription>
@@ -1390,61 +1141,103 @@ export default function TransferPage() {
                 </div>
               )}
 
-              {/* Items */}
-              <div>
-                <p className="text-[11px] text-slate-500 uppercase tracking-wider font-medium mb-2">
-                  Daftar Produk ({selectedTransfer.items?.length || 0} item)
-                </p>
-                <div className="space-y-1.5 max-h-[260px] overflow-y-auto">
-                  {selectedTransfer.items && selectedTransfer.items.length > 0 ? (
-                    selectedTransfer.items.map((item, idx) => (
-                      <div
-                        key={item.id || idx}
-                        className="flex items-center gap-3 p-2.5 rounded-lg bg-white/[0.02] border border-white/[0.04]"
-                      >
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs text-slate-200 font-medium truncate">{item.productName}</p>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            {item.sku && <p className="text-[10px] text-slate-500 font-mono">{item.sku}</p>}
-                            {item.hpp !== undefined && item.hpp > 0 && <p className="text-[10px] text-amber-400/70">HPP {formatCurrency(item.hpp)}</p>}
+              {/* Items: Product */}
+              {selectedTransfer.itemType !== 'INVENTORY' && (
+                <div>
+                  <p className="text-[11px] text-slate-500 uppercase tracking-wider font-medium mb-2">
+                    Daftar Produk ({selectedTransfer.items?.length || 0} item)
+                  </p>
+                  <div className="space-y-1.5 max-h-[260px] overflow-y-auto">
+                    {selectedTransfer.items && selectedTransfer.items.length > 0 ? (
+                      selectedTransfer.items.map((item, idx) => (
+                        <div
+                          key={(item as TransferItem).id || idx}
+                          className="flex items-center gap-3 p-2.5 rounded-lg bg-white/[0.02] border border-white/[0.04]"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs text-slate-200 font-medium truncate">{item.productName}</p>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              {item.sku && <p className="text-[10px] text-slate-500 font-mono">{item.sku}</p>}
+                              {item.hpp !== undefined && item.hpp > 0 && <p className="text-[10px] text-amber-400/70">HPP {formatCurrency(item.hpp)}</p>}
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <p className="text-xs text-white font-medium">x{formatNumber(item.quantity)}</p>
+                            <p className="text-[10px] text-slate-500">{formatCurrency(item.price)}</p>
                           </div>
                         </div>
-                        <div className="text-right shrink-0">
-                          <p className="text-xs text-white font-medium">x{formatNumber(item.quantity)}</p>
-                          <p className="text-[10px] text-slate-500">{formatCurrency(item.price)}</p>
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-xs text-slate-500 text-center py-4">Tidak ada item</p>
-                  )}
+                      ))
+                    ) : (
+                      <p className="text-xs text-slate-500 text-center py-4">Tidak ada item</p>
+                    )}
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {/* Items: Inventory */}
+              {selectedTransfer.itemType === 'INVENTORY' && (
+                <div>
+                  <p className="text-[11px] text-slate-500 uppercase tracking-wider font-medium mb-2">
+                    Daftar Bahan Baku ({selectedTransfer.inventoryTransferItems?.length || 0} item)
+                  </p>
+                  <div className="space-y-1.5 max-h-[260px] overflow-y-auto">
+                    {selectedTransfer.inventoryTransferItems && selectedTransfer.inventoryTransferItems.length > 0 ? (
+                      selectedTransfer.inventoryTransferItems.map((item, idx) => (
+                        <div
+                          key={item.id || idx}
+                          className="flex items-center gap-3 p-2.5 rounded-lg bg-white/[0.02] border border-white/[0.04]"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs text-slate-200 font-medium truncate">{item.itemName}</p>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              {item.itemSku && <p className="text-[10px] text-slate-500 font-mono">{item.itemSku}</p>}
+                              {item.avgCost > 0 && <p className="text-[10px] text-amber-400/70">Avg Cost {formatCurrency(item.avgCost)}</p>}
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <p className="text-xs text-white font-medium">
+                              x{formatNumber(item.quantity)}
+                              <span className="text-[10px] text-slate-500 ml-1">{item.itemBaseUnit}</span>
+                            </p>
+                            <p className="text-[10px] text-emerald-400">{formatCurrency(item.avgCost * item.quantity)}</p>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-xs text-slate-500 text-center py-4">Tidak ada item</p>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Actions in dialog */}
               {selectedTransfer.status !== 'RECEIVED' && selectedTransfer.status !== 'CANCELLED' && (
                 <div className="flex items-center gap-2 pt-2 border-t border-white/[0.04]">
-                  {selectedTransfer.status === 'DRAFT' && tab === 'outbound' && (
-                    <Button
-                      size="sm"
-                      className="flex-1 h-8 text-xs gap-1.5 bg-sky-500/10 text-sky-400 hover:bg-sky-500/20 border border-sky-500/20"
-                      disabled={actionLoading === selectedTransfer.id}
-                      onClick={() => handleSend(selectedTransfer.id)}
-                    >
-                      {actionLoading === selectedTransfer.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-                      Kirim
-                    </Button>
+                  {selectedTransfer.status === 'DRAFT' && (
+                    (selectedTransfer.itemType === 'INVENTORY' ? invTab : tab) === 'outbound' && (
+                      <Button
+                        size="sm"
+                        className="flex-1 h-8 text-xs gap-1.5 bg-sky-500/10 text-sky-400 hover:bg-sky-500/20 border border-sky-500/20"
+                        disabled={actionLoading === selectedTransfer.id}
+                        onClick={() => handleSend(selectedTransfer.id)}
+                      >
+                        {actionLoading === selectedTransfer.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                        Kirim
+                      </Button>
+                    )
                   )}
-                  {selectedTransfer.status === 'IN_TRANSIT' && tab === 'inbound' && (
-                    <Button
-                      size="sm"
-                      className="flex-1 h-8 text-xs gap-1.5 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20"
-                      disabled={actionLoading === selectedTransfer.id}
-                      onClick={() => handleReceive(selectedTransfer.id)}
-                    >
-                      {actionLoading === selectedTransfer.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
-                      Terima
-                    </Button>
+                  {selectedTransfer.status === 'IN_TRANSIT' && (
+                    (selectedTransfer.itemType === 'INVENTORY' ? invTab : tab) === 'inbound' && (
+                      <Button
+                        size="sm"
+                        className="flex-1 h-8 text-xs gap-1.5 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20"
+                        disabled={actionLoading === selectedTransfer.id}
+                        onClick={() => handleReceive(selectedTransfer.id)}
+                      >
+                        {actionLoading === selectedTransfer.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                        Terima
+                      </Button>
+                    )
                   )}
                   <Button
                     size="sm"
@@ -1463,7 +1256,7 @@ export default function TransferPage() {
         </ResponsiveDialogContent>
       </ResponsiveDialog>
 
-      {/* ═══ Create Transfer Dialog ═══ */}
+      {/* ═══ Create Transfer Dialog (Product) ═══ */}
       <ResponsiveDialog open={createOpen} onOpenChange={(open) => {
         if (!open) {
           setDestOutlet('')
@@ -1636,135 +1429,7 @@ export default function TransferPage() {
         </ResponsiveDialogContent>
       </ResponsiveDialog>
 
-      {/* ═══ Inv Detail Dialog ═══ */}
-      <ResponsiveDialog open={invDetailOpen} onOpenChange={setInvDetailOpen}>
-        <ResponsiveDialogContent className="sm:max-w-lg">
-          <ResponsiveDialogHeader>
-            <ResponsiveDialogTitle className="text-white text-base">Detail Transfer Bahan Baku</ResponsiveDialogTitle>
-            <ResponsiveDialogDescription className="text-slate-400 text-xs">
-              {invSelectedTransfer?.transferNumber}
-            </ResponsiveDialogDescription>
-          </ResponsiveDialogHeader>
-          {invSelectedTransfer && (
-            <div className="space-y-4 mt-2">
-              {/* From / To */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-white/[0.03] rounded-lg p-2.5 border border-white/[0.04]">
-                  <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Asal</p>
-                  <p className="text-xs text-slate-200 font-medium">{invSelectedTransfer.fromOutletName}</p>
-                </div>
-                <div className="bg-white/[0.03] rounded-lg p-2.5 border border-white/[0.04]">
-                  <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Tujuan</p>
-                  <p className="text-xs text-slate-200 font-medium">{invSelectedTransfer.toOutletName}</p>
-                </div>
-              </div>
-
-              {/* Status + Meta */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 leading-none border bg-violet-500/10 border-violet-500/20 text-violet-400 font-medium">
-                    Bahan Baku
-                  </Badge>
-                  <StatusBadge status={invSelectedTransfer.status} />
-                  <span className="text-[11px] text-slate-500">{formatDate(invSelectedTransfer.createdAt)}</span>
-                </div>
-              </div>
-
-              {/* Created By / Received By */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-white/[0.02] rounded-lg p-2 border border-white/[0.03]">
-                  <p className="text-[10px] text-slate-500 mb-0.5">Dibuat oleh</p>
-                  <p className="text-[11px] text-slate-300">{invSelectedTransfer.createdBy?.name || '-'}</p>
-                </div>
-                {invSelectedTransfer.status === 'RECEIVED' && (
-                  <div className="bg-white/[0.02] rounded-lg p-2 border border-white/[0.03]">
-                    <p className="text-[10px] text-slate-500 mb-0.5">Diterima oleh</p>
-                    <p className="text-[11px] text-slate-300">{invSelectedTransfer.receivedBy?.name || '-'}</p>
-                    {invSelectedTransfer.receivedAt && <p className="text-[10px] text-slate-500">{formatDate(invSelectedTransfer.receivedAt)}</p>}
-                  </div>
-                )}
-              </div>
-
-              {invSelectedTransfer.notes && (
-                <div className="flex items-start gap-2 text-slate-400">
-                  <StickyNote className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                  <span className="text-xs">{invSelectedTransfer.notes}</span>
-                </div>
-              )}
-
-              {/* Inventory Items */}
-              <div>
-                <p className="text-[11px] text-slate-500 uppercase tracking-wider font-medium mb-2">
-                  Daftar Bahan Baku ({invSelectedTransfer.inventoryTransferItems?.length || 0} item)
-                </p>
-                <div className="space-y-1.5 max-h-[260px] overflow-y-auto">
-                  {invSelectedTransfer.inventoryTransferItems && invSelectedTransfer.inventoryTransferItems.length > 0 ? (
-                    invSelectedTransfer.inventoryTransferItems.map((item, idx) => (
-                      <div
-                        key={item.id || idx}
-                        className="flex items-center gap-3 p-2.5 rounded-lg bg-white/[0.02] border border-white/[0.04]"
-                      >
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs text-slate-200 font-medium truncate">{item.itemName}</p>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            {item.itemSku && <p className="text-[10px] text-slate-500 font-mono">{item.itemSku}</p>}
-                            <p className="text-[10px] text-amber-400/70">Avg Cost {formatCurrency(item.avgCost)}/{item.baseUnit}</p>
-                          </div>
-                        </div>
-                        <div className="text-right shrink-0">
-                          <p className="text-xs text-white font-medium">{formatNumber(item.quantity)} <span className="text-slate-400 text-[10px]">{item.baseUnit}</span></p>
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-xs text-slate-500 text-center py-4">Tidak ada item</p>
-                  )}
-                </div>
-              </div>
-
-              {/* Actions in dialog */}
-              {invSelectedTransfer.status !== 'RECEIVED' && invSelectedTransfer.status !== 'CANCELLED' && (
-                <div className="flex items-center gap-2 pt-2 border-t border-white/[0.04]">
-                  {invSelectedTransfer.status === 'DRAFT' && invTab === 'outbound' && (
-                    <Button
-                      size="sm"
-                      className="flex-1 h-8 text-xs gap-1.5 bg-sky-500/10 text-sky-400 hover:bg-sky-500/20 border border-sky-500/20"
-                      disabled={invActionLoading === invSelectedTransfer.id}
-                      onClick={() => invHandleSend(invSelectedTransfer.id)}
-                    >
-                      {invActionLoading === invSelectedTransfer.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-                      Kirim
-                    </Button>
-                  )}
-                  {invSelectedTransfer.status === 'IN_TRANSIT' && invTab === 'inbound' && (
-                    <Button
-                      size="sm"
-                      className="flex-1 h-8 text-xs gap-1.5 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20"
-                      disabled={invActionLoading === invSelectedTransfer.id}
-                      onClick={() => invHandleReceive(invSelectedTransfer.id)}
-                    >
-                      {invActionLoading === invSelectedTransfer.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
-                      Terima
-                    </Button>
-                  )}
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="flex-1 h-8 text-xs gap-1.5 text-red-400 hover:text-red-300 hover:bg-red-500/[0.06]"
-                    disabled={invActionLoading === invSelectedTransfer.id}
-                    onClick={() => invHandleCancel(invSelectedTransfer.id)}
-                  >
-                    {invActionLoading === invSelectedTransfer.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Ban className="h-3.5 w-3.5" />}
-                    Batalkan
-                  </Button>
-                </div>
-              )}
-            </div>
-          )}
-        </ResponsiveDialogContent>
-      </ResponsiveDialog>
-
-      {/* ═══ Inv Create Transfer Dialog ═══ */}
+      {/* ═══ Create Transfer Dialog (Inventory / Bahan Baku) ═══ */}
       <ResponsiveDialog open={invCreateOpen} onOpenChange={(open) => {
         if (!open) {
           setInvDestOutlet('')
@@ -1776,7 +1441,12 @@ export default function TransferPage() {
       }}>
         <ResponsiveDialogContent className="sm:max-w-lg">
           <ResponsiveDialogHeader>
-            <ResponsiveDialogTitle className="text-white text-base">Buat Transfer Bahan Baku</ResponsiveDialogTitle>
+            <div className="flex items-center gap-2">
+              <ResponsiveDialogTitle className="text-white text-base">Transfer Bahan Baku</ResponsiveDialogTitle>
+              <Badge className="text-[9px] px-1.5 py-0.5 leading-none bg-violet-500/10 border-violet-500/20 text-violet-400 font-medium">
+                Bahan Baku
+              </Badge>
+            </div>
             <ResponsiveDialogDescription className="text-slate-400 text-xs">
               Pilih outlet tujuan dan bahan baku yang akan ditransfer
             </ResponsiveDialogDescription>
@@ -1810,8 +1480,8 @@ export default function TransferPage() {
               />
             </div>
 
-            {/* Inventory item search */}
-            <div className="space-y-1.5" ref={(el) => { invSearchRef.current = el }}>
+            {/* Inventory search */}
+            <div className="space-y-1.5" ref={invSearchRef}>
               <label className="text-[11px] text-slate-500 uppercase tracking-wider font-medium">Tambah Bahan Baku</label>
               <div className="flex items-center gap-2">
                 <div className="relative flex-1">
@@ -1819,18 +1489,18 @@ export default function TransferPage() {
                   <Input
                     value={invSearch}
                     onChange={(e) => setInvSearch(e.target.value)}
-                    placeholder="Cari bahan baku..."
+                    placeholder="Cari bahan baku (matcha, susu, kopi...)"
                     className="bg-white/[0.04] border-white/[0.04] text-white text-xs h-9 pl-8 rounded-lg"
                   />
-                  {invShowDropdown && invSearchResults.length > 0 && (
+                  {showInvDropdown && invResults.length > 0 && (
                     <div className="absolute top-full left-0 right-0 mt-1 bg-nebula border border-white/[0.06] rounded-lg shadow-xl z-50 max-h-[200px] overflow-y-auto">
-                      {invSearchResults.map((item) => (
+                      {invResults.map((item) => (
                         <button
                           key={item.id}
                           className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-white/[0.04] transition-colors first:rounded-t-lg last:rounded-b-lg"
-                          onClick={() => invHandleAddItem(item)}
+                          onClick={() => handleAddInvItem(item)}
                         >
-                          <FlaskConical className="h-3.5 w-3.5 text-violet-400 shrink-0" />
+                          <Beaker className="h-3.5 w-3.5 text-violet-400/60 shrink-0" />
                           <div className="flex-1 min-w-0">
                             <p className="text-xs text-slate-200 truncate">{item.name}</p>
                             <div className="flex items-center gap-2 mt-0.5">
@@ -1843,8 +1513,10 @@ export default function TransferPage() {
                             </div>
                           </div>
                           <div className="text-right shrink-0">
-                            <p className="text-[10px] text-slate-400">Stok: <span className={item.stock > 0 ? 'text-emerald-400 font-medium' : 'text-red-400 font-medium'}>{formatNumber(item.stock)}</span> <span className="text-slate-500">{item.baseUnit}</span></p>
-                            <p className="text-[10px] text-amber-400/70">{formatCurrency(item.avgCost)}</p>
+                            <p className="text-[10px] text-slate-400">
+                              Stok: <span className={item.stock > 0 ? 'text-emerald-400 font-medium' : 'text-red-400 font-medium'}>{formatNumber(item.stock)} {item.baseUnit}</span>
+                            </p>
+                            {item.avgCost > 0 && <p className="text-[10px] text-amber-400/70">{formatCurrency(item.avgCost)}/{item.baseUnit}</p>}
                           </div>
                         </button>
                       ))}
@@ -1853,12 +1525,10 @@ export default function TransferPage() {
                 </div>
                 <Input
                   type="number"
-                  min="0.1"
-                  step="0.1"
+                  min="1"
                   value={invAddQty}
                   onChange={(e) => setInvAddQty(e.target.value)}
-                  className="bg-white/[0.04] border-white/[0.04] text-white text-xs h-9 w-20 rounded-lg text-center"
-                  placeholder="Qty"
+                  className="bg-white/[0.04] border-white/[0.04] text-white text-xs h-9 w-16 rounded-lg text-center"
                 />
               </div>
               {invSearching && (
@@ -1869,7 +1539,7 @@ export default function TransferPage() {
               )}
             </div>
 
-            {/* Added items */}
+            {/* Added inventory items */}
             <div className="space-y-1.5">
               <label className="text-[11px] text-slate-500 uppercase tracking-wider font-medium">
                 Bahan Baku ({invCreateItems.length})
@@ -1877,7 +1547,7 @@ export default function TransferPage() {
               <div className="space-y-1.5 max-h-[200px] overflow-y-auto">
                 {invCreateItems.length === 0 ? (
                   <div className="py-6 text-center">
-                    <FlaskConical className="h-6 w-6 text-slate-600 mx-auto mb-1.5" />
+                    <Beaker className="h-6 w-6 text-slate-600 mx-auto mb-1.5" />
                     <p className="text-[11px] text-slate-500">Cari dan tambahkan bahan baku</p>
                   </div>
                 ) : (
@@ -1888,25 +1558,30 @@ export default function TransferPage() {
                     >
                       <div className="flex-1 min-w-0">
                         <p className="text-xs text-slate-200 font-medium truncate">{item.itemName}</p>
-                        <p className="text-[10px] text-slate-500">Stok: {formatNumber(item.stockAtSource ?? 0)} {item.baseUnit} • {formatCurrency(item.avgCost)}/{item.baseUnit}</p>
+                        <p className="text-[10px] text-slate-500">
+                          Stok: {formatNumber(item.stockAtSource)} {item.itemBaseUnit}
+                          {item.avgCost > 0 && (
+                            <span className="ml-2 text-amber-400/70">{formatCurrency(item.avgCost)}/{item.itemBaseUnit}</span>
+                          )}
+                        </p>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
                         <button
                           className="w-6 h-6 rounded bg-white/[0.04] flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/[0.08] transition-colors"
-                          onClick={() => invHandleUpdateQty(item.inventoryItemId, Math.max(0.1, +(item.quantity - 0.5).toFixed(1)))}
+                          onClick={() => handleUpdateInvCreateQty(item.inventoryItemId, Math.max(1, item.quantity - 1))}
                         >
                           <span className="text-xs">-</span>
                         </button>
-                        <span className="text-xs text-white font-medium w-12 text-center">{item.quantity} <span className="text-[10px] text-slate-400">{item.baseUnit}</span></span>
+                        <span className="text-xs text-white font-medium w-8 text-center">{item.quantity}</span>
                         <button
                           className="w-6 h-6 rounded bg-white/[0.04] flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/[0.08] transition-colors"
-                          onClick={() => invHandleUpdateQty(item.inventoryItemId, +(item.quantity + 0.5).toFixed(1))}
+                          onClick={() => handleUpdateInvCreateQty(item.inventoryItemId, item.quantity + 1)}
                         >
                           <span className="text-xs">+</span>
                         </button>
                         <button
                           className="w-6 h-6 rounded bg-red-500/10 flex items-center justify-center text-red-400 hover:text-red-300 hover:bg-red-500/20 transition-colors ml-1"
-                          onClick={() => invHandleRemoveItem(item.inventoryItemId)}
+                          onClick={() => handleRemoveInvCreateItem(item.inventoryItemId)}
                         >
                           <X className="h-3 w-3" />
                         </button>
@@ -1928,7 +1603,7 @@ export default function TransferPage() {
             <Button
               className="flex-1 h-9 text-xs theme-bg theme-hover text-white"
               disabled={invCreateLoading || !invDestOutlet || invCreateItems.length === 0}
-              onClick={invHandleSubmitCreate}
+              onClick={handleSubmitInvCreate}
             >
               {invCreateLoading ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />

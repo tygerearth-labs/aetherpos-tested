@@ -80,6 +80,23 @@ export async function POST(request: NextRequest) {
       },
     })
 
+    await db.auditLog.create({
+      data: {
+        action: 'CREATE',
+        entityType: 'INVENTORY_ITEM',
+        entityId: item.id,
+        details: JSON.stringify({
+          itemName: item.name,
+          sku: item.sku,
+          baseUnit: item.baseUnit,
+          initialStock: item.stock,
+          initialAvgCost: item.avgCost,
+        }),
+        outletId: user.outletId,
+        userId: user.id,
+      },
+    })
+
     return safeJsonCreated(item)
   } catch (error) {
     console.error('Inventory items POST error:', error)

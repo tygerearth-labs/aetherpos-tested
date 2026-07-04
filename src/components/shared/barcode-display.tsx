@@ -180,7 +180,7 @@ export default function BarcodeDisplay({
 
   return (
     <div className={`flex flex-col items-center justify-center ${className}`}>
-      <canvas ref={canvasRef} className="max-w-full h-auto" />
+      <canvas ref={canvasRef} />
       {showPrint && (
         <button
           type="button"

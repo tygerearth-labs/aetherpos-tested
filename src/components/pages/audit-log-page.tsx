@@ -1,18 +1,11 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { toast } from 'sonner'
 import { formatDate, formatCurrency } from '@/lib/format'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import {
   Table,
   TableBody,
@@ -29,6 +22,7 @@ import {
   ResponsiveDialogTitle,
 } from '@/components/ui/responsive-dialog'
 import { Separator } from '@/components/ui/separator'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Pagination } from '@/components/shared/pagination'
 import { DateFilter } from '@/components/shared/date-filter'
 import {
@@ -42,6 +36,10 @@ import {
   Pencil,
   Ban,
   RotateCcw,
+  Activity,
+  ArrowRightLeft,
+  Layers,
+  FileText,
 } from 'lucide-react'
 
 // ==================== TYPES ====================
@@ -63,16 +61,28 @@ interface AuditLogListResponse {
   totalPages: number
 }
 
+type SectionKey = 'all' | 'transaction' | 'transfer' | 'product' | 'inventory' | 'other'
+
+// ==================== SECTION CONFIG ====================
+const SECTION_CONFIG: Record<SectionKey, { label: string; icon: React.ElementType }> = {
+  all: { label: 'Semua', icon: Activity },
+  transaction: { label: 'Transaksi', icon: ShoppingCart },
+  transfer: { label: 'Kirim & Terima', icon: ArrowRightLeft },
+  product: { label: 'Produk', icon: Package },
+  inventory: { label: 'Inventory', icon: Layers },
+  other: { label: 'Lainnya', icon: FileText },
+}
+
 // ==================== ACTION TYPE CONFIG ====================
 const ACTION_CONFIG: Record<string, {
   label: string
   icon: React.ElementType
-  color: string       // text color
-  bgColor: string     // badge background
-  borderColor: string  // badge border
-  iconBg: string      // icon background
-  leftBorder: string  // left border color for cards
-  dotColor: string    // dot indicator
+  color: string
+  bgColor: string
+  borderColor: string
+  iconBg: string
+  leftBorder: string
+  dotColor: string
 }> = {
   CREATE: {
     label: 'Dibuat',
@@ -154,6 +164,36 @@ const ACTION_CONFIG: Record<string, {
     leftBorder: 'border-l-violet-500',
     dotColor: 'bg-violet-500',
   },
+  PURCHASE: {
+    label: 'Pembelian',
+    icon: ShoppingCart,
+    color: 'text-emerald-400',
+    bgColor: 'bg-emerald-500/10',
+    borderColor: 'border-emerald-500/20',
+    iconBg: 'bg-emerald-500/10',
+    leftBorder: 'border-l-emerald-500',
+    dotColor: 'bg-emerald-500',
+  },
+  COMPOSITION_DEDUCT: {
+    label: 'Konsumsi Bahan',
+    icon: Package,
+    color: 'text-orange-400',
+    bgColor: 'bg-orange-500/10',
+    borderColor: 'border-orange-500/20',
+    iconBg: 'bg-orange-500/10',
+    leftBorder: 'border-l-orange-500',
+    dotColor: 'bg-orange-500',
+  },
+  VOID: {
+    label: 'Void',
+    icon: Ban,
+    color: 'text-red-400',
+    bgColor: 'bg-red-500/10',
+    borderColor: 'border-red-500/20',
+    iconBg: 'bg-red-500/10',
+    leftBorder: 'border-l-red-500',
+    dotColor: 'bg-red-500',
+  },
 }
 
 const DEFAULT_ACTION = {
@@ -183,6 +223,10 @@ const ENTITY_LABELS: Record<string, string> = {
   SETTINGS: 'Pengaturan',
   STOCK: 'Stok',
   VARIANT: 'Varian',
+  INVENTORY_ITEM: 'Inventory/Bahan',
+  OUTLET_TRANSFER: 'Transfer',
+  TRANSFER_ITEM: 'Item Transfer',
+  PURCHASE_ORDER: 'Pembelian',
 }
 
 function getEntityLabel(type: string): string {
@@ -227,7 +271,6 @@ const DETAIL_LABELS: Record<string, string> = {
   batchOperation: 'Operasi Batch',
   changes: 'Perubahan',
   quantitySold: 'Jumlah Terjual',
-  // Multi-outlet / Transfer
   action: 'Aksi',
   transferNumber: 'No. Transfer',
   toOutlet: 'Outlet Tujuan',
@@ -239,16 +282,21 @@ const DETAIL_LABELS: Record<string, string> = {
   items: 'Daftar Item',
   createdProducts: 'Produk Baru',
   restockedProducts: 'Produk di-Restock',
-  productName: 'Nama Produk',
-  productSku: 'SKU Produk',
   productBarcode: 'Barcode',
   initialStock: 'Stok Awal',
-  previousStock: 'Stok Sebelum',
-  newStock: 'Stok Sesudah',
-  quantityAdded: 'Jumlah Ditambah',
-  hasVariants: 'Punya Varian',
   variants: 'Varian',
   subtotal: 'Subtotal',
+  // New detail labels
+  itemName: 'Nama Bahan',
+  baseUnit: 'Satuan Dasar',
+  purchaseOrderNumber: 'No. Pembelian',
+  baseQtyAdded: 'Jumlah Ditambah',
+  unitCost: 'Biaya Satuan',
+  previousAvgCost: 'HPP Sebelum',
+  newAvgCost: 'HPP Baru',
+  totalDeducted: 'Total Dikurangi',
+  sources: 'Sumber',
+  adjustment: 'Penyesuaian',
 }
 
 function getDetailLabel(key: string): string {
@@ -268,11 +316,10 @@ function parseDetails(details: string | null): Record<string, unknown> | string 
 function formatDetailValue(key: string, value: unknown): string {
   if (value === null || value === undefined) return '-'
   if (typeof value === 'number') {
-    // Currency-like values
-    if (['price', 'total', 'hpp', 'discount', 'subtotal', 'paidAmount', 'change', 'taxAmount'].includes(key)) {
+    if (['price', 'total', 'hpp', 'discount', 'subtotal', 'paidAmount', 'change', 'taxAmount', 'unitCost', 'previousAvgCost', 'newAvgCost'].includes(key)) {
       return formatCurrency(value)
     }
-    if (['stock', 'previousStock', 'newStock', 'initialStock', 'quantityAdded', 'quantityDecreased', 'qty', 'quantitySold'].includes(key)) {
+    if (['stock', 'previousStock', 'newStock', 'initialStock', 'quantityAdded', 'quantityDecreased', 'qty', 'quantitySold', 'baseQtyAdded', 'totalDeducted'].includes(key)) {
       return `${value} unit`
     }
     if (key === 'points') {
@@ -282,7 +329,6 @@ function formatDetailValue(key: string, value: unknown): string {
   }
   if (typeof value === 'boolean') return value ? 'Ya' : 'Tidak'
   if (Array.isArray(value)) {
-    // For itemsRestored array (void transactions)
     if (key === 'itemsRestored') {
       return value
         .map((item: Record<string, unknown>) => {
@@ -293,7 +339,6 @@ function formatDetailValue(key: string, value: unknown): string {
         })
         .join(', ')
     }
-    // For transfer items array — detailed with variant info
     if (key === 'items') {
       return value
         .map((item: Record<string, unknown>) => {
@@ -316,7 +361,6 @@ function formatDetailValue(key: string, value: unknown): string {
         })
         .join(', ')
     }
-    // For variants array (per-product audit log)
     if (key === 'variants') {
       return (value as Record<string, unknown>[])
         .map((v) => {
@@ -330,13 +374,45 @@ function formatDetailValue(key: string, value: unknown): string {
         })
         .join(', ')
     }
-    // For createdProducts / restockedProducts (string arrays)
     if (key === 'createdProducts' || key === 'restockedProducts') {
       return value.join(', ')
+    }
+    if (key === 'sources') {
+      return (value as Record<string, unknown>[])
+        .map((s) => {
+          const n = typeof s.productName === 'string' ? s.productName : (typeof s.name === 'string' ? s.name : '?')
+          const q = typeof s.quantity === 'number' ? s.quantity : '?'
+          return `${n} x${q}`
+        })
+        .join(', ')
     }
     return JSON.stringify(value)
   }
   return String(value)
+}
+
+// ==================== SECTION CLASSIFICATION ====================
+function getLogSection(log: AuditLog): SectionKey {
+  // Check transfer first (most specific — needs detail inspection)
+  if (log.entityType === 'OUTLET_TRANSFER') return 'transfer'
+  if (log.action === 'RESTOCK') {
+    const details = parseDetails(log.details)
+    if (details && typeof details === 'object') {
+      if ('transferNumber' in details || 'fromOutlet' in details || 'toOutlet' in details) return 'transfer'
+    }
+  }
+
+  // Check transaction: entityType IN (TRANSACTION, VARIANT) AND action IN (SALE, VOID)
+  if ((log.entityType === 'TRANSACTION' || log.entityType === 'VARIANT') &&
+      (log.action === 'SALE' || log.action === 'VOID')) return 'transaction'
+
+  // Check product: entityType IN (PRODUCT, VARIANT, CATEGORY)
+  if (['PRODUCT', 'VARIANT', 'CATEGORY'].includes(log.entityType)) return 'product'
+
+  // Check inventory: entityType IN (INVENTORY_ITEM, STOCK)
+  if (['INVENTORY_ITEM', 'STOCK'].includes(log.entityType)) return 'inventory'
+
+  return 'other'
 }
 
 // ==================== DETAIL DISPLAY COMPONENT ====================
@@ -350,7 +426,6 @@ function DetailsDisplay({ action, details }: { action: string; details: string |
 
   const entries = Object.entries(parsed) as [string, unknown][]
 
-  // Sort detail keys for better display based on action type
   const priorityKeys: Record<string, string[]> = {
     SALE: ['invoiceNumber', 'productName', 'productSku', 'variantName', 'variantSku', 'quantitySold', 'previousStock', 'newStock'],
     RESTOCK: ['productName', 'productSku', 'action', 'transferNumber', 'fromOutlet', 'toOutlet', 'itemCount', 'createdProducts', 'restockedProducts', 'reason', 'quantityAdded', 'newStock'],
@@ -361,13 +436,14 @@ function DetailsDisplay({ action, details }: { action: string; details: string |
     BULK_UPDATE: ['productName', 'productSku', 'changes', 'batchOperation'],
     DELETE: ['productName', 'variantName', 'price', 'stock', 'variantCount'],
     VARIANT: ['productName', 'productSku', 'variantName', 'variantSku', 'name', 'price', 'stock', 'changes'],
+    PURCHASE: ['purchaseOrderNumber', 'itemName', 'baseQtyAdded', 'baseUnit', 'unitCost', 'previousAvgCost', 'newAvgCost'],
+    COMPOSITION_DEDUCT: ['itemName', 'baseUnit', 'totalDeducted', 'sources'],
   }
 
   const sortedKeys = priorityKeys[action]
     ? [...priorityKeys[action], ...entries.filter(([k]) => !(priorityKeys[action] || []).includes(k)).map(([k]) => k)]
     : entries.map(([k]) => k)
 
-  // Deduplicate
   const uniqueKeys = [...new Set(sortedKeys)]
 
   return (
@@ -377,7 +453,6 @@ function DetailsDisplay({ action, details }: { action: string; details: string |
         if (value === undefined || value === null) return null
         const formatted = formatDetailValue(key, value)
 
-        // For itemsRestored, show as a separate block
         if (key === 'itemsRestored' && Array.isArray(value) && value.length > 0) {
           return (
             <div key={key} className="space-y-0.5">
@@ -402,13 +477,14 @@ function DetailsDisplay({ action, details }: { action: string; details: string |
 }
 
 // ==================== MAIN PAGE ====================
+const PAGE_SIZE = 20
+const FETCH_LIMIT = 500
+
 export default function AuditLogPage() {
-  const [logs, setLogs] = useState<AuditLog[]>([])
+  const [allLogs, setAllLogs] = useState<AuditLog[]>([])
   const [loading, setLoading] = useState(true)
+  const [section, setSection] = useState<SectionKey>('all')
   const [page, setPage] = useState(1)
-  const [totalPages, setTotalPages] = useState(1)
-  const [actionFilter, setActionFilter] = useState<string>('ALL')
-  const [entityFilter, setEntityFilter] = useState<string>('ALL')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [search, setSearch] = useState('')
@@ -418,17 +494,14 @@ export default function AuditLogPage() {
   const fetchLogs = useCallback(async () => {
     setLoading(true)
     try {
-      const params = new URLSearchParams({ page: String(page), limit: '20' })
-      if (actionFilter !== 'ALL') params.set('action', actionFilter)
-      if (entityFilter !== 'ALL') params.set('entityType', entityFilter)
+      const params = new URLSearchParams({ page: '1', limit: String(FETCH_LIMIT) })
       if (dateFrom) params.set('from', dateFrom)
       if (dateTo) params.set('to', dateTo)
       if (search) params.set('search', search)
       const res = await fetch(`/api/audit-logs?${params}`)
       if (res.ok) {
         const data: AuditLogListResponse = await res.json()
-        setLogs(data.logs)
-        setTotalPages(data.totalPages)
+        setAllLogs(data.logs)
       } else {
         toast.error('Gagal memuat audit log')
       }
@@ -437,12 +510,29 @@ export default function AuditLogPage() {
     } finally {
       setLoading(false)
     }
-  }, [page, actionFilter, entityFilter, dateFrom, dateTo, search])
+  }, [dateFrom, dateTo, search])
 
   useEffect(() => {
-     
     void fetchLogs()
   }, [fetchLogs])
+
+  // Filtered and paginated logs for the current section
+  const filteredLogs = useMemo(() => {
+    if (section === 'all') return allLogs
+    return allLogs.filter((log) => getLogSection(log) === section)
+  }, [allLogs, section])
+
+  const totalPages = Math.max(1, Math.ceil(filteredLogs.length / PAGE_SIZE))
+  const paginatedLogs = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE
+    return filteredLogs.slice(start, start + PAGE_SIZE)
+  }, [filteredLogs, page])
+
+  // Reset page when section changes
+  const handleSectionChange = (value: string) => {
+    setSection(value as SectionKey)
+    setPage(1)
+  }
 
   const handleFilter = () => {
     setSearch(searchInput)
@@ -462,8 +552,6 @@ export default function AuditLogPage() {
   }
 
   const handleClearAllFilters = () => {
-    setActionFilter('ALL')
-    setEntityFilter('ALL')
     setDateFrom('')
     setDateTo('')
     setSearchInput('')
@@ -474,14 +562,22 @@ export default function AuditLogPage() {
   const handleExport = () => {
     const params = new URLSearchParams()
     if (search) params.set('search', search)
-    if (actionFilter !== 'ALL') params.set('action', actionFilter)
-    if (entityFilter !== 'ALL') params.set('entityType', entityFilter)
     if (dateFrom) params.set('from', dateFrom)
     if (dateTo) params.set('to', dateTo)
+    // For export, pass the best API filter based on section
+    if (section === 'transfer') {
+      params.set('action', 'RESTOCK')
+    } else if (section === 'transaction') {
+      params.set('entityType', 'TRANSACTION,VARIANT')
+    } else if (section === 'product') {
+      params.set('entityType', 'PRODUCT,VARIANT,CATEGORY')
+    } else if (section === 'inventory') {
+      params.set('entityType', 'INVENTORY_ITEM,STOCK')
+    }
     window.open(`/api/audit-logs/export?${params}`, '_blank')
   }
 
-  const hasActiveFilters = search || actionFilter !== 'ALL' || entityFilter !== 'ALL' || dateFrom || dateTo
+  const hasActiveFilters = search || dateFrom || dateTo
 
   // ==================== ACTION BADGE ====================
   const ActionBadge = ({ action }: { action: string }) => {
@@ -506,6 +602,23 @@ export default function AuditLogPage() {
     )
   }
 
+  // ==================== LOG COUNTS PER SECTION ====================
+  const sectionCounts = useMemo(() => {
+    const counts: Record<SectionKey, number> = {
+      all: allLogs.length,
+      transaction: 0,
+      transfer: 0,
+      product: 0,
+      inventory: 0,
+      other: 0,
+    }
+    for (const log of allLogs) {
+      const s = getLogSection(log)
+      counts[s]++
+    }
+    return counts
+  }, [allLogs])
+
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -524,7 +637,31 @@ export default function AuditLogPage() {
         </Button>
       </div>
 
-      {/* Filters */}
+      {/* Tabs */}
+      <Tabs value={section} onValueChange={handleSectionChange}>
+        <div className="overflow-x-auto -mx-1 px-1 scrollbar-none">
+          <TabsList className="bg-white/[0.04] border border-white/[0.06] h-9 p-0.5 rounded-lg w-fit min-w-0">
+            {(Object.entries(SECTION_CONFIG) as [SectionKey, { label: string; icon: React.ElementType }][]).map(([key, config]) => {
+              const Icon = config.icon
+              const count = sectionCounts[key]
+              return (
+                <TabsTrigger
+                  key={key}
+                  value={key}
+                  className="text-xs font-medium h-7 rounded-md data-[state=active]:bg-white/[0.08] data-[state=active]:text-white text-slate-400 px-2.5 sm:px-3 gap-1.5 whitespace-nowrap"
+                >
+                  <Icon className="h-3 w-3 shrink-0" />
+                  <span className="hidden sm:inline">{config.label}</span>
+                  <span className="sm:hidden">{config.label.length > 6 ? config.label.slice(0, 6) + '…' : config.label}</span>
+                  <span className="text-[10px] text-slate-500 data-[state=active]:text-slate-400 ml-0.5">({count})</span>
+                </TabsTrigger>
+              )
+            })}
+          </TabsList>
+        </div>
+      </Tabs>
+
+      {/* Filters (search + date) */}
       <div className="flex flex-col sm:flex-row gap-2">
         {/* Search */}
         <div className="relative flex-1 min-w-0 sm:max-w-xs">
@@ -546,36 +683,6 @@ export default function AuditLogPage() {
             </button>
           )}
         </div>
-
-        {/* Action type filter */}
-        <Select value={actionFilter} onValueChange={(v) => { setActionFilter(v); setPage(1) }}>
-          <SelectTrigger className="w-full sm:w-40 bg-white/[0.04] border-white/[0.08] text-white h-8 text-xs">
-            <SelectValue placeholder="Semua Aksi" />
-          </SelectTrigger>
-          <SelectContent className="bg-white/[0.04] border-white/[0.08]">
-            <SelectItem value="ALL" className="text-slate-200 focus:bg-white/[0.06] text-xs">Semua Aksi</SelectItem>
-            {Object.entries(ACTION_CONFIG).map(([key, config]) => (
-              <SelectItem key={key} value={key} className="text-slate-200 focus:bg-white/[0.06] text-xs">
-                {config.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        {/* Entity type filter */}
-        <Select value={entityFilter} onValueChange={(v) => { setEntityFilter(v); setPage(1) }}>
-          <SelectTrigger className="w-full sm:w-36 bg-white/[0.04] border-white/[0.08] text-white h-8 text-xs">
-            <SelectValue placeholder="Semua Entitas" />
-          </SelectTrigger>
-          <SelectContent className="bg-white/[0.04] border-white/[0.08]">
-            <SelectItem value="ALL" className="text-slate-200 focus:bg-white/[0.06] text-xs">Semua Entitas</SelectItem>
-            {Object.entries(ENTITY_LABELS).map(([key, label]) => (
-              <SelectItem key={key} value={key} className="text-slate-200 focus:bg-white/[0.06] text-xs">
-                {label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
 
         {/* Date range */}
         <DateFilter
@@ -608,22 +715,6 @@ export default function AuditLogPage() {
               </button>
             </Badge>
           )}
-          {actionFilter !== 'ALL' && (
-            <Badge variant="outline" className={`${ACTION_CONFIG[actionFilter]?.bgColor || ''} ${ACTION_CONFIG[actionFilter]?.borderColor || ''} ${ACTION_CONFIG[actionFilter]?.color || ''} text-[11px] gap-1 px-2 py-0.5 cursor-pointer`}>
-              {getActionConfig(actionFilter).label}
-              <button onClick={() => { setActionFilter('ALL'); setPage(1) }}>
-                <X className="h-2.5 w-2.5 ml-0.5" />
-              </button>
-            </Badge>
-          )}
-          {entityFilter !== 'ALL' && (
-            <Badge variant="outline" className="bg-white/[0.04] border-white/[0.08] text-slate-300 text-[11px] gap-1 px-2 py-0.5 cursor-pointer">
-              {getEntityLabel(entityFilter)}
-              <button onClick={() => { setEntityFilter('ALL'); setPage(1) }}>
-                <X className="h-2.5 w-2.5 ml-0.5" />
-              </button>
-            </Badge>
-          )}
           {dateFrom && (
             <Badge variant="outline" className="bg-white/[0.04] border-white/[0.08] text-slate-300 text-[11px] gap-1 px-2 py-0.5 cursor-pointer">
               📅 {dateFrom}{dateTo && dateTo !== dateFrom ? ` – ${dateTo}` : ''}
@@ -635,6 +726,16 @@ export default function AuditLogPage() {
         </div>
       )}
 
+      {/* Section label */}
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-slate-500">
+          {section !== 'all' && (
+            <>{SECTION_CONFIG[section].label} — </>
+          )}
+          {filteredLogs.length} log{filteredLogs.length !== 1 ? 's' : ''}
+        </span>
+      </div>
+
       {/* Content */}
       {loading ? (
         <div className="space-y-2">
@@ -642,7 +743,7 @@ export default function AuditLogPage() {
             <Skeleton key={i} className="h-16 bg-nebula rounded-xl" />
           ))}
         </div>
-      ) : logs.length === 0 ? (
+      ) : paginatedLogs.length === 0 ? (
         <div className="rounded-xl border border-white/[0.06] bg-nebula p-8 text-center">
           <Search className="h-8 w-8 text-zinc-700 mx-auto mb-3" />
           <p className="text-xs text-slate-500">
@@ -663,7 +764,7 @@ export default function AuditLogPage() {
         <div className="space-y-2">
           {/* Mobile card view */}
           <div className="md:hidden space-y-2">
-            {logs.map((log) => {
+            {paginatedLogs.map((log) => {
               const config = getActionConfig(log.action)
               return (
                 <div
@@ -714,7 +815,7 @@ export default function AuditLogPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {logs.map((log) => {
+                {paginatedLogs.map((log) => {
                   const config = getActionConfig(log.action)
                   return (
                     <TableRow
@@ -865,6 +966,18 @@ export default function AuditLogPage() {
                                         )
                                       })}
                                     </div>
+                                  : key === 'sources' && Array.isArray(value)
+                                    ? <div className="space-y-0.5">
+                                        {(value as Record<string, unknown>[]).map((s, i) => {
+                                          const sName = typeof s.productName === 'string' ? s.productName : (typeof s.name === 'string' ? s.name : '?')
+                                          const sQty = typeof s.quantity === 'number' ? s.quantity : '?'
+                                          return (
+                                            <div key={i} className="text-xs text-slate-300">
+                                              {i + 1}. {sName} <span className="text-slate-400 ml-1">x{sQty}</span>
+                                            </div>
+                                          )
+                                        })}
+                                      </div>
                                   : formatDetailValue(key, value)}
                           </span>
                         </div>

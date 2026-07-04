@@ -1,9 +1,8 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { toast } from 'sonner'
-import { formatNumber, formatDate } from '@/lib/format'
-import { motion, AnimatePresence } from 'framer-motion'
+import { formatDate, formatNumber } from '@/lib/format'
+import { motion } from 'framer-motion'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -24,6 +23,25 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { Pagination } from '@/components/shared/pagination'
+import {
+  Search,
+  ArrowDown,
+  ArrowUp,
+  PackagePlus,
+  SlidersHorizontal,
+  ShoppingCart,
+  Truck,
+  RotateCcw,
+  X,
+  Activity,
+  ArrowRightLeft,
+  TrendingDown,
+  TrendingUp,
+  FileText,
+  Eye,
+} from 'lucide-react'
+import { cn } from '@/lib/utils'
 import {
   ResponsiveDialog,
   ResponsiveDialogContent,
@@ -31,234 +49,150 @@ import {
   ResponsiveDialogTitle,
   ResponsiveDialogDescription,
 } from '@/components/ui/responsive-dialog'
-import { Pagination } from '@/components/shared/pagination'
-import {
-  Activity,
-  ArrowDownToLine,
-  ArrowUpFromLine,
-  Search,
-  Package,
-  Info,
-  X,
-  RotateCcw,
-} from 'lucide-react'
-import { cn } from '@/lib/utils'
 
 // ==================== TYPES ====================
-interface InventoryMovementItem {
+interface InventoryMovement {
   id: string
+  inventoryItemId: string
   type: string
   quantity: number
   previousStock: number
   newStock: number
   referenceId: string | null
   referenceType: string | null
+  referenceLabel: string | null
   notes: string | null
   createdAt: string
-  inventoryItem: {
-    id: string
-    name: string
-    sku: string | null
-    baseUnit: string
-  }
-  user: { id: string; name: string } | null
-  referenceLabel: string | null
+  itemName: string
+  itemSku: string | null
+  baseUnit: string
+  category: { id: string; name: string; color: string } | null
+  userName: string | null
 }
 
-interface MovementListResponse {
-  movements: InventoryMovementItem[]
+interface MovementResponse {
+  movements: InventoryMovement[]
   totalPages: number
-  totalMovements: number
-  totalStockIn: number
-  totalStockOut: number
+  summary: {
+    totalMovements: number
+    totalStockIn: number
+    totalStockOut: number
+  }
 }
 
 // ==================== MOVEMENT TYPE CONFIG ====================
-const MOVEMENT_TYPE_CONFIG: Record<
-  string,
-  {
-    label: string
-    color: string
-    bgColor: string
-    borderColor: string
-    leftBorder: string
-    dotColor: string
-  }
-> = {
-  RESTOCK: {
-    label: 'Restock',
-    color: 'text-emerald-400',
-    bgColor: 'bg-emerald-500/10',
-    borderColor: 'border-emerald-500/20',
-    leftBorder: 'border-l-emerald-500',
-    dotColor: 'bg-emerald-500',
-  },
+const MOVEMENT_CONFIG: Record<string, {
+  label: string
+  icon: React.ElementType
+  color: string
+  bgColor: string
+  borderColor: string
+  dotColor: string
+  description: string
+}> = {
   PURCHASE: {
-    label: 'Pembelian',
+    label: 'Restock',
+    icon: PackagePlus,
     color: 'text-emerald-400',
     bgColor: 'bg-emerald-500/10',
     borderColor: 'border-emerald-500/20',
-    leftBorder: 'border-l-emerald-500',
     dotColor: 'bg-emerald-500',
+    description: 'Stok masuk dari Purchase Order',
   },
-  ADJUSTMENT: {
-    label: 'Penyesuaian',
+  RESTOCK: {
+    label: 'Restock Manual',
+    icon: RotateCcw,
     color: 'text-amber-400',
     bgColor: 'bg-amber-500/10',
     borderColor: 'border-amber-500/20',
-    leftBorder: 'border-l-amber-500',
     dotColor: 'bg-amber-500',
+    description: 'Restock stok secara manual',
+  },
+  ADJUSTMENT: {
+    label: 'Penyesuaian',
+    icon: SlidersHorizontal,
+    color: 'text-zinc-300',
+    bgColor: 'bg-zinc-500/10',
+    borderColor: 'border-zinc-500/20',
+    dotColor: 'bg-zinc-400',
+    description: 'Penyesuaian stok manual',
   },
   CONSUMPTION: {
     label: 'Konsumsi',
-    color: 'text-orange-400',
-    bgColor: 'bg-orange-500/10',
-    borderColor: 'border-orange-500/20',
-    leftBorder: 'border-l-orange-500',
-    dotColor: 'bg-orange-500',
-  },
-  TRANSFER_OUT: {
-    label: 'Transfer Keluar',
-    color: 'text-rose-400',
-    bgColor: 'bg-rose-500/10',
-    borderColor: 'border-rose-500/20',
-    leftBorder: 'border-l-rose-500',
-    dotColor: 'bg-rose-500',
-  },
-  TRANSFER_IN: {
-    label: 'Transfer Masuk',
+    icon: ShoppingCart,
     color: 'text-sky-400',
     bgColor: 'bg-sky-500/10',
     borderColor: 'border-sky-500/20',
-    leftBorder: 'border-l-sky-500',
     dotColor: 'bg-sky-500',
+    description: 'Bahan baku terpakai dari penjualan',
+  },
+  TRANSFER_OUT: {
+    label: 'Transfer Keluar',
+    icon: Truck,
+    color: 'text-orange-400',
+    bgColor: 'bg-orange-500/10',
+    borderColor: 'border-orange-500/20',
+    dotColor: 'bg-orange-500',
+    description: 'Bahan baku dikirim ke cabang lain',
+  },
+  TRANSFER_IN: {
+    label: 'Transfer Masuk',
+    icon: Truck,
+    color: 'text-violet-400',
+    bgColor: 'bg-violet-500/10',
+    borderColor: 'border-violet-500/20',
+    dotColor: 'bg-violet-500',
+    description: 'Bahan baku diterima dari cabang lain',
   },
 }
 
-const DEFAULT_TYPE_CONFIG = {
-  label: 'Lainnya',
-  color: 'text-zinc-400',
-  bgColor: 'bg-zinc-500/10',
-  borderColor: 'border-zinc-500/20',
-  leftBorder: 'border-l-zinc-600',
-  dotColor: 'bg-zinc-600',
+function getMovementConfig(type: string) {
+  return MOVEMENT_CONFIG[type] || {
+    label: type,
+    icon: Activity,
+    color: 'text-slate-400',
+    bgColor: 'bg-slate-500/10',
+    borderColor: 'border-slate-500/20',
+    dotColor: 'bg-slate-500',
+    description: type,
+  }
 }
 
-function getTypeConfig(type: string) {
-  return MOVEMENT_TYPE_CONFIG[type] || DEFAULT_TYPE_CONFIG
-}
-
-// ==================== REFERENCE TYPE LABELS ====================
-const REFERENCE_TYPE_LABELS: Record<string, string> = {
-  TRANSFER: 'Transfer',
-  PURCHASE_ORDER: 'Pembelian',
-  MANUAL: 'Manual',
-}
-
-function getReferenceTypeLabel(type: string | null): string {
-  if (!type) return '-'
-  return REFERENCE_TYPE_LABELS[type] || type
-}
-
-// ==================== ANIMATION VARIANTS ====================
-const containerVariants = {
-  hidden: { opacity: 0 },
-  visible: { opacity: 1, transition: { staggerChildren: 0.04 } },
-}
-
-const itemVariants = {
-  hidden: { opacity: 0, y: 12 },
-  visible: {
-    opacity: 1,
-    y: 0,
-    transition: { duration: 0.3, ease: [0.25, 0.46, 0.45, 0.94] },
-  },
-}
-
-// ==================== MOVEMENT TYPE BADGE ====================
-function MovementTypeBadge({ type }: { type: string }) {
-  const config = getTypeConfig(type)
-  return (
-    <Badge
-      className={cn(
-        config.bgColor,
-        config.borderColor,
-        config.color,
-        'text-[10px] gap-1 px-1.5 py-0 border'
-      )}
-    >
-      {config.label}
-    </Badge>
-  )
-}
-
-// ==================== QUANTITY DISPLAY ====================
-function QuantityDisplay({
-  quantity,
-  unit,
-}: {
-  quantity: number
-  unit: string
-}) {
-  const isPositive = quantity >= 0
-  return (
-    <span
-      className={cn(
-        'text-xs font-medium tabular-nums',
-        isPositive ? 'text-emerald-400' : 'text-rose-400'
-      )}
-    >
-      {isPositive ? '+' : ''}
-      {formatNumber(quantity)} {unit}
-    </span>
-  )
-}
-
-// ==================== MAIN PAGE ====================
+// ==================== MAIN COMPONENT ====================
 export default function InventoryMovementPage() {
-  const [movements, setMovements] = useState<InventoryMovementItem[]>([])
-  const [loading, setLoading] = useState(true)
-  const [page, setPage] = useState(1)
+  const [movements, setMovements] = useState<InventoryMovement[]>([])
   const [totalPages, setTotalPages] = useState(1)
-  const [totalMovements, setTotalMovements] = useState(0)
-  const [totalStockIn, setTotalStockIn] = useState(0)
-  const [totalStockOut, setTotalStockOut] = useState(0)
-  const [typeFilter, setTypeFilter] = useState<string>('ALL')
+  const [page, setPage] = useState(1)
+  const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [searchInput, setSearchInput] = useState('')
-  const [selectedMovement, setSelectedMovement] =
-    useState<InventoryMovementItem | null>(null)
+  const [typeFilter, setTypeFilter] = useState<string>('')
+  const [summary, setSummary] = useState({ totalMovements: 0, totalStockIn: 0, totalStockOut: 0 })
+  const [selectedMovement, setSelectedMovement] = useState<InventoryMovement | null>(null)
+  const [detailOpen, setDetailOpen] = useState(false)
 
   const fetchMovements = useCallback(async () => {
     setLoading(true)
     try {
-      const params = new URLSearchParams({
-        page: String(page),
-        limit: '20',
-      })
-      if (typeFilter !== 'ALL') params.set('type', typeFilter)
+      const params = new URLSearchParams({ page: String(page), limit: '20' })
       if (search) params.set('search', search)
-
+      if (typeFilter) params.set('type', typeFilter)
       const res = await fetch(`/api/inventory/movements?${params}`)
       if (res.ok) {
-        const data: MovementListResponse = await res.json()
-        setMovements(data.movements)
-        setTotalPages(data.totalPages)
-        setTotalMovements(data.totalMovements)
-        setTotalStockIn(data.totalStockIn)
-        setTotalStockOut(data.totalStockOut)
-      } else {
-        toast.error('Gagal memuat log stok bahan')
+        const data: MovementResponse = await res.json()
+        setMovements(data.movements || [])
+        setTotalPages(data.totalPages || 1)
+        setSummary(data.summary || { totalMovements: 0, totalStockIn: 0, totalStockOut: 0 })
       }
     } catch {
-      toast.error('Gagal memuat log stok bahan')
+      // silent
     } finally {
       setLoading(false)
     }
-  }, [page, typeFilter, search])
+  }, [page, search, typeFilter])
 
   useEffect(() => {
-    void fetchMovements()
+    fetchMovements()
   }, [fetchMovements])
 
   const handleSearch = () => {
@@ -266,621 +200,449 @@ export default function InventoryMovementPage() {
     setPage(1)
   }
 
-  const handleClearSearch = () => {
-    setSearchInput('')
-    setSearch('')
+  const handleTypeChange = (value: string) => {
+    setTypeFilter(value === '__all__' ? '' : value)
     setPage(1)
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      handleSearch()
-    }
+  const openDetail = (m: InventoryMovement) => {
+    setSelectedMovement(m)
+    setDetailOpen(true)
   }
 
-  const handleClearAllFilters = () => {
-    setTypeFilter('ALL')
-    setSearchInput('')
-    setSearch('')
-    setPage(1)
+  // ─── Animation variants ───
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: { staggerChildren: 0.04 },
+    },
   }
-
-  const hasActiveFilters = search || typeFilter !== 'ALL'
-
-  // ==================== LOADING SKELETON ====================
-  const LoadingSkeleton = () => (
-    <div className="space-y-4">
-      {/* Summary cards skeleton */}
-      <div className="grid grid-cols-3 gap-3">
-        {Array.from({ length: 3 }).map((_, i) => (
-          <Skeleton
-            key={i}
-            className="h-20 bg-zinc-900/50 rounded-xl"
-          />
-        ))}
-      </div>
-      {/* Filter skeleton */}
-      <div className="flex gap-2">
-        <Skeleton className="h-9 flex-1 bg-zinc-900/50 rounded-lg" />
-        <Skeleton className="h-9 w-40 bg-zinc-900/50 rounded-lg" />
-      </div>
-      {/* Table skeleton */}
-      <div className="hidden md:block">
-        <Skeleton className="h-80 bg-zinc-900/50 rounded-xl" />
-      </div>
-      <div className="md:hidden space-y-2">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <Skeleton
-            key={i}
-            className="h-28 bg-zinc-900/50 rounded-xl"
-          />
-        ))}
-      </div>
-    </div>
-  )
+  const itemVariants = {
+    hidden: { opacity: 0, y: 12 },
+    visible: { opacity: 1, y: 0, transition: { duration: 0.3, ease: [0.25, 0.1, 0.25, 1] } },
+  }
 
   return (
-    <motion.div
-      className="space-y-4"
-      variants={containerVariants}
-      initial="hidden"
-      animate="visible"
-    >
-      {/* ── Page Header ── */}
-      <motion.div
-        variants={itemVariants}
-        className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-2"
-      >
+    <div className="space-y-4">
+      {/* ─── Header ─── */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h1 className="text-lg font-semibold text-zinc-100 flex items-center gap-2">
-            <Activity className="h-5 w-5 text-emerald-400" />
-            Log Stok Bahan
-          </h1>
-          <p className="text-xs text-zinc-500 mt-0.5">
-            Riwayat pergerakan stok bahan baku
-          </p>
+          <h1 className="text-lg font-bold text-slate-100 tracking-tight">Log Stok Bahan Baku</h1>
+          <p className="text-xs text-slate-500 mt-0.5">Riwayat semua pergerakan stok bahan baku (inventory)</p>
         </div>
+      </div>
+
+      {/* ─── Summary Cards ─── */}
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3 }}
+        className="grid grid-cols-2 sm:grid-cols-4 gap-3"
+      >
+        <Card className="bg-white/[0.02] border-white/[0.06]">
+          <CardContent className="p-3 sm:p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <div className="w-6 h-6 rounded-lg bg-slate-500/10 flex items-center justify-center">
+                <Activity className="h-3 w-3 text-slate-400" />
+              </div>
+              <span className="text-[10px] text-slate-500 font-medium uppercase tracking-wider">Total</span>
+            </div>
+            <p className="text-lg sm:text-xl font-bold text-slate-100">{formatNumber(summary.totalMovements)}</p>
+          </CardContent>
+        </Card>
+        <Card className="bg-white/[0.02] border-white/[0.06]">
+          <CardContent className="p-3 sm:p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <div className="w-6 h-6 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+                <TrendingUp className="h-3 w-3 text-emerald-400" />
+              </div>
+              <span className="text-[10px] text-slate-500 font-medium uppercase tracking-wider">Stok Masuk</span>
+            </div>
+            <p className="text-lg sm:text-xl font-bold text-emerald-400">{formatNumber(summary.totalStockIn)}</p>
+          </CardContent>
+        </Card>
+        <Card className="bg-white/[0.02] border-white/[0.06]">
+          <CardContent className="p-3 sm:p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <div className="w-6 h-6 rounded-lg bg-orange-500/10 flex items-center justify-center">
+                <TrendingDown className="h-3 w-3 text-orange-400" />
+              </div>
+              <span className="text-[10px] text-slate-500 font-medium uppercase tracking-wider">Stok Keluar</span>
+            </div>
+            <p className="text-lg sm:text-xl font-bold text-orange-400">{formatNumber(summary.totalStockOut)}</p>
+          </CardContent>
+        </Card>
+        <Card className="bg-white/[0.02] border-white/[0.06]">
+          <CardContent className="p-3 sm:p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <div className="w-6 h-6 rounded-lg bg-cyan-500/10 flex items-center justify-center">
+                <ArrowRightLeft className="h-3 w-3 text-cyan-400" />
+              </div>
+              <span className="text-[10px] text-slate-500 font-medium uppercase tracking-wider">Selisih</span>
+            </div>
+            <p className={cn(
+              "text-lg sm:text-xl font-bold",
+              (summary.totalStockIn - summary.totalStockOut) >= 0 ? "text-emerald-400" : "text-red-400"
+            )}>
+              {formatNumber(summary.totalStockIn - summary.totalStockOut)}
+            </p>
+          </CardContent>
+        </Card>
       </motion.div>
 
-      {loading ? (
-        <LoadingSkeleton />
-      ) : (
-        <>
-          {/* ── Summary Cards ── */}
-          <motion.div
-            variants={itemVariants}
-            className="grid grid-cols-3 gap-3"
-          >
-            {/* Total Pergerakan */}
-            <div className="bg-zinc-900/50 border border-zinc-800/60 rounded-xl p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <div className="w-7 h-7 rounded-lg bg-emerald-500/10 flex items-center justify-center">
-                  <Activity className="h-3.5 w-3.5 text-emerald-400" />
-                </div>
-                <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">
-                  Pergerakan
-                </span>
-              </div>
-              <p className="text-lg font-bold text-zinc-100 tabular-nums">
-                {formatNumber(totalMovements)}
-              </p>
-              <p className="text-[10px] text-zinc-500 mt-0.5">total pergerakan</p>
-            </div>
-
-            {/* Stok Masuk */}
-            <div className="bg-zinc-900/50 border border-zinc-800/60 rounded-xl p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <div className="w-7 h-7 rounded-lg bg-sky-500/10 flex items-center justify-center">
-                  <ArrowDownToLine className="h-3.5 w-3.5 text-sky-400" />
-                </div>
-                <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">
-                  Masuk
-                </span>
-              </div>
-              <p className="text-lg font-bold text-emerald-400 tabular-nums">
-                +{formatNumber(totalStockIn)}
-              </p>
-              <p className="text-[10px] text-zinc-500 mt-0.5">total stok masuk</p>
-            </div>
-
-            {/* Stok Keluar */}
-            <div className="bg-zinc-900/50 border border-zinc-800/60 rounded-xl p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <div className="w-7 h-7 rounded-lg bg-rose-500/10 flex items-center justify-center">
-                  <ArrowUpFromLine className="h-3.5 w-3.5 text-rose-400" />
-                </div>
-                <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">
-                  Keluar
-                </span>
-              </div>
-              <p className="text-lg font-bold text-rose-400 tabular-nums">
-                -{formatNumber(totalStockOut)}
-              </p>
-              <p className="text-[10px] text-zinc-500 mt-0.5">total stok keluar</p>
-            </div>
-          </motion.div>
-
-          {/* ── Filters Row ── */}
-          <motion.div
-            variants={itemVariants}
-            className="flex flex-col sm:flex-row gap-2"
-          >
-            {/* Search input */}
-            <div className="relative flex-1 min-w-0 sm:max-w-xs">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500 pointer-events-none" />
+      {/* ─── Filters ─── */}
+      <Card className="bg-white/[0.02] border-white/[0.06]">
+        <CardContent className="p-3 sm:p-4">
+          <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
               <Input
-                type="text"
-                placeholder="Cari nama bahan..."
+                placeholder="Cari nama bahan baku..."
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                className="pl-8 pr-8 bg-white/[0.04] border-white/[0.08] text-zinc-100 h-9 text-xs placeholder:text-zinc-500"
+                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                className="pl-9 h-9 text-xs bg-white/[0.03] border-white/[0.06] text-slate-200 placeholder:text-slate-600"
               />
               {searchInput && (
                 <button
-                  onClick={handleClearSearch}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                  onClick={() => { setSearchInput(''); setSearch(''); setPage(1) }}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2"
                 >
-                  <X className="h-3.5 w-3.5" />
+                  <X className="h-3 w-3 text-slate-500 hover:text-slate-300" />
                 </button>
               )}
             </div>
-
-            {/* Movement type filter */}
-            <Select
-              value={typeFilter}
-              onValueChange={(v) => {
-                setTypeFilter(v)
-                setPage(1)
-              }}
-            >
-              <SelectTrigger className="w-full sm:w-40 bg-white/[0.04] border-white/[0.08] text-zinc-100 h-9 text-xs">
-                <SelectValue placeholder="Semua Tipe" />
+            <Select value={typeFilter || '__all__'} onValueChange={handleTypeChange}>
+              <SelectTrigger className="w-full sm:w-44 h-9 text-xs bg-white/[0.03] border-white/[0.06] text-slate-200">
+                <SelectValue placeholder="Semua tipe" />
               </SelectTrigger>
-              <SelectContent className="bg-zinc-900 border-zinc-800/60">
-                <SelectItem
-                  value="ALL"
-                  className="text-zinc-200 focus:bg-zinc-800 text-xs"
-                >
-                  Semua Tipe
-                </SelectItem>
-                {Object.entries(MOVEMENT_TYPE_CONFIG).map(
-                  ([key, config]) => (
-                    <SelectItem
-                      key={key}
-                      value={key}
-                      className="text-zinc-200 focus:bg-zinc-800 text-xs"
-                    >
-                      {config.label}
-                    </SelectItem>
-                  )
-                )}
+              <SelectContent className="bg-slate-900 border-white/[0.06]">
+                <SelectItem value="__all__" className="text-slate-200 text-xs">Semua Tipe</SelectItem>
+                <SelectItem value="PURCHASE" className="text-slate-200 text-xs">🟢 Restock (PO)</SelectItem>
+                <SelectItem value="RESTOCK" className="text-slate-200 text-xs">🟡 Restock Manual</SelectItem>
+                <SelectItem value="ADJUSTMENT" className="text-slate-200 text-xs">⚪ Penyesuaian</SelectItem>
+                <SelectItem value="CONSUMPTION" className="text-slate-200 text-xs">🔵 Konsumsi Penjualan</SelectItem>
+                <SelectItem value="TRANSFER_OUT" className="text-slate-200 text-xs">🟠 Transfer Keluar</SelectItem>
+                <SelectItem value="TRANSFER_IN" className="text-slate-200 text-xs">🟣 Transfer Masuk</SelectItem>
               </SelectContent>
             </Select>
-
-            {/* Clear all filters */}
-            {hasActiveFilters && (
-              <Button
-                variant="ghost"
-                className="h-9 text-xs text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04] shrink-0"
-                onClick={handleClearAllFilters}
-              >
-                <RotateCcw className="mr-1 h-3 w-3" />
-                Reset
-              </Button>
-            )}
-          </motion.div>
-
-          {/* ── Active filter badges ── */}
-          {hasActiveFilters && (
-            <motion.div
-              variants={itemVariants}
-              className="flex flex-wrap gap-1.5"
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSearch}
+              className="h-9 text-xs bg-white/[0.03] border-white/[0.06] text-slate-300 hover:bg-white/[0.06]"
             >
-              {search && (
-                <Badge
-                  variant="outline"
-                  className="bg-white/[0.04] border-white/[0.08] text-zinc-300 text-[11px] gap-1 px-2 py-0.5 cursor-pointer"
-                >
-                  Cari: &quot;{search}&quot;
-                  <button
-                    onClick={() => {
-                      setSearchInput('')
-                      setSearch('')
-                      setPage(1)
-                    }}
-                  >
-                    <X className="h-2.5 w-2.5 ml-0.5" />
-                  </button>
-                </Badge>
-              )}
-              {typeFilter !== 'ALL' && (
-                <Badge
-                  variant="outline"
-                  className={cn(
-                    'text-[11px] gap-1 px-2 py-0.5 cursor-pointer',
-                    getTypeConfig(typeFilter).bgColor,
-                    getTypeConfig(typeFilter).borderColor,
-                    getTypeConfig(typeFilter).color
-                  )}
-                >
-                  {getTypeConfig(typeFilter).label}
-                  <button
-                    onClick={() => {
-                      setTypeFilter('ALL')
-                      setPage(1)
-                    }}
-                  >
-                    <X className="h-2.5 w-2.5 ml-0.5" />
-                  </button>
-                </Badge>
-              )}
-            </motion.div>
-          )}
+              Cari
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
-          {/* ── Content Area ── */}
-          {movements.length === 0 ? (
-            <motion.div
-              variants={itemVariants}
-              className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-8 text-center"
-            >
-              <Package className="h-8 w-8 text-zinc-700 mx-auto mb-3" />
-              <p className="text-xs text-zinc-500">
-                {hasActiveFilters
-                  ? 'Tidak ada pergerakan yang cocok dengan filter'
-                  : 'Belum ada pergerakan stok'}
-              </p>
-              {hasActiveFilters && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleClearAllFilters}
-                  className="mt-3 text-zinc-500 hover:text-zinc-300 text-xs h-7"
-                >
-                  Reset semua filter
-                </Button>
-              )}
-            </motion.div>
-          ) : (
-            <motion.div variants={itemVariants}>
-              {/* ── Desktop Table ── */}
-              <div className="hidden md:block bg-zinc-900/30 border border-zinc-800/60 rounded-xl overflow-hidden">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="border-zinc-800/60 hover:bg-transparent bg-zinc-900/50">
-                      <TableHead className="text-zinc-500 text-[11px] font-medium w-10" />
-                      <TableHead className="text-zinc-500 text-[11px] font-medium">
-                        Tanggal
-                      </TableHead>
-                      <TableHead className="text-zinc-500 text-[11px] font-medium">
-                        Item
-                      </TableHead>
-                      <TableHead className="text-zinc-500 text-[11px] font-medium text-center">
-                        Tipe
-                      </TableHead>
-                      <TableHead className="text-zinc-500 text-[11px] font-medium text-right">
-                        Qty
-                      </TableHead>
-                      <TableHead className="text-zinc-500 text-[11px] font-medium text-right">
-                        Stok Sebelum
-                      </TableHead>
-                      <TableHead className="text-zinc-500 text-[11px] font-medium text-right">
-                        Stok Sesudah
-                      </TableHead>
-                      <TableHead className="text-zinc-500 text-[11px] font-medium">
-                        Referensi
-                      </TableHead>
+      {/* ─── Table (Desktop) ─── */}
+      <div className="hidden sm:block">
+        <Card className="bg-white/[0.02] border-white/[0.06] overflow-hidden">
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow className="border-white/[0.04] hover:bg-transparent">
+                  <TableHead className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider h-10 px-4">Tanggal</TableHead>
+                  <TableHead className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider h-10 px-4">Bahan Baku</TableHead>
+                  <TableHead className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider h-10 px-4">Tipe</TableHead>
+                  <TableHead className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider h-10 px-4 text-right">Qty</TableHead>
+                  <TableHead className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider h-10 px-4 text-right">Stok Sebelum</TableHead>
+                  <TableHead className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider h-10 px-4 text-right">Stok Sesudah</TableHead>
+                  <TableHead className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider h-10 px-4">Referensi</TableHead>
+                  <TableHead className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider h-10 px-4">Oleh</TableHead>
+                  <TableHead className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider h-10 w-10 px-2"></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loading ? (
+                  Array.from({ length: 8 }).map((_, i) => (
+                    <TableRow key={i} className="border-white/[0.03] hover:bg-white/[0.01]">
+                      <TableCell colSpan={9} className="py-2 px-4">
+                        <Skeleton className="h-4 w-full bg-white/[0.03]" />
+                      </TableCell>
                     </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    <AnimatePresence mode="popLayout">
-                      {movements.map((movement) => {
-                        const config = getTypeConfig(movement.type)
-                        return (
-                          <motion.tr
-                            key={movement.id}
-                            initial={{ opacity: 0, y: 8 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -8 }}
-                            transition={{ duration: 0.2 }}
-                            className={cn(
-                              'border-zinc-800/40 transition-colors border-l-2',
-                              config.leftBorder,
-                              'cursor-pointer hover:bg-white/[0.02]'
-                            )}
-                            onClick={() => setSelectedMovement(movement)}
-                          >
-                            {/* Dot indicator */}
-                            <TableCell className="py-3 px-3">
-                              <div
-                                className={cn(
-                                  'w-2 h-2 rounded-full',
-                                  config.dotColor
-                                )}
-                              />
-                            </TableCell>
-                            {/* Tanggal */}
-                            <TableCell className="text-xs text-zinc-400 py-3 px-3 whitespace-nowrap">
-                              {formatDate(movement.createdAt)}
-                            </TableCell>
-                            {/* Item */}
-                            <TableCell className="text-xs py-3 px-3">
-                              <span className="text-zinc-100 font-medium">
-                                {movement.inventoryItem.name}
-                              </span>
-                              <span className="text-zinc-500 ml-1.5 text-[10px]">
-                                {movement.inventoryItem.baseUnit}
-                              </span>
-                            </TableCell>
-                            {/* Tipe */}
-                            <TableCell className="text-center py-3 px-3">
-                              <MovementTypeBadge type={movement.type} />
-                            </TableCell>
-                            {/* Qty */}
-                            <TableCell className="text-right py-3 px-3">
-                              <QuantityDisplay
-                                quantity={movement.quantity}
-                                unit={movement.inventoryItem.baseUnit}
-                              />
-                            </TableCell>
-                            {/* Stok Sebelum */}
-                            <TableCell className="text-right text-xs text-zinc-500 py-3 px-3 tabular-nums">
-                              {formatNumber(movement.previousStock)}
-                            </TableCell>
-                            {/* Stok Sesudah */}
-                            <TableCell className="text-right text-xs text-zinc-300 py-3 px-3 tabular-nums">
-                              {formatNumber(movement.newStock)}
-                            </TableCell>
-                            {/* Referensi */}
-                            <TableCell className="text-xs text-zinc-500 py-3 px-3">
-                              {movement.referenceLabel || '-'}
-                            </TableCell>
-                          </motion.tr>
-                        )
-                      })}
-                    </AnimatePresence>
-                  </TableBody>
-                </Table>
-              </div>
-
-              {/* ── Mobile Cards ── */}
-              <div className="md:hidden space-y-2">
-                <AnimatePresence mode="popLayout">
-                  {movements.map((movement) => {
-                    const config = getTypeConfig(movement.type)
+                  ))
+                ) : movements.length === 0 ? (
+                  <TableRow className="border-white/[0.03] hover:bg-transparent">
+                    <TableCell colSpan={9} className="py-12 text-center">
+                      <div className="flex flex-col items-center gap-2">
+                        <Activity className="h-8 w-8 text-slate-700" />
+                        <p className="text-xs text-slate-500">Belum ada log pergerakan stok</p>
+                        <p className="text-[10px] text-slate-600">Log akan muncul saat ada restock, penjualan, atau transfer bahan baku</p>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  movements.map((m) => {
+                    const cfg = getMovementConfig(m.type)
+                    const isIn = m.quantity > 0
                     return (
-                      <motion.div
-                        key={movement.id}
-                        initial={{ opacity: 0, y: 12 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -12 }}
-                        transition={{ duration: 0.2 }}
-                        className={cn(
-                          'rounded-xl border-l-4',
-                          config.leftBorder,
-                          'border border-zinc-800/60 bg-zinc-900/50 p-3.5 transition-colors cursor-pointer hover:bg-zinc-900/80'
-                        )}
-                        onClick={() => setSelectedMovement(movement)}
+                      <TableRow
+                        key={m.id}
+                        className="border-white/[0.03] hover:bg-white/[0.02] cursor-pointer group"
+                        onClick={() => openDetail(m)}
                       >
-                        {/* Top row: item name + unit badge */}
-                        <div className="flex items-start justify-between gap-2 mb-2">
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium text-zinc-100 truncate">
-                              {movement.inventoryItem.name}
-                            </p>
-                            <div className="flex items-center gap-1.5 mt-0.5">
-                              <Badge
-                                variant="outline"
-                                className="bg-white/[0.04] border-white/[0.08] text-zinc-500 text-[10px] px-1.5 py-0"
-                              >
-                                {movement.inventoryItem.baseUnit}
-                              </Badge>
-                              {movement.inventoryItem.sku && (
-                                <span className="text-[10px] text-zinc-600 font-mono">
-                                  {movement.inventoryItem.sku}
-                                </span>
-                              )}
+                        <TableCell className="py-2.5 px-4">
+                          <div className="text-xs text-slate-300">{formatDate(m.createdAt)}</div>
+                        </TableCell>
+                        <TableCell className="py-2.5 px-4">
+                          <div className="flex flex-col">
+                            <span className="text-xs font-medium text-slate-200">{m.itemName}</span>
+                            {m.itemSku && (
+                              <span className="text-[10px] text-slate-500 font-mono">{m.itemSku}</span>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="py-2.5 px-4">
+                          <Badge
+                            variant="outline"
+                            className={cn("text-[10px] px-2 py-0 border", cfg.bgColor, cfg.color, cfg.borderColor)}
+                          >
+                            {cfg.label}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="py-2.5 px-4 text-right">
+                          <div className={cn(
+                            "flex items-center justify-end gap-1 text-xs font-semibold",
+                            isIn ? "text-emerald-400" : "text-orange-400"
+                          )}>
+                            {isIn ? (
+                              <ArrowUp className="h-3 w-3" />
+                            ) : (
+                              <ArrowDown className="h-3 w-3" />
+                            )}
+                            {formatNumber(Math.abs(m.quantity))} {m.baseUnit}
+                          </div>
+                        </TableCell>
+                        <TableCell className="py-2.5 px-4 text-right">
+                          <span className="text-xs text-slate-400">{formatNumber(m.previousStock)}</span>
+                        </TableCell>
+                        <TableCell className="py-2.5 px-4 text-right">
+                          <span className={cn(
+                            "text-xs font-medium",
+                            m.newStock > m.previousStock ? "text-emerald-400" : m.newStock < m.previousStock ? "text-orange-400" : "text-slate-300"
+                          )}>
+                            {formatNumber(m.newStock)}
+                          </span>
+                        </TableCell>
+                        <TableCell className="py-2.5 px-4">
+                          {m.referenceLabel ? (
+                            <span className="text-[10px] text-slate-400 font-mono">{m.referenceLabel}</span>
+                          ) : (
+                            <span className="text-[10px] text-slate-600">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="py-2.5 px-4">
+                          <span className="text-[10px] text-slate-400">{m.userName || 'System'}</span>
+                        </TableCell>
+                        <TableCell className="py-2.5 px-2">
+                          <Eye className="h-3.5 w-3.5 text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* ─── Cards (Mobile) ─── */}
+      <div className="sm:hidden space-y-2">
+        {loading ? (
+          Array.from({ length: 5 }).map((_, i) => (
+            <Card key={i} className="bg-white/[0.02] border-white/[0.06]">
+              <CardContent className="p-3">
+                <Skeleton className="h-4 w-3/4 bg-white/[0.03] mb-2" />
+                <Skeleton className="h-3 w-1/2 bg-white/[0.03]" />
+              </CardContent>
+            </Card>
+          ))
+        ) : movements.length === 0 ? (
+          <Card className="bg-white/[0.02] border-white/[0.06]">
+            <CardContent className="py-12 flex flex-col items-center gap-2">
+              <Activity className="h-8 w-8 text-slate-700" />
+              <p className="text-xs text-slate-500">Belum ada log pergerakan stok</p>
+            </CardContent>
+          </Card>
+        ) : (
+          <motion.div
+            variants={containerVariants}
+            initial="hidden"
+            animate="visible"
+            className="space-y-2"
+          >
+            {movements.map((m) => {
+              const cfg = getMovementConfig(m.type)
+              const isIn = m.quantity > 0
+              const IconComp = cfg.icon
+              return (
+                <motion.div key={m.id} variants={itemVariants}>
+                  <Card
+                    className="bg-white/[0.02] border-white/[0.06] cursor-pointer hover:bg-white/[0.03] transition-colors"
+                    onClick={() => openDetail(m)}
+                  >
+                    <CardContent className="p-3">
+                      <div className="flex items-start gap-3">
+                        <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5", cfg.bgColor)}>
+                          <IconComp className={cn("h-4 w-4", cfg.color)} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs font-medium text-slate-200 truncate">{m.itemName}</span>
+                            <div className={cn(
+                              "flex items-center gap-0.5 text-xs font-bold shrink-0",
+                              isIn ? "text-emerald-400" : "text-orange-400"
+                            )}>
+                              {isIn ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
+                              {formatNumber(Math.abs(m.quantity))} {m.baseUnit}
                             </div>
                           </div>
-                          <MovementTypeBadge type={movement.type} />
+                          <div className="flex items-center gap-2 mt-1">
+                            <Badge variant="outline" className={cn("text-[9px] px-1.5 py-0 border", cfg.bgColor, cfg.color, cfg.borderColor)}>
+                              {cfg.label}
+                            </Badge>
+                            <span className="text-[10px] text-slate-500">
+                              {formatNumber(m.previousStock)} → {formatNumber(m.newStock)}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between mt-1.5">
+                            <span className="text-[10px] text-slate-500">{formatDate(m.createdAt)}</span>
+                            {m.referenceLabel && (
+                              <span className="text-[10px] text-slate-400 font-mono">{m.referenceLabel}</span>
+                            )}
+                          </div>
                         </div>
-
-                        {/* Date */}
-                        <p className="text-[10px] text-zinc-500 mb-2">
-                          {formatDate(movement.createdAt)}
-                        </p>
-
-                        {/* Quantity change (prominent) */}
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-[10px] text-zinc-500">
-                            Perubahan
-                          </span>
-                          <QuantityDisplay
-                            quantity={movement.quantity}
-                            unit={movement.inventoryItem.baseUnit}
-                          />
-                        </div>
-
-                        {/* Stock transition */}
-                        <div className="flex items-center justify-center gap-2 py-1.5 rounded-lg bg-zinc-800/30 mb-2">
-                          <span className="text-xs text-zinc-500 tabular-nums">
-                            {formatNumber(movement.previousStock)}
-                          </span>
-                          <span className="text-zinc-600 text-xs">→</span>
-                          <span className="text-xs text-zinc-100 font-medium tabular-nums">
-                            {formatNumber(movement.newStock)}
-                          </span>
-                        </div>
-
-                        {/* Reference */}
-                        {movement.referenceLabel && (
-                          <p className="text-[10px] text-zinc-500">
-                            <span className="text-zinc-600">Ref:</span>{' '}
-                            {movement.referenceLabel}
-                          </p>
-                        )}
-                      </motion.div>
-                    )
-                  })}
-                </AnimatePresence>
-              </div>
-            </motion.div>
-          )}
-
-          {/* ── Pagination ── */}
-          <motion.div variants={itemVariants}>
-            <Pagination
-              currentPage={page}
-              totalPages={totalPages}
-              onPageChange={setPage}
-            />
+                      </div>
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              )
+            })}
           </motion.div>
-        </>
+        )}
+      </div>
+
+      {/* ─── Pagination ─── */}
+      {totalPages > 1 && (
+        <div className="flex justify-center pt-2">
+          <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+        </div>
       )}
 
-      {/* ── Detail Dialog ── */}
-      <ResponsiveDialog
-        open={!!selectedMovement}
-        onOpenChange={(open) => {
-          if (!open) setSelectedMovement(null)
-        }}
-      >
-        <ResponsiveDialogContent className="bg-zinc-900 border-zinc-800/60 max-w-md">
+      {/* ─── Detail Dialog ─── */}
+      <ResponsiveDialog open={detailOpen} onOpenChange={setDetailOpen}>
+        <ResponsiveDialogContent className="bg-slate-900 border-white/[0.06] max-w-md">
           <ResponsiveDialogHeader>
-            <ResponsiveDialogTitle className="text-zinc-100 text-sm font-semibold">
-              Detail Pergerakan Stok
-            </ResponsiveDialogTitle>
-            <ResponsiveDialogDescription className="text-zinc-500 text-xs">
-              Informasi lengkap pergerakan bahan baku
+            <ResponsiveDialogTitle className="text-slate-100 text-sm">Detail Pergerakan</ResponsiveDialogTitle>
+            <ResponsiveDialogDescription className="text-slate-400 text-xs">
+              Informasi lengkap log pergerakan stok bahan baku
             </ResponsiveDialogDescription>
           </ResponsiveDialogHeader>
-
           {selectedMovement && (
             <div className="space-y-4 mt-2">
-              {/* Item info */}
-              <div className="bg-zinc-800/30 rounded-lg p-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-zinc-100 truncate">
-                      {selectedMovement.inventoryItem.name}
-                    </p>
-                    {selectedMovement.inventoryItem.sku && (
-                      <p className="text-[10px] text-zinc-500 font-mono mt-0.5">
-                        SKU: {selectedMovement.inventoryItem.sku}
-                      </p>
-                    )}
-                  </div>
-                  <Badge
-                    variant="outline"
-                    className="bg-white/[0.04] border-white/[0.08] text-zinc-400 text-[10px] px-1.5 py-0 shrink-0"
-                  >
-                    {selectedMovement.inventoryItem.baseUnit}
-                  </Badge>
-                </div>
-              </div>
+              {(() => {
+                const cfg = getMovementConfig(selectedMovement.type)
+                const isIn = selectedMovement.quantity > 0
+                const IconComp = cfg.icon
+                return (
+                  <>
+                    {/* Type indicator */}
+                    <div className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                      <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center", cfg.bgColor)}>
+                        <IconComp className={cn("h-5 w-5", cfg.color)} />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-slate-100">{cfg.label}</p>
+                        <p className="text-[10px] text-slate-500">{cfg.description}</p>
+                      </div>
+                    </div>
 
-              {/* Movement type & date */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <p className="text-[10px] text-zinc-500 mb-1">Tipe</p>
-                  <MovementTypeBadge type={selectedMovement.type} />
-                </div>
-                <div>
-                  <p className="text-[10px] text-zinc-500 mb-1">Tanggal</p>
-                  <p className="text-xs text-zinc-300">
-                    {formatDate(selectedMovement.createdAt)}
-                  </p>
-                </div>
-              </div>
+                    {/* Item info */}
+                    <div className="space-y-2">
+                      <h4 className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">Bahan Baku</h4>
+                      <div className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+                        <p className="text-sm font-medium text-slate-200">{selectedMovement.itemName}</p>
+                        {selectedMovement.itemSku && (
+                          <p className="text-[10px] text-slate-500 font-mono mt-0.5">SKU: {selectedMovement.itemSku}</p>
+                        )}
+                        {selectedMovement.category && (
+                          <Badge variant="outline" className="text-[9px] mt-1.5 px-1.5 py-0 bg-slate-800 border-white/[0.06] text-slate-400">
+                            {selectedMovement.category.name}
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
 
-              {/* Quantity change (big, prominent) */}
-              <div className="flex items-center justify-center py-3 rounded-lg bg-zinc-800/30">
-                <span
-                  className={cn(
-                    'text-xl font-bold tabular-nums',
-                    selectedMovement.quantity >= 0
-                      ? 'text-emerald-400'
-                      : 'text-rose-400'
-                  )}
-                >
-                  {selectedMovement.quantity >= 0 ? '+' : ''}
-                  {formatNumber(selectedMovement.quantity)}
-                </span>
-                <span className="text-sm text-zinc-400 ml-1.5">
-                  {selectedMovement.inventoryItem.baseUnit}
-                </span>
-              </div>
+                    {/* Stock change */}
+                    <div className="space-y-2">
+                      <h4 className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">Perubahan Stok</h4>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.04] text-center">
+                          <p className="text-[10px] text-slate-500 mb-1">Sebelum</p>
+                          <p className="text-sm font-bold text-slate-300">{formatNumber(selectedMovement.previousStock)}</p>
+                        </div>
+                        <div className={cn(
+                          "p-3 rounded-lg border text-center",
+                          isIn ? "bg-emerald-500/5 border-emerald-500/10" : "bg-orange-500/5 border-orange-500/10"
+                        )}>
+                          <p className="text-[10px] text-slate-500 mb-1">{isIn ? 'Masuk' : 'Keluar'}</p>
+                          <p className={cn("text-sm font-bold flex items-center justify-center gap-1", isIn ? "text-emerald-400" : "text-orange-400")}>
+                            {isIn ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
+                            {formatNumber(Math.abs(selectedMovement.quantity))}
+                          </p>
+                        </div>
+                        <div className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.04] text-center">
+                          <p className="text-[10px] text-slate-500 mb-1">Sesudah</p>
+                          <p className={cn("text-sm font-bold", selectedMovement.newStock > selectedMovement.previousStock ? "text-emerald-400" : "text-orange-400")}>
+                            {formatNumber(selectedMovement.newStock)}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
 
-              {/* Stock transition */}
-              <div className="grid grid-cols-3 gap-2 items-center text-center">
-                <div>
-                  <p className="text-[10px] text-zinc-500 mb-0.5">
-                    Stok Sebelum
-                  </p>
-                  <p className="text-sm text-zinc-400 tabular-nums">
-                    {formatNumber(selectedMovement.previousStock)}
-                  </p>
-                </div>
-                <div className="flex justify-center">
-                  <div className="w-6 h-6 rounded-full bg-zinc-800/60 flex items-center justify-center">
-                    <span className="text-zinc-500 text-xs">→</span>
-                  </div>
-                </div>
-                <div>
-                  <p className="text-[10px] text-zinc-500 mb-0.5">
-                    Stok Sesudah
-                  </p>
-                  <p className="text-sm font-medium text-zinc-100 tabular-nums">
-                    {formatNumber(selectedMovement.newStock)}
-                  </p>
-                </div>
-              </div>
-
-              {/* Reference info */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <p className="text-[10px] text-zinc-500 mb-1">
-                    Tipe Referensi
-                  </p>
-                  <p className="text-xs text-zinc-300">
-                    {getReferenceTypeLabel(
-                      selectedMovement.referenceType
-                    )}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-[10px] text-zinc-500 mb-1">
-                    Label Referensi
-                  </p>
-                  <p className="text-xs text-zinc-300">
-                    {selectedMovement.referenceLabel || '-'}
-                  </p>
-                </div>
-              </div>
-
-              {/* Notes */}
-              {selectedMovement.notes && (
-                <div>
-                  <p className="text-[10px] text-zinc-500 mb-1">Catatan</p>
-                  <p className="text-xs text-zinc-300">
-                    {selectedMovement.notes}
-                  </p>
-                </div>
-              )}
-
-              {/* User */}
-              <div>
-                <p className="text-[10px] text-zinc-500 mb-1">
-                  Dilakukan oleh
-                </p>
-                <p className="text-xs text-zinc-300">
-                  {selectedMovement.user?.name || 'System'}
-                </p>
-              </div>
+                    {/* Metadata */}
+                    <div className="space-y-2">
+                      <h4 className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">Informasi</h4>
+                      <div className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.04] space-y-2">
+                        <div className="flex justify-between">
+                          <span className="text-[10px] text-slate-500">Waktu</span>
+                          <span className="text-[10px] text-slate-300">{formatDate(selectedMovement.createdAt)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-[10px] text-slate-500">Oleh</span>
+                          <span className="text-[10px] text-slate-300">{selectedMovement.userName || 'System'}</span>
+                        </div>
+                        {selectedMovement.referenceLabel && (
+                          <div className="flex justify-between">
+                            <span className="text-[10px] text-slate-500">Referensi</span>
+                            <span className="text-[10px] text-slate-300 font-mono">{selectedMovement.referenceLabel}</span>
+                          </div>
+                        )}
+                        {selectedMovement.notes && (
+                          <div className="flex justify-between">
+                            <span className="text-[10px] text-slate-500">Catatan</span>
+                            <span className="text-[10px] text-slate-300 text-right max-w-[60%]">{selectedMovement.notes}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between">
+                          <span className="text-[10px] text-slate-500">ID</span>
+                          <span className="text-[9px] text-slate-600 font-mono">{selectedMovement.id.slice(0, 12)}...</span>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )
+              })()}
             </div>
           )}
         </ResponsiveDialogContent>
       </ResponsiveDialog>
-    </motion.div>
+    </div>
   )
 }

@@ -77,6 +77,20 @@ export async function PUT(
       },
     })
 
+    await db.auditLog.create({
+      data: {
+        action: 'UPDATE',
+        entityType: 'INVENTORY_ITEM',
+        entityId: id,
+        details: JSON.stringify({
+          itemName: existing.name,
+          changes: updateData,
+        }),
+        outletId: user.outletId,
+        userId: user.id,
+      },
+    })
+
     return safeJson(updated)
   } catch (error) {
     console.error('Inventory item PUT error:', error)
@@ -111,6 +125,21 @@ export async function DELETE(
         400
       )
     }
+
+    await db.auditLog.create({
+      data: {
+        action: 'DELETE',
+        entityType: 'INVENTORY_ITEM',
+        entityId: id,
+        details: JSON.stringify({
+          itemName: existing.name,
+          stock: existing.stock,
+          avgCost: existing.avgCost,
+        }),
+        outletId: user.outletId,
+        userId: user.id,
+      },
+    })
 
     await db.inventoryItem.delete({ where: { id } })
 

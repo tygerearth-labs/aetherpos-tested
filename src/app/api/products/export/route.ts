@@ -47,18 +47,6 @@ export async function GET(request: NextRequest) {
           },
           orderBy: { name: 'asc' },
         },
-        compositions: {
-          select: {
-            id: true,
-            variantId: true,
-            inventoryItemId: true,
-            qty: true,
-            baseUnit: true,
-            inventoryItem: {
-              select: { name: true, baseUnit: true },
-            },
-          },
-        },
       },
       orderBy: { createdAt: 'asc' },
     })
@@ -68,7 +56,7 @@ export async function GET(request: NextRequest) {
 
     // === Sheet 1: Produk ===
     const productHeader = [
-      'ID', 'Nama Produk', 'SKU', 'BARCODE', 'HPP', 'Harga Jual', 'Stok', 'Satuan', 'Kategori', 'Punya Varian', 'Punya Komposisi', 'Low Stock Alert',
+      'ID', 'Nama Produk', 'SKU', 'BARCODE', 'HPP', 'Harga Jual', 'Stok', 'Satuan', 'Kategori', 'Punya Varian', 'Low Stock Alert',
     ]
     const productRows = products.map((p) => [
       p.id,
@@ -81,7 +69,6 @@ export async function GET(request: NextRequest) {
       p.unit,
       p.category?.name || '',
       p.hasVariants ? 'ya' : 'tidak',
-      p.compositions && p.compositions.length > 0 ? 'ya' : 'tidak',
       p.lowStockAlert,
     ])
 
@@ -141,42 +128,7 @@ export async function GET(request: NextRequest) {
     ]
     XLSX.utils.book_append_sheet(wb, wsVariants, 'Varian Produk')
 
-    // === Sheet 3: Komposisi ===
-    const compHeader = ['Nama Produk', 'Nama Varian', 'Nama Bahan', 'QTY', 'Satuan']
-    const compRows: (string | number)[][] = []
-    for (const p of products) {
-      if (p.compositions && p.compositions.length > 0) {
-        for (const c of p.compositions) {
-          // Find variant name if composition is variant-level
-          let variantName = ''
-          if (c.variantId && p.variants) {
-            const v = p.variants.find((vr) => vr.id === c.variantId)
-            if (v) variantName = v.name
-          }
-          compRows.push([
-            p.name,
-            variantName,
-            c.inventoryItem?.name || c.inventoryItemId,
-            c.qty,
-            c.baseUnit || c.inventoryItem?.baseUnit || '',
-          ])
-        }
-      }
-    }
-    const wsComp = XLSX.utils.aoa_to_sheet([
-      compHeader,
-      ...compRows,
-    ])
-    wsComp['!cols'] = [
-      { wch: 28 }, // Nama Produk
-      { wch: 20 }, // Nama Varian
-      { wch: 25 }, // Nama Bahan
-      { wch: 12 }, // QTY
-      { wch: 12 }, // Satuan
-    ]
-    XLSX.utils.book_append_sheet(wb, wsComp, 'Komposisi')
-
-    // === Sheet 4: Panduan ===
+    // === Sheet 3: Panduan ===
     const guideData = [
       ['PANDUAN EDIT PRODUK VIA EXCEL — AETHER POS'],
       [''],
@@ -236,7 +188,6 @@ export async function GET(request: NextRequest) {
         exportExcel: true,
         productCount: products.length,
         variantCount: variantRows.length,
-        compositionCount: compRows.length,
       }),
       outletId,
       userId,

@@ -4,7 +4,6 @@ import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeAuditLog } from '@/lib/safe-audit'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 import { generateUniqueSKU, generateVariantSKU } from '@/lib/sku-generator'
-import { validateCompositionStock } from '@/lib/comp-stock'
 
 interface VariantPayload {
   name: string
@@ -88,14 +87,6 @@ export async function PUT(
       })
       if (nameExists) {
         return safeJsonError('Product name already exists in this outlet', 400)
-      }
-    }
-
-    // Validate composition stock capacity when stock is being changed
-    if (stock !== undefined && !existing.hasVariants) {
-      const compError = await validateCompositionStock(id, outletId, stock)
-      if (compError) {
-        return safeJsonError(compError, 400)
       }
     }
 

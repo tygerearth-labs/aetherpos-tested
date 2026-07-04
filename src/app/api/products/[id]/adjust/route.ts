@@ -2,7 +2,6 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
-import { validateCompositionStock, validateVariantCompositionStock } from '@/lib/comp-stock'
 
 export async function POST(
   request: NextRequest,
@@ -22,7 +21,7 @@ export async function POST(
 
     const existing = await db.product.findFirst({
       where: { id, outletId },
-      select: { id: true, name: true, sku: true, stock: true, hasVariants: true, hasComposition: true },
+      select: { id: true, name: true, sku: true, stock: true, hasVariants: true },
     })
     if (!existing) {
       return safeJsonError('Product not found', 404)
@@ -35,17 +34,6 @@ export async function POST(
           'Produk dengan varian memerlukan array variants: [{ id, newStock }]',
           400
         )
-      }
-
-      // Validate variant composition stock capacity if composition is active
-      if (existing.hasComposition) {
-        for (const v of variants) {
-          if (v.newStock < 0) continue
-          const compError = await validateVariantCompositionStock(v.id, '', v.newStock)
-          if (compError) {
-            return safeJsonError(compError, 400)
-          }
-        }
       }
 
       const result = await db.$transaction(async (tx) => {
@@ -120,14 +108,6 @@ export async function POST(
     // Non-variant adjustment flow (existing behavior)
     if (newStock === undefined || newStock === null || newStock < 0) {
       return safeJsonError('Stock tidak boleh negatif', 400)
-    }
-
-    // Validate composition stock capacity
-    if (existing.hasComposition) {
-      const compError = await validateCompositionStock(id, outletId, newStock)
-      if (compError) {
-        return safeJsonError(compError, 400)
-      }
     }
 
     const product = await db.$transaction(async (tx) => {

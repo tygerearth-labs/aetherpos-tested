@@ -27,9 +27,10 @@ import {
   Lock,
   Command,
   Crown,
+  Truck,
   Building2,
   PackagePlus,
-  Send,
+  Activity,
 } from 'lucide-react'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -58,7 +59,7 @@ interface NavItem {
   icon: React.ReactNode
   page: PageType
   shortLabel: string
-  section?: 'main' | 'operations' | 'management'
+  section?: 'main' | 'operations' | 'admin'
   groupOnly?: boolean
 }
 
@@ -67,27 +68,25 @@ interface NavItem {
 // ============================================================
 
 const navItems: NavItem[] = [
-  // ── Utama ──
   { label: 'Dashboard', shortLabel: 'Dash', icon: <LayoutDashboard className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'dashboard', section: 'main' },
-  { label: 'Produk', shortLabel: 'Prod', icon: <Package className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'products', section: 'main' },
-  { label: 'Pelanggan', shortLabel: 'Cust', icon: <Users className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'customers', section: 'main' },
-  // ── Operasional ──
+  { label: 'Products', shortLabel: 'Prod', icon: <Package className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'products', section: 'main' },
+  { label: 'Customers', shortLabel: 'Cust', icon: <Users className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'customers', section: 'main' },
   { label: 'POS', shortLabel: 'POS', icon: <ShoppingCart className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'pos', section: 'operations' },
-  { label: 'Transaksi', shortLabel: 'Txn', icon: <Receipt className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'transactions', section: 'operations' },
-  { label: 'Pembelian', shortLabel: 'PO', icon: <PackagePlus className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'purchase', section: 'operations' },
-  { label: 'Kirim Stock/Barang', shortLabel: 'Kirim', icon: <Send className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'transfer', section: 'operations', groupOnly: true },
-  // ── Manajemen ──
-  { label: 'Audit Log', shortLabel: 'Log', icon: <ClipboardList className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'audit-log', section: 'management' },
-  { label: 'Pengaturan', shortLabel: 'Set', icon: <Settings className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'settings', section: 'management' },
-  { label: 'Kelola Crew', shortLabel: 'Crew', icon: <UserCog className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'crew', section: 'management' },
-  { label: 'Plan & Pricing', shortLabel: 'Plan', icon: <Crown className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'plan', section: 'management' },
-  { label: 'Multi Outlet', shortLabel: 'Mo', icon: <Building2 className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'multi-outlet', section: 'management', groupOnly: true },
+  { label: 'Transactions', shortLabel: 'Txn', icon: <Receipt className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'transactions', section: 'operations' },
+  { label: 'Audit Log', shortLabel: 'Log', icon: <ClipboardList className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'audit-log', section: 'admin' },
+  { label: 'Kelola Crew', shortLabel: 'Crew', icon: <UserCog className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'crew', section: 'admin' },
+  { label: 'Plan & Pricing', shortLabel: 'Plan', icon: <Crown className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'plan', section: 'admin' },
+  { label: 'Transfer', shortLabel: 'Sj', icon: <Truck className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'transfer', section: 'admin', groupOnly: true },
+  { label: 'Purchase', shortLabel: 'PO', icon: <PackagePlus className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'purchase', section: 'operations' },
+  { label: 'Log Stok Bahan', shortLabel: 'Log', icon: <Activity className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'inventory-movement', section: 'operations' },
+  { label: 'Multi Outlet', shortLabel: 'Mo', icon: <Building2 className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'multi-outlet', section: 'admin', groupOnly: true },
+  { label: 'Pengaturan', shortLabel: 'Set', icon: <Settings className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'settings', section: 'admin' },
 ]
 
 const sectionLabels: Record<string, string> = {
-  main: 'Utama',
-  operations: 'Operasional',
-  management: 'Manajemen',
+  main: 'Main',
+  operations: 'Operations',
+  admin: 'Admin',
 }
 
 // ============================================================

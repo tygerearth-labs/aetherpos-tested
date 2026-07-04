@@ -2,7 +2,6 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
-import { validateCompositionStock, validateVariantCompositionStockBatch } from '@/lib/comp-stock'
 
 export async function POST(
   request: NextRequest,
@@ -22,7 +21,7 @@ export async function POST(
 
     const existing = await db.product.findFirst({
       where: { id, outletId },
-      select: { id: true, name: true, sku: true, stock: true, hasVariants: true, hasComposition: true, hpp: true, price: true },
+      select: { id: true, name: true, sku: true, stock: true, hasVariants: true, hpp: true, price: true },
     })
     if (!existing) {
       return safeJsonError('Product not found', 404)
@@ -49,24 +48,6 @@ export async function POST(
 
       if (existingVariants.length !== variants.length) {
         return safeJsonError('One or more variants not found or do not belong to this product', 400)
-      }
-
-      // Validate variant composition stock capacity (if composition is active)
-      if (existing.hasComposition) {
-        const compErrors = await validateVariantCompositionStockBatch(
-          variants.map((v: { id: string; quantity: number }) => {
-            const ev = existingVariants.find((e) => e.id === v.id)!
-            return {
-              variantId: v.id,
-              variantName: ev.name,
-              currentStock: ev.stock,
-              addStock: v.quantity,
-            }
-          })
-        )
-        if (compErrors.length > 0) {
-          return safeJsonError(compErrors.join(' '), 400)
-        }
       }
 
       const results = await db.$transaction(async (tx) => {
@@ -123,12 +104,6 @@ export async function POST(
     // ===== NON-VARIANT RESTOCK (original behavior) =====
     if (!quantity || quantity <= 0) {
       return safeJsonError('Quantity must be greater than 0', 400)
-    }
-
-    // Validate composition stock capacity
-    const compError = await validateCompositionStock(id, outletId, existing.stock + quantity)
-    if (compError) {
-      return safeJsonError(compError, 400)
     }
 
     const product = await db.$transaction(async (tx) => {

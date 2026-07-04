@@ -242,7 +242,6 @@ export async function POST(request: NextRequest) {
       )]
 
       if (compProductIds.length > 0) {
-        // Fetch ALL compositions for these products (both product-level and variant-level)
         const allComps = await tx.productComposition.findMany({
           where: { productId: { in: compProductIds } },
           include: { inventoryItem: { select: { id: true, name: true } } },
@@ -255,19 +254,8 @@ export async function POST(request: NextRequest) {
           const product = productMap.get(item.productId)
           if (!product?.hasComposition) continue
 
-          // For variant products, use variant-level compositions
-          // For non-variant products, use product-level compositions (variantId = null)
-          const relevantComps = allComps.filter((c) => {
-            if (c.productId !== item.productId) return false
-            if (item.variantId) {
-              // Variant sale: use variant-specific compositions
-              return c.variantId === item.variantId
-            }
-            // Non-variant sale: use product-level compositions
-            return c.variantId === null
-          })
-
-          for (const comp of relevantComps) {
+          const productComps = allComps.filter((c) => c.productId === item.productId)
+          for (const comp of productComps) {
             const deductQty = comp.qty * item.qty
             const existing = invDeductions.get(comp.inventoryItemId)
             if (existing) {

@@ -15,12 +15,12 @@ export async function GET(request: NextRequest) {
 
     // === Sheet 1: Data Produk ===
     const productData = [
-      ['NAMA PRODUK*', 'SKU', 'BARCODE', 'HPP (Rp)', 'HARGA JUAL* (Rp)', 'QTY / STOK', 'SATUAN', 'KATEGORI', 'PUNYA VARIAN', 'PUNYA KOMPOSISI'],
-      ['Nasi Goreng Spesial', 'SKU-001', 'SKU-001', 10000, 25000, 50, 'porsi', 'Makanan', 'tidak', 'ya'],
-      ['Es Teh Manis', 'SKU-002', 'SKU-002', 3000, 8000, 100, 'gelas', 'Minuman', 'tidak', 'tidak'],
-      ['Ayam Geprek', 'SKU-003', 'SKU-003', 12000, 20000, 30, 'porsi', 'Makanan', 'tidak', 'tidak'],
-      ['Kopi Susu Gula Aren', 'SKU-004', 'SKU-004', 5000, 15000, 80, 'gelas', 'Minuman', 'ya', 'tidak'],
-      ['Mie Goreng', 'SKU-005', 'SKU-005', 8000, 18000, 40, 'porsi', 'Makanan', 'tidak', 'tidak'],
+      ['NAMA PRODUK*', 'SKU', 'BARCODE', 'HPP (Rp)', 'HARGA JUAL* (Rp)', 'QTY / STOK', 'SATUAN', 'KATEGORI', 'PUNYA VARIAN'],
+      ['Nasi Goreng Spesial', 'SKU-001', 'SKU-001', 10000, 25000, 50, 'porsi', 'Makanan', 'tidak'],
+      ['Es Teh Manis', 'SKU-002', 'SKU-002', 3000, 8000, 100, 'gelas', 'Minuman', 'tidak'],
+      ['Ayam Geprek', 'SKU-003', 'SKU-003', 12000, 20000, 30, 'porsi', 'Makanan', 'tidak'],
+      ['Kopi Susu Gula Aren', 'SKU-004', 'SKU-004', 5000, 15000, 80, 'gelas', 'Minuman', 'ya'],
+      ['Mie Goreng', 'SKU-005', 'SKU-005', 8000, 18000, 40, 'porsi', 'Makanan', 'tidak'],
     ]
 
     const ws = XLSX.utils.aoa_to_sheet(productData)
@@ -36,7 +36,6 @@ export async function GET(request: NextRequest) {
       { wch: 12 }, // Satuan
       { wch: 15 }, // Kategori
       { wch: 15 }, // Punya Varian
-      { wch: 18 }, // Punya Komposisi
     ]
 
     // Add data validation (dropdown) for SATUAN column (G2:G1000)
@@ -53,14 +52,7 @@ export async function GET(request: NextRequest) {
       sqref: 'I2:I1000',
       formulas: ['"ya,tidak"'],
     }
-    // Add data validation (dropdown) for Punya Komposisi column (J2:J1000)
-    const dvComposition = {
-      type: 'list',
-      allowBlank: true,
-      sqref: 'J2:J1000',
-      formulas: ['"ya,tidak"'],
-    }
-    ws['!dataValidation'] = [dvSatuan, dvVariant, dvComposition]
+    ws['!dataValidation'] = [dvSatuan, dvVariant]
 
     XLSX.utils.book_append_sheet(wb, ws, 'Produk')
 
@@ -78,7 +70,6 @@ export async function GET(request: NextRequest) {
       ['SATUAN', 'Unit produk (lihat daftar satuan di bawah)', 'porsi', 'Tidak'],
       ['KATEGORI', 'Nama kategori (auto-create jika belum ada)', 'Makanan', 'Tidak'],
       ['PUNYA VARIAN', 'Isi "ya" jika produk punya varian, lalu isi varian di sheet "Varian Produk"', 'ya', 'Tidak'],
-      ['PUNYA KOMPOSISI', 'Isi "ya" jika produk punya komposisi/bahan baku, lalu isi di sheet "Komposisi"', 'ya', 'Tidak'],
       [''],
       ['DAFTAR SATUAN YANG TERSEDIA:'],
       ['pcs, ml, lt, gr, kg, box, pack, botol, gelas, mangkuk, porsi, bungkus, sachet, dus, rim, lembar, meter, cm, ons'],
@@ -88,14 +79,6 @@ export async function GET(request: NextRequest) {
       ['2. Isi varian di sheet "Varian Produk" dengan Nama Produk yang SAMA PERSIS'],
       ['3. Harga Jual & Stok di sheet Produk akan diabaikan untuk produk varian (diambil dari varian)'],
       ['4. Minimal 1 varian per produk'],
-      [''],
-      ['CARA UPLOAD KOMPOSISI:'],
-      ['1. Isi produk di sheet "Produk" dengan "Punya Komposisi" = ya'],
-      ['2. Isi komposisi di sheet "Komposisi" dengan Nama Produk yang SAMA PERSIS'],
-      ['3. Kolom NAMA VARIAN opsional — isi jika komposisi khusus untuk varian tertentu'],
-      ['4. Kolom NAMA BAHAN harus sesuai dengan nama Bahan Baku yang sudah ada di sistem'],
-      ['5. Kolom QTY adalah jumlah bahan yang digunakan per 1 unit produk (dalam satuan dasar bahan)'],
-      ['6. Untuk produk varian, setiap varian bisa punya komposisi berbeda'],
       [''],
       ['CATATAN:'],
       ['• Kolom bertanda * wajib diisi'],
@@ -109,9 +92,7 @@ export async function GET(request: NextRequest) {
       ['• Untuk produk dengan varian, isi kolom "Punya Varian" = "ya", lalu isi varian di sheet "Varian Produk"'],
       ['• Produk yang ditandai "Punya Varian" = ya wajib memiliki minimal 1 baris varian di sheet "Varian Produk"'],
       ['• Nama Produk di sheet "Varian Produk" harus SAMA PERSIS dengan Nama Produk di sheet "Produk" (case-sensitive)'],
-      ['• Nama Produk & Nama Bahan di sheet "Komposisi" harus SAMA PERSIS (case-sensitive)'],
-      ['• Bahan baku harus sudah terdaftar di sistem sebelum mengimport komposisi'],
-      ['• Upload produk utama terlebih dahulu, baru upload varian & komposisi di sheet terpisah'],
+      ['• Upload produk utama terlebih dahulu, baru upload varian di sheet terpisah atau gunakan upload ulang file yang sama'],
     ]
 
     const wsGuide = XLSX.utils.aoa_to_sheet(guideData)
@@ -142,22 +123,6 @@ export async function GET(request: NextRequest) {
       { wch: 10 }, // Stok
     ]
     XLSX.utils.book_append_sheet(wb, wsVariants, 'Varian Produk')
-
-    // === Sheet 4: Komposisi Produk ===
-    const compData = [
-      ['NAMA PRODUK*', 'NAMA VARIAN', 'NAMA BAHAN*', 'QTY*'],
-      ['Nasi Goreng Spesial', '', 'Nasi', 200],
-      ['Nasi Goreng Spesial', '', 'Telur', 2],
-      ['Nasi Goreng Spesial', '', 'Kecap Manis', 15],
-    ]
-    const wsComp = XLSX.utils.aoa_to_sheet(compData)
-    wsComp['!cols'] = [
-      { wch: 28 }, // Nama Produk
-      { wch: 20 }, // Nama Varian (kosongkan untuk komposisi produk utama)
-      { wch: 25 }, // Nama Bahan
-      { wch: 12 }, // QTY
-    ]
-    XLSX.utils.book_append_sheet(wb, wsComp, 'Komposisi')
 
     // Generate buffer
     const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })

@@ -30,7 +30,12 @@ export async function GET(request: NextRequest) {
       where.action = action
     }
     if (entityType && entityType !== 'ALL') {
-      where.entityType = entityType
+      const types = entityType.split(',').map((t) => t.trim()).filter(Boolean)
+      if (types.length > 1) {
+        where.entityType = { in: types }
+      } else {
+        where.entityType = types[0]
+      }
     }
     const dateFilter = buildDateFilter(dateFrom, dateTo)
     if (Object.keys(dateFilter).length > 0) {
