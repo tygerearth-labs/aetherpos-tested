@@ -637,6 +637,16 @@ async function triggerInsightAfterCheckout(outletId: string): Promise<void> {
       todayBrutto: todayTxns.reduce((s, t) => s + t.subtotal, 0),
       todayDiscount: todayTxns.reduce((s, t) => s + t.discount, 0),
       todayTax: 0,
+      // New inventory/transfer/purchase fields (defaults for POS context)
+      lowInventoryCount: 0,
+      outOfInventoryCount: 0,
+      inventoryAlerts: [],
+      totalInventoryValue: 0,
+      pendingTransfers: 0,
+      pendingTransferItems: 0,
+      pendingPurchases: 0,
+      pendingPurchaseValue: 0,
+      topVariantSelling: [],
     })
 
     // Filter out non-actionable insights

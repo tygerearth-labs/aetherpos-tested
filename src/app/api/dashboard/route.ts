@@ -122,6 +122,59 @@ export async function GET(request: NextRequest) {
       .filter((p) => p.aggStock <= p.lowStockAlert)
       .sort((a, b) => a.aggStock - b.aggStock)
 
+    // ── Inventory (bahan baku) data ──
+    const fourteenDaysAgo = new Date(todayStart.getTime() - 14 * 86_400_000)
+    const [
+      inventoryItems,
+      recentConsumption,
+    ] = await Promise.all([
+      db.inventoryItem.findMany({
+        where: { outletId },
+        select: { id: true, name: true, stock: true, lowStockAlert: true, avgCost: true, baseUnit: true },
+      }),
+      db.inventoryMovement.groupBy({
+        by: ['inventoryItemId'],
+        where: {
+          outletId,
+          type: 'CONSUMPTION',
+          createdAt: { gte: fourteenDaysAgo },
+        },
+        _sum: { quantity: true },
+      }),
+    ])
+
+    // Process inventory data
+    const consumptionMap = new Map(recentConsumption.map(c => [c.inventoryItemId, c._sum.quantity ?? 0]))
+    const totalInventoryValue = inventoryItems.reduce((s, i) => s + i.stock * i.avgCost, 0)
+
+    const lowInventoryList = inventoryItems
+      .filter(i => i.stock <= i.lowStockAlert)
+      .map(i => {
+        const consumed14d = consumptionMap.get(i.id) ?? 0
+        const dailyConsumption = consumed14d / 14
+        const daysUntilEmpty = dailyConsumption > 0 ? i.stock / dailyConsumption : null
+        return { ...i, daysUntilEmpty, dailyConsumption }
+      })
+      .sort((a, b) => a.stock - b.stock)
+
+    const inventoryAlerts = inventoryItems
+      .map(i => {
+        const consumed14d = consumptionMap.get(i.id) ?? 0
+        const dailyConsumption = consumed14d / 14
+        const daysUntilEmpty = dailyConsumption > 0 ? i.stock / dailyConsumption : null
+        const status = daysUntilEmpty !== null
+          ? daysUntilEmpty <= 3 ? 'critical' as const
+            : daysUntilEmpty <= 7 ? 'warning' as const
+            : 'ok' as const
+          : 'ok' as const
+        return { ...i, dailyConsumption, daysUntilEmpty, status }
+      })
+      .sort((a, b) => {
+        const aVal = a.daysUntilEmpty ?? 9999
+        const bVal = b.daysUntilEmpty ?? 9999
+        return aVal - bVal
+      })
+
     // ── OWNER-ONLY fields ──
     let totalProfit: number | null = null
     let todayProfit: number | null = null
@@ -203,6 +256,10 @@ export async function GET(request: NextRequest) {
         revenueChangePercent,
         peakHours,
         aiInsight,
+        lowInventoryItems: lowInventoryList.length,
+        lowInventoryList,
+        totalInventoryValue,
+        inventoryAlerts,
       },
       200,
       CACHE.SHORT // 5-second client cache

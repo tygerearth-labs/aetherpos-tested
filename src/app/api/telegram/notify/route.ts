@@ -350,6 +350,15 @@ async function generateInsightsForOutlet(outletId: string): Promise<AIInsight[]>
     todayBrutto: todayAgg.brutto,
     todayDiscount: todayAgg.discount,
     todayTax: 0,
+    lowInventoryCount: 0,
+    outOfInventoryCount: 0,
+    inventoryAlerts: [],
+    totalInventoryValue: 0,
+    pendingTransfers: 0,
+    pendingTransferItems: 0,
+    pendingPurchases: 0,
+    pendingPurchaseValue: 0,
+    topVariantSelling: [],
   })
 
   // Only return actionable insights (not 'all-good')

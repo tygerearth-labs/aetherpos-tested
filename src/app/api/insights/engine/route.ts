@@ -153,6 +153,87 @@ export async function GET(request: NextRequest) {
       : []
     const todayProfit = todayItems.reduce((s, i) => s + (i.price - i.hpp) * i.qty, 0)
 
+    // ── Additional data for enhanced insights ──
+    const fourteenDaysAgo = new Date(todayStart.getTime() - 14 * 86_400_000)
+    const [
+      inventoryItems,
+      inventoryConsumption,
+      pendingTransfers,
+      pendingTransferItems,
+      pendingPurchases,
+      pendingPurchaseAgg,
+      topVariantSellingRaw,
+    ] = await Promise.all([
+      // Fetch inventory items
+      db.inventoryItem.findMany({
+        where: { outletId },
+        select: { id: true, name: true, stock: true, lowStockAlert: true, avgCost: true, baseUnit: true },
+      }),
+
+      // Fetch inventory consumption (14 days)
+      db.inventoryMovement.groupBy({
+        by: ['inventoryItemId'],
+        where: { outletId, type: 'CONSUMPTION', createdAt: { gte: fourteenDaysAgo } },
+        _sum: { quantity: true },
+      }),
+
+      // Fetch pending transfers (outbound from this outlet, not yet received)
+      db.outletTransfer.count({
+        where: { outletId, fromOutletId: outletId, status: { in: ['DRAFT', 'IN_TRANSIT'] } },
+      }),
+
+      // Fetch pending transfer item count
+      db.transferItem.count({
+        where: {
+          outletId,
+          transfer: { fromOutletId: outletId, status: { in: ['DRAFT', 'IN_TRANSIT'] } },
+        },
+      }),
+
+      // Fetch pending purchases (all — no status field on PurchaseOrder)
+      db.purchaseOrder.count({
+        where: { outletId },
+      }),
+
+      // Fetch pending purchase value
+      db.purchaseOrder.aggregate({
+        where: { outletId },
+        _sum: { totalCost: true },
+      }),
+
+      // Top variant selling today
+      db.transactionItem.groupBy({
+        by: ['productName', 'variantName'],
+        where: {
+          transaction: { outletId, createdAt: { gte: todayStart }, ...voidExclude },
+          variantName: { not: null },
+        },
+        _sum: { qty: true, subtotal: true },
+        orderBy: { _sum: { qty: 'desc' } },
+        take: 5,
+      }),
+    ])
+
+    // Process inventory data
+    const consumptionMap = new Map(inventoryConsumption.map(c => [c.inventoryItemId, c._sum.quantity ?? 0]))
+    const inventoryAlerts = inventoryItems.map(item => {
+      const consumed14d = consumptionMap.get(item.id) ?? 0
+      const dailyConsumption = consumed14d / 14
+      const daysUntilEmpty = dailyConsumption > 0 ? item.stock / dailyConsumption : null
+      return { name: item.name, stock: item.stock, dailyConsumption, daysUntilEmpty, avgCost: item.avgCost, baseUnit: item.baseUnit }
+    }).sort((a, b) => (a.daysUntilEmpty ?? 9999) - (b.daysUntilEmpty ?? 9999))
+
+    const totalInventoryValue = inventoryItems.reduce((s, i) => s + i.stock * i.avgCost, 0)
+    const lowInventoryCount = inventoryItems.filter(i => i.stock <= i.lowStockAlert).length
+    const outOfInventoryCount = inventoryItems.filter(i => i.stock <= 0).length
+
+    const topVariantSelling = topVariantSellingRaw.map(r => ({
+      productName: r.productName,
+      variantName: r.variantName!,
+      qty: r._sum.qty ?? 0,
+      revenue: r._sum.subtotal ?? 0,
+    }))
+
     // Run engine
     const engineInput: InsightEngineInput = {
       todayRevenue,
@@ -173,6 +254,18 @@ export async function GET(request: NextRequest) {
       todayBrutto,
       todayDiscount,
       todayTax,
+      // Inventory data
+      lowInventoryCount,
+      outOfInventoryCount,
+      inventoryAlerts,
+      totalInventoryValue,
+      // Transfer & Purchase data
+      pendingTransfers,
+      pendingTransferItems,
+      pendingPurchases,
+      pendingPurchaseValue: pendingPurchaseAgg._sum.totalCost ?? 0,
+      // Variant sales data
+      topVariantSelling,
     }
 
     const result = runInsightEngine(engineInput)
@@ -201,6 +294,15 @@ export async function GET(request: NextRequest) {
           .filter((p) => p.stock <= p.lowStockAlert)
           .sort((a, b) => a.stock - b.stock)
           .slice(0, 5),
+        lowInventoryCount,
+        outOfInventoryCount,
+        inventoryAlerts,
+        totalInventoryValue,
+        pendingTransfers,
+        pendingPurchaseItems: pendingTransferItems,
+        pendingPurchases,
+        pendingPurchaseValue: pendingPurchaseAgg._sum.totalCost ?? 0,
+        topVariantSelling,
       },
       generatedAt: new Date().toISOString(),
     })
