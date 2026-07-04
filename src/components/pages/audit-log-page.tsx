@@ -1,18 +1,12 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { toast } from 'sonner'
 import { formatDate, formatCurrency } from '@/lib/format'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Table,
   TableBody,
@@ -42,6 +36,13 @@ import {
   Pencil,
   Ban,
   RotateCcw,
+  FileText,
+  Tag,
+  MoreHorizontal,
+  ArrowLeftRight,
+  Beaker,
+  Receipt,
+  List,
 } from 'lucide-react'
 
 // ==================== TYPES ====================
@@ -63,16 +64,100 @@ interface AuditLogListResponse {
   totalPages: number
 }
 
+// ==================== CONSTANTS ====================
+const CLIENT_PAGE_SIZE = 20
+const API_FETCH_LIMIT = 100
+
+// ==================== TAB SECTION DEFINITIONS ====================
+interface TabSection {
+  id: string
+  label: string
+  icon: React.ElementType
+}
+
+const TAB_SECTIONS: TabSection[] = [
+  { id: 'semua', label: 'Semua', icon: List },
+  { id: 'transaksi', label: 'Transaksi', icon: Receipt },
+  { id: 'transfer', label: 'Kirim & Terima', icon: ArrowLeftRight },
+  { id: 'pembelian', label: 'Pembelian', icon: FileText },
+  { id: 'inventory', label: 'Inventory', icon: Beaker },
+  { id: 'produk', label: 'Produk', icon: Tag },
+  { id: 'lainnya', label: 'Lainnya', icon: MoreHorizontal },
+]
+
+// ==================== TAB MATCH FUNCTIONS ====================
+function matchTransaksi(log: AuditLog): boolean {
+  return (
+    ['SALE', 'VOID'].includes(log.action) &&
+    ['TRANSACTION', 'PRODUCT', 'VARIANT'].includes(log.entityType)
+  )
+}
+
+function matchTransfer(log: AuditLog): boolean {
+  return (
+    ['RESTOCK', 'ADJUSTMENT'].includes(log.action) &&
+    ['OUTLET_TRANSFER', 'TRANSFER_ITEM'].includes(log.entityType)
+  )
+}
+
+function matchPembelian(log: AuditLog): boolean {
+  return (
+    log.action === 'PURCHASE' &&
+    ['INVENTORY_ITEM', 'PURCHASE_ORDER'].includes(log.entityType)
+  )
+}
+
+function matchInventory(log: AuditLog): boolean {
+  return (
+    (log.action === 'COMPOSITION_DEDUCT' || log.action === 'ADJUSTMENT') &&
+    log.entityType === 'INVENTORY_ITEM'
+  )
+}
+
+function matchProduk(log: AuditLog): boolean {
+  return (
+    ['CREATE', 'UPDATE', 'DELETE', 'BULK_UPDATE', 'VARIANT'].includes(log.action) &&
+    ['PRODUCT', 'VARIANT', 'CATEGORY'].includes(log.entityType)
+  )
+}
+
+function matchAnyTab(log: AuditLog): boolean {
+  return (
+    matchTransaksi(log) ||
+    matchTransfer(log) ||
+    matchPembelian(log) ||
+    matchInventory(log) ||
+    matchProduk(log)
+  )
+}
+
+function matchLainnya(log: AuditLog): boolean {
+  return !matchAnyTab(log)
+}
+
+function getTabMatcher(tabId: string): (log: AuditLog) => boolean {
+  switch (tabId) {
+    case 'semua': return () => true
+    case 'transaksi': return matchTransaksi
+    case 'transfer': return matchTransfer
+    case 'pembelian': return matchPembelian
+    case 'inventory': return matchInventory
+    case 'produk': return matchProduk
+    case 'lainnya': return matchLainnya
+    default: return () => true
+  }
+}
+
 // ==================== ACTION TYPE CONFIG ====================
 const ACTION_CONFIG: Record<string, {
   label: string
   icon: React.ElementType
-  color: string       // text color
-  bgColor: string     // badge background
-  borderColor: string  // badge border
-  iconBg: string      // icon background
-  leftBorder: string  // left border color for cards
-  dotColor: string    // dot indicator
+  color: string
+  bgColor: string
+  borderColor: string
+  iconBg: string
+  leftBorder: string
+  dotColor: string
 }> = {
   CREATE: {
     label: 'Dibuat',
@@ -94,6 +179,16 @@ const ACTION_CONFIG: Record<string, {
     leftBorder: 'border-l-sky-500',
     dotColor: 'bg-sky-500',
   },
+  VOID: {
+    label: 'Void',
+    icon: Ban,
+    color: 'text-red-400',
+    bgColor: 'bg-red-500/10',
+    borderColor: 'border-red-500/20',
+    iconBg: 'bg-red-500/10',
+    leftBorder: 'border-l-red-500',
+    dotColor: 'bg-red-500',
+  },
   RESTOCK: {
     label: 'Restock',
     icon: Package,
@@ -113,6 +208,36 @@ const ACTION_CONFIG: Record<string, {
     iconBg: 'bg-zinc-500/10',
     leftBorder: 'border-l-zinc-400',
     dotColor: 'bg-zinc-400',
+  },
+  PURCHASE: {
+    label: 'Pembelian',
+    icon: ShoppingCart,
+    color: 'text-purple-400',
+    bgColor: 'bg-purple-500/10',
+    borderColor: 'border-purple-500/20',
+    iconBg: 'bg-purple-500/10',
+    leftBorder: 'border-l-purple-500',
+    dotColor: 'bg-purple-500',
+  },
+  COMPOSITION_DEDUCT: {
+    label: 'Komposisi',
+    icon: Beaker,
+    color: 'text-cyan-400',
+    bgColor: 'bg-cyan-500/10',
+    borderColor: 'border-cyan-500/20',
+    iconBg: 'bg-cyan-500/10',
+    leftBorder: 'border-l-cyan-500',
+    dotColor: 'bg-cyan-500',
+  },
+  TRANSFER: {
+    label: 'Transfer',
+    icon: ArrowLeftRight,
+    color: 'text-teal-400',
+    bgColor: 'bg-teal-500/10',
+    borderColor: 'border-teal-500/20',
+    iconBg: 'bg-teal-500/10',
+    leftBorder: 'border-l-teal-500',
+    dotColor: 'bg-teal-500',
   },
   UPDATE: {
     label: 'Diperbarui',
@@ -183,6 +308,10 @@ const ENTITY_LABELS: Record<string, string> = {
   SETTINGS: 'Pengaturan',
   STOCK: 'Stok',
   VARIANT: 'Varian',
+  INVENTORY_ITEM: 'Bahan/Inventory',
+  PURCHASE_ORDER: 'Pembelian',
+  OUTLET_TRANSFER: 'Transfer',
+  TRANSFER_ITEM: 'Item Transfer',
 }
 
 function getEntityLabel(type: string): string {
@@ -239,15 +368,8 @@ const DETAIL_LABELS: Record<string, string> = {
   items: 'Daftar Item',
   createdProducts: 'Produk Baru',
   restockedProducts: 'Produk di-Restock',
-  productName: 'Nama Produk',
-  productSku: 'SKU Produk',
   productBarcode: 'Barcode',
   initialStock: 'Stok Awal',
-  previousStock: 'Stok Sebelum',
-  newStock: 'Stok Sesudah',
-  quantityAdded: 'Jumlah Ditambah',
-  hasVariants: 'Punya Varian',
-  variants: 'Varian',
   subtotal: 'Subtotal',
 }
 
@@ -268,7 +390,6 @@ function parseDetails(details: string | null): Record<string, unknown> | string 
 function formatDetailValue(key: string, value: unknown): string {
   if (value === null || value === undefined) return '-'
   if (typeof value === 'number') {
-    // Currency-like values
     if (['price', 'total', 'hpp', 'discount', 'subtotal', 'paidAmount', 'change', 'taxAmount'].includes(key)) {
       return formatCurrency(value)
     }
@@ -282,7 +403,6 @@ function formatDetailValue(key: string, value: unknown): string {
   }
   if (typeof value === 'boolean') return value ? 'Ya' : 'Tidak'
   if (Array.isArray(value)) {
-    // For itemsRestored array (void transactions)
     if (key === 'itemsRestored') {
       return value
         .map((item: Record<string, unknown>) => {
@@ -293,7 +413,6 @@ function formatDetailValue(key: string, value: unknown): string {
         })
         .join(', ')
     }
-    // For transfer items array — detailed with variant info
     if (key === 'items') {
       return value
         .map((item: Record<string, unknown>) => {
@@ -316,7 +435,6 @@ function formatDetailValue(key: string, value: unknown): string {
         })
         .join(', ')
     }
-    // For variants array (per-product audit log)
     if (key === 'variants') {
       return (value as Record<string, unknown>[])
         .map((v) => {
@@ -330,7 +448,6 @@ function formatDetailValue(key: string, value: unknown): string {
         })
         .join(', ')
     }
-    // For createdProducts / restockedProducts (string arrays)
     if (key === 'createdProducts' || key === 'restockedProducts') {
       return value.join(', ')
     }
@@ -340,8 +457,8 @@ function formatDetailValue(key: string, value: unknown): string {
 }
 
 // ==================== DETAIL DISPLAY COMPONENT ====================
-function DetailsDisplay({ action, details }: { action: string; details: string | null }) {
-  const parsed = parseDetails(details)
+function DetailsDisplay({ action, details }: { action: string; details: string | null | undefined }) {
+  const parsed = parseDetails(details ?? null)
   if (!parsed) return <span className="text-slate-500 italic">-</span>
 
   if (typeof parsed === 'string') {
@@ -350,12 +467,14 @@ function DetailsDisplay({ action, details }: { action: string; details: string |
 
   const entries = Object.entries(parsed) as [string, unknown][]
 
-  // Sort detail keys for better display based on action type
   const priorityKeys: Record<string, string[]> = {
     SALE: ['invoiceNumber', 'productName', 'productSku', 'variantName', 'variantSku', 'quantitySold', 'previousStock', 'newStock'],
     RESTOCK: ['productName', 'productSku', 'action', 'transferNumber', 'fromOutlet', 'toOutlet', 'itemCount', 'createdProducts', 'restockedProducts', 'reason', 'quantityAdded', 'newStock'],
     VOID: ['invoiceNumber', 'total', 'reason', 'voidedBy', 'itemsRestored'],
+    PURCHASE: ['productName', 'productSku', 'quantityAdded', 'newStock', 'hpp', 'reason', 'total', 'totalValue'],
+    COMPOSITION_DEDUCT: ['productName', 'productSku', 'quantityDecreased', 'newStock', 'reason'],
     ADJUSTMENT: ['productName', 'productSku', 'action', 'transferNumber', 'fromOutlet', 'toOutlet', 'itemCount', 'totalQty', 'totalValue', 'previousStock', 'newStock', 'reason', 'items'],
+    TRANSFER: ['productName', 'productSku', 'action', 'transferNumber', 'fromOutlet', 'toOutlet', 'itemCount', 'items'],
     CREATE: ['name', 'productName', 'action', 'transferNumber', 'fromOutlet', 'toOutlet', 'productSku', 'itemCount', 'totalQty', 'totalValue', 'totalHpp', 'initialStock', 'price', 'stock', 'bulkUpload', 'created', 'skipped', 'items'],
     UPDATE: ['name', 'productName', 'productSku', 'variantName', 'variantSku', 'outletName', 'outletAddress', 'outletPhone', 'price', 'stock', 'ppnEnabled', 'ppnRate', 'hasVariants', 'variantCount'],
     BULK_UPDATE: ['productName', 'productSku', 'changes', 'batchOperation'],
@@ -367,7 +486,6 @@ function DetailsDisplay({ action, details }: { action: string; details: string |
     ? [...priorityKeys[action], ...entries.filter(([k]) => !(priorityKeys[action] || []).includes(k)).map(([k]) => k)]
     : entries.map(([k]) => k)
 
-  // Deduplicate
   const uniqueKeys = [...new Set(sortedKeys)]
 
   return (
@@ -377,7 +495,6 @@ function DetailsDisplay({ action, details }: { action: string; details: string |
         if (value === undefined || value === null) return null
         const formatted = formatDetailValue(key, value)
 
-        // For itemsRestored, show as a separate block
         if (key === 'itemsRestored' && Array.isArray(value) && value.length > 0) {
           return (
             <div key={key} className="space-y-0.5">
@@ -403,32 +520,28 @@ function DetailsDisplay({ action, details }: { action: string; details: string |
 
 // ==================== MAIN PAGE ====================
 export default function AuditLogPage() {
-  const [logs, setLogs] = useState<AuditLog[]>([])
+  const [allLogs, setAllLogs] = useState<AuditLog[]>([])
   const [loading, setLoading] = useState(true)
+  const [activeTab, setActiveTab] = useState('semua')
   const [page, setPage] = useState(1)
-  const [totalPages, setTotalPages] = useState(1)
-  const [actionFilter, setActionFilter] = useState<string>('ALL')
-  const [entityFilter, setEntityFilter] = useState<string>('ALL')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [search, setSearch] = useState('')
   const [searchInput, setSearchInput] = useState('')
   const [detailLog, setDetailLog] = useState<AuditLog | null>(null)
 
+  // Fetch all logs (no action/entityType filter, only search + date)
   const fetchLogs = useCallback(async () => {
     setLoading(true)
     try {
-      const params = new URLSearchParams({ page: String(page), limit: '20' })
-      if (actionFilter !== 'ALL') params.set('action', actionFilter)
-      if (entityFilter !== 'ALL') params.set('entityType', entityFilter)
+      const params = new URLSearchParams({ page: '1', limit: String(API_FETCH_LIMIT) })
       if (dateFrom) params.set('from', dateFrom)
       if (dateTo) params.set('to', dateTo)
       if (search) params.set('search', search)
       const res = await fetch(`/api/audit-logs?${params}`)
       if (res.ok) {
         const data: AuditLogListResponse = await res.json()
-        setLogs(data.logs)
-        setTotalPages(data.totalPages)
+        setAllLogs(data.logs)
       } else {
         toast.error('Gagal memuat audit log')
       }
@@ -437,12 +550,31 @@ export default function AuditLogPage() {
     } finally {
       setLoading(false)
     }
-  }, [page, actionFilter, entityFilter, dateFrom, dateTo, search])
+  }, [dateFrom, dateTo, search])
 
   useEffect(() => {
-     
     void fetchLogs()
   }, [fetchLogs])
+
+  // Client-side filtering based on active tab
+  const filteredLogs = useMemo(() => {
+    const matcher = getTabMatcher(activeTab)
+    return allLogs.filter(matcher)
+  }, [allLogs, activeTab])
+
+  // Client-side pagination
+  const totalPages = Math.max(1, Math.ceil(filteredLogs.length / CLIENT_PAGE_SIZE))
+  const currentPage = Math.min(page, totalPages)
+  const paginatedLogs = useMemo(
+    () => filteredLogs.slice((currentPage - 1) * CLIENT_PAGE_SIZE, currentPage * CLIENT_PAGE_SIZE),
+    [filteredLogs, currentPage]
+  )
+
+  // Reset page when tab changes
+  const handleTabChange = (value: string) => {
+    setActiveTab(value)
+    setPage(1)
+  }
 
   const handleFilter = () => {
     setSearch(searchInput)
@@ -462,8 +594,6 @@ export default function AuditLogPage() {
   }
 
   const handleClearAllFilters = () => {
-    setActionFilter('ALL')
-    setEntityFilter('ALL')
     setDateFrom('')
     setDateTo('')
     setSearchInput('')
@@ -474,14 +604,12 @@ export default function AuditLogPage() {
   const handleExport = () => {
     const params = new URLSearchParams()
     if (search) params.set('search', search)
-    if (actionFilter !== 'ALL') params.set('action', actionFilter)
-    if (entityFilter !== 'ALL') params.set('entityType', entityFilter)
     if (dateFrom) params.set('from', dateFrom)
     if (dateTo) params.set('to', dateTo)
     window.open(`/api/audit-logs/export?${params}`, '_blank')
   }
 
-  const hasActiveFilters = search || actionFilter !== 'ALL' || entityFilter !== 'ALL' || dateFrom || dateTo
+  const hasActiveFilters = search || dateFrom || dateTo
 
   // ==================== ACTION BADGE ====================
   const ActionBadge = ({ action }: { action: string }) => {
@@ -524,7 +652,26 @@ export default function AuditLogPage() {
         </Button>
       </div>
 
-      {/* Filters */}
+      {/* Tabs */}
+      <Tabs value={activeTab} onValueChange={handleTabChange}>
+        <TabsList className="bg-white/[0.04] border border-white/[0.06] h-9 p-0.5 rounded-lg">
+          {TAB_SECTIONS.map((tab) => {
+            const Icon = tab.icon
+            return (
+              <TabsTrigger
+                key={tab.id}
+                value={tab.id}
+                className="text-xs font-medium h-7 rounded-md data-[state=active]:bg-white/[0.08] data-[state=active]:text-white text-slate-400 px-3 gap-1.5"
+              >
+                <Icon className="h-3.5 w-3.5 shrink-0" />
+                <span className="hidden sm:inline">{tab.label}</span>
+              </TabsTrigger>
+            )
+          })}
+        </TabsList>
+      </Tabs>
+
+      {/* Search + Date Filters */}
       <div className="flex flex-col sm:flex-row gap-2">
         {/* Search */}
         <div className="relative flex-1 min-w-0 sm:max-w-xs">
@@ -546,36 +693,6 @@ export default function AuditLogPage() {
             </button>
           )}
         </div>
-
-        {/* Action type filter */}
-        <Select value={actionFilter} onValueChange={(v) => { setActionFilter(v); setPage(1) }}>
-          <SelectTrigger className="w-full sm:w-40 bg-white/[0.04] border-white/[0.08] text-white h-8 text-xs">
-            <SelectValue placeholder="Semua Aksi" />
-          </SelectTrigger>
-          <SelectContent className="bg-white/[0.04] border-white/[0.08]">
-            <SelectItem value="ALL" className="text-slate-200 focus:bg-white/[0.06] text-xs">Semua Aksi</SelectItem>
-            {Object.entries(ACTION_CONFIG).map(([key, config]) => (
-              <SelectItem key={key} value={key} className="text-slate-200 focus:bg-white/[0.06] text-xs">
-                {config.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        {/* Entity type filter */}
-        <Select value={entityFilter} onValueChange={(v) => { setEntityFilter(v); setPage(1) }}>
-          <SelectTrigger className="w-full sm:w-36 bg-white/[0.04] border-white/[0.08] text-white h-8 text-xs">
-            <SelectValue placeholder="Semua Entitas" />
-          </SelectTrigger>
-          <SelectContent className="bg-white/[0.04] border-white/[0.08]">
-            <SelectItem value="ALL" className="text-slate-200 focus:bg-white/[0.06] text-xs">Semua Entitas</SelectItem>
-            {Object.entries(ENTITY_LABELS).map(([key, label]) => (
-              <SelectItem key={key} value={key} className="text-slate-200 focus:bg-white/[0.06] text-xs">
-                {label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
 
         {/* Date range */}
         <DateFilter
@@ -608,22 +725,6 @@ export default function AuditLogPage() {
               </button>
             </Badge>
           )}
-          {actionFilter !== 'ALL' && (
-            <Badge variant="outline" className={`${ACTION_CONFIG[actionFilter]?.bgColor || ''} ${ACTION_CONFIG[actionFilter]?.borderColor || ''} ${ACTION_CONFIG[actionFilter]?.color || ''} text-[11px] gap-1 px-2 py-0.5 cursor-pointer`}>
-              {getActionConfig(actionFilter).label}
-              <button onClick={() => { setActionFilter('ALL'); setPage(1) }}>
-                <X className="h-2.5 w-2.5 ml-0.5" />
-              </button>
-            </Badge>
-          )}
-          {entityFilter !== 'ALL' && (
-            <Badge variant="outline" className="bg-white/[0.04] border-white/[0.08] text-slate-300 text-[11px] gap-1 px-2 py-0.5 cursor-pointer">
-              {getEntityLabel(entityFilter)}
-              <button onClick={() => { setEntityFilter('ALL'); setPage(1) }}>
-                <X className="h-2.5 w-2.5 ml-0.5" />
-              </button>
-            </Badge>
-          )}
           {dateFrom && (
             <Badge variant="outline" className="bg-white/[0.04] border-white/[0.08] text-slate-300 text-[11px] gap-1 px-2 py-0.5 cursor-pointer">
               📅 {dateFrom}{dateTo && dateTo !== dateFrom ? ` – ${dateTo}` : ''}
@@ -635,6 +736,13 @@ export default function AuditLogPage() {
         </div>
       )}
 
+      {/* Tab info line */}
+      {activeTab !== 'semua' && !loading && (
+        <div className="text-[11px] text-slate-500">
+          Menampilkan {filteredLogs.length} log untuk <span className="text-slate-300">{TAB_SECTIONS.find(t => t.id === activeTab)?.label}</span>
+        </div>
+      )}
+
       {/* Content */}
       {loading ? (
         <div className="space-y-2">
@@ -642,17 +750,19 @@ export default function AuditLogPage() {
             <Skeleton key={i} className="h-16 bg-nebula rounded-xl" />
           ))}
         </div>
-      ) : logs.length === 0 ? (
+      ) : paginatedLogs.length === 0 ? (
         <div className="rounded-xl border border-white/[0.06] bg-nebula p-8 text-center">
           <Search className="h-8 w-8 text-zinc-700 mx-auto mb-3" />
           <p className="text-xs text-slate-500">
-            {hasActiveFilters ? 'Tidak ada audit log yang cocok dengan filter' : 'Belum ada audit log'}
+            {hasActiveFilters || activeTab !== 'semua'
+              ? 'Tidak ada audit log yang cocok'
+              : 'Belum ada audit log'}
           </p>
-          {hasActiveFilters && (
+          {(hasActiveFilters || activeTab !== 'semua') && (
             <Button
               variant="ghost"
               size="sm"
-              onClick={handleClearAllFilters}
+              onClick={() => { setActiveTab('semua'); handleClearAllFilters() }}
               className="mt-3 text-slate-500 hover:text-slate-300 text-xs h-7"
             >
               Reset semua filter
@@ -663,7 +773,7 @@ export default function AuditLogPage() {
         <div className="space-y-2">
           {/* Mobile card view */}
           <div className="md:hidden space-y-2">
-            {logs.map((log) => {
+            {paginatedLogs.map((log) => {
               const config = getActionConfig(log.action)
               return (
                 <div
@@ -714,7 +824,7 @@ export default function AuditLogPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {logs.map((log) => {
+                {paginatedLogs.map((log) => {
                   const config = getActionConfig(log.action)
                   return (
                     <TableRow
@@ -757,9 +867,16 @@ export default function AuditLogPage() {
         </div>
       )}
 
+      {/* Pagination */}
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        onPageChange={setPage}
+      />
+
       {/* Detail Dialog */}
       <ResponsiveDialog open={!!detailLog} onOpenChange={(open) => { if (!open) setDetailLog(null) }}>
-        <ResponsiveDialogContent className="bg-nebula border-white/[0.06]" desktopClassName="max-w-md">
+        <ResponsiveDialogContent className="bg-nebula border-white/[0.06] max-w-md">
           <ResponsiveDialogHeader>
             <ResponsiveDialogTitle className="text-white text-sm font-semibold">Detail Audit Log</ResponsiveDialogTitle>
           </ResponsiveDialogHeader>
@@ -795,7 +912,7 @@ export default function AuditLogPage() {
               <div>
                 <p className="text-xs text-slate-400 mb-2 font-medium">Detail Lengkap</p>
                 {(() => {
-                  const parsed = parseDetails(detailLog.details)
+                  const parsed = parseDetails(detailLog.details ?? null)
                   if (!parsed) return <p className="text-xs text-slate-500 italic">Tidak ada detail</p>
                   if (typeof parsed === 'string') return <p className="text-xs text-slate-300">{parsed}</p>
                   const entries = Object.entries(parsed) as [string, unknown][]
@@ -877,8 +994,6 @@ export default function AuditLogPage() {
           )}
         </ResponsiveDialogContent>
       </ResponsiveDialog>
-
-      <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
     </div>
   )
 }

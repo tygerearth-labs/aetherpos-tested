@@ -59,7 +59,6 @@ import {
   PackagePlus,
   PackageOpen,
   X,
-  Settings2,
   Tags,
   AlertTriangle,
   TrendingUp,
@@ -82,14 +81,6 @@ import { cn } from '@/lib/utils'
 // Types
 // ════════════════════════════════════════════════════════════
 
-interface Supplier {
-  id: string
-  name: string
-  phone: string | null
-  address: string | null
-  notes: string | null
-}
-
 interface InventoryItemOption {
   id: string
   name: string
@@ -111,9 +102,6 @@ interface PurchaseOrder {
   id: string
   orderNumber: string
   date: string
-  supplierId: string | null
-  supplier?: { id: string; name: string } | null
-  supplierName?: string | null
   notes: string | null
   totalCost: number
   itemCount?: number
@@ -125,7 +113,7 @@ interface PurchaseOrder {
 interface PurchaseOrderItemDetail {
   id: string
   name: string
-  inventoryItem: { id: string; name: string; sku: string | null; baseUnit: string }
+  inventoryItem: { id: string; name: string; sku: string | null; baseUnit: string } | null
   purchaseQty: number
   purchaseUnit: string
   baseQty: number
@@ -249,18 +237,7 @@ export default function PurchasePage() {
   const [quickItemUnit, setQuickItemUnit] = useState('kg')
   const [quickItemCreating, setQuickItemCreating] = useState(false)
 
-  // Suppliers
-  const [suppliers, setSuppliers] = useState<Supplier[]>([])
-  const [supplierDialogOpen, setSupplierDialogOpen] = useState(false)
-  const [supplierFormOpen, setSupplierFormOpen] = useState(false)
-  const [supplierFormEdit, setSupplierFormEdit] = useState<Supplier | null>(null)
-  const [supplierName, setSupplierName] = useState('')
-  const [supplierPhone, setSupplierPhone] = useState('')
-  const [supplierAddress, setSupplierAddress] = useState('')
-  const [supplierNotes, setSupplierNotes] = useState('')
-  const [supplierFormLoading, setSupplierFormLoading] = useState(false)
-  const [deleteSupplierId, setDeleteSupplierId] = useState<string | null>(null)
-  const [deletingSupplier, setDeletingSupplier] = useState(false)
+
 
   // Purchase delete
   const [deletePoId, setDeletePoId] = useState<string | null>(null)
@@ -385,24 +362,7 @@ export default function PurchasePage() {
     return () => clearTimeout(t)
   }, [invSearch])
 
-  // ══════════════════════════════════════════════════════════
-  // Fetch: Suppliers
-  // ══════════════════════════════════════════════════════════
-  const fetchSuppliers = useCallback(async () => {
-    try {
-      const res = await fetch('/api/suppliers')
-      if (res.ok) {
-        const data = await res.json()
-        setSuppliers(data.suppliers || data || [])
-      }
-    } catch {
-      // silent
-    }
-  }, [])
 
-  useEffect(() => {
-    void fetchSuppliers()
-  }, [fetchSuppliers])
 
   // ══════════════════════════════════════════════════════════
   // Fetch: Categories
@@ -540,6 +500,7 @@ export default function PurchasePage() {
         setPoCreateOpen(false)
         resetPoCreateForm()
         void fetchPurchaseOrders()
+        void fetchInventoryItems()
       } else {
         const data = await res.json()
         toast.error(data.error || 'Gagal membuat pembelian')
@@ -641,6 +602,7 @@ export default function PurchasePage() {
         setDeletePoId(null)
         setPoDetailOpen(false)
         void fetchPurchaseOrders()
+        void fetchInventoryItems()
       } else {
         const data = await res.json()
         toast.error(data.error || 'Gagal menghapus pembelian')
@@ -649,80 +611,6 @@ export default function PurchasePage() {
       toast.error('Gagal menghapus pembelian')
     } finally {
       setDeletingPo(false)
-    }
-  }
-
-  // ══════════════════════════════════════════════════════════
-  // Supplier CRUD
-  // ══════════════════════════════════════════════════════════
-  const openSupplierForm = (supplier?: Supplier) => {
-    if (supplier) {
-      setSupplierFormEdit(supplier)
-      setSupplierName(supplier.name)
-      setSupplierPhone(supplier.phone || '')
-      setSupplierAddress(supplier.address || '')
-      setSupplierNotes(supplier.notes || '')
-    } else {
-      setSupplierFormEdit(null)
-      setSupplierName('')
-      setSupplierPhone('')
-      setSupplierAddress('')
-      setSupplierNotes('')
-    }
-    setSupplierFormOpen(true)
-  }
-
-  const handleSupplierSubmit = async () => {
-    if (!supplierName.trim()) {
-      toast.error('Nama supplier wajib diisi')
-      return
-    }
-    setSupplierFormLoading(true)
-    try {
-      const url = supplierFormEdit ? `/api/suppliers/${supplierFormEdit.id}` : '/api/suppliers'
-      const method = supplierFormEdit ? 'PUT' : 'POST'
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: supplierName,
-          phone: supplierPhone || undefined,
-          address: supplierAddress || undefined,
-          notes: supplierNotes || undefined,
-        }),
-      })
-      if (res.ok) {
-        toast.success(supplierFormEdit ? 'Supplier berhasil diperbarui' : 'Supplier berhasil ditambahkan')
-        setSupplierFormOpen(false)
-        void fetchSuppliers()
-      } else {
-        const data = await res.json()
-        toast.error(data.error || 'Gagal menyimpan supplier')
-      }
-    } catch {
-      toast.error('Gagal menyimpan supplier')
-    } finally {
-      setSupplierFormLoading(false)
-    }
-  }
-
-  const handleDeleteSupplier = async () => {
-    if (!deleteSupplierId) return
-    setDeletingSupplier(true)
-    try {
-      const res = await fetch(`/api/suppliers/${deleteSupplierId}`, { method: 'DELETE' })
-      if (res.ok) {
-        toast.success('Supplier berhasil dihapus')
-        setDeleteSupplierId(null)
-        void fetchSuppliers()
-      } else {
-        const data = await res.json()
-        toast.error(data.error || 'Gagal menghapus supplier')
-      }
-    } catch {
-      toast.error('Gagal menghapus supplier')
-    } finally {
-      setDeletingSupplier(false)
     }
   }
 
@@ -812,6 +700,31 @@ export default function PurchasePage() {
       toast.error('Gagal menghapus bahan')
     } finally {
       setDeletingInv(false)
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // Inventory Quick Adjust (+/-)
+  // ══════════════════════════════════════════════════════════
+  const handleQuickAdjust = async (item: InventoryItem, delta: number) => {
+    const newStock = Math.max(0, item.stock + delta)
+    try {
+      const res = await fetch(`/api/inventory/items/${item.id}/adjust`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ newStock, reason: delta > 0 ? 'Quick add +1' : 'Quick reduce -1' }),
+      })
+      if (res.ok) {
+        toast.success(`Stok ${item.name} disesuaikan ke ${formatNumber(newStock)} ${item.baseUnit}`)
+        void fetchInventoryItems()
+        // Also refresh purchase orders if on purchase tab (in case HPP changed)
+        if (tab === 'purchase') void fetchPurchaseOrders()
+      } else {
+        const data = await res.json()
+        toast.error(data.error || 'Gagal menyesuaikan stok')
+      }
+    } catch {
+      toast.error('Gagal menyesuaikan stok')
     }
   }
 
@@ -995,21 +908,11 @@ export default function PurchasePage() {
                 <Input
                   value={poSearch}
                   onChange={(e) => { setPoSearch(e.target.value); setPoPage(1) }}
-                  placeholder="Cari No. PO, supplier..."
+                  placeholder="Cari No. PO..."
                   className={cn(inputClass, 'pl-8')}
                 />
               </div>
               <div className="flex items-center gap-2 w-full sm:w-auto">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 text-[10px] gap-1 text-slate-400 hover:text-white hover:bg-white/[0.04] border border-white/[0.06] shrink-0"
-                  onClick={() => { void fetchSuppliers(); setSupplierDialogOpen(true) }}
-                >
-                  <Settings2 className="h-3 w-3" />
-                  <span className="hidden sm:inline">Kelola Supplier</span>
-                  <span className="sm:hidden">Supplier</span>
-                </Button>
                 <Button
                   size="sm"
                   onClick={() => { resetPoCreateForm(); setPoCreateOpen(true) }}
@@ -1029,7 +932,6 @@ export default function PurchasePage() {
                     <TableRow className="border-white/[0.06] hover:bg-transparent">
                       <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">No. PO</TableHead>
                       <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">Tanggal</TableHead>
-                      <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">Supplier</TableHead>
                       <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider text-right">Jumlah Item</TableHead>
                       <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider text-right">Total Biaya</TableHead>
                       <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider text-right">Aksi</TableHead>
@@ -1038,7 +940,7 @@ export default function PurchasePage() {
                   <TableBody>
                     {poList.length === 0 ? (
                       <TableRow className="border-white/[0.04] hover:bg-transparent">
-                        <TableCell colSpan={6} className="text-center py-12">
+                        <TableCell colSpan={5} className="text-center py-12">
                           <ShoppingCart className="h-8 w-8 text-slate-600 mx-auto mb-2" />
                           <p className="text-sm text-slate-500">Belum ada pembelian</p>
                         </TableCell>
@@ -1048,7 +950,6 @@ export default function PurchasePage() {
                         <TableRow key={po.id} className="border-white/[0.04] hover:bg-transparent">
                           <TableCell className="text-xs text-slate-200 font-medium font-mono">{po.orderNumber}</TableCell>
                           <TableCell className="text-xs text-slate-400">{formatDate(po.createdAt)}</TableCell>
-                          <TableCell className="text-xs text-slate-200">{po.supplier?.name || '-'}</TableCell>
                           <TableCell className="text-xs text-slate-300 text-right">{po.itemCount ?? po._count?.items ?? 0}</TableCell>
                           <TableCell className="text-xs text-emerald-400 text-right font-medium">{formatCurrency(po.totalCost)}</TableCell>
                           <TableCell className="text-right">
@@ -1104,8 +1005,7 @@ export default function PurchasePage() {
                             <span className="text-xs text-white font-medium font-mono">{po.orderNumber}</span>
                             <span className="text-[11px] text-emerald-400 font-medium">{formatCurrency(po.totalCost)}</span>
                           </div>
-                          <div className="flex items-center justify-between text-slate-400">
-                            <span className="text-[11px]">{po.supplier?.name || '-'}</span>
+                          <div className="flex items-center justify-end text-slate-400">
                             <span className="text-[11px]">{formatDate(po.createdAt)}</span>
                           </div>
                           <div className="flex items-center gap-1.5 text-slate-500">
@@ -1273,7 +1173,19 @@ export default function PurchasePage() {
                               )}
                             </TableCell>
                             <TableCell className={cn('text-xs text-right font-medium', isLow ? 'text-red-400' : 'text-slate-200')}>
-                              {formatNumber(item.stock)} {item.baseUnit}
+                              <div className="flex items-center justify-end gap-1">
+                                <button
+                                  className="w-6 h-6 rounded bg-white/[0.04] hover:bg-red-500/10 text-slate-400 hover:text-red-400 flex items-center justify-center transition-colors text-xs font-medium"
+                                  onClick={(e) => { e.stopPropagation(); handleQuickAdjust(item, -1) }}
+                                  title="Kurangi 1"
+                                >−</button>
+                                <span className="w-16 text-right tabular-nums">{formatNumber(item.stock)} <span className="text-slate-500">{item.baseUnit}</span></span>
+                                <button
+                                  className="w-6 h-6 rounded bg-white/[0.04] hover:bg-emerald-500/10 text-slate-400 hover:text-emerald-400 flex items-center justify-center transition-colors text-xs font-medium"
+                                  onClick={(e) => { e.stopPropagation(); handleQuickAdjust(item, 1) }}
+                                  title="Tambah 1"
+                                >+</button>
+                              </div>
                             </TableCell>
                             <TableCell className="text-xs text-slate-400 text-right">{formatCurrency(item.avgCost)}/{item.baseUnit}</TableCell>
                             <TableCell className="text-xs text-emerald-400 text-right font-medium">{formatCurrency(item.stock * item.avgCost)}</TableCell>
@@ -1349,9 +1261,21 @@ export default function PurchasePage() {
                                 )}
                               </div>
                               <div className="text-right shrink-0">
-                                <p className={cn('text-sm font-bold', isLow ? 'text-red-400' : 'text-white')}>
-                                  {formatNumber(item.stock)} <span className="text-[10px] text-slate-400 font-normal">{item.baseUnit}</span>
-                                </p>
+                                <div className="flex items-center justify-end gap-1">
+                                  <button
+                                    className="w-6 h-6 rounded bg-white/[0.04] hover:bg-red-500/10 text-slate-400 hover:text-red-400 flex items-center justify-center transition-colors text-xs font-medium"
+                                    onClick={(e) => { e.stopPropagation(); handleQuickAdjust(item, -1) }}
+                                    title="Kurangi 1"
+                                  >−</button>
+                                  <span className={cn('text-sm font-bold tabular-nums', isLow ? 'text-red-400' : 'text-white')}>
+                                    {formatNumber(item.stock)} <span className="text-[10px] text-slate-400 font-normal">{item.baseUnit}</span>
+                                  </span>
+                                  <button
+                                    className="w-6 h-6 rounded bg-white/[0.04] hover:bg-emerald-500/10 text-slate-400 hover:text-emerald-400 flex items-center justify-center transition-colors text-xs font-medium"
+                                    onClick={(e) => { e.stopPropagation(); handleQuickAdjust(item, 1) }}
+                                    title="Tambah 1"
+                                  >+</button>
+                                </div>
                               </div>
                             </div>
                             <div className="flex items-center justify-between text-slate-500">
@@ -1427,8 +1351,8 @@ export default function PurchasePage() {
                   <p className="text-xs text-slate-200 font-medium">{formatDate(poDetailData.createdAt)}</p>
                 </div>
                 <div className="bg-white/[0.03] rounded-lg p-2.5 border border-white/[0.04]">
-                  <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Supplier</p>
-                  <p className="text-xs text-slate-200 font-medium">{poDetailData.supplier?.name || '-'}</p>
+                  <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Dibuat Oleh</p>
+                  <p className="text-xs text-slate-200 font-medium">{session?.user?.name || 'Admin'}</p>
                 </div>
               </div>
 
@@ -1452,7 +1376,7 @@ export default function PurchasePage() {
                         className="flex items-center gap-3 p-2.5 rounded-lg bg-white/[0.02] border border-white/[0.04]"
                       >
                         <div className="flex-1 min-w-0">
-                          <p className="text-xs text-slate-200 font-medium truncate">{item.inventoryItem.name}</p>
+                          <p className="text-xs text-slate-200 font-medium truncate">{item.inventoryItem?.name || 'Item dihapus'}</p>
                           <div className="flex items-center gap-2 mt-0.5">
                             <span className="text-[10px] text-slate-500">
                               {formatNumber(item.purchaseQty)} {item.purchaseUnit} = {formatNumber(item.baseQty)} {item.baseUnit}
@@ -1918,157 +1842,6 @@ export default function PurchasePage() {
               disabled={deletingPo}
             >
               {deletingPo ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Hapus'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* ══════════════════════════════════════════════════════════ */}
-      {/* SUPPLIER DIALOGS                                               */}
-      {/* ══════════════════════════════════════════════════════════ */}
-
-      {/* Supplier List Dialog */}
-      <ResponsiveDialog open={supplierDialogOpen} onOpenChange={setSupplierDialogOpen}>
-        <ResponsiveDialogContent className="sm:max-w-lg">
-          <ResponsiveDialogHeader>
-            <ResponsiveDialogTitle className="text-white text-base">Kelola Supplier</ResponsiveDialogTitle>
-            <ResponsiveDialogDescription className="text-slate-400 text-xs">
-              Daftar supplier untuk pembelian bahan
-            </ResponsiveDialogDescription>
-          </ResponsiveDialogHeader>
-          <div className="space-y-3 mt-2">
-            <Button
-              size="sm"
-              className="w-full h-8 text-xs gap-1.5 theme-bg theme-hover text-white"
-              onClick={() => openSupplierForm()}
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Tambah Supplier
-            </Button>
-
-            {suppliers.length === 0 ? (
-              <div className="py-8 text-center">
-                <Settings2 className="h-6 w-6 text-slate-600 mx-auto mb-1.5" />
-                <p className="text-xs text-slate-500">Belum ada supplier</p>
-              </div>
-            ) : (
-              <div className="space-y-1.5 max-h-[300px] overflow-y-auto">
-                {suppliers.map((s) => (
-                  <div key={s.id} className="flex items-center gap-3 p-2.5 rounded-lg bg-white/[0.02] border border-white/[0.04]">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs text-slate-200 font-medium truncate">{s.name}</p>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        {s.phone && <span className="text-[10px] text-slate-500">{s.phone}</span>}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2 text-slate-400 hover:text-white hover:bg-white/[0.04]"
-                        onClick={() => openSupplierForm(s)}
-                      >
-                        <Edit3 className="h-3 w-3" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2 text-red-400 hover:text-red-300 hover:bg-red-500/[0.06]"
-                        onClick={() => setDeleteSupplierId(s.id)}
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </ResponsiveDialogContent>
-      </ResponsiveDialog>
-
-      {/* Supplier Form Dialog */}
-      <ResponsiveDialog open={supplierFormOpen} onOpenChange={setSupplierFormOpen}>
-        <ResponsiveDialogContent className="sm:max-w-lg">
-          <ResponsiveDialogHeader>
-            <ResponsiveDialogTitle className="text-white text-base">
-              {supplierFormEdit ? 'Edit Supplier' : 'Tambah Supplier'}
-            </ResponsiveDialogTitle>
-          </ResponsiveDialogHeader>
-          <div className="space-y-3 mt-2">
-            <div className="space-y-1.5">
-              <Label className={labelClass}>Nama *</Label>
-              <Input
-                value={supplierName}
-                onChange={(e) => setSupplierName(e.target.value)}
-                placeholder="Nama supplier"
-                className={inputClass}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className={labelClass}>Telepon</Label>
-              <Input
-                value={supplierPhone}
-                onChange={(e) => setSupplierPhone(e.target.value)}
-                placeholder="08xx-xxxx-xxxx"
-                className={inputClass}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className={labelClass}>Alamat</Label>
-              <Textarea
-                value={supplierAddress}
-                onChange={(e) => setSupplierAddress(e.target.value)}
-                placeholder="Alamat supplier"
-                className="bg-white/[0.04] border-white/[0.04] text-white text-xs min-h-[60px] rounded-lg resize-none placeholder:text-slate-500"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className={labelClass}>Catatan</Label>
-              <Input
-                value={supplierNotes}
-                onChange={(e) => setSupplierNotes(e.target.value)}
-                placeholder="Catatan (opsional)"
-                className={inputClass}
-              />
-            </div>
-          </div>
-          <ResponsiveDialogFooter className="mt-4 gap-2">
-            <Button
-              variant="ghost"
-              className="flex-1 h-9 text-xs text-slate-400 hover:text-white hover:bg-white/[0.04]"
-              onClick={() => setSupplierFormOpen(false)}
-            >
-              Batal
-            </Button>
-            <Button
-              className="flex-1 h-9 text-xs theme-bg theme-hover text-white"
-              disabled={supplierFormLoading}
-              onClick={handleSupplierSubmit}
-            >
-              {supplierFormLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Simpan'}
-            </Button>
-          </ResponsiveDialogFooter>
-        </ResponsiveDialogContent>
-      </ResponsiveDialog>
-
-      {/* Delete Supplier Alert */}
-      <AlertDialog open={!!deleteSupplierId} onOpenChange={(open) => { if (!open) setDeleteSupplierId(null) }}>
-        <AlertDialogContent className="bg-nebula border-white/[0.06]">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-white">Hapus Supplier?</AlertDialogTitle>
-            <AlertDialogDescription className="text-slate-400">
-              Supplier yang dihapus tidak dapat dikembalikan.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className="gap-2">
-            <AlertDialogCancel className="text-slate-400 hover:text-white hover:bg-white/[0.04]">Batal</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-red-500/15 text-red-400 hover:bg-red-500/25 border border-red-500/20"
-              onClick={handleDeleteSupplier}
-              disabled={deletingSupplier}
-            >
-              {deletingSupplier ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Hapus'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

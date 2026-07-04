@@ -295,6 +295,22 @@ export async function POST(request: NextRequest) {
           },
         })
 
+        // Create inventory movement for purchase
+        await tx.inventoryMovement.create({
+          data: {
+            type: 'PURCHASE',
+            inventoryItemId: item.inventoryItemId,
+            quantity: baseQty,
+            previousStock: existingStock,
+            newStock,
+            referenceId: purchaseOrder.id,
+            referenceType: 'PURCHASE_ORDER',
+            notes: `Pembelian: ${invItem.name} (${orderNumber})`,
+            outletId,
+            userId,
+          },
+        })
+
         affectedInventoryItemIds.push(item.inventoryItemId)
       }
 

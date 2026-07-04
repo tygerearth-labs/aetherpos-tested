@@ -53,6 +53,21 @@ export async function POST(
         },
       })
 
+      // Create inventory movement for adjustment
+      await tx.inventoryMovement.create({
+        data: {
+          type: 'ADJUSTMENT',
+          inventoryItemId: id,
+          quantity: newStock - existing.stock,
+          previousStock: existing.stock,
+          newStock,
+          referenceType: 'ADJUSTMENT',
+          notes: reason || `Penyesuaian stok manual`,
+          outletId,
+          userId,
+        },
+      })
+
       return updated
     })
 

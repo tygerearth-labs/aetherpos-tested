@@ -106,7 +106,7 @@ export async function POST(request: NextRequest) {
           ? tx.productVariant.findMany({
               where: { id: { in: variantIds }, outletId },
             })
-          : ([] as Array<{ id: string; productId: string; stock: number; hpp: number }>),
+          : ([] as Array<{ id: string; productId: string; stock: number; hpp: number; sku: string | null }>),
       ])
 
       const productMap = new Map<string, typeof products[number]>()
@@ -292,12 +292,40 @@ export async function POST(request: NextRequest) {
           }
         }
 
+        // Fetch current stock before deduction
+        const invItemIds = [...invDeductions.keys()]
+        const invItemStocks = await tx.inventoryItem.findMany({
+          where: { id: { in: invItemIds } },
+          select: { id: true, stock: true },
+        })
+        const invStockMap = new Map(invItemStocks.map(i => [i.id, i.stock]))
+
         // Deduct from inventory items
         for (const [invItemId, deduction] of invDeductions) {
           await tx.inventoryItem.update({
             where: { id: invItemId },
             data: { stock: { decrement: deduction.qty } },
           })
+        }
+
+        // Create inventory movements for composition deductions
+        const compMovementData = [...invDeductions.entries()].map(([invItemId, deduction]) => {
+          const previousStock = invStockMap.get(invItemId) || 0
+          return {
+            type: 'CONSUMPTION' as const,
+            inventoryItemId: invItemId,
+            quantity: -deduction.qty,
+            previousStock,
+            newStock: previousStock - deduction.qty,
+            referenceId: transaction.id,
+            referenceType: 'TRANSACTION' as const,
+            notes: `Komposisi: ${deduction.sources.map(s => s.variantName ? `${s.productName} (${s.variantName})` : s.productName).join(', ')} (${invoiceNumber})`,
+            outletId,
+            userId,
+          }
+        })
+        if (compMovementData.length > 0) {
+          await tx.inventoryMovement.createMany({ data: compMovementData })
         }
 
         // Audit logs for inventory deductions
