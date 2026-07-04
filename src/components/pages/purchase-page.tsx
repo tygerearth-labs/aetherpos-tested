@@ -65,7 +65,6 @@ import {
   BarChart3,
   Scale,
   Edit3,
-  SlidersHorizontal,
   FileText,
   Ruler,
   Hash,
@@ -703,30 +702,7 @@ export default function PurchasePage() {
     }
   }
 
-  // ══════════════════════════════════════════════════════════
-  // Inventory Quick Adjust (+/-)
-  // ══════════════════════════════════════════════════════════
-  const handleQuickAdjust = async (item: InventoryItem, delta: number) => {
-    const newStock = Math.max(0, item.stock + delta)
-    try {
-      const res = await fetch(`/api/inventory/items/${item.id}/adjust`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ newStock, reason: delta > 0 ? 'Quick add +1' : 'Quick reduce -1' }),
-      })
-      if (res.ok) {
-        toast.success(`Stok ${item.name} disesuaikan ke ${formatNumber(newStock)} ${item.baseUnit}`)
-        void fetchInventoryItems()
-        // Also refresh purchase orders if on purchase tab (in case HPP changed)
-        if (tab === 'purchase') void fetchPurchaseOrders()
-      } else {
-        const data = await res.json()
-        toast.error(data.error || 'Gagal menyesuaikan stok')
-      }
-    } catch {
-      toast.error('Gagal menyesuaikan stok')
-    }
-  }
+
 
   // ══════════════════════════════════════════════════════════
   // Inventory Adjust
@@ -1172,20 +1148,19 @@ export default function PurchasePage() {
                                 <span className="text-[10px] text-slate-500">-</span>
                               )}
                             </TableCell>
-                            <TableCell className={cn('text-xs text-right font-medium', isLow ? 'text-red-400' : 'text-slate-200')}>
-                              <div className="flex items-center justify-end gap-1">
-                                <button
-                                  className="w-6 h-6 rounded bg-white/[0.04] hover:bg-red-500/10 text-slate-400 hover:text-red-400 flex items-center justify-center transition-colors text-xs font-medium"
-                                  onClick={(e) => { e.stopPropagation(); handleQuickAdjust(item, -1) }}
-                                  title="Kurangi 1"
-                                >−</button>
-                                <span className="w-16 text-right tabular-nums">{formatNumber(item.stock)} <span className="text-slate-500">{item.baseUnit}</span></span>
-                                <button
-                                  className="w-6 h-6 rounded bg-white/[0.04] hover:bg-emerald-500/10 text-slate-400 hover:text-emerald-400 flex items-center justify-center transition-colors text-xs font-medium"
-                                  onClick={(e) => { e.stopPropagation(); handleQuickAdjust(item, 1) }}
-                                  title="Tambah 1"
-                                >+</button>
-                              </div>
+                            <TableCell className="text-xs text-right font-medium">
+                              <button
+                                className={cn(
+                                  'inline-flex items-center gap-1 px-2 py-1 rounded-md transition-colors tabular-nums hover:bg-white/[0.06]',
+                                  isLow ? 'text-red-400 hover:text-red-300' : 'text-slate-200 hover:text-white'
+                                )}
+                                onClick={(e) => { e.stopPropagation(); openInvAdjust(item) }}
+                                title="Klik untuk sesuaikan stok"
+                              >
+                                {formatNumber(item.stock)}
+                                <span className="text-slate-500 font-normal">{item.baseUnit}</span>
+                                <Edit3 className="h-2.5 w-2.5 text-slate-500" />
+                              </button>
                             </TableCell>
                             <TableCell className="text-xs text-slate-400 text-right">{formatCurrency(item.avgCost)}/{item.baseUnit}</TableCell>
                             <TableCell className="text-xs text-emerald-400 text-right font-medium">{formatCurrency(item.stock * item.avgCost)}</TableCell>
@@ -1199,14 +1174,6 @@ export default function PurchasePage() {
                                   onClick={() => openInvForm(item)}
                                 >
                                   <Edit3 className="h-3.5 w-3.5" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-7 px-2 text-sky-400 hover:text-sky-300 hover:bg-sky-500/[0.06]"
-                                  onClick={() => openInvAdjust(item)}
-                                >
-                                  <SlidersHorizontal className="h-3.5 w-3.5" />
                                 </Button>
                                 <Button
                                   variant="ghost"
@@ -1260,23 +1227,18 @@ export default function PurchasePage() {
                                   </Badge>
                                 )}
                               </div>
-                              <div className="text-right shrink-0">
-                                <div className="flex items-center justify-end gap-1">
-                                  <button
-                                    className="w-6 h-6 rounded bg-white/[0.04] hover:bg-red-500/10 text-slate-400 hover:text-red-400 flex items-center justify-center transition-colors text-xs font-medium"
-                                    onClick={(e) => { e.stopPropagation(); handleQuickAdjust(item, -1) }}
-                                    title="Kurangi 1"
-                                  >−</button>
-                                  <span className={cn('text-sm font-bold tabular-nums', isLow ? 'text-red-400' : 'text-white')}>
-                                    {formatNumber(item.stock)} <span className="text-[10px] text-slate-400 font-normal">{item.baseUnit}</span>
-                                  </span>
-                                  <button
-                                    className="w-6 h-6 rounded bg-white/[0.04] hover:bg-emerald-500/10 text-slate-400 hover:text-emerald-400 flex items-center justify-center transition-colors text-xs font-medium"
-                                    onClick={(e) => { e.stopPropagation(); handleQuickAdjust(item, 1) }}
-                                    title="Tambah 1"
-                                  >+</button>
-                                </div>
-                              </div>
+                              <button
+                                className={cn(
+                                  'flex items-center gap-1 px-2.5 py-1.5 rounded-lg transition-colors tabular-nums hover:bg-white/[0.06]',
+                                  isLow ? 'text-red-400 hover:text-red-300' : 'text-white hover:text-white'
+                                )}
+                                onClick={(e) => { e.stopPropagation(); openInvAdjust(item) }}
+                                title="Klik untuk sesuaikan stok"
+                              >
+                                <span className={cn('font-bold', isLow ? '' : '')}>{formatNumber(item.stock)}</span>
+                                <span className="text-[10px] text-slate-400 font-normal">{item.baseUnit}</span>
+                                <Edit3 className="h-2.5 w-2.5 text-slate-500" />
+                              </button>
                             </div>
                             <div className="flex items-center justify-between text-slate-500">
                               <span className="text-[11px]">HPP: {formatCurrency(item.avgCost)}/{item.baseUnit}</span>
@@ -1291,14 +1253,7 @@ export default function PurchasePage() {
                                 <Edit3 className="h-3 w-3" />
                                 Edit
                               </Button>
-                              <Button
-                                size="sm"
-                                className="flex-1 h-7 text-[10px] gap-1 text-sky-400 hover:text-sky-300 hover:bg-sky-500/[0.06]"
-                                onClick={() => openInvAdjust(item)}
-                              >
-                                <SlidersHorizontal className="h-3 w-3" />
-                                Stok
-                              </Button>
+
                               <Button
                                 size="sm"
                                 variant="ghost"

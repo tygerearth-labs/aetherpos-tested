@@ -829,7 +829,7 @@ export default function TransferPage() {
           </Card>
         </motion.div>
       ) : (
-        <Tabs value={mainTab} onValueChange={setMainTab}>
+        <Tabs id="main-transfer-tabs" value={mainTab} onValueChange={setMainTab}>
           <motion.div variants={itemVariants}>
             <TabsList className="bg-white/[0.04] border border-white/[0.06] h-9 p-0.5 rounded-lg">
               <TabsTrigger
@@ -851,7 +851,7 @@ export default function TransferPage() {
           <TabsContent value="produk">
           {/* Tabs */}
           <motion.div variants={itemVariants}>
-            <Tabs value={tab} onValueChange={setTab}>
+            <Tabs id="product-sub-tabs" value={tab} onValueChange={setTab}>
               <TabsList className="bg-white/[0.04] border border-white/[0.06] h-9 p-0.5 rounded-lg">
                 <TabsTrigger
                   value="outbound"
@@ -1086,7 +1086,7 @@ export default function TransferPage() {
           {/* ═══ Bahan Baku Tab Content ═══ */}
           <TabsContent value="bahan-baku">
             <motion.div variants={itemVariants}>
-              <Tabs value={invTab} onValueChange={setInvTab}>
+              <Tabs id="inventory-sub-tabs" value={invTab} onValueChange={setInvTab}>
                 <TabsList className="bg-white/[0.04] border border-white/[0.06] h-9 p-0.5 rounded-lg">
                   <TabsTrigger
                     value="outbound"
