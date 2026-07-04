@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { useSession } from 'next-auth/react'
 import { usePlan } from '@/hooks/use-plan'
 import { useDashboard, useInsights, useForecast } from '@/hooks/use-dashboard'
@@ -13,7 +14,7 @@ import { HealthRing } from '@/components/dashboard/dashboard-charts'
 import { StatCards } from '@/components/dashboard/stat-cards'
 import { QuickActions } from '@/components/dashboard/quick-actions'
 import { AnalyticsTabs } from '@/components/dashboard/analytics-tabs'
-import { TopProducts, TopCustomers, LowStockSection, InsightsSection } from '@/components/dashboard/dashboard-sections'
+import { TopProducts, TopCustomers, LowStockSection, InsightsSection, InventoryAlertsSection, ScoreExplanationDialog } from '@/components/dashboard/dashboard-sections'
 
 // ── Animation variants ──
 const containerVariants = {
@@ -56,6 +57,7 @@ export default function DashboardPage() {
   const { data: stats, isLoading } = useDashboard()
   const { data: insightData, isLoading: insightLoading, refetch: refetchInsights } = useInsights(!!isOwner && !!hasAiInsights)
   const { data: forecastData, isLoading: forecastLoading } = useForecast(!!isOwner && !!hasForecasting)
+  const [scoreDialogOpen, setScoreDialogOpen] = useState(false)
 
   const topSelling = insightData?.metrics.topSelling ?? []
 
@@ -97,7 +99,7 @@ export default function DashboardPage() {
                 {insightData.healthScore >= 75 ? 'Sehat' : insightData.healthScore >= 50 ? 'Perhatian' : 'Kritis'}
               </p>
             </div>
-            <HealthRing score={insightData.healthScore} />
+            <HealthRing score={insightData.healthScore} onClick={() => setScoreDialogOpen(true)} />
           </div>
         )}
       </motion.div>
@@ -146,8 +148,19 @@ export default function DashboardPage() {
         {isOwner && <TopCustomers customers={stats.topCustomers} />}
       </div>
 
-      {/* 8. Low Stock Detail */}
+      {/* 8. Inventory Alerts & Low Stock Detail */}
+      <InventoryAlertsSection stats={stats} />
       <LowStockSection stats={stats} />
+
+      {/* Score Explanation Dialog */}
+      {isOwner && insightData && (
+        <ScoreExplanationDialog
+          open={scoreDialogOpen}
+          onOpenChange={setScoreDialogOpen}
+          score={insightData.healthScore}
+          insights={insightData.insights}
+        />
+      )}
     </motion.div>
   )
 }

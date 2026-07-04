@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { motion } from 'framer-motion'
 import {
   DollarSign, Receipt, AlertTriangle, TrendingUp,
-  ArrowUpRight, ArrowDownRight, Layers,
+  ArrowUpRight, ArrowDownRight, Layers, FlaskConical,
 } from 'lucide-react'
 import { formatCurrency, formatNumber } from '@/lib/format'
 import type { DashboardStats } from '@/hooks/use-dashboard'
@@ -106,7 +106,7 @@ export function StatCards({ stats, isOwner }: { stats: DashboardStats; isOwner: 
       {/* Low Stock */}
       <motion.div variants={itemVariants}>
         <Card className={`bg-nebula border rounded-xl overflow-hidden relative ${
-          stats.lowStockProducts > 0 ? 'border-red-500/20' : 'border-white/[0.06]'
+          (stats.lowStockProducts > 0 || stats.lowInventoryItems > 0) ? 'border-red-500/20' : 'border-white/[0.06]'
         }`}>
           <div className={`absolute inset-0 ${stats.lowStockProducts > 0 ? 'bg-gradient-to-br from-red-500/[0.04] to-transparent' : 'bg-gradient-to-br from-slate-500/[0.02] to-transparent'}`} />
           <CardContent className="p-3.5 relative">
@@ -145,6 +145,14 @@ export function StatCards({ stats, isOwner }: { stats: DashboardStats; isOwner: 
                 <Layers className="h-3 w-3 text-violet-400" />
                 <span className="text-[10px] text-violet-400">
                   {stats.lowStockVariants} varian stok rendah
+                </span>
+              </div>
+            )}
+            {stats.lowInventoryItems > 0 && (
+              <div className="flex items-center gap-1.5 mt-1">
+                <FlaskConical className="h-3 w-3 text-orange-400" />
+                <span className="text-[10px] text-orange-400">
+                  {stats.lowInventoryItems} inventori menipis
                 </span>
               </div>
             )}

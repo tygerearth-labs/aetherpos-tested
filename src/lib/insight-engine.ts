@@ -54,6 +54,18 @@ export interface InsightEngineInput {
   todayBrutto: number
   todayDiscount: number
   todayTax: number
+  // Inventory data
+  lowInventoryCount: number
+  outOfInventoryCount: number
+  inventoryAlerts: { name: string; stock: number; dailyConsumption: number; daysUntilEmpty: number | null; avgCost: number; baseUnit: string }[]
+  totalInventoryValue: number
+  // Transfer & Purchase data
+  pendingTransfers: number
+  pendingTransferItems: number
+  pendingPurchases: number
+  pendingPurchaseValue: number
+  // Variant sales data
+  topVariantSelling: { productName: string; variantName: string; qty: number; revenue: number }[]
 }
 
 // ── Priority Scores ──
@@ -269,6 +281,186 @@ export function runInsightEngine(input: InsightEngineInput): InsightEngineResult
   }
 
   // ═══════════════════════════════════════════════════════════
+  // Rule 8: Inventory Running Out (CTO perspective)
+  // ═══════════════════════════════════════════════════════════
+  const criticalInventory = input.inventoryAlerts.filter(a => a.daysUntilEmpty !== null && a.daysUntilEmpty <= 3)
+  const warningInventory = input.inventoryAlerts.filter(a => a.daysUntilEmpty !== null && a.daysUntilEmpty > 3 && a.daysUntilEmpty <= 7)
+  if (criticalInventory.length > 0) {
+    const item = criticalInventory[0]
+    insights.push({
+      id: 'inventory-critical',
+      title: `📦 ${item.name} habis dalam ${Math.round(item.daysUntilEmpty!)} hari`,
+      why: `Stok ${item.name} tinggal ${num(item.stock)} ${item.baseUnit}, terpakai rata-rata ${item.dailyConsumption.toFixed(1)} ${item.baseUnit}/hari. Dalam ${Math.round(item.daysUntilEmpty!)} hari akan habis.`,
+      actions: [
+        `Beli ${item.name} segera ke supplier`,
+        'Cek apakah bisa substitusi dengan bahan lain',
+        'Kurangi menu yang menggunakan bahan ini sementara',
+      ],
+      priority: 'critical',
+      score: SCORES.critical,
+      cta: [{ label: 'Beli Bahan', page: 'purchase' }],
+      emoji: '🔴',
+    })
+  } else if (warningInventory.length > 0) {
+    const item = warningInventory[0]
+    insights.push({
+      id: 'inventory-warning',
+      title: `📦 ${item.name} stok menipis — ${Math.round(item.daysUntilEmpty!)} hari lagi`,
+      why: `Stok ${item.name} terpakai ${item.dailyConsumption.toFixed(1)} ${item.baseUnit}/hari. Sisa ${Math.round(item.daysUntilEmpty!)} hari sebelum habis.`,
+      actions: [
+        `Jadwalkan pembelian ${item.name}`,
+        'Cek stok di outlet lain untuk transfer',
+      ],
+      priority: 'high',
+      score: SCORES.high,
+      cta: [{ label: 'Beli Bahan', page: 'purchase' }],
+      emoji: '🟠',
+    })
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // Rule 9: High Inventory Value Idle (CTO perspective)
+  // ═══════════════════════════════════════════════════════════
+  if (input.totalInventoryValue > 0 && input.inventoryAlerts.length > 0) {
+    const slowMoving = input.inventoryAlerts.filter(a => a.daysUntilEmpty !== null && a.daysUntilEmpty > 30)
+    if (slowMoving.length > 0) {
+      const idleValue = slowMoving.reduce((s, a) => s + a.stock * a.avgCost, 0)
+      insights.push({
+        id: 'inventory-idle',
+        title: `📦 ${rp(idleValue)} modal tertahan di bahan lambat`,
+        why: `${slowMoving.length} inventori bisa bertahan >30 hari. Total nilai ${rp(idleValue)} modal tidak berputar.`,
+        actions: [
+          'Kurangi porsi pembelian bahan yang berputar lambat',
+          'Cek apakah ada menu yang bisa memakai bahan ini lebih banyak',
+          'Pertimbangkan untuk menjual bahan ke outlet lain',
+        ],
+      priority: 'medium',
+      score: SCORES.medium,
+      cta: [{ label: 'Lihat Inventaris', page: 'purchase' }],
+      emoji: '🟡',
+    })
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // Rule 10: Pending Transfers Not Received (CTO perspective)
+  // ═══════════════════════════════════════════════════════════
+  if (input.pendingTransfers > 0) {
+    const isHigh = input.pendingTransfers > 3
+    insights.push({
+      id: 'pending-transfers',
+      title: `${input.pendingTransfers} transfer belum selesai`,
+      why: `${input.pendingTransfers} pengiriman stok dengan ${input.pendingTransferItems} item belum diterima. Stok di outlet tujuan mungkin terganggu.`,
+      actions: [
+        'Hubungi outlet penerima untuk konfirmasi',
+        'Cek status pengiriman di halaman transfer',
+        'Follow up melalui WhatsApp ke outlet tujuan',
+      ],
+      priority: isHigh ? 'high' : 'medium',
+      score: isHigh ? SCORES.high : SCORES.medium,
+      cta: [{ label: 'Lihat Transfer', page: 'transfer' }],
+      emoji: isHigh ? '🔴' : '🟠',
+    })
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // Rule 11: Pending Purchase Orders (CEO perspective)
+  // ═══════════════════════════════════════════════════════════
+  if (input.pendingPurchases > 0) {
+    const valueVsRevenue = input.todayRevenue > 0
+      ? input.pendingPurchaseValue / input.todayRevenue
+      : 0
+    const isHigh = valueVsRevenue > 0.5 || input.pendingPurchaseValue > 5_000_000
+    insights.push({
+      id: 'pending-purchases',
+      title: `${input.pendingPurchases} pembelian bahan senilai ${rp(input.pendingPurchaseValue)}`,
+      why: `Ada ${input.pendingPurchases} order pembelian inventori dengan total ${rp(input.pendingPurchaseValue)} yang belum selesai diproses.`,
+      actions: [
+        'Proses order pembelian yang tertunda',
+        'Hubungi supplier untuk konfirmasi pengiriman',
+        'Cek apakah ada pembelian yang bisa dibatalkan',
+      ],
+      priority: isHigh ? 'high' : 'medium',
+      score: isHigh ? SCORES.high : SCORES.medium,
+      cta: [{ label: 'Lihat Pembelian', page: 'purchase' }],
+      emoji: '🟠',
+    })
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // Rule 12: Variant Sales Imbalance (CMO perspective)
+  // ═══════════════════════════════════════════════════════════
+  if (input.topVariantSelling.length >= 2) {
+    const totalVariantQty = input.topVariantSelling.reduce((s, v) => s + v.qty, 0)
+    if (totalVariantQty > 0) {
+      const topVariant = input.topVariantSelling[0]
+      const topRatio = topVariant.qty / totalVariantQty
+      if (topRatio > 0.5) {
+        const bottomVariant = input.topVariantSelling[input.topVariantSelling.length - 1]
+        insights.push({
+          id: 'variant-imbalance',
+          title: `Varian ${topVariant.variantName} mendominasi penjualan`,
+          why: `Dari ${num(totalVariantQty)} unit terjual, ${topVariant.variantName} (${topVariant.productName}) menyumbang ${Math.round(topRatio * 100)}%. ${bottomVariant.variantName} hanya ${bottomVariant.qty} unit.`,
+          actions: [
+            `Promosikan varian ${bottomVariant.variantName} lebih gencar`,
+            'Buat combo promo varian kurang laris dengan varian populer',
+            'Tampilkan varian kurang laris di posisi lebih strategis di POS',
+          ],
+          priority: 'low',
+          score: SCORES.low,
+          cta: [{ label: 'Kelola Produk', page: 'products' }],
+          emoji: '🟡',
+        })
+      }
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // Rule 13: Product Mix Insight (CMO perspective)
+  // ═══════════════════════════════════════════════════════════
+  if (input.todayTransactions >= 5 && input.yesterdayAOV > 0 && input.todayAOV < input.yesterdayAOV * 0.8) {
+    const dropPct = Math.round((1 - input.todayAOV / input.yesterdayAOV) * 100)
+    insights.push({
+      id: 'aov-drop-mix',
+      title: `Nilai transaksi turun ${dropPct}% dibanding kemarin`,
+      why: `AOV hari ini ${rp(input.todayAOV)} vs kemarin ${rp(input.yesterdayAOV)}. Customer cenderung beli lebih sedikit per kunjungan.`,
+      actions: [
+        'Tawarkan upsell di kasir ("mau tambah ini?")',
+        'Buat paket bundling 2-3 produk dengan harga spesial',
+        'Berikan diskon untuk minimum pembelian tertentu',
+      ],
+      priority: 'medium',
+      score: SCORES.medium,
+      cta: [
+        { label: 'Buat Promo', page: 'settings' },
+        { label: 'Lihat Produk', page: 'products' },
+      ],
+      emoji: '🟠',
+    })
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // Rule 14: Inventory Health Overall (CTO perspective)
+  // ═══════════════════════════════════════════════════════════
+  if (input.outOfInventoryCount > 0 && input.todayTransactions > 0) {
+    const isCritical = input.outOfInventoryCount > 2
+    insights.push({
+      id: 'inventory-out-overall',
+      title: `${input.outOfInventoryCount} inventori habis — produk komposisi terganggu`,
+      why: `Dengan ${input.outOfInventoryCount} inventori yang habis, beberapa produk komposisi tidak bisa dibuat. Ini menghambat operasional.`,
+      actions: [
+        'Beli inventori yang habis segera',
+        'Tandai produk yang menggunakan bahan ini sebagai "tidak tersedia"',
+        'Cek apakah bisa transfer dari outlet lain',
+      ],
+      priority: isCritical ? 'critical' : 'high',
+      score: isCritical ? SCORES.critical : SCORES.high,
+      cta: [{ label: 'Beli Bahan', page: 'purchase' }],
+      emoji: isCritical ? '🔴' : '🟠',
+    })
+  }
+
+  // ═══════════════════════════════════════════════════════════
   // Positive: Everything is good
   // ═══════════════════════════════════════════════════════════
   if (insights.length === 0 && input.todayTransactions > 0) {
@@ -374,6 +566,45 @@ function combineInsights(insights: AIInsight[]): AIInsight[] {
     used.add('low-stock-many')
   }
 
+  // Combine: inventory-critical + inventory-out-overall → "Krisis bahan baku"
+  const invCritical = insights.find((i) => i.id === 'inventory-critical')
+  const invOutOverall = insights.find((i) => i.id === 'inventory-out-overall')
+  if (invCritical && invOutOverall) {
+    combined.push({
+      id: 'inventory-crisis',
+      title: 'Krisis inventori — stok kritis + ada yang sudah habis',
+      why: `${invCritical.why}\n${invOutOverall.why}`,
+      actions: [...new Set([...invCritical.actions, ...invOutOverall.actions])],
+      priority: 'critical',
+      score: 115,
+      cta: [{ label: 'Beli Bahan', page: 'purchase' }],
+      emoji: '🔴',
+    })
+    used.add('inventory-critical')
+    used.add('inventory-out-overall')
+  }
+
+  // Combine: pending-transfers + pending-purchases → "Operasional tertunda"
+  const pendTransfers = insights.find((i) => i.id === 'pending-transfers')
+  const pendPurchases = insights.find((i) => i.id === 'pending-purchases')
+  if (pendTransfers && pendPurchases) {
+    combined.push({
+      id: 'pending-ops',
+      title: 'Operasional tertunda — transfer & pembelian belum selesai',
+      why: `${pendTransfers.why}\n${pendPurchases.why}`,
+      actions: [...new Set([...pendTransfers.actions, ...pendPurchases.actions])],
+      priority: 'high',
+      score: 90,
+      cta: [
+        { label: 'Lihat Transfer', page: 'transfer' },
+        { label: 'Lihat Pembelian', page: 'purchase' },
+      ],
+      emoji: '🟠',
+    })
+    used.add('pending-transfers')
+    used.add('pending-purchases')
+  }
+
   // Add remaining insights not yet combined
   for (const insight of insights) {
     if (!used.has(insight.id)) {
@@ -416,15 +647,42 @@ function calcHealthScore(insights: AIInsight[], input: InsightEngineInput): numb
     score += 5
   }
 
+  // Inventory critical penalty
+  const hasCriticalInventory = input.inventoryAlerts.some(a => a.daysUntilEmpty !== null && a.daysUntilEmpty <= 3)
+  if (hasCriticalInventory) {
+    score -= 10
+  }
+
+  // Many low inventory items penalty
+  if (input.lowInventoryCount > 3) {
+    score -= 5
+  }
+
+  // Inventory health bonus
+  if (input.totalInventoryValue > 0 && input.inventoryAlerts.length > 0) {
+    const allHealthy = input.inventoryAlerts.every(a => a.daysUntilEmpty === null || a.daysUntilEmpty > 14)
+    if (allHealthy) {
+      score += 5
+    }
+  }
+
   return Math.max(0, Math.min(100, Math.round(score)))
 }
 
 // ── Summary ──
 
 function genSummary(insights: AIInsight[], input: InsightEngineInput): string {
+  // Inventory health snippet for summary
+  const criticalInv = input.inventoryAlerts.filter(a => a.daysUntilEmpty !== null && a.daysUntilEmpty <= 3)
+  const inventorySnippet = criticalInv.length > 0
+    ? ` — ${criticalInv.length} inventori kritis`
+    : input.outOfInventoryCount > 0
+      ? ` — ${input.outOfInventoryCount} inventori habis`
+      : ''
+
   if (insights.length === 0 || insights[0]?.id === 'all-good') {
     return input.todayTransactions > 0
-      ? `Revenue ${rp(input.todayRevenue)} dari ${input.todayTransactions} transaksi — semua berjalan baik`
+      ? `Revenue ${rp(input.todayRevenue)} dari ${input.todayTransactions} transaksi — semua berjalan baik${inventorySnippet}`
       : 'Belum ada aktivitas hari ini'
   }
 

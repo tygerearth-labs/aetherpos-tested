@@ -2,7 +2,7 @@
 
 import { motion } from 'framer-motion'
 
-export function HealthRing({ score, size = 'md' }: { score: number; size?: 'sm' | 'md' }) {
+export function HealthRing({ score, size = 'md', onClick }: { score: number; size?: 'sm' | 'md'; onClick?: () => void }) {
   const radius = size === 'sm' ? 18 : 32
   const svgSize = size === 'sm' ? 44 : 72
   const sw = size === 'sm' ? 3 : 4
@@ -20,7 +20,10 @@ export function HealthRing({ score, size = 'md' }: { score: number; size?: 'sm' 
         : 'border-red-500/20'
 
   return (
-    <div className={`relative ${size === 'sm' ? 'w-11 h-11' : 'w-16 h-16'} border ${bgColor} rounded-full flex items-center justify-center bg-nebula/80`}>
+    <div 
+      className={`relative ${size === 'sm' ? 'w-11 h-11' : 'w-16 h-16'} border ${bgColor} rounded-full flex items-center justify-center bg-nebula/80 ${onClick ? 'cursor-pointer hover:scale-105 transition-transform' : ''}`}
+      onClick={onClick}
+    >
       <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox={`0 0 ${svgSize} ${svgSize}`}>
         <circle
           cx={svgSize / 2}

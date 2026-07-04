@@ -31,6 +31,10 @@ export interface DashboardStats {
   revenueChangePercent: number
   peakHours: HourBucket[] | null
   aiInsight: string | null
+  lowInventoryItems: number
+  lowInventoryList: { id: string; name: string; stock: number; lowStockAlert: number; avgCost: number; baseUnit: string; daysUntilEmpty: number | null; dailyConsumption: number }[]
+  totalInventoryValue: number
+  inventoryAlerts: { id: string; name: string; stock: number; avgCost: number; baseUnit: string; dailyConsumption: number; daysUntilEmpty: number | null; status: 'critical' | 'warning' | 'ok' }[]
 }
 
 export interface InsightItem {
@@ -66,6 +70,15 @@ export interface InsightEngineData {
     newCustomersThisWeek: number
     topSelling: { name: string; qty: number; revenue: number }[]
     lowStockProducts: { name: string; stock: number; lowStockAlert: number }[]
+    lowInventoryCount: number
+    outOfInventoryCount: number
+    inventoryAlerts: { name: string; stock: number; dailyConsumption: number; daysUntilEmpty: number | null; avgCost: number; baseUnit: string }[]
+    totalInventoryValue: number
+    pendingTransfers: number
+    pendingPurchaseItems: number
+    pendingPurchases: number
+    pendingPurchaseValue: number
+    topVariantSelling: { productName: string; variantName: string; qty: number; revenue: number }[]
   }
   generatedAt: string
 }

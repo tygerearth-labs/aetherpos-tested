@@ -9,10 +9,11 @@ import { motion } from 'framer-motion'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
-import { Package, Users, AlertTriangle, Layers, Sparkles, RefreshCw } from 'lucide-react'
+import { Package, Users, AlertTriangle, Layers, Sparkles, RefreshCw, FlaskConical, ShieldAlert } from 'lucide-react'
 import { formatCurrency, formatNumber } from '@/lib/format'
 import { usePageStore } from '@/hooks/use-page-store'
 import type { DashboardStats, InsightEngineData, InsightItem } from '@/hooks/use-dashboard'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { HealthRing } from './dashboard-charts'
 
 const itemVariants = {
@@ -134,6 +135,35 @@ export function LowStockSection({ stats }: { stats: DashboardStats }) {
               ))}
             </>
           )}
+          {stats.lowInventoryItems > 0 && stats.lowInventoryList && stats.lowInventoryList.length > 0 && (
+            <>
+              <div className="flex items-center gap-1.5 pt-2 pb-1">
+                <FlaskConical className="h-3 w-3 text-orange-400" />
+                <span className="text-[11px] font-medium text-orange-400">Inventori Menipis</span>
+              </div>
+              {stats.lowInventoryList.slice(0, 5).map((inv) => (
+                <div key={inv.id} className="flex items-center gap-3 rounded-xl bg-orange-500/5 border border-orange-500/15 p-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-slate-200 font-medium truncate">{inv.name}</p>
+                    <p className="text-[10px] text-slate-500">
+                      {formatCurrency(inv.avgCost)}/{inv.baseUnit}
+                      {inv.daysUntilEmpty !== null && inv.daysUntilEmpty > 0 && (
+                        <span className="ml-1.5 text-orange-400">~{Math.floor(inv.daysUntilEmpty)} hari lagi</span>
+                      )}
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0 flex items-center gap-2">
+                    <span className={`text-sm font-bold ${inv.stock === 0 ? 'text-red-400' : 'text-orange-400'}`}>
+                      {formatNumber(inv.stock)}
+                    </span>
+                    <Badge className={`text-[10px] ${inv.stock === 0 ? 'bg-red-500/10 border-red-500/20 text-red-400' : 'bg-orange-500/10 border-orange-500/20 text-orange-400'}`}>
+                      {inv.stock === 0 ? 'Habis' : 'Rendah'}
+                    </Badge>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
         </div>
 
         {/* Desktop */}
@@ -176,11 +206,206 @@ export function LowStockSection({ stats }: { stats: DashboardStats }) {
                   ))}
                 </>
               )}
+              {stats.lowInventoryItems > 0 && stats.lowInventoryList && stats.lowInventoryList.length > 0 && (
+                <>
+                  <TableRow className="border-white/[0.06] hover:bg-transparent"><TableCell colSpan={5} className="py-2 px-0"><div className="flex items-center gap-1.5 px-3"><FlaskConical className="h-3 w-3 text-orange-400" /><span className="text-[11px] font-medium text-orange-400">Inventori Menipis</span></div></TableCell></TableRow>
+                  {stats.lowInventoryList.slice(0, 5).map((inv) => (
+                    <TableRow key={inv.id} className="border-orange-500/10 hover:bg-orange-500/5">
+                      <TableCell className="text-[11px] text-orange-400/50 font-mono py-2.5"><FlaskConical className="h-3 w-3 text-orange-400/50" /></TableCell>
+                      <TableCell className="py-2.5">
+                        <p className="text-xs text-slate-200 font-medium">{inv.name}</p>
+                        <p className="text-[10px] text-slate-500">{formatCurrency(inv.avgCost)}/{inv.baseUnit}
+                          {inv.daysUntilEmpty !== null && inv.daysUntilEmpty > 0 && (
+                            <span className="ml-1.5 text-orange-400">~{Math.floor(inv.daysUntilEmpty)} hari lagi</span>
+                          )}
+                        </p>
+                      </TableCell>
+                      <TableCell className={`text-xs text-right font-bold py-2.5 ${inv.stock === 0 ? 'text-red-400' : 'text-orange-400'}`}>{formatNumber(inv.stock)}</TableCell>
+                      <TableCell className="text-xs text-slate-500 text-right py-2.5">{inv.baseUnit}</TableCell>
+                      <TableCell className="text-center py-2.5">
+                        <Badge className={`text-[10px] ${inv.stock === 0 ? 'bg-red-500/10 border-red-500/20 text-red-400' : 'bg-orange-500/10 border-orange-500/20 text-orange-400'}`}>
+                          {inv.stock === 0 ? 'Habis' : 'Rendah'}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </>
+              )}
             </TableBody>
           </Table>
         </div>
       </CardContent></Card>
     </motion.div>
+  )
+}
+
+// ── Inventory Alerts Section (Endurance) ──
+export function InventoryAlertsSection({ stats }: { stats: DashboardStats }) {
+  const alerts = stats.inventoryAlerts?.filter(a => a.status !== 'ok') ?? []
+  if (alerts.length === 0) return null
+
+  return (
+    <motion.div variants={itemVariants}>
+      <Card className="aether-card">
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
+              <ShieldAlert className="h-4 w-4 text-orange-400" />
+              Ketahanan Stok Inventori
+            </h2>
+            <Badge className="bg-orange-500/10 border-orange-500/20 text-orange-400 text-[10px]">
+              {alerts.filter(a => a.status === 'critical').length} kritis
+            </Badge>
+          </div>
+          
+          {/* Mobile */}
+          <div className="flex flex-col gap-2 md:hidden max-h-60 overflow-y-auto">
+            {alerts.map((item) => (
+              <div key={item.id} className={`flex items-center gap-3 rounded-xl border p-3 ${
+                item.status === 'critical' ? 'bg-red-500/5 border-red-500/15' : 'bg-amber-500/5 border-amber-500/15'
+              }`}>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-slate-200 font-medium truncate">{item.name}</p>
+                  <p className="text-[10px] text-slate-500">
+                    Pakai {item.dailyConsumption.toFixed(1)}/{item.baseUnit}/hari
+                  </p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className={`text-sm font-bold ${item.status === 'critical' ? 'text-red-400' : 'text-amber-400'}`}>
+                    {item.daysUntilEmpty !== null ? `~${Math.floor(item.daysUntilEmpty)} hari` : '∞'}
+                  </p>
+                  <p className="text-[10px] text-slate-500">{formatNumber(item.stock)} {item.baseUnit}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Desktop */}
+          <div className="hidden md:block overflow-x-auto max-h-60 overflow-y-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="border-white/[0.06] hover:bg-transparent sticky top-0 bg-nebula z-10">
+                  <TableHead className="text-slate-500 text-[11px] w-8 py-2.5">#</TableHead>
+                  <TableHead className="text-slate-500 text-[11px] py-2.5">Inventori</TableHead>
+                  <TableHead className="text-slate-500 text-[11px] text-right py-2.5">Stok</TableHead>
+                  <TableHead className="text-slate-500 text-[11px] text-right py-2.5">Pakai/Hari</TableHead>
+                  <TableHead className="text-slate-500 text-[11px] text-right py-2.5">Tahan</TableHead>
+                  <TableHead className="text-slate-500 text-[11px] text-center py-2.5">Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {alerts.map((item, idx) => (
+                  <TableRow key={item.id} className={`border-white/[0.04] hover:bg-white/[0.03] ${
+                    item.status === 'critical' ? 'bg-red-500/[0.02]' : 'bg-amber-500/[0.02]'
+                  }`}>
+                    <TableCell className="text-[11px] text-slate-500 font-mono py-2.5">{idx + 1}</TableCell>
+                    <TableCell className="text-xs text-slate-200 font-medium py-2.5">{item.name}</TableCell>
+                    <TableCell className="text-xs text-slate-300 text-right py-2.5">{formatNumber(item.stock)} {item.baseUnit}</TableCell>
+                    <TableCell className="text-xs text-slate-400 text-right py-2.5">{item.dailyConsumption.toFixed(1)} {item.baseUnit}</TableCell>
+                    <TableCell className={`text-xs text-right font-bold py-2.5 ${item.status === 'critical' ? 'text-red-400' : 'text-amber-400'}`}>
+                      {item.daysUntilEmpty !== null ? `~${Math.floor(item.daysUntilEmpty)} hari` : '∞'}
+                    </TableCell>
+                    <TableCell className="text-center py-2.5">
+                      {item.status === 'critical' ? (
+                        <Badge className="bg-red-500/10 border-red-500/20 text-red-400 text-[10px]">Kritis</Badge>
+                      ) : (
+                        <Badge className="bg-amber-500/10 border-amber-500/20 text-amber-400 text-[10px]">Perhatian</Badge>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
+    </motion.div>
+  )
+}
+
+// ── Score Explanation Dialog ──
+export function ScoreExplanationDialog({
+  open,
+  onOpenChange,
+  score,
+  insights,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  score: number
+  insights: InsightItem[]
+}) {
+  let runningScore = 75
+  const breakdown: { label: string; delta: number; detail: string }[] = []
+
+  // Base
+  breakdown.push({ label: 'Skor Dasar', delta: 0, detail: 'Titik awal semua outlet' })
+
+  for (const insight of insights) {
+    if (insight.id === 'all-good') {
+      runningScore = Math.min(100, runningScore + 15)
+      breakdown.push({ label: `${insight.emoji} ${insight.title}`, delta: 15, detail: 'Semua metrik sehat' })
+    } else if (insight.priority === 'critical') {
+      runningScore -= 25
+      breakdown.push({ label: `${insight.emoji} ${insight.title}`, delta: -25, detail: insight.why.slice(0, 80) })
+    } else if (insight.priority === 'high') {
+      runningScore -= 15
+      breakdown.push({ label: `${insight.emoji} ${insight.title}`, delta: -15, detail: insight.why.slice(0, 80) })
+    } else if (insight.priority === 'medium') {
+      runningScore -= 8
+      breakdown.push({ label: `${insight.emoji} ${insight.title}`, delta: -8, detail: insight.why.slice(0, 80) })
+    } else {
+      runningScore -= 3
+      breakdown.push({ label: `${insight.emoji} ${insight.title}`, delta: -3, detail: insight.why.slice(0, 80) })
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md bg-nebula border-white/[0.06]">
+        <DialogHeader>
+          <DialogTitle className="text-white text-base">Cara Kerja Health Score</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <p className="text-xs text-slate-400">
+            Health Score mengukur kesehatan outlet berdasarkan analisis real-time dari penjualan, stok, dan aktivitas bisnis.
+          </p>
+          
+          <div className="rounded-lg bg-white/[0.03] border border-white/[0.04] p-3 space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-slate-400">Skor Dasar</span>
+              <span className="text-slate-200 font-medium">75</span>
+            </div>
+            {breakdown.slice(1).map((item, i) => (
+              <div key={i} className="flex items-center justify-between text-xs">
+                <div className="flex-1 min-w-0 mr-3">
+                  <p className="text-slate-300 truncate">{item.label}</p>
+                  <p className="text-[10px] text-slate-500 truncate">{item.detail}</p>
+                </div>
+                <span className={`font-mono font-medium shrink-0 ${item.delta > 0 ? 'theme-text' : item.delta < 0 ? 'text-red-400' : 'text-slate-400'}`}>
+                  {item.delta > 0 ? '+' : ''}{item.delta}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex items-center justify-between px-3 py-2.5 rounded-lg bg-white/[0.04] border border-white/[0.06]">
+            <span className="text-sm font-semibold text-slate-200">Skor Akhir</span>
+            <span className={`text-lg font-bold ${score >= 75 ? 'theme-text' : score >= 50 ? 'text-amber-400' : 'text-red-400'}`}>
+              {score}
+            </span>
+          </div>
+
+          <div className="text-[10px] text-slate-500 space-y-0.5 pt-1">
+            <p>• Issue kritis: <span className="text-red-400">-25 poin</span></p>
+            <p>• Issue tinggi: <span className="text-orange-400">-15 poin</span></p>
+            <p>• Issue sedang: <span className="text-amber-400">-8 poin</span></p>
+            <p>• Issue rendah: <span className="text-slate-400">-3 poin</span></p>
+            <p>• Semua baik: <span className="theme-text">+15 poin</span></p>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
