@@ -48,6 +48,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Pagination } from '@/components/shared/pagination'
+import { Switch } from '@/components/ui/switch'
 import {
   Plus,
   Search,
@@ -72,7 +73,11 @@ import {
   Banknote,
   Info,
   ArrowRight,
+  ArrowLeft,
   CheckCircle2,
+  ChevronDown,
+  Sparkles,
+  Copy,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -153,6 +158,22 @@ interface InventoryListResponse {
   stats: InventoryStats
 }
 
+interface PurchaseSummary {
+  totalPurchaseNominal: number
+  totalPurchaseCount: number
+  totalInventoryNominal: number
+  totalInventoryItems: number
+  totalRevenue: number
+  totalTxCount: number
+  monthPurchaseNominal: number
+  monthPurchaseCount: number
+  monthRevenue: number
+  monthTxCount: number
+  overallRatio: number
+  monthRatio: number
+}
+
+const PRODUCT_UNIT_OPTIONS = ['pcs', 'box', 'pack', 'cup', 'botol', 'porsi', 'gelas', 'bungkus', 'liter', 'kg', 'gram', 'meter']
 const BASE_UNIT_OPTIONS = ['gr', 'kg', 'ml', 'liter', 'meter', 'cm', 'pcs', 'box', 'pack', 'lembar', 'yard', 'lbr']
 
 const CATEGORY_COLORS = [
@@ -288,6 +309,22 @@ export default function PurchasePage() {
   const [deleteCatId, setDeleteCatId] = useState<string | null>(null)
   const [deletingCat, setDeletingCat] = useState(false)
 
+  // Purchase summary (ratio)
+  const [purchaseSummary, setPurchaseSummary] = useState<PurchaseSummary | null>(null)
+  const [infoExpanded, setInfoExpanded] = useState(false)
+
+  // Post as Product feature
+  const [selectedInvIds, setSelectedInvIds] = useState<Set<string>>(new Set())
+  const [postProductOpen, setPostProductOpen] = useState(false)
+  const [postStep, setPostStep] = useState<1|2|3>(1)
+  const [postProductName, setPostProductName] = useState('')
+  const [postProductPrice, setPostProductPrice] = useState('')
+  const [postProductCategory, setPostProductCategory] = useState('')
+  const [postProductUnit, setPostProductUnit] = useState('pcs')
+  const [postHasVariants, setPostHasVariants] = useState(false)
+  const [postProductSubmitting, setPostProductSubmitting] = useState(false)
+  const [postProductCategories, setPostProductCategories] = useState<Array<{id:string;name:string}>>([])
+
   // ══════════════════════════════════════════════════════════
   // Fetch: Purchase Orders
   // ══════════════════════════════════════════════════════════
@@ -383,6 +420,36 @@ export default function PurchasePage() {
   }, [fetchCategories])
 
   // ══════════════════════════════════════════════════════════
+  // Fetch: Purchase Summary (ratio)
+  // ══════════════════════════════════════════════════════════
+  const fetchPurchaseSummary = useCallback(async () => {
+    try {
+      const res = await fetch('/api/purchases/summary')
+      if (res.ok) {
+        const data = await res.json()
+        setPurchaseSummary(data)
+      }
+    } catch { /* silent */ }
+  }, [])
+
+  useEffect(() => {
+    if (tab === 'purchase') void fetchPurchaseSummary()
+  }, [tab, fetchPurchaseSummary])
+
+  // ══════════════════════════════════════════════════════════
+  // Fetch: Product Categories (for Post as Product)
+  // ══════════════════════════════════════════════════════════
+  const fetchProductCategories = useCallback(async () => {
+    try {
+      const res = await fetch('/api/categories')
+      if (res.ok) {
+        const data = await res.json()
+        setPostProductCategories((data.categories || []).map((c: {id:string;name:string}) => ({ id: c.id, name: c.name })))
+      }
+    } catch { /* silent */ }
+  }, [])
+
+  // ══════════════════════════════════════════════════════════
   // Fetch: Pre-load item options for purchase dialog
   // ══════════════════════════════════════════════════════════
   const fetchPoItemOptions = useCallback(async () => {
@@ -467,6 +534,26 @@ export default function PurchasePage() {
     if (validItems.length === 0) {
       toast.error('Pilih minimal 1 item')
       return
+    }
+    // Frontend validation: check qty and baseQty
+    for (let idx = 0; idx < poCreateItems.length; idx++) {
+      const i = poCreateItems[idx]
+      if (!i.inventoryItemId) continue
+      const purchaseQty = parseFloat(i.qty) || 0
+      const isiPerUnit = parseFloat(i.baseQty) || 0
+      const pricePerItem = parseFloat(i.pricePerItem) || 0
+      if (purchaseQty <= 0) {
+        toast.error(`Item baris ${idx + 1}: jumlah harus lebih dari 0`)
+        return
+      }
+      if (isiPerUnit <= 0) {
+        toast.error(`Item baris ${idx + 1}: isi per unit harus lebih dari 0`)
+        return
+      }
+      if (pricePerItem <= 0) {
+        toast.error(`Item baris ${idx + 1}: harga harus lebih dari 0`)
+        return
+      }
     }
     setPoCreateLoading(true)
     try {
@@ -798,6 +885,120 @@ export default function PurchasePage() {
   }
 
   // ══════════════════════════════════════════════════════════
+  // Post as Product: handlers
+  // ══════════════════════════════════════════════════════════
+  const selectedInvItems = useMemo(() => {
+    return invList.filter(i => selectedInvIds.has(i.id))
+  }, [invList, selectedInvIds])
+
+  const postEstimatedHpp = useMemo(() => {
+    return selectedInvItems.reduce((sum, i) => sum + i.avgCost, 0)
+  }, [selectedInvItems])
+
+  const resetPostProductForm = () => {
+    setPostStep(1)
+    setPostProductName('')
+    setPostProductPrice('')
+    setPostProductCategory('')
+    setPostProductUnit('pcs')
+    setPostHasVariants(false)
+    setPostProductSubmitting(false)
+    setSelectedInvIds(new Set())
+  }
+
+  const handlePostProductSubmit = async () => {
+    if (!postProductName.trim() || !postProductPrice) return
+    setPostProductSubmitting(true)
+    try {
+      const selectedItems = invList.filter(i => selectedInvIds.has(i.id))
+      const productPayload: Record<string, unknown> = {
+        name: postProductName.trim(),
+        price: parseFloat(postProductPrice) || 0,
+        hpp: selectedItems.reduce((sum, i) => sum + i.avgCost, 0),
+        categoryId: postProductCategory || undefined,
+        unit: postProductUnit,
+        hasComposition: true,
+      }
+
+      if (postHasVariants && selectedItems.length > 1) {
+        productPayload.hasVariants = true
+        productPayload.variants = selectedItems.map(item => ({
+          name: item.name,
+          price: parseFloat(postProductPrice) || 0,
+          hpp: item.avgCost,
+          stock: Math.floor(item.stock),
+        }))
+      }
+
+      const res = await fetch('/api/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(productPayload),
+      })
+
+      if (!res.ok) {
+        const data = await res.json()
+        toast.error(data.error || 'Gagal membuat produk')
+        return
+      }
+
+      const product = await res.json()
+
+      // Set composition via API
+      if (postHasVariants && selectedItems.length > 1 && product.variants) {
+        for (const variant of product.variants) {
+          const matchingItem = selectedItems.find((i: InventoryItem) => i.name === variant.name)
+          if (matchingItem) {
+            await fetch(`/api/products/${product.id}/composition`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                variantId: variant.id,
+                compositions: [{ inventoryItemId: matchingItem.id, qty: 1 }],
+              }),
+            })
+          }
+        }
+      } else {
+        await fetch(`/api/products/${product.id}/composition`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            compositions: selectedItems.map((item: InventoryItem) => ({
+              inventoryItemId: item.id,
+              qty: 1,
+            })),
+          }),
+        })
+      }
+
+      toast.success(`Produk "${postProductName}" berhasil dibuat dari ${selectedItems.length} bahan`)
+      setPostProductOpen(false)
+      resetPostProductForm()
+    } catch {
+      toast.error('Gagal membuat produk')
+    } finally {
+      setPostProductSubmitting(false)
+    }
+  }
+
+  // Toggle inventory item selection
+  const toggleInvSelect = (id: string) => {
+    const next = new Set(selectedInvIds)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    setSelectedInvIds(next)
+  }
+
+  const toggleSelectAllInv = () => {
+    if (invList.every(i => selectedInvIds.has(i.id))) {
+      setSelectedInvIds(new Set())
+    } else {
+      setSelectedInvIds(new Set(invList.map(i => i.id)))
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════
   // Render helpers
   // ══════════════════════════════════════════════════════════
 
@@ -899,6 +1100,123 @@ export default function PurchasePage() {
                 </Button>
               </div>
             </div>
+
+            {/* Info Section */}
+            <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+              <button
+                className="w-full flex items-center justify-between gap-3 p-3 sm:p-4 text-left hover:bg-white/[0.02] transition-colors"
+                onClick={() => setInfoExpanded(!infoExpanded)}
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="w-7 h-7 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0">
+                    <Info className="h-3.5 w-3.5 text-emerald-400" />
+                  </div>
+                  <span className="text-xs font-medium text-slate-200">Panduan Pembelian &amp; Inventory</span>
+                </div>
+                <ChevronDown className={cn('h-4 w-4 text-slate-500 transition-transform duration-200', infoExpanded && 'rotate-180')} />
+              </button>
+              <AnimatePresence>
+                {infoExpanded && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="px-3 sm:px-4 pb-4 space-y-3 border-t border-white/[0.04] pt-3">
+                      <div className="flex gap-3">
+                        <div className="w-5 h-5 rounded-full bg-emerald-500/15 flex items-center justify-center shrink-0 mt-0.5">
+                          <span className="text-[9px] font-bold text-emerald-400">1</span>
+                        </div>
+                        <div>
+                          <p className="text-xs font-medium text-slate-200 mb-0.5">Flow Pembelian</p>
+                          <p className="text-[11px] text-slate-400 leading-relaxed">
+                            Pilih item inventory → isi <span className="text-amber-400/80 font-medium">jumlah, satuan, dan harga</span> → sistem otomatis menghitung HPP rata-rata berbobot &amp; menambah stok bahan
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex gap-3">
+                        <div className="w-5 h-5 rounded-full bg-cyan-500/15 flex items-center justify-center shrink-0 mt-0.5">
+                          <span className="text-[9px] font-bold text-cyan-400">2</span>
+                        </div>
+                        <div>
+                          <p className="text-xs font-medium text-slate-200 mb-0.5">HPP Otomatis</p>
+                          <p className="text-[11px] text-slate-400 leading-relaxed">
+                            Setiap pembelian memperbarui <span className="text-cyan-400/80 font-medium">HPP rata-rata berbobot</span> (weighted average cost) yang langsung terpropagasi ke produk yang menggunakan bahan tersebut
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex gap-3">
+                        <div className="w-5 h-5 rounded-full bg-violet-500/15 flex items-center justify-center shrink-0 mt-0.5">
+                          <span className="text-[9px] font-bold text-violet-400">3</span>
+                        </div>
+                        <div>
+                          <p className="text-xs font-medium text-slate-200 mb-0.5">Inventory Otomatis</p>
+                          <p className="text-[11px] text-slate-400 leading-relaxed">
+                            Daftar bahan muncul otomatis dari hasil pembelian. <span className="text-violet-400/80 font-medium">Tidak perlu menambahkan bahan manual</span> — gunakan "Buat Pembelian" untuk mulai
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            {/* Purchase Summary Cards */}
+            {purchaseSummary && (
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
+                <Card className="bg-nebula border-white/[0.06]">
+                  <CardContent className="p-3 sm:p-4">
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className="w-7 h-7 rounded-lg bg-white/[0.04] flex items-center justify-center">
+                        <Banknote className="h-3.5 w-3.5 text-emerald-400" />
+                      </div>
+                    </div>
+                    <p className="text-base sm:text-lg font-bold text-white">{formatCurrency(purchaseSummary.totalPurchaseNominal)}</p>
+                    <p className="text-[10px] sm:text-xs text-slate-500">{purchaseSummary.totalPurchaseCount} transaksi pembelian</p>
+                  </CardContent>
+                </Card>
+                <Card className="bg-nebula border-white/[0.06]">
+                  <CardContent className="p-3 sm:p-4">
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className="w-7 h-7 rounded-lg bg-white/[0.04] flex items-center justify-center">
+                        <Package className="h-3.5 w-3.5 text-cyan-400" />
+                      </div>
+                    </div>
+                    <p className="text-base sm:text-lg font-bold text-white">{formatCurrency(purchaseSummary.totalInventoryNominal)}</p>
+                    <p className="text-[10px] sm:text-xs text-slate-500">{purchaseSummary.totalInventoryItems} jenis bahan</p>
+                  </CardContent>
+                </Card>
+                <Card className="bg-nebula border-white/[0.06]">
+                  <CardContent className="p-3 sm:p-4">
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className="w-7 h-7 rounded-lg bg-white/[0.04] flex items-center justify-center">
+                        <Scale className={cn('h-3.5 w-3.5', purchaseSummary.monthRatio > 70 ? 'text-amber-400' : 'text-emerald-400')} />
+                      </div>
+                    </div>
+                    <p className={cn('text-base sm:text-lg font-bold', purchaseSummary.monthRatio > 70 ? 'text-amber-400' : 'text-emerald-400')}>
+                      {purchaseSummary.monthRatio}%
+                    </p>
+                    <p className="text-[10px] sm:text-xs text-slate-500">rasio pembelian / revenue bulan ini</p>
+                  </CardContent>
+                </Card>
+                <Card className="bg-nebula border-white/[0.06]">
+                  <CardContent className="p-3 sm:p-4">
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className="w-7 h-7 rounded-lg bg-white/[0.04] flex items-center justify-center">
+                        <BarChart3 className={cn('h-3.5 w-3.5', purchaseSummary.overallRatio > 70 ? 'text-amber-400' : 'text-emerald-400')} />
+                      </div>
+                    </div>
+                    <p className={cn('text-base sm:text-lg font-bold', purchaseSummary.overallRatio > 70 ? 'text-amber-400' : 'text-emerald-400')}>
+                      {purchaseSummary.overallRatio}%
+                    </p>
+                    <p className="text-[10px] sm:text-xs text-slate-500">rasio pembelian / revenue total</p>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
 
             {/* Desktop Table */}
             <div className="hidden md:block">
@@ -1059,14 +1377,18 @@ export default function PurchasePage() {
                     </SelectContent>
                   </Select>
                 </div>
-                <Button
-                  size="sm"
-                  onClick={() => openInvForm()}
-                  className="theme-bg theme-hover text-white text-xs font-medium h-8 px-3 rounded-lg gap-1.5 shrink-0"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  Tambah Bahan
-                </Button>
+                {selectedInvIds.size > 0 && (
+                  <Button
+                    size="sm"
+                    onClick={() => { setPostStep(1); setPostProductOpen(true); void fetchProductCategories() }}
+                    className="theme-bg theme-hover text-white text-xs font-medium h-8 px-3 rounded-lg gap-1.5 shrink-0"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">Post sebagai Produk</span>
+                    <span className="sm:hidden">Post</span>
+                    <span className="bg-white/20 px-1.5 py-0.5 rounded-full text-[10px]">{selectedInvIds.size}</span>
+                  </Button>
+                )}
               </div>
             </div>
 
@@ -1115,29 +1437,46 @@ export default function PurchasePage() {
                 <Table>
                   <TableHeader>
                     <TableRow className="border-white/[0.06] hover:bg-transparent">
-                      <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">Nama</TableHead>
-                      <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">Kategori</TableHead>
-                      <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider text-right">Stok</TableHead>
-                      <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider text-right">HPP Satuan</TableHead>
-                      <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider text-right">Total Nilai</TableHead>
-                      <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider text-right">Digunakan</TableHead>
-                      <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider text-right">Aksi</TableHead>
+                      <TableHead className="w-10">
+                        <input
+                          type="checkbox"
+                          checked={invList.length > 0 && invList.every(i => selectedInvIds.has(i.id))}
+                          onChange={toggleSelectAllInv}
+                          className="rounded border-white/20 bg-white/[0.04] h-3.5 w-3.5 accent-emerald-500"
+                        />
+                      </TableHead>
+                      <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider min-w-[200px]">Nama</TableHead>
+                      <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider w-[120px]">Kategori</TableHead>
+                      <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider text-right w-[130px]">Stok</TableHead>
+                      <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider text-right w-[140px]">HPP Satuan</TableHead>
+                      <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider text-right w-[140px]">Total Nilai</TableHead>
+                      <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider text-right w-[80px]">Digunakan</TableHead>
+                      <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider text-right w-[80px]">Aksi</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {invList.length === 0 ? (
                       <TableRow className="border-white/[0.04] hover:bg-transparent">
-                        <TableCell colSpan={7} className="text-center py-12">
+                        <TableCell colSpan={8} className="text-center py-12">
                           <PackagePlus className="h-8 w-8 text-slate-600 mx-auto mb-2" />
-                          <p className="text-sm text-slate-500">Belum ada bahan</p>
+                          <p className="text-sm text-slate-500">Belum ada bahan. Buat pembelian untuk menambahkan bahan.</p>
                         </TableCell>
                       </TableRow>
                     ) : (
                       invList.map((item) => {
                         const isLow = item.stock <= item.lowStockAlert
+                        const isSelected = selectedInvIds.has(item.id)
                         const colorClasses = item.category ? getCategoryColorClasses(item.category.color) : null
                         return (
-                          <TableRow key={item.id} className="border-white/[0.04] hover:bg-transparent">
+                          <TableRow key={item.id} className={cn('border-white/[0.04] hover:bg-transparent', isSelected && 'bg-emerald-500/[0.04]')}>
+                            <TableCell>
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => toggleInvSelect(item.id)}
+                                className="rounded border-white/20 bg-white/[0.04] h-3.5 w-3.5 accent-emerald-500"
+                              />
+                            </TableCell>
                             <TableCell className="text-xs text-slate-200 font-medium">{item.name}</TableCell>
                             <TableCell>
                               {item.category && colorClasses ? (
@@ -1200,13 +1539,14 @@ export default function PurchasePage() {
                 <Card className="bg-nebula border-white/[0.06]">
                   <CardContent className="py-12 text-center">
                     <PackagePlus className="h-8 w-8 text-slate-600 mx-auto mb-2" />
-                    <p className="text-sm text-slate-500">Belum ada bahan</p>
+                    <p className="text-sm text-slate-500">Belum ada bahan. Buat pembelian untuk menambahkan bahan.</p>
                   </CardContent>
                 </Card>
               ) : (
                 <AnimatePresence>
                   {invList.map((item) => {
                     const isLow = item.stock <= item.lowStockAlert
+                    const isSelected = selectedInvIds.has(item.id)
                     const colorClasses = item.category ? getCategoryColorClasses(item.category.color) : null
                     return (
                       <motion.div
@@ -1216,26 +1556,34 @@ export default function PurchasePage() {
                         exit={{ opacity: 0, y: -8 }}
                         transition={{ duration: 0.2 }}
                       >
-                        <Card className="bg-nebula border-white/[0.06]">
+                        <Card className={cn('bg-nebula border-white/[0.06]', isSelected && 'border-emerald-500/30')}>
                           <CardContent className="p-3 space-y-2">
                             <div className="flex items-start justify-between gap-2">
-                              <div className="min-w-0">
-                                <p className="text-xs text-slate-200 font-medium truncate">{item.name}</p>
-                                {item.category && colorClasses && (
-                                  <Badge variant="outline" className={cn('text-[9px] px-1.5 py-0 leading-none border font-medium mt-1', colorClasses.bg, colorClasses.text, colorClasses.border)}>
-                                    {item.category.name}
-                                  </Badge>
-                                )}
+                              <div className="flex items-start gap-2 min-w-0">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => toggleInvSelect(item.id)}
+                                  className="rounded border-white/20 bg-white/[0.04] h-3.5 w-3.5 accent-emerald-500 mt-0.5 shrink-0"
+                                />
+                                <div className="min-w-0">
+                                  <p className="text-xs text-slate-200 font-medium truncate">{item.name}</p>
+                                  {item.category && colorClasses && (
+                                    <Badge variant="outline" className={cn('text-[9px] px-1.5 py-0 leading-none border font-medium mt-1', colorClasses.bg, colorClasses.text, colorClasses.border)}>
+                                      {item.category.name}
+                                    </Badge>
+                                  )}
+                                </div>
                               </div>
                               <button
                                 className={cn(
-                                  'flex items-center gap-1 px-2.5 py-1.5 rounded-lg transition-colors tabular-nums hover:bg-white/[0.06]',
+                                  'flex items-center gap-1 px-2.5 py-1.5 rounded-lg transition-colors tabular-nums hover:bg-white/[0.06] shrink-0',
                                   isLow ? 'text-red-400 hover:text-red-300' : 'text-white hover:text-white'
                                 )}
                                 onClick={(e) => { e.stopPropagation(); openInvAdjust(item) }}
                                 title="Klik untuk sesuaikan stok"
                               >
-                                <span className={cn('font-bold', isLow ? '' : '')}>{formatNumber(item.stock)}</span>
+                                <span className="font-bold">{formatNumber(item.stock)}</span>
                                 <span className="text-[10px] text-slate-400 font-normal">{item.baseUnit}</span>
                                 <Edit3 className="h-2.5 w-2.5 text-slate-500" />
                               </button>
@@ -2121,6 +2469,264 @@ export default function PurchasePage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* ══════════════════════════════════════════════════════════ */}
+      {/* POST SEBAGAI PRODUK DIALOG                                    */}
+      {/* ══════════════════════════════════════════════════════════ */}
+      <ResponsiveDialog
+        open={postProductOpen}
+        onOpenChange={(open) => { if (!open) { setPostProductOpen(false); resetPostProductForm() } }}
+      >
+        <ResponsiveDialogContent className="sm:max-w-lg">
+          <ResponsiveDialogHeader>
+            <ResponsiveDialogTitle className="text-white text-base flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-emerald-400" />
+              Post sebagai Produk
+            </ResponsiveDialogTitle>
+            <ResponsiveDialogDescription className="text-slate-400 text-xs">
+              {postStep === 1 && 'Pilih bahan yang akan dijadikan komposisi produk'}
+              {postStep === 2 && 'Isi detail produk dan atur varian'}
+              {postStep === 3 && 'Review sebelum membuat produk'}
+            </ResponsiveDialogDescription>
+          </ResponsiveDialogHeader>
+
+          {/* Step indicators */}
+          <div className="flex items-center gap-1.5 px-1 mt-1">
+            {[1, 2, 3].map(s => (
+              <div key={s} className="flex items-center gap-1.5">
+                <span className={cn(
+                  'w-5 h-5 rounded-full flex items-center justify-center font-medium text-[9px] transition-colors',
+                  postStep >= s ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/[0.06] text-slate-500'
+                )}>
+                  {postStep > s ? <CheckCircle2 className="h-3 w-3" /> : s}
+                </span>
+                {s < 3 && <ArrowRight className="h-2 w-2 text-slate-600" />}
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-3 flex-1 overflow-y-auto">
+            {/* Step 1: Review selected items */}
+            {postStep === 1 && (
+              <div className="space-y-3">
+                {selectedInvItems.length === 0 ? (
+                  <div className="py-8 text-center">
+                    <Package className="h-6 w-6 text-slate-600 mx-auto mb-2" />
+                    <p className="text-xs text-slate-400">Tidak ada item terpilih</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="space-y-1.5 max-h-[240px] overflow-y-auto">
+                      {selectedInvItems.map((item) => (
+                        <div key={item.id} className="flex items-center justify-between p-2.5 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+                          <div className="min-w-0">
+                            <p className="text-xs text-slate-200 font-medium truncate">{item.name}</p>
+                            <p className="text-[10px] text-slate-500">
+                              Stok: {formatNumber(item.stock)} {item.baseUnit}
+                            </p>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <p className="text-xs text-slate-300 font-medium">{formatCurrency(item.avgCost)}</p>
+                            <p className="text-[10px] text-slate-500">/ {item.baseUnit}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex items-center justify-between pt-3 border-t border-white/[0.06]">
+                      <span className="text-xs text-slate-400">Estimasi HPP</span>
+                      <span className="text-sm font-bold text-emerald-400">{formatCurrency(postEstimatedHpp)}</span>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Step 2: Product details */}
+            {postStep === 2 && (
+              <div className="space-y-4">
+                <div className="space-y-1.5">
+                  <Label className={labelClass}>Nama Produk *</Label>
+                  <Input
+                    value={postProductName}
+                    onChange={(e) => setPostProductName(e.target.value)}
+                    className={inputClass}
+                    placeholder="Cth: Nasi Goreng Spesial"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className={labelClass}>Harga Jual *</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      value={postProductPrice}
+                      onChange={(e) => setPostProductPrice(e.target.value)}
+                      className={inputClass}
+                      placeholder="0"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className={labelClass}>Satuan</Label>
+                    <Select value={postProductUnit} onValueChange={setPostProductUnit}>
+                      <SelectTrigger className={cn(inputClass, 'h-9')}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="bg-nebula border-white/[0.06]">
+                        {PRODUCT_UNIT_OPTIONS.map((u) => (
+                          <SelectItem key={u} value={u} className="text-slate-200 text-xs">{u}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className={labelClass}>Kategori Produk</Label>
+                  <Select value={postProductCategory} onValueChange={setPostProductCategory}>
+                    <SelectTrigger className={cn(inputClass, 'h-9')}>
+                      <SelectValue placeholder="Pilih kategori (opsional)" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-nebula border-white/[0.06]">
+                      {postProductCategories.map((c) => (
+                        <SelectItem key={c.id} value={c.id} className="text-slate-200 text-xs">{c.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="bg-white/[0.03] rounded-lg p-3 border border-white/[0.04]">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[11px] text-slate-400">HPP Otomatis (dari komposisi)</span>
+                    <span className="text-xs font-bold text-emerald-400">{formatCurrency(postEstimatedHpp)}</span>
+                  </div>
+                  <p className="text-[10px] text-slate-600">Dihitung dari total HPP bahan terpilih. HPP akan otomatis terupdate saat ada pembelian baru.</p>
+                </div>
+
+                {/* Variants toggle */}
+                {selectedInvItems.length > 1 && (
+                  <div className="flex items-center justify-between p-3 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+                    <div>
+                      <p className="text-xs text-slate-200 font-medium">Aktifkan Varian</p>
+                      <p className="text-[10px] text-slate-500">Setiap bahan menjadi varian terpisah</p>
+                    </div>
+                    <Switch
+                      checked={postHasVariants}
+                      onCheckedChange={setPostHasVariants}
+                    />
+                  </div>
+                )}
+
+                {postHasVariants && selectedInvItems.length > 1 && (
+                  <div className="space-y-1.5">
+                    <p className="text-[11px] text-slate-400">Preview Varian:</p>
+                    <div className="space-y-1.5 max-h-[160px] overflow-y-auto">
+                      {selectedInvItems.map((item) => (
+                        <div key={item.id} className="flex items-center justify-between p-2 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+                          <div>
+                            <p className="text-[11px] text-slate-200 font-medium">{item.name}</p>
+                            <p className="text-[10px] text-slate-500">HPP: {formatCurrency(item.avgCost)}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-[11px] text-white font-medium">{formatCurrency(parseFloat(postProductPrice) || 0)}</p>
+                            <p className="text-[10px] text-slate-500">Stok: ~{Math.floor(item.stock)}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Step 3: Review & Confirm */}
+            {postStep === 3 && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-white/[0.03] rounded-lg p-3 border border-white/[0.04]">
+                    <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Nama Produk</p>
+                    <p className="text-xs text-white font-medium">{postProductName}</p>
+                  </div>
+                  <div className="bg-white/[0.03] rounded-lg p-3 border border-white/[0.04]">
+                    <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Harga Jual</p>
+                    <p className="text-xs text-emerald-400 font-bold">{formatCurrency(parseFloat(postProductPrice) || 0)}</p>
+                  </div>
+                </div>
+
+                <div className="bg-white/[0.03] rounded-lg p-3 border border-white/[0.04]">
+                  <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">
+                    {postHasVariants ? 'Varian & Komposisi' : 'Komposisi Bahan'}
+                  </p>
+                  <div className="space-y-1.5 mt-2">
+                    {selectedInvItems.map((item) => (
+                      <div key={item.id} className="flex items-center justify-between py-1.5 border-b border-white/[0.03] last:border-0">
+                        <div className="flex items-center gap-2">
+                          <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                          <span className="text-xs text-slate-200">{item.name}</span>
+                        </div>
+                        <span className="text-[11px] text-slate-400">
+                          {formatNumber(1)} {item.baseUnit} × {formatCurrency(item.avgCost)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-2 border-t border-white/[0.06]">
+                  <span className="text-xs text-slate-400">Total HPP</span>
+                  <span className="text-sm font-bold text-emerald-400">{formatCurrency(postEstimatedHpp)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-slate-400">Margin</span>
+                  <span className={cn('text-sm font-bold', (parseFloat(postProductPrice) || 0) > postEstimatedHpp ? 'text-emerald-400' : 'text-red-400')}>
+                    {formatCurrency((parseFloat(postProductPrice) || 0) - postEstimatedHpp)}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <ResponsiveDialogFooter className="mt-4 gap-2">
+            {postStep > 1 && (
+              <Button
+                variant="ghost"
+                className="h-9 text-xs text-slate-400 hover:text-white hover:bg-white/[0.04] gap-1"
+                onClick={() => setPostStep((postStep - 1) as 1|2|3)}
+              >
+                <ArrowLeft className="h-3 w-3" />
+                Kembali
+              </Button>
+            )}
+            <div className="flex-1" />
+            <Button
+              variant="ghost"
+              className="h-9 text-xs text-slate-400 hover:text-white hover:bg-white/[0.04]"
+              onClick={() => { setPostProductOpen(false); resetPostProductForm() }}
+            >
+              Batal
+            </Button>
+            {postStep < 3 ? (
+              <Button
+                className="h-9 text-xs theme-bg theme-hover text-white gap-1"
+                onClick={() => setPostStep((postStep + 1) as 1|2|3)}
+                disabled={postStep === 1 && selectedInvItems.length === 0}
+              >
+                Lanjut
+                <ArrowRight className="h-3 w-3" />
+              </Button>
+            ) : (
+              <Button
+                className="h-9 text-xs theme-bg theme-hover text-white gap-1"
+                disabled={postProductSubmitting || !postProductName.trim() || !postProductPrice}
+                onClick={handlePostProductSubmit}
+              >
+                {postProductSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                Buat Produk
+              </Button>
+            )}
+          </ResponsiveDialogFooter>
+        </ResponsiveDialogContent>
+      </ResponsiveDialog>
     </motion.div>
   )
 }

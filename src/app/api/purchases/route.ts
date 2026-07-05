@@ -169,13 +169,19 @@ export async function POST(request: NextRequest) {
     // Validate each item has required fields
     for (const item of items) {
       if (!item.inventoryItemId) {
-        return safeJsonError('Each item must have an inventoryItemId', 400)
+        return safeJsonError('Setiap item harus memiliki inventoryItemId', 400)
+      }
+      if (!item.purchaseQty || item.purchaseQty <= 0) {
+        return safeJsonError('Jumlah pembelian harus lebih dari 0', 400)
       }
       if (!item.baseQty || item.baseQty <= 0) {
-        return safeJsonError('Each item must have baseQty > 0', 400)
+        return safeJsonError('Isi per unit harus lebih dari 0 (cek konversi satuan)', 400)
       }
       if (item.unitCost === undefined || item.unitCost < 0) {
-        return safeJsonError('Each item must have unitCost >= 0', 400)
+        return safeJsonError('Harga satuan tidak boleh negatif', 400)
+      }
+      if (!item.totalCost || item.totalCost <= 0) {
+        return safeJsonError('Total biaya item harus lebih dari 0', 400)
       }
     }
 
@@ -323,6 +329,11 @@ export async function POST(request: NextRequest) {
     return safeJsonCreated(result)
   } catch (error) {
     console.error('Purchases POST error:', error)
-    return safeJsonError('Failed to create purchase order')
+    const msg = error instanceof Error ? error.message : 'Unknown error'
+    // Detect Prisma unique constraint violation (P2002) for orderNumber race condition
+    if (msg.includes('P2002') || msg.includes('Unique constraint')) {
+      return safeJsonError('Gagal membuat PO: nomor order sudah ada. Silakan coba lagi.', 409)
+    }
+    return safeJsonError(`Gagal membuat pembelian: ${msg}`)
   }
 }
