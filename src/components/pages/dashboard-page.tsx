@@ -4,7 +4,6 @@ import { useState } from 'react'
 import { useSession } from 'next-auth/react'
 import { usePlan } from '@/hooks/use-plan'
 import { useDashboard, useInsights, useForecast } from '@/hooks/use-dashboard'
-import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -15,11 +14,12 @@ import { StatCards } from '@/components/dashboard/stat-cards'
 import { QuickActions } from '@/components/dashboard/quick-actions'
 import { AnalyticsTabs } from '@/components/dashboard/analytics-tabs'
 import { TopProducts, TopCustomers, LowStockSection, InsightsSection, InventoryAlertsSection, ScoreExplanationDialog } from '@/components/dashboard/dashboard-sections'
+import { EnterpriseBubbleChart, PendingTransfersSection, InventoryPredictionSection } from '@/components/dashboard/enterprise-sections'
 
 // ── Animation variants ──
 const containerVariants = {
   hidden: { opacity: 0 },
-  visible: { opacity: 1, transition: { staggerChildren: 0.05 } },
+  visible: { opacity: 1, transition: { staggerChildren: 0.04 } },
 }
 
 const itemVariants = {
@@ -42,6 +42,19 @@ function formatDateNow(): string {
   }).format(new Date())
 }
 
+/** Section label used as a subtle divider between groups */
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-2 pt-2">
+      <div className="h-px flex-1 bg-white/[0.04]" />
+      <span className="text-[10px] font-medium text-slate-600 uppercase tracking-widest shrink-0">
+        {children}
+      </span>
+      <div className="h-px flex-1 bg-white/[0.04]" />
+    </div>
+  )
+}
+
 // ════════════════════════════════════════════════════════════
 // Main Component
 // ════════════════════════════════════════════════════════════
@@ -50,8 +63,11 @@ export default function DashboardPage() {
   const { plan, features, isLoading: planLoading } = usePlan()
   const isOwner = session?.user?.role === 'OWNER'
   const isPro = plan?.type === 'pro' || plan?.type === 'enterprise'
+  const isEnterprise = plan?.type === 'enterprise'
   const hasForecasting = features?.forecasting === true
   const hasAiInsights = features?.aiInsights === true
+  const hasMultiOutlet = features?.multiOutlet === true
+  const showEnterprise = isOwner && isEnterprise && hasMultiOutlet
 
   // ── TanStack Query data ──
   const { data: stats, isLoading } = useDashboard()
@@ -83,7 +99,10 @@ export default function DashboardPage() {
 
   return (
     <motion.div className="space-y-4" variants={containerVariants} initial="hidden" animate="visible">
-      {/* 1. Welcome Header */}
+
+      {/* ═══════════════════════════════════════════════════
+          ROW 1 — Welcome Header + Health Score
+          ═══════════════════════════════════════════════════ */}
       <motion.div variants={itemVariants} className="flex items-start justify-between gap-4">
         <div className="space-y-1">
           <h1 className="text-xl font-bold text-white tracking-tight">
@@ -104,7 +123,9 @@ export default function DashboardPage() {
         )}
       </motion.div>
 
-      {/* 2. Upgrade Banner (FREE only) */}
+      {/* ═══════════════════════════════════════════════════
+          ROW 2 — Upgrade Banner (FREE only)
+          ═══════════════════════════════════════════════════ */}
       {!planLoading && plan?.type === 'free' && (
         <motion.div variants={itemVariants}>
           <div className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-gradient-to-r from-violet-500/[0.06] theme-gradient-subtle border border-white/[0.04]">
@@ -121,36 +142,106 @@ export default function DashboardPage() {
         </motion.div>
       )}
 
-      {/* 3. Stat Cards */}
-      <StatCards stats={stats} isOwner={isOwner} />
+      {/* ═══════════════════════════════════════════════════
+          GROUP A — Overview KPIs
+          ═══════════════════════════════════════════════════ */}
+      <motion.div variants={itemVariants}>
+        <StatCards stats={stats} isOwner={isOwner} />
+      </motion.div>
 
-      {/* 4. Quick Actions */}
-      <QuickActions />
+      <motion.div variants={itemVariants}>
+        <QuickActions />
+      </motion.div>
 
-      {/* 5. Analytics Tabs (Forecast, P&L, Peak Hours) — OWNER only */}
-      <AnalyticsTabs
-        stats={stats}
-        forecastData={forecastData ?? null}
-        forecastLoading={forecastLoading}
-        hasForecasting={!!hasForecasting}
-        isOwner={isOwner}
-        isPro={isPro}
-      />
+      {/* ═══════════════════════════════════════════════════
+          GROUP B — Analytics & Forecasting
+          ═══════════════════════════════════════════════════ */}
+      <motion.div variants={itemVariants}>
+        <AnalyticsTabs
+          stats={stats}
+          forecastData={forecastData ?? null}
+          forecastLoading={forecastLoading}
+          hasForecasting={!!hasForecasting}
+          isOwner={isOwner}
+          isPro={isPro}
+        />
+      </motion.div>
 
-      {/* 6. AI Insight Card (OWNER) */}
-      {isOwner && hasAiInsights && (
-        <InsightsSection insightData={insightData ?? null} isLoading={insightLoading} onRefresh={() => refetchInsights()} />
+      {/* ═══════════════════════════════════════════════════
+          GROUP C — ENTERPRISE: Multi-Outlet Intelligence
+          ═══════════════════════════════════════════════════ */}
+      {showEnterprise && (
+        <>
+          <motion.div variants={itemVariants}>
+            <SectionLabel>Multi-Outlet Intelligence</SectionLabel>
+          </motion.div>
+
+          {/* Row: Bubble Chart (7) + Pending Transfers (5) */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
+            <motion.div variants={itemVariants} className="lg:col-span-7">
+              <EnterpriseBubbleChart />
+            </motion.div>
+            <motion.div variants={itemVariants} className="lg:col-span-5">
+              <PendingTransfersSection />
+            </motion.div>
+          </div>
+
+          {/* Row: Inventory Prediction (full width) */}
+          <motion.div variants={itemVariants}>
+            <InventoryPredictionSection />
+          </motion.div>
+        </>
       )}
 
-      {/* 7. Bottom Row — Top Products & Top Customers */}
+      {/* ═══════════════════════════════════════════════════
+          GROUP D — Sales & Products
+          ═══════════════════════════════════════════════════ */}
+      <motion.div variants={itemVariants}>
+        <SectionLabel>Penjualan & Produk</SectionLabel>
+      </motion.div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        <TopProducts products={topSelling} />
-        {isOwner && <TopCustomers customers={stats.topCustomers} />}
+        <motion.div variants={itemVariants}>
+          <TopProducts products={topSelling} />
+        </motion.div>
+        {isOwner && (
+          <motion.div variants={itemVariants}>
+            <TopCustomers customers={stats.topCustomers} />
+          </motion.div>
+        )}
       </div>
 
-      {/* 8. Inventory Alerts & Low Stock Detail */}
-      <InventoryAlertsSection stats={stats} />
-      <LowStockSection stats={stats} />
+      {/* ═══════════════════════════════════════════════════
+          GROUP E — Inventory & Alerts
+          ═══════════════════════════════════════════════════ */}
+      {stats.inventoryAlerts?.some(a => a.status !== 'ok') && (
+        <motion.div variants={itemVariants}>
+          <SectionLabel>Inventori & Stok</SectionLabel>
+        </motion.div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <motion.div variants={itemVariants}>
+          <InventoryAlertsSection stats={stats} />
+        </motion.div>
+        <motion.div variants={itemVariants}>
+          <LowStockSection stats={stats} />
+        </motion.div>
+      </div>
+
+      {/* ═══════════════════════════════════════════════════
+          GROUP F — AI Insights
+          ═══════════════════════════════════════════════════ */}
+      {isOwner && hasAiInsights && (
+        <>
+          <motion.div variants={itemVariants}>
+            <SectionLabel>AI Insights</SectionLabel>
+          </motion.div>
+          <motion.div variants={itemVariants}>
+            <InsightsSection insightData={insightData ?? null} isLoading={insightLoading} onRefresh={() => refetchInsights()} />
+          </motion.div>
+        </>
+      )}
 
       {/* Score Explanation Dialog */}
       {isOwner && insightData && (
