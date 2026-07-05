@@ -299,6 +299,10 @@ export default function PurchasePage() {
   // Inventory delete
   const [deleteInvId, setDeleteInvId] = useState<string | null>(null)
   const [deletingInv, setDeletingInv] = useState(false)
+  const [invDeleteBlocked, setInvDeleteBlocked] = useState<{
+    compositionCount: number
+    linkedProducts: Array<{ productId: string; productName: string; variantName: string | null; qty: number; baseUnit: string }>
+  } | null>(null)
 
   // Categories
   const [categories, setCategories] = useState<InventoryCategory[]>([])
@@ -769,17 +773,30 @@ export default function PurchasePage() {
     }
   }
 
-  const handleDeleteInv = async () => {
+  const handleDeleteInv = async (force = false) => {
     if (!deleteInvId) return
     setDeletingInv(true)
     try {
-      const res = await fetch(`/api/inventory/items/${deleteInvId}`, { method: 'DELETE' })
+      const url = force
+        ? `/api/inventory/items/${deleteInvId}?force=true`
+        : `/api/inventory/items/${deleteInvId}`
+      const res = await fetch(url, { method: 'DELETE' })
       if (res.ok) {
-        toast.success('Bahan berhasil dihapus')
-        setDeleteInvId(null)
-        void fetchInventoryItems()
+        const data = await res.json().catch(() => ({}))
+        if (data.blocked) {
+          // Show linked products dialog
+          setInvDeleteBlocked({
+            compositionCount: data.compositionCount,
+            linkedProducts: data.linkedProducts || [],
+          })
+        } else {
+          toast.success('Bahan berhasil dihapus')
+          setDeleteInvId(null)
+          setInvDeleteBlocked(null)
+          void fetchInventoryItems()
+        }
       } else {
-        const data = await res.json()
+        const data = await res.json().catch(() => ({}))
         toast.error(data.error || 'Gagal menghapus bahan')
       }
     } catch {
@@ -2340,23 +2357,64 @@ export default function PurchasePage() {
       </ResponsiveDialog>
 
       {/* Delete Inventory Item Alert */}
-      <AlertDialog open={!!deleteInvId} onOpenChange={(open) => { if (!open) setDeleteInvId(null) }}>
+      <AlertDialog open={!!deleteInvId} onOpenChange={(open) => { if (!open) { setDeleteInvId(null); setInvDeleteBlocked(null) } }}>
         <AlertDialogContent className="bg-nebula border-white/[0.06]">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-white">Hapus Bahan?</AlertDialogTitle>
-            <AlertDialogDescription className="text-slate-400">
-              Bahan yang dihapus tidak dapat dikembalikan. Pastikan bahan ini tidak digunakan dalam komposisi produk.
-            </AlertDialogDescription>
+            {!invDeleteBlocked ? (
+              <AlertDialogDescription className="text-slate-400">
+                Bahan yang dihapus tidak dapat dikembalikan.
+              </AlertDialogDescription>
+            ) : null}
           </AlertDialogHeader>
+
+          {invDeleteBlocked && (
+            <div className="space-y-3 my-2">
+              <div className="flex items-start gap-2 rounded-lg bg-amber-500/10 border border-amber-500/20 p-3">
+                <AlertTriangle className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
+                <div className="text-sm">
+                  <p className="text-amber-300 font-medium">Bahan ini digunakan dalam {invDeleteBlocked.compositionCount} komposisi produk:</p>
+                  <div className="mt-2 space-y-1">
+                    {invDeleteBlocked.linkedProducts.map((lp, i) => (
+                      <div key={i} className="flex items-center gap-2 text-slate-300">
+                        <Package className="h-3 w-3 text-slate-500" />
+                        <span>{lp.productName}</span>
+                        {lp.variantName && (
+                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0 bg-white/[0.06] text-slate-400">
+                            {lp.variantName}
+                          </Badge>
+                        )}
+                        <span className="text-slate-500 text-xs">→ {lp.qty} {lp.baseUnit}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-amber-400/70 text-xs mt-2">
+                    Menghapus akan melepas komposisi dari semua produk di atas dan menyesuaikan HPP-nya.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           <AlertDialogFooter className="gap-2">
             <AlertDialogCancel className="text-slate-400 hover:text-white hover:bg-white/[0.04]">Batal</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-red-500/15 text-red-400 hover:bg-red-500/25 border border-red-500/20"
-              onClick={handleDeleteInv}
-              disabled={deletingInv}
-            >
-              {deletingInv ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Hapus'}
-            </AlertDialogAction>
+            {invDeleteBlocked ? (
+              <AlertDialogAction
+                className="bg-red-500/15 text-red-400 hover:bg-red-500/25 border border-red-500/20"
+                onClick={() => handleDeleteInv(true)}
+                disabled={deletingInv}
+              >
+                {deletingInv ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Ya, Hapus & Lepas Komposisi'}
+              </AlertDialogAction>
+            ) : (
+              <AlertDialogAction
+                className="bg-red-500/15 text-red-400 hover:bg-red-500/25 border border-red-500/20"
+                onClick={() => handleDeleteInv(false)}
+                disabled={deletingInv}
+              >
+                {deletingInv ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Hapus'}
+              </AlertDialogAction>
+            )}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

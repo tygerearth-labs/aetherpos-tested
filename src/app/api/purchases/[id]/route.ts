@@ -198,7 +198,7 @@ export async function DELETE(
 
       // Recalculate HPP for affected products
       await recalculateHppForAffectedProducts(tx, affectedInventoryItemIds)
-    })
+    }, { timeout: 30000 })
 
     return safeJson({ success: true })
   } catch (error) {

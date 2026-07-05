@@ -221,7 +221,7 @@ export async function POST(request: NextRequest) {
     // Calculate total cost
     const totalCost = items.reduce((sum, item) => sum + (item.totalCost || 0), 0)
 
-    // Execute everything in a single transaction
+    // Execute everything in a single transaction (30s timeout for HPP recalc)
     const result = await db.$transaction(async (tx) => {
       // Create purchase order
       const purchaseOrder = await tx.purchaseOrder.create({
@@ -324,7 +324,7 @@ export async function POST(request: NextRequest) {
       await recalculateHppForAffectedProducts(tx, affectedInventoryItemIds)
 
       return purchaseOrder
-    })
+    }, { timeout: 30000 })
 
     return safeJsonCreated(result)
   } catch (error) {
