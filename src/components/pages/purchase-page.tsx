@@ -301,6 +301,8 @@ export default function PurchasePage() {
   const [deletingInv, setDeletingInv] = useState(false)
   const [invDeleteBlocked, setInvDeleteBlocked] = useState<{
     compositionCount: number
+    hasPurchaseHistory?: boolean
+    purchaseCount?: number
     linkedProducts: Array<{ productId: string; productName: string; variantName: string | null; qty: number; baseUnit: string }>
   } | null>(null)
 
@@ -793,9 +795,11 @@ export default function PurchasePage() {
       if (res.ok) {
         const data = await res.json().catch(() => ({}))
         if (data.blocked) {
-          // Show linked products dialog
+          // Show linked products / purchase history dialog
           setInvDeleteBlocked({
-            compositionCount: data.compositionCount,
+            compositionCount: data.compositionCount || 0,
+            hasPurchaseHistory: data.hasPurchaseHistory || false,
+            purchaseCount: data.purchaseCount || 0,
             linkedProducts: data.linkedProducts || [],
           })
         } else {
@@ -1033,13 +1037,18 @@ export default function PurchasePage() {
             baseUnit: item.baseUnit,
           }))
         }
-        await fetch(`/api/products/${product.id}/composition`, {
+        const compRes = await fetch(`/api/products/${product.id}/composition`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ hasComposition: true, variantCompositions }),
         })
+        if (!compRes.ok) {
+          const compErr = await compRes.json()
+          toast.error(compErr.error || 'Gagal menyimpan komposisi produk')
+          return
+        }
       } else {
-        await fetch(`/api/products/${product.id}/composition`, {
+        const compRes = await fetch(`/api/products/${product.id}/composition`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1051,6 +1060,11 @@ export default function PurchasePage() {
             })),
           }),
         })
+        if (!compRes.ok) {
+          const compErr = await compRes.json()
+          toast.error(compErr.error || 'Gagal menyimpan komposisi produk')
+          return
+        }
       }
 
       toast.success(`Produk "${postProductName}" berhasil dibuat dari ${selectedItems.length} bahan`)
@@ -2430,34 +2444,54 @@ export default function PurchasePage() {
               <AlertDialogDescription className="text-slate-400">
                 Bahan yang dihapus tidak dapat dikembalikan.
               </AlertDialogDescription>
-            ) : null}
+            ) : (
+              <AlertDialogDescription className="text-slate-400">
+                Perhatikan informasi di bawah sebelum menghapus.
+              </AlertDialogDescription>
+            )}
           </AlertDialogHeader>
 
           {invDeleteBlocked && (
             <div className="space-y-3 my-2">
-              <div className="flex items-start gap-2 rounded-lg bg-amber-500/10 border border-amber-500/20 p-3">
-                <AlertTriangle className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
-                <div className="text-sm">
-                  <p className="text-amber-300 font-medium">Bahan ini digunakan dalam {invDeleteBlocked.compositionCount} komposisi produk:</p>
-                  <div className="mt-2 space-y-1">
-                    {invDeleteBlocked.linkedProducts.map((lp, i) => (
-                      <div key={i} className="flex items-center gap-2 text-slate-300">
-                        <Package className="h-3 w-3 text-slate-500" />
-                        <span>{lp.productName}</span>
-                        {lp.variantName && (
-                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0 bg-white/[0.06] text-slate-400">
-                            {lp.variantName}
-                          </Badge>
-                        )}
-                        <span className="text-slate-500 text-xs">→ {lp.qty} {lp.baseUnit}</span>
-                      </div>
-                    ))}
+              {/* Purchase history warning */}
+              {invDeleteBlocked.hasPurchaseHistory && (
+                <div className="flex items-start gap-2 rounded-lg bg-orange-500/10 border border-orange-500/20 p-3">
+                  <AlertTriangle className="h-4 w-4 text-orange-400 mt-0.5 shrink-0" />
+                  <div className="text-sm">
+                    <p className="text-orange-300 font-medium">Bahan ini memiliki {invDeleteBlocked.purchaseCount} riwayat pembelian</p>
+                    <p className="text-orange-400/70 text-xs mt-1">
+                      Data pembelian tetap tersimpan. Hapus bahan baku akan menghapus stok & komposisi aktif.
+                    </p>
                   </div>
-                  <p className="text-amber-400/70 text-xs mt-2">
-                    Menghapus akan melepas komposisi dari semua produk di atas dan menyesuaikan HPP-nya.
-                  </p>
                 </div>
-              </div>
+              )}
+
+              {/* Composition warning */}
+              {invDeleteBlocked.compositionCount > 0 && (
+                <div className="flex items-start gap-2 rounded-lg bg-amber-500/10 border border-amber-500/20 p-3">
+                  <AlertTriangle className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
+                  <div className="text-sm">
+                    <p className="text-amber-300 font-medium">Bahan ini digunakan dalam {invDeleteBlocked.compositionCount} komposisi produk:</p>
+                    <div className="mt-2 space-y-1">
+                      {invDeleteBlocked.linkedProducts.map((lp, i) => (
+                        <div key={i} className="flex items-center gap-2 text-slate-300">
+                          <Package className="h-3 w-3 text-slate-500" />
+                          <span>{lp.productName}</span>
+                          {lp.variantName && (
+                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 bg-white/[0.06] text-slate-400">
+                              {lp.variantName}
+                            </Badge>
+                          )}
+                          <span className="text-slate-500 text-xs">→ {lp.qty} {lp.baseUnit}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-amber-400/70 text-xs mt-2">
+                      Menghapus akan melepas komposisi dari semua produk di atas dan menyesuaikan HPP-nya.
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -2469,7 +2503,11 @@ export default function PurchasePage() {
                 onClick={() => handleDeleteInv(true)}
                 disabled={deletingInv}
               >
-                {deletingInv ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Ya, Hapus & Lepas Komposisi'}
+                {deletingInv ? <Loader2 className="h-4 w-4 animate-spin" /> : (
+                  invDeleteBlocked.compositionCount > 0
+                    ? 'Ya, Hapus & Lepas Komposisi'
+                    : 'Ya, Hapus'
+                )}
               </AlertDialogAction>
             ) : (
               <AlertDialogAction
@@ -2698,7 +2736,7 @@ export default function PurchasePage() {
             {/* Step 2: Product details + variants */}
             {postStep === 2 && (
               <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-3">
+                <div className={cn('grid gap-3', !postHasVariants ? 'grid-cols-2' : 'grid-cols-1')}>
                   <div className="space-y-1.5">
                     <Label className={labelClass}>Nama Produk *</Label>
                     <Input
@@ -2708,17 +2746,19 @@ export default function PurchasePage() {
                       placeholder="Cth: Nasi Goreng Spesial"
                     />
                   </div>
-                  <div className="space-y-1.5">
-                    <Label className={labelClass}>Harga Jual *</Label>
-                    <Input
-                      type="number"
-                      min="0"
-                      value={postProductPrice}
-                      onChange={(e) => setPostProductPrice(e.target.value)}
-                      className={inputClass}
-                      placeholder="0"
-                    />
-                  </div>
+                  {!postHasVariants && (
+                    <div className="space-y-1.5">
+                      <Label className={labelClass}>Harga Jual *</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        value={postProductPrice}
+                        onChange={(e) => setPostProductPrice(e.target.value)}
+                        className={inputClass}
+                        placeholder="0"
+                      />
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
@@ -3019,10 +3059,12 @@ export default function PurchasePage() {
                   }
                   if (postStep === 2) {
                     if (!postProductName.trim()) { toast.error('Nama produk wajib diisi'); return }
-                    if (!postProductPrice) { toast.error('Harga jual wajib diisi'); return }
+                    if (!postHasVariants && !postProductPrice) { toast.error('Harga jual wajib diisi'); return }
                     if (postHasVariants) {
                       const missing = postVariants.some(v => !v.name.trim())
                       if (missing) { toast.error('Nama varian wajib diisi untuk semua varian'); return }
+                      const noPrice = postVariants.some(v => !v.price || parseFloat(v.price) <= 0)
+                      if (noPrice) { toast.error('Harga jual wajib diisi untuk semua varian'); return }
                     }
                   }
                   setPostStep((postStep + 1) as 1|2|3)
@@ -3035,7 +3077,7 @@ export default function PurchasePage() {
             ) : (
               <Button
                 className="h-9 text-xs theme-bg theme-hover text-white gap-1"
-                disabled={postProductSubmitting || !postProductName.trim() || !postProductPrice}
+                disabled={postProductSubmitting || !postProductName.trim() || (!postHasVariants && !postProductPrice)}
                 onClick={handlePostProductSubmit}
               >
                 {postProductSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}

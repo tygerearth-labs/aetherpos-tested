@@ -148,16 +148,20 @@ export async function DELETE(
       })
     }
 
-    // Also block if there are purchase order items referencing this
-    if (existing._count.purchaseItems > 0) {
-      return safeJsonError(
-        `Tidak dapat menghapus bahan baku ini karena sudah memiliki ${existing._count.purchaseItems} riwayat pembelian. Gunakan fitur nonaktifkan sebagai gantinya.`,
-        400
-      )
+    // If has purchase history and NOT force-deleting, block with info
+    if (existing._count.purchaseItems > 0 && !forceDelete) {
+      return safeJson({
+        blocked: true,
+        message: 'Bahan baku ini memiliki riwayat pembelian',
+        hasPurchaseHistory: true,
+        purchaseCount: existing._count.purchaseItems,
+        compositionCount: existing._count.compositions,
+        linkedProducts: [],
+      })
     }
 
     // Execute force delete: unlink compositions, recalculate HPP, then delete
-    if (forceDelete && existing._count.compositions > 0) {
+    if (existing._count.compositions > 0) {
       await db.$transaction(async (tx) => {
         // 1. Find all affected products before deleting compositions
         const compositions = await tx.productComposition.findMany({

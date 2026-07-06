@@ -248,8 +248,20 @@ export async function POST(request: NextRequest) {
           include: { inventoryItem: { select: { id: true, name: true } } },
         })
 
-        // Aggregate deductions per inventory item
+        // Build per-line snapshot data AND aggregate deductions
         const invDeductions = new Map<string, { qty: number; baseUnit: string; itemName: string; sources: Array<{ productName: string; variantName?: string; qty: number }> }>()
+        const snapshotData: Array<{
+          transactionId: string
+          productId: string
+          variantId: string | null
+          inventoryItemId: string
+          inventoryItemName: string
+          compQty: number
+          unitsSold: number
+          totalDeducted: number
+          baseUnit: string
+          outletId: string
+        }> = []
 
         for (const item of checkoutItems) {
           const product = productMap.get(item.productId)
@@ -260,10 +272,8 @@ export async function POST(request: NextRequest) {
           const relevantComps = allComps.filter((c) => {
             if (c.productId !== item.productId) return false
             if (item.variantId) {
-              // Variant sale: use variant-specific compositions
               return c.variantId === item.variantId
             }
-            // Non-variant sale: use product-level compositions
             return c.variantId === null
           })
 
@@ -289,6 +299,20 @@ export async function POST(request: NextRequest) {
                 }],
               })
             }
+
+            // Snapshot: one record per composition line per sale item
+            snapshotData.push({
+              transactionId: transaction.id,
+              productId: item.productId,
+              variantId: item.variantId || null,
+              inventoryItemId: comp.inventoryItemId,
+              inventoryItemName: comp.inventoryItem.name,
+              compQty: comp.qty,
+              unitsSold: item.qty,
+              totalDeducted: deductQty,
+              baseUnit: comp.baseUnit,
+              outletId,
+            })
           }
         }
 
@@ -475,8 +499,22 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      return { invoiceNumber }
+      return { invoiceNumber, transactionId: transaction.id, compSnapshots: snapshotData }
     }, { timeout: 15000 })
+
+    // POST-TRANSACTION: Save composition usage snapshots (outside tx so they persist)
+    // These are audit trail records. If transaction succeeded, deduct already happened.
+    // Snapshots are saved as synced=true since deduction already completed inside tx.
+    if (result.compSnapshots && result.compSnapshots.length > 0) {
+      try {
+        await db.compositionUsageSnapshot.createMany({
+          data: result.compSnapshots.map(s => ({ ...s, transactionId: result.transactionId, synced: true })),
+        })
+      } catch (snapshotErr) {
+        // Non-fatal: snapshot save failed but checkout succeeded
+        console.error('[checkout] Composition snapshot save failed (non-fatal):', snapshotErr)
+      }
+    }
 
     // H4: Post-transaction notification — properly awaited to ensure delivery.
     //     Wrapped in try/catch so a notification failure never causes a
