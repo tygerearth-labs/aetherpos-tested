@@ -2460,7 +2460,7 @@ export default function PurchasePage() {
                   <div className="text-sm">
                     <p className="text-orange-300 font-medium">Bahan ini memiliki {invDeleteBlocked.purchaseCount} riwayat pembelian</p>
                     <p className="text-orange-400/70 text-xs mt-1">
-                      Data pembelian tetap tersimpan. Hapus bahan baku akan menghapus stok & komposisi aktif.
+                      Data pembelian, pergerakan stok, dan riwayat transfer akan <span className="text-orange-300 font-medium">tetap tersimpan</span>. Komposisi produk aktif akan dilepas.
                     </p>
                   </div>
                 </div>
@@ -2506,7 +2506,9 @@ export default function PurchasePage() {
                 {deletingInv ? <Loader2 className="h-4 w-4 animate-spin" /> : (
                   invDeleteBlocked.compositionCount > 0
                     ? 'Ya, Hapus & Lepas Komposisi'
-                    : 'Ya, Hapus'
+                    : invDeleteBlocked.hasPurchaseHistory
+                      ? 'Ya, Hapus Saja'
+                      : 'Ya, Hapus'
                 )}
               </AlertDialogAction>
             ) : (

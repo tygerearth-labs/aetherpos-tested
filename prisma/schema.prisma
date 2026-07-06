@@ -1,4 +1,5 @@
 // ==================== AETHER POS SCHEMA ====================
+// SQLite for local development
 
 generator client {
   provider = "prisma-client-js"
@@ -466,7 +467,7 @@ model PurchaseOrder {
 model PurchaseOrderItem {
   id              String   @id @default(cuid())
   purchaseOrderId String
-  inventoryItemId String
+  inventoryItemId String?                      // SetNull on delete — historical PO preserved
   name            String                       // Snapshot of inventory item name
   purchaseQty     Float                        // Qty in purchase unit (e.g. 1 Ekor)
   purchaseUnit    String                       // Display unit (e.g. "Ekor", "Jerigen", "Roll")
@@ -477,7 +478,7 @@ model PurchaseOrderItem {
   outletId        String                       // For audit trail
 
   purchaseOrder  PurchaseOrder  @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
-  inventoryItem  InventoryItem  @relation(fields: [inventoryItemId], references: [id])
+  inventoryItem  InventoryItem?  @relation(fields: [inventoryItemId], references: [id], onDelete: SetNull)
   outlet         Outlet         @relation(fields: [outletId], references: [id])
 }
 
@@ -508,12 +509,12 @@ model InventoryMovement {
   referenceType  String?                      // TRANSFER, PURCHASE_ORDER, ADJUSTMENT, CONSUMPTION
   notes          String?                      // Additional notes
   outletId       String
-  inventoryItemId String
+  inventoryItemId String?                      // SetNull on delete — movement history preserved
   userId         String?                      // User who triggered the movement
   createdAt      DateTime @default(now())
 
   outlet          Outlet          @relation(fields: [outletId], references: [id])
-  inventoryItem   InventoryItem   @relation(fields: [inventoryItemId], references: [id])
+  inventoryItem   InventoryItem?   @relation(fields: [inventoryItemId], references: [id], onDelete: SetNull)
   user            User?           @relation("MovementUser", fields: [userId], references: [id])
 }
 
@@ -521,7 +522,7 @@ model InventoryMovement {
 model InventoryTransferItem {
   id               String   @id @default(cuid())
   transferId       String
-  inventoryItemId  String                       // Reference to InventoryItem (bahan baku)
+  inventoryItemId  String?                      // SetNull on delete — transfer history preserved
   itemName         String                       // Snapshot: item name at time of transfer
   itemSku          String?                      // Snapshot: SKU
   baseUnit         String                       // Snapshot: base unit (kg, gr, ml, etc.)
@@ -531,7 +532,7 @@ model InventoryTransferItem {
   createdAt        DateTime @default(now())
 
   transfer       OutletTransfer  @relation(fields: [transferId], references: [id], onDelete: Cascade)
-  inventoryItem  InventoryItem   @relation(fields: [inventoryItemId], references: [id])
+  inventoryItem  InventoryItem?   @relation(fields: [inventoryItemId], references: [id], onDelete: SetNull)
   outlet         Outlet          @relation(fields: [outletId], references: [id])
 }
 
