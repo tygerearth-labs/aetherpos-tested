@@ -394,18 +394,30 @@ export async function POST(request: NextRequest) {
       return newProduct
     })
 
-    // Fetch the created product with variants count
-    const productWithCount = await db.product.findUnique({
-      where: { id: product.id },
-      include: {
-        _count: { select: { variants: true } },
-      },
-    })
+    // Fetch the created product with variants
+    let productResult
+    if (variantsWithSku.length > 0) {
+      productResult = await db.product.findUnique({
+        where: { id: product.id },
+        include: {
+          _count: { select: { variants: true } },
+          variants: { select: { id: true, name: true, sku: true, price: true, hpp: true, stock: true } },
+        },
+      })
+    } else {
+      productResult = await db.product.findUnique({
+        where: { id: product.id },
+        include: {
+          _count: { select: { variants: true } },
+        },
+      })
+    }
 
     return safeJsonCreated({
       ...product,
       hasVariants: !!product.hasVariants,
-      _variantCount: productWithCount?._count?.variants ?? 0,
+      _variantCount: productResult?._count?.variants ?? 0,
+      variants: productResult?.variants ?? [],
     })
   } catch (error) {
     console.error('Products POST error:', error)

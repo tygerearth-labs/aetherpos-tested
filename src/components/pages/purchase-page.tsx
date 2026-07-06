@@ -329,6 +329,15 @@ export default function PurchasePage() {
   const [postProductSubmitting, setPostProductSubmitting] = useState(false)
   const [postProductCategories, setPostProductCategories] = useState<Array<{id:string;name:string}>>([])
 
+  // Per-inventory-item qty adjustment for composition (Step 1): invItemId → qty string
+  const [postCompQty, setPostCompQty] = useState<Record<string, string>>({})
+
+  // Variant definitions for Step 2
+  const [postVariants, setPostVariants] = useState<Array<{ name: string; price: string }>>([])
+
+  // Per-variant composition qty overrides: variantIndex → invItemId → qty string
+  const [postVariantCompQty, setPostVariantCompQty] = useState<Record<number, Record<string, string>>>({})
+
   // ══════════════════════════════════════════════════════════
   // Fetch: Purchase Orders
   // ══════════════════════════════════════════════════════════
@@ -908,9 +917,47 @@ export default function PurchasePage() {
     return invList.filter(i => selectedInvIds.has(i.id))
   }, [invList, selectedInvIds])
 
+  // Auto HPP from composition = sum(qty × avgCost)
   const postEstimatedHpp = useMemo(() => {
-    return selectedInvItems.reduce((sum, i) => sum + i.avgCost, 0)
-  }, [selectedInvItems])
+    return selectedInvItems.reduce((sum, i) => {
+      const qty = parseFloat(postCompQty[i.id]) || 0
+      return sum + (qty * i.avgCost)
+    }, 0)
+  }, [selectedInvItems, postCompQty])
+
+  // Max possible stock = min(inventoryStock / compQty) across all items
+  const postMaxStock = useMemo(() => {
+    let maxUnits = Infinity
+    for (const item of selectedInvItems) {
+      const compQty = parseFloat(postCompQty[item.id]) || 0
+      if (compQty <= 0) continue
+      const possible = Math.floor(item.stock / compQty)
+      if (possible < maxUnits) maxUnits = possible
+    }
+    return maxUnits
+  }, [selectedInvItems, postCompQty])
+
+  // Per-variant HPP calculation
+  const getVariantHpp = (variantIndex: number): number => {
+    const compQtyMap = postVariantCompQty[variantIndex] || {}
+    return selectedInvItems.reduce((sum, i) => {
+      const qty = parseFloat(compQtyMap[i.id]) || 0
+      return sum + (qty * i.avgCost)
+    }, 0)
+  }
+
+  // Per-variant max stock
+  const getVariantMaxStock = (variantIndex: number): number => {
+    const compQtyMap = postVariantCompQty[variantIndex] || {}
+    let maxUnits = Infinity
+    for (const item of selectedInvItems) {
+      const compQty = parseFloat(compQtyMap[item.id]) || 0
+      if (compQty <= 0) continue
+      const possible = Math.floor(item.stock / compQty)
+      if (possible < maxUnits) maxUnits = possible
+    }
+    return maxUnits
+  }
 
   const resetPostProductForm = () => {
     setPostStep(1)
@@ -921,6 +968,9 @@ export default function PurchasePage() {
     setPostHasVariants(false)
     setPostProductSubmitting(false)
     setSelectedInvIds(new Set())
+    setPostCompQty({})
+    setPostVariants([])
+    setPostVariantCompQty({})
   }
 
   const handlePostProductSubmit = async () => {
@@ -931,19 +981,19 @@ export default function PurchasePage() {
       const productPayload: Record<string, unknown> = {
         name: postProductName.trim(),
         price: parseFloat(postProductPrice) || 0,
-        hpp: selectedItems.reduce((sum, i) => sum + i.avgCost, 0),
+        hpp: postEstimatedHpp,
         categoryId: postProductCategory || undefined,
         unit: postProductUnit,
         hasComposition: true,
       }
 
-      if (postHasVariants && selectedItems.length > 1) {
+      if (postHasVariants && postVariants.length > 0) {
         productPayload.hasVariants = true
-        productPayload.variants = selectedItems.map(item => ({
-          name: item.name,
-          price: parseFloat(postProductPrice) || 0,
-          hpp: item.avgCost,
-          stock: Math.floor(item.stock),
+        productPayload.variants = postVariants.map((v, vi) => ({
+          name: v.name,
+          price: parseFloat(v.price) || parseFloat(postProductPrice) || 0,
+          hpp: getVariantHpp(vi),
+          stock: 0,
         }))
       }
 
@@ -962,28 +1012,32 @@ export default function PurchasePage() {
       const product = await res.json()
 
       // Set composition via API
-      if (postHasVariants && selectedItems.length > 1 && product.variants) {
-        for (const variant of product.variants) {
-          const matchingItem = selectedItems.find((i: InventoryItem) => i.name === variant.name)
-          if (matchingItem) {
-            await fetch(`/api/products/${product.id}/composition`, {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                variantId: variant.id,
-                compositions: [{ inventoryItemId: matchingItem.id, qty: 1 }],
-              }),
-            })
-          }
+      if (postHasVariants && postVariants.length > 0 && product.variants) {
+        const variantCompositions: Record<string, Array<{ inventoryItemId: string; qty: number; baseUnit: string }>> = {}
+        for (let vi = 0; vi < product.variants.length; vi++) {
+          const variant = product.variants[vi]
+          const compQtyMap = postVariantCompQty[vi] || postCompQty
+          variantCompositions[variant.id] = selectedItems.map(item => ({
+            inventoryItemId: item.id,
+            qty: parseFloat(compQtyMap[item.id]) || parseFloat(postCompQty[item.id]) || 0,
+            baseUnit: item.baseUnit,
+          }))
         }
+        await fetch(`/api/products/${product.id}/composition`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ hasComposition: true, variantCompositions }),
+        })
       } else {
         await fetch(`/api/products/${product.id}/composition`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            compositions: selectedItems.map((item: InventoryItem) => ({
+            hasComposition: true,
+            compositions: selectedItems.map(item => ({
               inventoryItemId: item.id,
-              qty: 1,
+              qty: parseFloat(postCompQty[item.id]) || 0,
+              baseUnit: item.baseUnit,
             })),
           }),
         })
@@ -992,6 +1046,7 @@ export default function PurchasePage() {
       toast.success(`Produk "${postProductName}" berhasil dibuat dari ${selectedItems.length} bahan`)
       setPostProductOpen(false)
       resetPostProductForm()
+      void fetchInventoryItems()
     } catch {
       toast.error('Gagal membuat produk')
     } finally {
@@ -2535,14 +2590,14 @@ export default function PurchasePage() {
         open={postProductOpen}
         onOpenChange={(open) => { if (!open) { setPostProductOpen(false); resetPostProductForm() } }}
       >
-        <ResponsiveDialogContent className="sm:max-w-lg">
+        <ResponsiveDialogContent className="sm:max-w-2xl flex flex-col max-h-[90vh]">
           <ResponsiveDialogHeader>
             <ResponsiveDialogTitle className="text-white text-base flex items-center gap-2">
               <Sparkles className="h-4 w-4 text-emerald-400" />
               Post sebagai Produk
             </ResponsiveDialogTitle>
             <ResponsiveDialogDescription className="text-slate-400 text-xs">
-              {postStep === 1 && 'Pilih bahan yang akan dijadikan komposisi produk'}
+              {postStep === 1 && 'Atur jumlah pemakaian tiap bahan baku'}
               {postStep === 2 && 'Isi detail produk dan atur varian'}
               {postStep === 3 && 'Review sebelum membuat produk'}
             </ResponsiveDialogDescription>
@@ -2564,7 +2619,7 @@ export default function PurchasePage() {
           </div>
 
           <div className="mt-3 flex-1 overflow-y-auto">
-            {/* Step 1: Review selected items */}
+            {/* Step 1: Composition qty per item */}
             {postStep === 1 && (
               <div className="space-y-3">
                 {selectedInvItems.length === 0 ? (
@@ -2574,45 +2629,75 @@ export default function PurchasePage() {
                   </div>
                 ) : (
                   <>
-                    <div className="space-y-1.5 max-h-[240px] overflow-y-auto">
-                      {selectedInvItems.map((item) => (
-                        <div key={item.id} className="flex items-center justify-between p-2.5 rounded-lg bg-white/[0.02] border border-white/[0.04]">
-                          <div className="min-w-0">
-                            <p className="text-xs text-slate-200 font-medium truncate">{item.name}</p>
-                            <p className="text-[10px] text-slate-500">
-                              Stok: {formatNumber(item.stock)} {item.baseUnit}
-                            </p>
+                    <div className="space-y-1.5 max-h-[340px] overflow-y-auto">
+                      {selectedInvItems.map((item) => {
+                        const qty = parseFloat(postCompQty[item.id]) || 0
+                        const subtotal = qty * item.avgCost
+                        const maxFromItem = qty > 0 ? Math.floor(item.stock / qty) : 0
+                        return (
+                          <div key={item.id} className="p-2.5 rounded-lg bg-white/[0.02] border border-white/[0.04] space-y-1.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="text-xs text-slate-200 font-medium truncate">{item.name}</p>
+                                <p className="text-[10px] text-slate-500">
+                                  Stok: {formatNumber(item.stock)} {item.baseUnit} · Rp {formatNumber(item.avgCost)}/{item.baseUnit}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <input
+                                  type="number"
+                                  step="any"
+                                  min="0"
+                                  value={postCompQty[item.id] || ''}
+                                  onChange={(e) => setPostCompQty(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                  className="bg-white/[0.04] border-white/[0.04] text-white text-xs h-8 w-24 rounded-md px-2.5 text-right outline-none placeholder:text-slate-500"
+                                  placeholder="0"
+                                />
+                                <span className="text-[10px] text-slate-500 w-10">{item.baseUnit}</span>
+                              </div>
+                            </div>
+                            {qty > 0 && (
+                              <div className="flex items-center justify-between pl-0.5">
+                                <span className="text-[10px] text-slate-500">
+                                  Subtotal · maks ~<span className="text-slate-300 font-medium">{formatNumber(maxFromItem)}</span> produk
+                                </span>
+                                <span className="text-[11px] text-amber-400/80 font-medium">{formatCurrency(subtotal)}</span>
+                              </div>
+                            )}
                           </div>
-                          <div className="text-right shrink-0">
-                            <p className="text-xs text-slate-300 font-medium">{formatCurrency(item.avgCost)}</p>
-                            <p className="text-[10px] text-slate-500">/ {item.baseUnit}</p>
-                          </div>
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
-                    <div className="flex items-center justify-between pt-3 border-t border-white/[0.06]">
-                      <span className="text-xs text-slate-400">Estimasi HPP</span>
-                      <span className="text-sm font-bold text-emerald-400">{formatCurrency(postEstimatedHpp)}</span>
+                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-white/[0.06]">
+                      <div className="bg-white/[0.03] rounded-lg p-2.5 border border-white/[0.04]">
+                        <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-0.5">Estimasi HPP / produk</p>
+                        <p className="text-xs font-bold text-emerald-400">{formatCurrency(postEstimatedHpp)}</p>
+                      </div>
+                      <div className="bg-white/[0.03] rounded-lg p-2.5 border border-white/[0.04]">
+                        <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-0.5">Maks. stok produk</p>
+                        <p className="text-xs font-bold text-slate-200">
+                          {postMaxStock === Infinity ? '~' : formatNumber(postMaxStock)} {postProductUnit}
+                        </p>
+                      </div>
                     </div>
                   </>
                 )}
               </div>
             )}
 
-            {/* Step 2: Product details */}
+            {/* Step 2: Product details + variants */}
             {postStep === 2 && (
               <div className="space-y-4">
-                <div className="space-y-1.5">
-                  <Label className={labelClass}>Nama Produk *</Label>
-                  <Input
-                    value={postProductName}
-                    onChange={(e) => setPostProductName(e.target.value)}
-                    className={inputClass}
-                    placeholder="Cth: Nasi Goreng Spesial"
-                  />
-                </div>
-
                 <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className={labelClass}>Nama Produk *</Label>
+                    <Input
+                      value={postProductName}
+                      onChange={(e) => setPostProductName(e.target.value)}
+                      className={inputClass}
+                      placeholder="Cth: Nasi Goreng Spesial"
+                    />
+                  </div>
                   <div className="space-y-1.5">
                     <Label className={labelClass}>Harga Jual *</Label>
                     <Input
@@ -2624,6 +2709,9 @@ export default function PurchasePage() {
                       placeholder="0"
                     />
                   </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label className={labelClass}>Satuan</Label>
                     <Select value={postProductUnit} onValueChange={setPostProductUnit}>
@@ -2637,20 +2725,19 @@ export default function PurchasePage() {
                       </SelectContent>
                     </Select>
                   </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label className={labelClass}>Kategori Produk</Label>
-                  <Select value={postProductCategory} onValueChange={setPostProductCategory}>
-                    <SelectTrigger className={cn(inputClass, 'h-9')}>
-                      <SelectValue placeholder="Pilih kategori (opsional)" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-nebula border-white/[0.06]">
-                      {postProductCategories.map((c) => (
-                        <SelectItem key={c.id} value={c.id} className="text-slate-200 text-xs">{c.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="space-y-1.5">
+                    <Label className={labelClass}>Kategori Produk</Label>
+                    <Select value={postProductCategory} onValueChange={setPostProductCategory}>
+                      <SelectTrigger className={cn(inputClass, 'h-9')}>
+                        <SelectValue placeholder="Pilih kategori (opsional)" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-nebula border-white/[0.06]">
+                        {postProductCategories.map((c) => (
+                          <SelectItem key={c.id} value={c.id} className="text-slate-200 text-xs">{c.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
 
                 <div className="bg-white/[0.03] rounded-lg p-3 border border-white/[0.04]">
@@ -2658,40 +2745,133 @@ export default function PurchasePage() {
                     <span className="text-[11px] text-slate-400">HPP Otomatis (dari komposisi)</span>
                     <span className="text-xs font-bold text-emerald-400">{formatCurrency(postEstimatedHpp)}</span>
                   </div>
-                  <p className="text-[10px] text-slate-600">Dihitung dari total HPP bahan terpilih. HPP akan otomatis terupdate saat ada pembelian baru.</p>
+                  <p className="text-[10px] text-slate-600">Dihitung dari total qty × HPP bahan. HPP akan otomatis terupdate saat ada pembelian baru.</p>
                 </div>
 
-                {/* Variants toggle */}
-                {selectedInvItems.length > 1 && (
-                  <div className="flex items-center justify-between p-3 rounded-lg bg-white/[0.02] border border-white/[0.04]">
-                    <div>
-                      <p className="text-xs text-slate-200 font-medium">Aktifkan Varian</p>
-                      <p className="text-[10px] text-slate-500">Setiap bahan menjadi varian terpisah</p>
-                    </div>
-                    <Switch
-                      checked={postHasVariants}
-                      onCheckedChange={setPostHasVariants}
-                    />
+                {/* Variant toggle — always visible */}
+                <div className="flex items-center justify-between p-3 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+                  <div>
+                    <p className="text-xs text-slate-200 font-medium">Aktifkan Varian</p>
+                    <p className="text-[10px] text-slate-500">Buat varian dengan komposisi berbeda (cth: L, M)</p>
                   </div>
-                )}
+                  <Switch
+                    checked={postHasVariants}
+                    onCheckedChange={(checked) => { setPostHasVariants(checked); if (!checked) { setPostVariants([]); setPostVariantCompQty({}) } }}
+                  />
+                </div>
 
-                {postHasVariants && selectedInvItems.length > 1 && (
-                  <div className="space-y-1.5">
-                    <p className="text-[11px] text-slate-400">Preview Varian:</p>
-                    <div className="space-y-1.5 max-h-[160px] overflow-y-auto">
-                      {selectedInvItems.map((item) => (
-                        <div key={item.id} className="flex items-center justify-between p-2 rounded-lg bg-white/[0.02] border border-white/[0.04]">
-                          <div>
-                            <p className="text-[11px] text-slate-200 font-medium">{item.name}</p>
-                            <p className="text-[10px] text-slate-500">HPP: {formatCurrency(item.avgCost)}</p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-[11px] text-white font-medium">{formatCurrency(parseFloat(postProductPrice) || 0)}</p>
-                            <p className="text-[10px] text-slate-500">Stok: ~{Math.floor(item.stock)}</p>
-                          </div>
-                        </div>
-                      ))}
+                {/* Variant definitions */}
+                {postHasVariants && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[11px] text-slate-300 font-medium">Daftar Varian</p>
+                      <button
+                        className="flex items-center gap-1 text-[10px] text-emerald-400 hover:text-emerald-300 font-medium"
+                        onClick={() => {
+                          const newIdx = postVariants.length
+                          setPostVariants(prev => [...prev, { name: '', price: postProductPrice || '' }])
+                          // Pre-fill compQty from base postCompQty
+                          const baseMap: Record<string, string> = {}
+                          for (const item of selectedInvItems) {
+                            baseMap[item.id] = postCompQty[item.id] || ''
+                          }
+                          setPostVariantCompQty(prev => ({ ...prev, [newIdx]: baseMap }))
+                        }}
+                      >
+                        <Plus className="h-3 w-3" />
+                        Tambah Varian
+                      </button>
                     </div>
+
+                    {postVariants.length === 0 ? (
+                      <div className="py-4 text-center">
+                        <p className="text-[11px] text-slate-500">Belum ada varian. Klik "Tambah Varian" untuk menambahkan.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3 max-h-[300px] overflow-y-auto">
+                        {postVariants.map((variant, vi) => {
+                          const variantHpp = getVariantHpp(vi)
+                          const variantMaxStock = getVariantMaxStock(vi)
+                          const variantPrice = parseFloat(variant.price) || 0
+                          const variantMargin = variantPrice - variantHpp
+                          return (
+                            <div key={vi} className="rounded-lg bg-white/[0.02] border border-white/[0.04] p-3 space-y-2.5">
+                              {/* Variant header */}
+                              <div className="flex items-center gap-2">
+                                <input
+                                  value={variant.name}
+                                  onChange={(e) => setPostVariants(prev => prev.map((v, i) => i === vi ? { ...v, name: e.target.value } : v))}
+                                  className="bg-white/[0.04] border-white/[0.04] text-white text-xs h-8 w-24 rounded-md px-2.5 outline-none placeholder:text-slate-500"
+                                  placeholder="Nama varian"
+                                />
+                                <span className="text-[10px] text-slate-500">Harga:</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={variant.price}
+                                  onChange={(e) => setPostVariants(prev => prev.map((v, i) => i === vi ? { ...v, name: v.name, price: e.target.value } : v))}
+                                  className="bg-white/[0.04] border-white/[0.04] text-white text-xs h-8 w-28 rounded-md px-2.5 text-right outline-none placeholder:text-slate-500"
+                                  placeholder="0"
+                                />
+                                <div className="flex-1" />
+                                <button
+                                  className="w-6 h-6 rounded flex items-center justify-center text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors"
+                                  onClick={() => {
+                                    setPostVariants(prev => prev.filter((_, i) => i !== vi))
+                                    setPostVariantCompQty(prev => {
+                                      const next: Record<number, Record<string, string>> = {}
+                                      let idx = 0
+                                      for (const [k, v] of Object.entries(prev)) {
+                                        if (parseInt(k) === vi) continue
+                                        next[idx] = v
+                                        idx++
+                                      }
+                                      return next
+                                    })
+                                  }}
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </button>
+                              </div>
+
+                              {/* Per-variant composition */}
+                              <div className="space-y-1.5 pl-0.5">
+                                {selectedInvItems.map((item) => {
+                                  const compQtyMap = postVariantCompQty[vi] || {}
+                                  return (
+                                    <div key={item.id} className="flex items-center gap-2">
+                                      <span className="text-[11px] text-slate-400 truncate flex-1 min-w-0">{item.name}</span>
+                                      <input
+                                        type="number"
+                                        step="any"
+                                        min="0"
+                                        value={compQtyMap[item.id] || ''}
+                                        onChange={(e) => setPostVariantCompQty(prev => ({
+                                          ...prev,
+                                          [vi]: { ...(prev[vi] || {}), [item.id]: e.target.value }
+                                        }))}
+                                        className="bg-white/[0.04] border-white/[0.04] text-white text-[11px] h-7 w-20 rounded-md px-2 text-right outline-none placeholder:text-slate-500"
+                                        placeholder="0"
+                                      />
+                                      <span className="text-[10px] text-slate-500 w-10">{item.baseUnit}</span>
+                                    </div>
+                                  )
+                                })}
+                              </div>
+
+                              {/* Variant summary */}
+                              <div className="flex items-center gap-3 text-[10px] pt-1.5 border-t border-white/[0.04]">
+                                <span className="text-slate-500">HPP: <span className="text-emerald-400 font-medium">{formatCurrency(variantHpp)}</span></span>
+                                <span className="text-slate-500">Maks stok: <span className="text-slate-300 font-medium">{variantMaxStock === Infinity ? '~' : formatNumber(variantMaxStock)}</span></span>
+                                {variantPrice > 0 && (
+                                  <span className="text-slate-500">Margin: <span className={cn('font-medium', variantMargin >= 0 ? 'text-emerald-400' : 'text-red-400')}>{formatCurrency(variantMargin)}</span></span>
+                                )}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -2711,35 +2891,90 @@ export default function PurchasePage() {
                   </div>
                 </div>
 
-                <div className="bg-white/[0.03] rounded-lg p-3 border border-white/[0.04]">
-                  <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">
-                    {postHasVariants ? 'Varian & Komposisi' : 'Komposisi Bahan'}
-                  </p>
-                  <div className="space-y-1.5 mt-2">
-                    {selectedInvItems.map((item) => (
-                      <div key={item.id} className="flex items-center justify-between py-1.5 border-b border-white/[0.03] last:border-0">
-                        <div className="flex items-center gap-2">
-                          <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                          <span className="text-xs text-slate-200">{item.name}</span>
+                {postHasVariants && postVariants.length > 0 ? (
+                  <div className="space-y-3">
+                    <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">Varian & Komposisi</p>
+                    {postVariants.map((variant, vi) => {
+                      const vHpp = getVariantHpp(vi)
+                      const vPrice = parseFloat(variant.price) || 0
+                      const vMargin = vPrice - vHpp
+                      const compQtyMap = postVariantCompQty[vi] || {}
+                      return (
+                        <div key={vi} className="rounded-lg bg-white/[0.02] border border-white/[0.04] p-3 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <p className="text-xs text-white font-medium">{variant.name || '(tanpa nama)'}</p>
+                            <p className="text-xs text-emerald-400 font-bold">{formatCurrency(vPrice)}</p>
+                          </div>
+                          <div className="space-y-1">
+                            {selectedInvItems.map(item => {
+                              const qty = parseFloat(compQtyMap[item.id]) || parseFloat(postCompQty[item.id]) || 0
+                              if (qty <= 0) return null
+                              return (
+                                <div key={item.id} className="flex items-center justify-between py-1 border-b border-white/[0.03] last:border-0">
+                                  <div className="flex items-center gap-2">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                                    <span className="text-[11px] text-slate-300">{item.name}</span>
+                                  </div>
+                                  <span className="text-[10px] text-slate-500">
+                                    {formatNumber(qty)} {item.baseUnit} × {formatCurrency(item.avgCost)} = <span className="text-slate-300">{formatCurrency(qty * item.avgCost)}</span>
+                                  </span>
+                                </div>
+                              )
+                            })}
+                          </div>
+                          <div className="flex items-center gap-3 text-[10px] pt-1.5 border-t border-white/[0.04]">
+                            <span className="text-slate-500">HPP: <span className="text-emerald-400 font-medium">{formatCurrency(vHpp)}</span></span>
+                            <span className="text-slate-500">Margin: <span className={cn('font-medium', vMargin >= 0 ? 'text-emerald-400' : 'text-red-400')}>{formatCurrency(vMargin)}</span></span>
+                            <span className="text-slate-500">Maks stok: <span className="text-slate-300 font-medium">{getVariantMaxStock(vi) === Infinity ? '~' : formatNumber(getVariantMaxStock(vi))}</span></span>
+                          </div>
                         </div>
-                        <span className="text-[11px] text-slate-400">
-                          {formatNumber(1)} {item.baseUnit} × {formatCurrency(item.avgCost)}
-                        </span>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
-                </div>
+                ) : (
+                  <div className="bg-white/[0.03] rounded-lg p-3 border border-white/[0.04]">
+                    <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Komposisi Bahan</p>
+                    <div className="space-y-1.5 mt-2">
+                      {selectedInvItems.map((item) => {
+                        const qty = parseFloat(postCompQty[item.id]) || 0
+                        if (qty <= 0) return null
+                        return (
+                          <div key={item.id} className="flex items-center justify-between py-1.5 border-b border-white/[0.03] last:border-0">
+                            <div className="flex items-center gap-2">
+                              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                              <span className="text-xs text-slate-200">{item.name}</span>
+                            </div>
+                            <span className="text-[11px] text-slate-400">
+                              {formatNumber(qty)} {item.baseUnit} × {formatCurrency(item.avgCost)} = <span className="text-slate-300">{formatCurrency(qty * item.avgCost)}</span>
+                            </span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
 
-                <div className="flex items-center justify-between pt-2 border-t border-white/[0.06]">
-                  <span className="text-xs text-slate-400">Total HPP</span>
-                  <span className="text-sm font-bold text-emerald-400">{formatCurrency(postEstimatedHpp)}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-slate-400">Margin</span>
-                  <span className={cn('text-sm font-bold', (parseFloat(postProductPrice) || 0) > postEstimatedHpp ? 'text-emerald-400' : 'text-red-400')}>
-                    {formatCurrency((parseFloat(postProductPrice) || 0) - postEstimatedHpp)}
-                  </span>
-                </div>
+                {/* Bottom summary — only for non-variant products (variant summary is per-variant above) */}
+                {!postHasVariants && (
+                  <>
+                    <div className="flex items-center justify-between pt-2 border-t border-white/[0.06]">
+                      <span className="text-xs text-slate-400">Total HPP</span>
+                      <span className="text-sm font-bold text-emerald-400">{formatCurrency(postEstimatedHpp)}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-400">Margin</span>
+                      <span className={cn('text-sm font-bold', (parseFloat(postProductPrice) || 0) - postEstimatedHpp >= 0 ? 'text-emerald-400' : 'text-red-400')}>
+                        {formatCurrency((parseFloat(postProductPrice) || 0) - postEstimatedHpp)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-400">Maks. stok produk</span>
+                      <span className="text-xs font-bold text-slate-200">
+                        {postMaxStock === Infinity ? '~' : formatNumber(postMaxStock)} {postProductUnit}
+                      </span>
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -2766,7 +3001,22 @@ export default function PurchasePage() {
             {postStep < 3 ? (
               <Button
                 className="h-9 text-xs theme-bg theme-hover text-white gap-1"
-                onClick={() => setPostStep((postStep + 1) as 1|2|3)}
+                onClick={() => {
+                  if (postStep === 1) {
+                    // Validate: at least 1 item has qty > 0
+                    const hasQty = selectedInvItems.some(i => (parseFloat(postCompQty[i.id]) || 0) > 0)
+                    if (!hasQty) { toast.error('Isi jumlah pemakaian minimal 1 bahan'); return }
+                  }
+                  if (postStep === 2) {
+                    if (!postProductName.trim()) { toast.error('Nama produk wajib diisi'); return }
+                    if (!postProductPrice) { toast.error('Harga jual wajib diisi'); return }
+                    if (postHasVariants) {
+                      const missing = postVariants.some(v => !v.name.trim())
+                      if (missing) { toast.error('Nama varian wajib diisi untuk semua varian'); return }
+                    }
+                  }
+                  setPostStep((postStep + 1) as 1|2|3)
+                }}
                 disabled={postStep === 1 && selectedInvItems.length === 0}
               >
                 Lanjut

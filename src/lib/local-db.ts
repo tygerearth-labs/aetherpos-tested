@@ -1,18 +1,8 @@
-/**
- * local-db.ts — IndexedDB via Dexie for Offline Mode
- *
- * Stores cached products, customers, promos, categories, and offline transactions
- * in the browser's IndexedDB for use when the device is offline.
- */
+import Dexie, { type Table } from 'dexie'
 
-import Dexie from 'dexie'
-import type { EntityTable } from 'dexie'
+// ==================== TYPES ====================
 
-// ============================================================
-// Types
-// ============================================================
-
-export interface CachedProductVariant {
+export interface ProductVariant {
   id: string
   name: string
   sku: string | null
@@ -36,7 +26,7 @@ export interface CachedProduct {
   categoryId: string | null
   hasVariants: boolean
   _variantCount: number
-  variants: CachedProductVariant[]
+  variants: ProductVariant[]
   updatedAt: string
 }
 
@@ -51,8 +41,8 @@ export interface CachedCustomer {
   id: string
   name: string
   whatsapp: string
-  points: number
   totalSpend: number
+  points: number
   updatedAt: string
 }
 
@@ -68,36 +58,27 @@ export interface CachedPromo {
 }
 
 export interface OfflineTransaction {
-  id?: number // auto-incremented
+  id?: number
   payload: Record<string, unknown>
-  isSynced: 0 | 1
+  isSynced: number
   createdAt: number
   retryCount: number
-  // Fields populated after successful sync
   syncedAt?: number
   invoiceNumber?: string
   serverTransactionId?: string
-  // Fields populated on sync failure
   lastError?: string
-}
-
-export interface SyncMeta {
-  key: string
-  value: number
-}
-
-export interface CachedSettings {
-  key: string // always 'outlet-settings'
-  data: Record<string, unknown>
-  updatedAt: string
 }
 
 export interface PendingTransaction {
   id?: number
-  items: Record<string, unknown>[]
+  items: Array<{
+    product: CachedProduct
+    variant: ProductVariant | null
+    qty: number
+    customPrice?: number | null
+  }>
   customerId: string | null
   customerName: string | null
-  customerPhone: string | null
   note: string
   subtotal: number
   createdAt: number
@@ -105,38 +86,36 @@ export interface PendingTransaction {
   userName: string
 }
 
-// ============================================================
-// Database
-// ============================================================
+export interface SyncMeta {
+  key: string
+  value: number
+}
 
-class AetherDB extends Dexie {
-  products!: EntityTable<CachedProduct, 'id'>
-  categories!: EntityTable<CachedCategory, 'id'>
-  customers!: EntityTable<CachedCustomer, 'id'>
-  promos!: EntityTable<CachedPromo, 'id'>
-  transactions!: EntityTable<OfflineTransaction, 'id'>
-  pendingTransactions!: EntityTable<PendingTransaction, 'id'>
-  syncMeta!: EntityTable<SyncMeta, 'key'>
-  settings!: EntityTable<CachedSettings, 'key'>
+export interface CachedSetting {
+  key: string
+  data: Record<string, unknown>
+  updatedAt: string
+}
+
+// ==================== DATABASE ====================
+
+class LocalDatabase extends Dexie {
+  products!: Table<CachedProduct, string>
+  categories!: Table<CachedCategory, string>
+  customers!: Table<CachedCustomer, string>
+  promos!: Table<CachedPromo, string>
+  transactions!: Table<OfflineTransaction, number>
+  pendingTransactions!: Table<PendingTransaction, number>
+  syncMeta!: Table<SyncMeta, string>
+  settings!: Table<CachedSetting, string>
 
   constructor() {
-    super('aether-pos-local')
-
-    this.version(3).stores({
+    super('pos-offline-db')
+    this.version(1).stores({
       products: 'id, name, sku, barcode, categoryId, updatedAt',
-      categories: 'id, name, updatedAt',
-      customers: 'id, name, whatsapp, updatedAt',
-      promos: 'id, name, type, active, updatedAt',
-      transactions: '++id, isSynced, createdAt',
-      syncMeta: 'key',
-      settings: 'key',
-    })
-
-    this.version(4).stores({
-      products: 'id, name, sku, barcode, categoryId, updatedAt',
-      categories: 'id, name, updatedAt',
-      customers: 'id, name, whatsapp, updatedAt',
-      promos: 'id, name, type, active, updatedAt',
+      categories: 'id, name',
+      customers: 'id, name, whatsapp',
+      promos: 'id, name, active',
       transactions: '++id, isSynced, createdAt',
       pendingTransactions: '++id, createdAt',
       syncMeta: 'key',
@@ -145,4 +124,4 @@ class AetherDB extends Dexie {
   }
 }
 
-export const localDB = new AetherDB()
+export const localDB = new LocalDatabase()
