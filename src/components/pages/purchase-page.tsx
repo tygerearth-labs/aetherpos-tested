@@ -989,12 +989,22 @@ export default function PurchasePage() {
 
       if (postHasVariants && postVariants.length > 0) {
         productPayload.hasVariants = true
+        // Auto-calculate stock per variant from composition
+        const variantStocks = postVariants.map((_, vi) => {
+          const ms = getVariantMaxStock(vi)
+          return ms === Infinity ? 0 : ms
+        })
         productPayload.variants = postVariants.map((v, vi) => ({
           name: v.name,
           price: parseFloat(v.price) || parseFloat(postProductPrice) || 0,
           hpp: getVariantHpp(vi),
-          stock: 0,
+          stock: variantStocks[vi],
         }))
+        // Parent stock = sum of all variant stocks
+        productPayload.stock = variantStocks.reduce((s, v) => s + v, 0)
+      } else {
+        // Non-variant: auto stock from composition
+        productPayload.stock = postMaxStock === Infinity ? 0 : postMaxStock
       }
 
       const res = await fetch('/api/products', {
@@ -2674,7 +2684,7 @@ export default function PurchasePage() {
                         <p className="text-xs font-bold text-emerald-400">{formatCurrency(postEstimatedHpp)}</p>
                       </div>
                       <div className="bg-white/[0.03] rounded-lg p-2.5 border border-white/[0.04]">
-                        <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-0.5">Maks. stok produk</p>
+                        <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-0.5">Stok awal (otomatis)</p>
                         <p className="text-xs font-bold text-slate-200">
                           {postMaxStock === Infinity ? '~' : formatNumber(postMaxStock)} {postProductUnit}
                         </p>
@@ -2925,7 +2935,7 @@ export default function PurchasePage() {
                           <div className="flex items-center gap-3 text-[10px] pt-1.5 border-t border-white/[0.04]">
                             <span className="text-slate-500">HPP: <span className="text-emerald-400 font-medium">{formatCurrency(vHpp)}</span></span>
                             <span className="text-slate-500">Margin: <span className={cn('font-medium', vMargin >= 0 ? 'text-emerald-400' : 'text-red-400')}>{formatCurrency(vMargin)}</span></span>
-                            <span className="text-slate-500">Maks stok: <span className="text-slate-300 font-medium">{getVariantMaxStock(vi) === Infinity ? '~' : formatNumber(getVariantMaxStock(vi))}</span></span>
+                            <span className="text-slate-500">Stok awal: <span className="text-emerald-400 font-medium">{getVariantMaxStock(vi) === Infinity ? '~' : formatNumber(getVariantMaxStock(vi))}</span></span>
                           </div>
                         </div>
                       )
@@ -2968,8 +2978,8 @@ export default function PurchasePage() {
                       </span>
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-xs text-slate-400">Maks. stok produk</span>
-                      <span className="text-xs font-bold text-slate-200">
+                      <span className="text-xs text-slate-400">Stok awal (otomatis)</span>
+                      <span className="text-xs font-bold text-emerald-400">
                         {postMaxStock === Infinity ? '~' : formatNumber(postMaxStock)} {postProductUnit}
                       </span>
                     </div>
