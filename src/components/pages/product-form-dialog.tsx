@@ -398,20 +398,20 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
     if (hasComposition && !hasVariants && maxStockFromComposition !== Infinity) {
       const requestedStock = Number(form.stock) || 0
       if (requestedStock > maxStockFromComposition) {
-        toast.error(`Stok melebihi kapasitas bahan baku. Maksimal ${maxStockFromComposition} ${form.unit || 'pcs'} yang bisa dibuat dari stok inventory saat ini.`)
+        toast.error(`Stok melebihi kapasitas item. Maksimal ${maxStockFromComposition} ${form.unit || 'pcs'} yang bisa dibuat dari stok inventory saat ini.`)
         return
       }
     }
 
     // Validate product-level composition (non-variant mode)
     if (hasComposition && !hasVariants && compositions.length === 0) {
-      toast.error('Tambahkan minimal 1 bahan baku untuk komposisi')
+      toast.error('Tambahkan minimal 1 item untuk komposisi')
       return
     }
     if (hasComposition && !hasVariants) {
       for (let i = 0; i < compositions.length; i++) {
         if (!compositions[i].inventoryItemId || !Number(compositions[i].qty) || Number(compositions[i].qty) <= 0) {
-          toast.error(`Komposisi ${i + 1}: isi jumlah bahan`)
+          toast.error(`Komposisi ${i + 1}: isi jumlah item`)
           return
         }
       }
@@ -422,12 +422,12 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
       for (let i = 0; i < variants.length; i++) {
         const comps = variantCompositions[i] || []
         if (comps.length === 0) {
-          toast.error(`Varian "${variants[i].name || i + 1}": tambahkan minimal 1 bahan baku untuk komposisi`)
+          toast.error(`Varian "${variants[i].name || i + 1}": tambahkan minimal 1 item untuk komposisi`)
           return
         }
         for (let j = 0; j < comps.length; j++) {
           if (!comps[j].inventoryItemId || !Number(comps[j].qty) || Number(comps[j].qty) <= 0) {
-            toast.error(`Varian "${variants[i].name || i + 1}", bahan ${j + 1}: isi jumlah bahan`)
+            toast.error(`Varian "${variants[i].name || i + 1}", item ${j + 1}: isi jumlah item`)
             return
           }
         }
@@ -436,7 +436,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
         if (maxStock !== Infinity) {
           const requestedStock = Number(variants[i].stock) || 0
           if (requestedStock > maxStock) {
-            toast.error(`Stok varian "${variants[i].name || i + 1}" melebihi kapasitas bahan baku. Maksimal ${maxStock} unit.`)
+            toast.error(`Stok varian "${variants[i].name || i + 1}" melebihi kapasitas item. Maksimal ${maxStock} unit.`)
             return
           }
         }
@@ -590,7 +590,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
     const item = inventoryItems.find((i) => i.id === inventoryItemId)
     if (!item) return
     if (compositions.some((c) => c.inventoryItemId === inventoryItemId)) {
-      toast.error('Bahan ini sudah ditambahkan')
+      toast.error('Item ini sudah ditambahkan')
       return
     }
     setCompositions((prev) => [...prev, {
@@ -616,7 +616,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
     if (!item) return
     const existing = variantCompositions[variantIndex] || []
     if (existing.some((c) => c.inventoryItemId === inventoryItemId)) {
-      toast.error('Bahan ini sudah ditambahkan')
+      toast.error('Item ini sudah ditambahkan')
       return
     }
     setVariantCompositions(prev => ({
@@ -873,7 +873,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                         "text-[10px]",
                         Number(form.stock) > maxStockFromComposition ? "text-amber-400" : "text-slate-600"
                       )}>
-                        Maks. {maxStockFromComposition} {form.unit || 'pcs'} (berdasarkan stok bahan baku)
+                        Maks. {maxStockFromComposition} {form.unit || 'pcs'} (berdasarkan stok item)
                       </p>
                     )}
                   </div>
@@ -1294,7 +1294,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                                 {/* Add ingredient dropdown for this variant */}
                                 <select value="" onChange={(e) => { if (e.target.value) { addVariantComposition(index, e.target.value); e.target.value = '' } }}
                                   className="w-full h-8 text-[11px] bg-white/[0.04] border border-white/[0.06] text-white rounded-lg px-2 focus:outline-none focus:ring-1 focus:theme-ring appearance-none cursor-pointer">
-                                  <option value="" disabled>+ Tambah bahan baku...</option>
+                                  <option value="" disabled>+ Tambah item...</option>
                                   {inventoryItems
                                     .filter((item) => !(variantCompositions[index] || []).some((c) => c.inventoryItemId === item.id))
                                     .map((item) => (
@@ -1306,7 +1306,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                                 {/* Stock capacity warning */}
                                 {getVariantMaxStock(index) !== Infinity && (
                                   <p className="text-[9px] text-amber-400/80">
-                                    Maks. {getVariantMaxStock(index)} unit dari stok bahan baku
+                                    Maks. {getVariantMaxStock(index)} unit dari stok item
                                   </p>
                                 )}
                               </div>
@@ -1373,10 +1373,10 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                       </p>
                       <p className="text-[11px] text-slate-500">
                         {hasVariants && hasComposition
-                          ? 'Setiap varian memiliki komposisi bahan baku sendiri'
+                          ? 'Setiap varian memiliki komposisi item sendiri'
                           : hasComposition
-                            ? 'HPP dihitung otomatis dari bahan baku'
-                            : 'Produk dibuat dari bahan baku inventory?'
+                            ? 'HPP dihitung otomatis dari item'
+                            : 'Produk dibuat dari item inventory?'
                         }
                       </p>
                     </div>
@@ -1402,7 +1402,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                 <div className="flex items-start gap-2.5 bg-sky-500/5 border border-sky-500/15 rounded-lg p-3">
                   <Beaker className="h-3.5 w-3.5 text-sky-400 mt-0.5 flex-shrink-0" />
                   <div className="text-[11px] text-sky-300/80 leading-relaxed">
-                    Komposisi diatur <span className="font-medium text-sky-300">per varian</span>. Buka setiap varian untuk mengatur bahan bakunya. Setiap varian memiliki HPP otomatis berdasarkan bahan baku yang digunakan.
+                    Komposisi diatur <span className="font-medium text-sky-300">per varian</span>. Buka setiap varian untuk mengatur itemnya. Setiap varian memiliki HPP otomatis berdasarkan item yang digunakan.
                   </div>
                 </div>
               </div>
@@ -1419,7 +1419,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                   </div>
                   {compositions.length > 0 && (
                     <p className="text-[10px] text-slate-600 mt-1">
-                      {compositions.length} bahan × qty = HPP per {form.unit || 'pcs'}
+                      {compositions.length} item × qty = HPP per {form.unit || 'pcs'}
                     </p>
                   )}
                 </div>
@@ -1475,7 +1475,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
 
                 {/* Add ingredient */}
                 <div className="space-y-1.5">
-                  <Label className="text-[11px] text-slate-500">Tambah Bahan Baku</Label>
+                  <Label className="text-[11px] text-slate-500">Tambah Item</Label>
                   <select
                     value=""
                     onChange={(e) => {
@@ -1484,7 +1484,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                     }}
                     className="w-full h-10 text-sm bg-nebula border border-white/[0.06] text-white rounded-lg px-3 focus:outline-none focus:ring-1 focus:theme-ring focus:theme-border appearance-none cursor-pointer"
                   >
-                    <option value="" disabled>Pilih bahan baku...</option>
+                    <option value="" disabled>Pilih item...</option>
                     {inventoryItems
                       .filter((item) => !compositions.some((c) => c.inventoryItemId === item.id))
                       .map((item) => (
@@ -1494,7 +1494,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                       ))}
                   </select>
                   {inventoryItems.length === 0 && (
-                    <p className="text-[10px] text-slate-600">Belum ada bahan baku. Tambahkan di halaman Pembelian → Inventory.</p>
+                    <p className="text-[10px] text-slate-600">Belum ada item. Tambahkan di halaman Pembelian → Inventory.</p>
                   )}
                 </div>
 
@@ -1502,7 +1502,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                 <div className="flex items-start gap-2.5 bg-sky-500/5 border border-sky-500/15 rounded-lg p-3">
                   <Beaker className="h-3.5 w-3.5 text-sky-400 mt-0.5 flex-shrink-0" />
                   <div className="text-[11px] text-sky-300/80 leading-relaxed">
-                    Saat komposisi aktif, <span className="font-medium text-sky-300">HPP akan dihitung otomatis</span> dari total biaya bahan baku. Setiap penjualan akan mengurangi stok bahan baku sesuai komposisi.
+                    Saat komposisi aktif, <span className="font-medium text-sky-300">HPP akan dihitung otomatis</span> dari total biaya item. Setiap penjualan akan mengurangi stok item sesuai komposisi.
                   </div>
                 </div>
               </div>

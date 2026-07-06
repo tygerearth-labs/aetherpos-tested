@@ -78,6 +78,9 @@ import {
   ChevronDown,
   Sparkles,
   Copy,
+  Activity,
+  ArrowUpDown,
+  Link2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -156,6 +159,50 @@ interface InventoryStats {
   totalItems: number
   totalValue: number
   lowStockCount: number
+}
+
+interface LinkedProduct {
+  id: string
+  productId: string
+  productName: string
+  productSku: string | null
+  productImage: string | null
+  productPrice: number
+  productStock: number
+  variantId: string | null
+  variantName: string | null
+  variantPrice: number | null
+  qty: number
+  yieldPerBatch: number
+  baseUnit: string
+}
+
+interface InventoryMovementRow {
+  id: string
+  type: string
+  quantity: number
+  previousStock: number
+  newStock: number
+  referenceId: string | null
+  referenceType: string | null
+  notes: string | null
+  createdAt: string
+  userName: string | null
+}
+
+interface InventoryItemDetail {
+  id: string
+  name: string
+  sku: string | null
+  baseUnit: string
+  stock: number
+  avgCost: number
+  lowStockAlert: number
+  category: { id: string; name: string; color: string } | null
+  _count: { compositions: number; purchaseItems: number; movements: number }
+  linkedProducts: LinkedProduct[]
+  movements: InventoryMovementRow[]
+  movementPagination: { page: number; totalPages: number; total: number }
 }
 
 interface InventoryListResponse {
@@ -280,7 +327,7 @@ export default function PurchasePage() {
   ])
 
   // ══════════════════════════════════════════════════════════
-  // TAB 2: INVENTORY BAHAN (Inventory Items)
+  // TAB 2: INVENTORY ITEMS (Inventory Items)
   // ══════════════════════════════════════════════════════════
 
   const [invList, setInvList] = useState<InventoryItem[]>([])
@@ -311,6 +358,14 @@ export default function PurchasePage() {
   const [invAdjustNewStock, setInvAdjustNewStock] = useState('')
   const [invAdjustReason, setInvAdjustReason] = useState('')
   const [invAdjusting, setInvAdjusting] = useState(false)
+
+  // Inventory detail dialog
+  const [invDetailOpen, setInvDetailOpen] = useState(false)
+  const [invDetailData, setInvDetailData] = useState<InventoryItemDetail | null>(null)
+  const [invDetailLoading, setInvDetailLoading] = useState(false)
+  const [invDetailError, setInvDetailError] = useState<string | null>(null)
+  const [invDetailTab, setInvDetailTab] = useState('detail')
+  const [invDetailMovementPage, setInvDetailMovementPage] = useState(1)
 
   // Inventory delete
   const [deleteInvId, setDeleteInvId] = useState<string | null>(null)
@@ -895,7 +950,7 @@ export default function PurchasePage() {
 
   const handleInvFormSubmit = async () => {
     if (!invFormName.trim()) {
-      toast.error('Nama bahan wajib diisi')
+      toast.error('Nama item wajib diisi')
       return
     }
     setInvFormLoading(true)
@@ -921,16 +976,16 @@ export default function PurchasePage() {
         body: JSON.stringify(body),
       })
       if (res.ok) {
-        toast.success(isEdit ? 'Bahan berhasil diperbarui' : 'Bahan berhasil ditambahkan')
+        toast.success(isEdit ? 'Item berhasil diperbarui' : 'Item berhasil ditambahkan')
         setInvFormOpen(false)
         void fetchInventoryItems()
         void fetchCategories()
       } else {
         const data = await res.json()
-        toast.error(data.error || 'Gagal menyimpan bahan')
+        toast.error(data.error || 'Gagal menyimpan item')
       }
     } catch {
-      toast.error('Gagal menyimpan bahan')
+      toast.error('Gagal menyimpan item')
     } finally {
       setInvFormLoading(false)
     }
@@ -953,17 +1008,17 @@ export default function PurchasePage() {
             linkedProducts: data.linkedProducts || [],
           })
         } else {
-          toast.success('Bahan berhasil dihapus')
+          toast.success('Item berhasil dihapus')
           setDeleteInvId(null)
           setInvDeleteBlocked(null)
           void fetchInventoryItems()
         }
       } else {
         const data = await res.json().catch(() => ({}))
-        toast.error(data.error || 'Gagal menghapus bahan')
+        toast.error(data.error || 'Gagal menghapus item')
       }
     } catch {
-      toast.error('Gagal menghapus bahan')
+      toast.error('Gagal menghapus item')
     } finally {
       setDeletingInv(false)
     }
@@ -979,6 +1034,40 @@ export default function PurchasePage() {
     setInvAdjustNewStock(String(item.stock))
     setInvAdjustReason('')
     setInvAdjustOpen(true)
+  }
+
+  const openInvDetail = async (item: InventoryItem) => {
+    setInvDetailOpen(true)
+    setInvDetailData(null)
+    setInvDetailError(null)
+    setInvDetailLoading(true)
+    setInvDetailTab('detail')
+    setInvDetailMovementPage(1)
+    try {
+      const res = await fetch(`/api/inventory/items/${item.id}?page=1`)
+      if (res.ok) {
+        const data = await res.json()
+        setInvDetailData(data)
+      } else {
+        const data = await res.json().catch(() => ({}))
+        setInvDetailError(data.error || 'Gagal memuat detail item')
+      }
+    } catch {
+      setInvDetailError('Gagal memuat detail item')
+    } finally {
+      setInvDetailLoading(false)
+    }
+  }
+
+  const fetchInvDetailMovements = async (itemId: string, page: number) => {
+    if (!invDetailData) return
+    try {
+      const res = await fetch(`/api/inventory/items/${itemId}?page=${page}`)
+      if (res.ok) {
+        const data = await res.json()
+        setInvDetailData((prev) => prev ? { ...prev, movements: data.movements, movementPagination: data.movementPagination } : null)
+      }
+    } catch { /* ignore pagination fetch errors */ }
   }
 
   const handleInvAdjustSubmit = async () => {
@@ -1207,7 +1296,7 @@ export default function PurchasePage() {
         })
       }
 
-      toast.success(`Produk "${postProductName}" berhasil dibuat dari ${selectedItems.length} bahan`)
+      toast.success(`Produk "${postProductName}" berhasil dibuat dari ${selectedItems.length} item`)
       setPostProductOpen(false)
       resetPostProductForm()
       void fetchInventoryItems()
@@ -1286,7 +1375,7 @@ export default function PurchasePage() {
             <ShoppingCart className="h-5 w-5 theme-text" />
             Purchase &amp; Inventory
           </h1>
-          <p className="text-sm text-slate-500">Kelola pembelian stok bahan dan inventory</p>
+          <p className="text-sm text-slate-500">Kelola pembelian stok item dan inventory</p>
         </div>
       </motion.div>
 
@@ -1306,7 +1395,7 @@ export default function PurchasePage() {
               className="text-xs font-medium h-7 rounded-md data-[state=active]:bg-white/[0.08] data-[state=active]:text-white text-slate-400 px-3 gap-1.5"
             >
               <PackagePlus className="h-3 w-3" />
-              Inventory Bahan
+              Inventory Items
             </TabsTrigger>
           </TabsList>
 
@@ -1368,7 +1457,7 @@ export default function PurchasePage() {
                         <div>
                           <p className="text-xs font-medium text-slate-200 mb-0.5">Flow Pembelian</p>
                           <p className="text-[11px] text-slate-400 leading-relaxed">
-                            Pilih item inventory → isi <span className="text-amber-400/80 font-medium">jumlah, satuan, dan harga</span> → sistem otomatis menghitung HPP rata-rata berbobot &amp; menambah stok bahan
+                            Pilih item inventory → isi <span className="text-amber-400/80 font-medium">jumlah, satuan, dan harga</span> → sistem otomatis menghitung HPP rata-rata berbobot &amp; menambah stok item
                           </p>
                         </div>
                       </div>
@@ -1379,7 +1468,7 @@ export default function PurchasePage() {
                         <div>
                           <p className="text-xs font-medium text-slate-200 mb-0.5">HPP Otomatis</p>
                           <p className="text-[11px] text-slate-400 leading-relaxed">
-                            Setiap pembelian memperbarui <span className="text-cyan-400/80 font-medium">HPP rata-rata berbobot</span> (weighted average cost) yang langsung terpropagasi ke produk yang menggunakan bahan tersebut
+                            Setiap pembelian memperbarui <span className="text-cyan-400/80 font-medium">HPP rata-rata berbobot</span> (weighted average cost) yang langsung terpropagasi ke produk yang menggunakan item tersebut
                           </p>
                         </div>
                       </div>
@@ -1390,7 +1479,7 @@ export default function PurchasePage() {
                         <div>
                           <p className="text-xs font-medium text-slate-200 mb-0.5">Inventory Otomatis</p>
                           <p className="text-[11px] text-slate-400 leading-relaxed">
-                            Daftar bahan muncul otomatis dari hasil pembelian. <span className="text-violet-400/80 font-medium">Tidak perlu menambahkan bahan manual</span> — gunakan "Buat Pembelian" untuk mulai
+                            Daftar item muncul otomatis dari hasil pembelian. <span className="text-violet-400/80 font-medium">Tidak perlu menambahkan item manual</span> — gunakan "Buat Pembelian" untuk mulai
                           </p>
                         </div>
                       </div>
@@ -1422,7 +1511,7 @@ export default function PurchasePage() {
                       </div>
                     </div>
                     <p className="text-base sm:text-lg font-bold text-white">{formatCurrency(purchaseSummary.totalInventoryNominal)}</p>
-                    <p className="text-[10px] sm:text-xs text-slate-500">{purchaseSummary.totalInventoryItems} jenis bahan</p>
+                    <p className="text-[10px] sm:text-xs text-slate-500">{purchaseSummary.totalInventoryItems} jenis item</p>
                   </CardContent>
                 </Card>
                 <Card className="bg-nebula border-white/[0.06] rounded-xl">
@@ -1476,7 +1565,7 @@ export default function PurchasePage() {
                         <TableCell colSpan={6} className="text-center py-12">
                           <ShoppingCart className="h-8 w-8 text-slate-600 mx-auto mb-2" />
                           <p className="text-sm text-slate-500">Belum ada pembelian</p>
-                          <p className="text-xs text-slate-600 mt-1">Klik "Buat Pembelian" untuk mencatat pembelian bahan baku</p>
+                          <p className="text-xs text-slate-600 mt-1">Klik "Buat Pembelian" untuk mencatat pembelian item</p>
                         </TableCell>
                       </TableRow>
                     ) : (
@@ -1522,7 +1611,7 @@ export default function PurchasePage() {
                   <CardContent className="py-12 text-center">
                     <ShoppingCart className="h-8 w-8 text-slate-600 mx-auto mb-2" />
                     <p className="text-sm text-slate-500">Belum ada pembelian</p>
-                    <p className="text-xs text-slate-600 mt-1">Klik "Buat Pembelian" untuk mencatat pembelian bahan baku</p>
+                    <p className="text-xs text-slate-600 mt-1">Klik "Buat Pembelian" untuk mencatat pembelian item</p>
                   </CardContent>
                 </Card>
               ) : (
@@ -1580,7 +1669,7 @@ export default function PurchasePage() {
           </TabsContent>
 
           {/* ══════════════════════════════════════════════════════ */}
-          {/* TAB 2: INVENTORY BAHAN                                */}
+          {/* TAB 2: INVENTORY ITEMS                                */}
           {/* ══════════════════════════════════════════════════════ */}
           <TabsContent value="inventory" className="mt-4 space-y-4">
             {/* Top bar */}
@@ -1702,7 +1791,7 @@ export default function PurchasePage() {
                       <TableRow className="border-white/[0.04] hover:bg-transparent">
                         <TableCell colSpan={8} className="text-center py-12">
                           <PackagePlus className="h-8 w-8 text-slate-600 mx-auto mb-2" />
-                          <p className="text-sm text-slate-500">Belum ada bahan. Buat pembelian untuk menambahkan bahan.</p>
+                          <p className="text-sm text-slate-500">Belum ada item. Buat pembelian untuk menambahkan item.</p>
                         </TableCell>
                       </TableRow>
                     ) : (
@@ -1753,6 +1842,14 @@ export default function PurchasePage() {
                                   variant="ghost"
                                   size="sm"
                                   className="h-7 px-2 text-slate-400 hover:text-white hover:bg-white/[0.04]"
+                                  onClick={() => openInvDetail(item)}
+                                >
+                                  <Eye className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 px-2 text-slate-400 hover:text-white hover:bg-white/[0.04]"
                                   onClick={() => openInvForm(item)}
                                 >
                                   <Edit3 className="h-3.5 w-3.5" />
@@ -1782,7 +1879,7 @@ export default function PurchasePage() {
                 <Card className="bg-nebula border-white/[0.06]">
                   <CardContent className="py-12 text-center">
                     <PackagePlus className="h-8 w-8 text-slate-600 mx-auto mb-2" />
-                    <p className="text-sm text-slate-500">Belum ada bahan. Buat pembelian untuk menambahkan bahan.</p>
+                    <p className="text-sm text-slate-500">Belum ada item. Buat pembelian untuk menambahkan item.</p>
                   </CardContent>
                 </Card>
               ) : (
@@ -1836,6 +1933,14 @@ export default function PurchasePage() {
                               <span className="text-[11px] text-emerald-400 font-medium">{formatCurrency(item.stock * item.avgCost)}</span>
                             </div>
                             <div className="flex items-center gap-1.5 pt-1 border-t border-white/[0.04]">
+                              <Button
+                                size="sm"
+                                className="flex-1 h-7 text-[10px] gap-1 text-slate-400 hover:text-white hover:bg-white/[0.04]"
+                                onClick={() => openInvDetail(item)}
+                              >
+                                <Eye className="h-3 w-3" />
+                                Detail
+                              </Button>
                               <Button
                                 size="sm"
                                 className="flex-1 h-7 text-[10px] gap-1 text-slate-400 hover:text-white hover:bg-white/[0.04]"
@@ -2020,7 +2125,7 @@ export default function PurchasePage() {
               Pembelian Baru
             </ResponsiveDialogTitle>
             <ResponsiveDialogDescription className="text-slate-400 text-xs">
-              Catat pembelian bahan baku untuk stok toko
+              Catat pembelian item untuk stok toko
             </ResponsiveDialogDescription>
           </ResponsiveDialogHeader>
 
@@ -2424,7 +2529,7 @@ export default function PurchasePage() {
               Edit Pembelian
             </ResponsiveDialogTitle>
             <ResponsiveDialogDescription className="text-slate-400 text-xs">
-              Ubah detail pembelian bahan baku
+              Ubah detail pembelian item
             </ResponsiveDialogDescription>
           </ResponsiveDialogHeader>
 
@@ -2667,7 +2772,7 @@ export default function PurchasePage() {
                 <span className="text-lg font-bold text-emerald-400">{formatCurrency(poEditTotalCost)}</span>
               </div>
               <p className="text-[9px] text-amber-500/60 mt-1">
-                ⚠ Stok bahan akan dikurangi lalu ditambah ulang sesuai perubahan
+                ⚠ Stok item akan dikurangi lalu ditambah ulang sesuai perubahan
               </p>
             </div>
             <div className="flex gap-2">
@@ -2701,7 +2806,7 @@ export default function PurchasePage() {
           <AlertDialogHeader>
             <AlertDialogTitle className="text-white">Hapus Pembelian?</AlertDialogTitle>
             <AlertDialogDescription className="text-slate-400">
-              Pembelian yang dihapus tidak dapat dikembalikan. Stok bahan yang sudah masuk dari pembelian ini juga akan dikurangi.
+              Pembelian yang dihapus tidak dapat dikembalikan. Stok item yang sudah masuk dari pembelian ini juga akan dikurangi.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="gap-2">
@@ -2726,7 +2831,7 @@ export default function PurchasePage() {
         <ResponsiveDialogContent className="sm:max-w-lg">
           <ResponsiveDialogHeader>
             <ResponsiveDialogTitle className="text-white text-base">
-              {invFormEdit ? 'Edit Bahan' : 'Tambah Bahan Baru'}
+              {invFormEdit ? 'Edit Item' : 'Tambah Item Baru'}
             </ResponsiveDialogTitle>
           </ResponsiveDialogHeader>
           <div className="space-y-3 mt-2">
@@ -2735,7 +2840,7 @@ export default function PurchasePage() {
               <Input
                 value={invFormName}
                 onChange={(e) => setInvFormName(e.target.value)}
-                placeholder="Nama bahan"
+                placeholder="Nama item"
                 className={inputClass}
               />
             </div>
@@ -2910,10 +3015,10 @@ export default function PurchasePage() {
       <AlertDialog open={!!deleteInvId} onOpenChange={(open) => { if (!open) { setDeleteInvId(null); setInvDeleteBlocked(null) } }}>
         <AlertDialogContent className="bg-nebula border-white/[0.06]">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-white">Hapus Bahan?</AlertDialogTitle>
+            <AlertDialogTitle className="text-white">Hapus Item?</AlertDialogTitle>
             {!invDeleteBlocked ? (
               <AlertDialogDescription className="text-slate-400">
-                Bahan yang dihapus tidak dapat dikembalikan.
+                Item yang dihapus tidak dapat dikembalikan.
               </AlertDialogDescription>
             ) : null}
           </AlertDialogHeader>
@@ -2923,7 +3028,7 @@ export default function PurchasePage() {
               <div className="flex items-start gap-2 rounded-lg bg-amber-500/10 border border-amber-500/20 p-3">
                 <AlertTriangle className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
                 <div className="text-sm">
-                  <p className="text-amber-300 font-medium">Bahan ini digunakan dalam {invDeleteBlocked.compositionCount} komposisi produk:</p>
+                  <p className="text-amber-300 font-medium">Item ini digunakan dalam {invDeleteBlocked.compositionCount} komposisi produk:</p>
                   <div className="mt-2 space-y-1">
                     {invDeleteBlocked.linkedProducts.map((lp, i) => (
                       <div key={i} className="flex items-center gap-2 text-slate-300">
@@ -2939,7 +3044,7 @@ export default function PurchasePage() {
                     ))}
                   </div>
                   <p className="text-amber-400/70 text-xs mt-2">
-                    Menghapus akan melepas komposisi dari semua produk di atas dan menyesuaikan HPP-nya.
+                    Menghapus akan melepas komposisi dari semua produk di atas. <span className="text-red-400 font-medium">Stok semua produk terkait akan direset ke 0</span> dan produk tidak akan muncul di POS sampai komposisi disesuaikan ulang.
                   </p>
                 </div>
               </div>
@@ -2954,7 +3059,7 @@ export default function PurchasePage() {
                 onClick={() => handleDeleteInv(true)}
                 disabled={deletingInv}
               >
-                {deletingInv ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Ya, Hapus & Lepas Komposisi'}
+                {deletingInv ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Ya, Hapus & Reset Stok Produk'}
               </AlertDialogAction>
             ) : (
               <AlertDialogAction
@@ -2979,7 +3084,7 @@ export default function PurchasePage() {
           <ResponsiveDialogHeader>
             <ResponsiveDialogTitle className="text-white text-base">Kelola Kategori</ResponsiveDialogTitle>
             <ResponsiveDialogDescription className="text-slate-400 text-xs">
-              Kategori untuk mengelompokkan bahan inventory
+              Kategori untuk mengelompokkan item inventory
             </ResponsiveDialogDescription>
           </ResponsiveDialogHeader>
           <div className="space-y-3 mt-2">
@@ -3036,7 +3141,7 @@ export default function PurchasePage() {
                       <div className="flex-1 min-w-0">
                         <p className="text-xs text-slate-200 font-medium truncate">{c.name}</p>
                         {c._count && c._count.items > 0 && (
-                          <p className="text-[10px] text-slate-500">{c._count.items} bahan</p>
+                          <p className="text-[10px] text-slate-500">{c._count.items} item</p>
                         )}
                       </div>
                       <Button
@@ -3062,7 +3167,7 @@ export default function PurchasePage() {
           <AlertDialogHeader>
             <AlertDialogTitle className="text-white">Hapus Kategori?</AlertDialogTitle>
             <AlertDialogDescription className="text-slate-400">
-              Kategori yang dihapus tidak dapat dikembalikan. Bahan dalam kategori ini akan menjadi tanpa kategori.
+              Kategori yang dihapus tidak dapat dikembalikan. Item dalam kategori ini akan menjadi tanpa kategori.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="gap-2">
@@ -3092,7 +3197,7 @@ export default function PurchasePage() {
               Post sebagai Produk
             </ResponsiveDialogTitle>
             <ResponsiveDialogDescription className="text-slate-400 text-xs">
-              {postStep === 1 && 'Atur jumlah pemakaian tiap bahan baku'}
+              {postStep === 1 && 'Atur jumlah pemakaian tiap item'}
               {postStep === 2 && 'Isi detail produk dan atur varian'}
               {postStep === 3 && 'Review sebelum membuat produk'}
             </ResponsiveDialogDescription>
@@ -3240,7 +3345,7 @@ export default function PurchasePage() {
                     <span className="text-[11px] text-slate-400">HPP Otomatis (dari komposisi)</span>
                     <span className="text-xs font-bold text-emerald-400">{formatCurrency(postEstimatedHpp)}</span>
                   </div>
-                  <p className="text-[10px] text-slate-600">Dihitung dari total qty × HPP bahan. HPP akan otomatis terupdate saat ada pembelian baru.</p>
+                  <p className="text-[10px] text-slate-600">Dihitung dari total qty × HPP item. HPP akan otomatis terupdate saat ada pembelian baru.</p>
                 </div>
 
                 {/* Variant toggle — always visible */}
@@ -3428,7 +3533,7 @@ export default function PurchasePage() {
                   </div>
                 ) : (
                   <div className="bg-white/[0.03] rounded-lg p-3 border border-white/[0.04]">
-                    <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Komposisi Bahan</p>
+                    <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Komposisi Item</p>
                     <div className="space-y-1.5 mt-2">
                       {selectedInvItems.map((item) => {
                         const qty = parseFloat(postCompQty[item.id]) || 0
@@ -3500,7 +3605,7 @@ export default function PurchasePage() {
                   if (postStep === 1) {
                     // Validate: at least 1 item has qty > 0
                     const hasQty = selectedInvItems.some(i => (parseFloat(postCompQty[i.id]) || 0) > 0)
-                    if (!hasQty) { toast.error('Isi jumlah pemakaian minimal 1 bahan'); return }
+                    if (!hasQty) { toast.error('Isi jumlah pemakaian minimal 1 item'); return }
                   }
                   if (postStep === 2) {
                     if (!postProductName.trim()) { toast.error('Nama produk wajib diisi'); return }
@@ -3528,6 +3633,230 @@ export default function PurchasePage() {
               </Button>
             )}
           </ResponsiveDialogFooter>
+        </ResponsiveDialogContent>
+      </ResponsiveDialog>
+
+      {/* ── Inventory Item Detail Dialog ── */}
+      <ResponsiveDialog open={invDetailOpen} onOpenChange={setInvDetailOpen}>
+        <ResponsiveDialogContent className="sm:max-w-xl max-h-[85vh] overflow-y-auto">
+          <ResponsiveDialogHeader>
+            <ResponsiveDialogTitle className="text-white text-base">Detail Item</ResponsiveDialogTitle>
+            <ResponsiveDialogDescription className="text-slate-400 text-xs">
+              {invDetailData?.name || '-'}
+            </ResponsiveDialogDescription>
+          </ResponsiveDialogHeader>
+
+          {invDetailLoading ? (
+            <div className="space-y-3 py-4">
+              <Skeleton className="h-16 bg-white/[0.04] rounded-xl" />
+              <Skeleton className="h-24 bg-white/[0.04] rounded-xl" />
+              <Skeleton className="h-16 bg-white/[0.04] rounded-xl" />
+            </div>
+          ) : invDetailError ? (
+            <div className="py-8 text-center">
+              <AlertTriangle className="h-8 w-8 text-amber-400/60 mx-auto mb-2" />
+              <p className="text-xs text-slate-400">{invDetailError}</p>
+              <Button size="sm" variant="ghost" className="mt-3 h-8 text-xs text-slate-400 hover:text-white hover:bg-white/[0.04]" onClick={() => setInvDetailOpen(false)}>
+                Tutup
+              </Button>
+            </div>
+          ) : invDetailData ? (
+            <div className="space-y-4 mt-2">
+              {/* Info cards */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-white/[0.03] rounded-xl p-3 border border-white/[0.04]">
+                  <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Stok Saat Ini</p>
+                  <p className={cn('text-lg font-bold', invDetailData.stock <= invDetailData.lowStockAlert ? 'text-red-400' : 'text-white')}>
+                    {formatNumber(invDetailData.stock)} <span className="text-xs font-normal text-slate-400">{invDetailData.baseUnit}</span>
+                  </p>
+                </div>
+                <div className="bg-white/[0.03] rounded-xl p-3 border border-white/[0.04]">
+                  <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">HPP Rata-rata</p>
+                  <p className="text-lg font-bold text-emerald-400">{formatCurrency(invDetailData.avgCost)}</p>
+                  <p className="text-[10px] text-slate-500">per {invDetailData.baseUnit}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <div className="bg-white/[0.03] rounded-lg p-2.5 border border-white/[0.04] text-center">
+                  <p className="text-sm font-bold text-white">{formatCurrency(invDetailData.stock * invDetailData.avgCost)}</p>
+                  <p className="text-[10px] text-slate-500">Total Nilai</p>
+                </div>
+                <div className="bg-white/[0.03] rounded-lg p-2.5 border border-white/[0.04] text-center">
+                  <p className="text-sm font-bold text-white">{invDetailData._count.compositions}</p>
+                  <p className="text-[10px] text-slate-500">Komposisi</p>
+                </div>
+                <div className="bg-white/[0.03] rounded-lg p-2.5 border border-white/[0.04] text-center">
+                  <p className="text-sm font-bold text-white">{invDetailData._count.movements}</p>
+                  <p className="text-[10px] text-slate-500">Movement</p>
+                </div>
+              </div>
+
+              {/* Detail fields */}
+              <div className="bg-white/[0.03] rounded-xl p-3 border border-white/[0.04] space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-slate-500">SKU</span>
+                  <span className="text-xs text-slate-200 font-mono">{invDetailData.sku || '-'}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-slate-500">Satuan Dasar</span>
+                  <span className="text-xs text-slate-200">{invDetailData.baseUnit}</span>
+                </div>
+                {invDetailData.category && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] text-slate-500">Kategori</span>
+                    <Badge variant="outline" className={cn('text-[10px] px-1.5 py-0 leading-none border font-medium', getCategoryColorClasses(invDetailData.category.color)?.bg, getCategoryColorClasses(invDetailData.category.color)?.text, getCategoryColorClasses(invDetailData.category.color)?.border)}>
+                      {invDetailData.category.name}
+                    </Badge>
+                  </div>
+                )}
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-slate-500">Low Stock Alert</span>
+                  <span className="text-xs text-slate-200">{formatNumber(invDetailData.lowStockAlert)} {invDetailData.baseUnit}</span>
+                </div>
+              </div>
+
+              {/* Tabs: Produk Terkait & Movement */}
+              <Tabs value={invDetailTab} onValueChange={setInvDetailTab} className="w-full">
+                <TabsList className="bg-white/[0.04] h-8 w-full grid grid-cols-2">
+                  <TabsTrigger value="products" className="text-[10px] h-7 gap-1 data-[state=active]:bg-white/[0.08] text-slate-400 data-[state=active]:text-white">
+                    <Link2 className="h-3 w-3" />
+                    Produk Terkait ({invDetailData.linkedProducts.length})
+                  </TabsTrigger>
+                  <TabsTrigger value="movements" className="text-[10px] h-7 gap-1 data-[state=active]:bg-white/[0.08] text-slate-400 data-[state=active]:text-white">
+                    <Activity className="h-3 w-3" />
+                    Movement ({invDetailData._count.movements})
+                  </TabsTrigger>
+                </TabsList>
+
+                {/* Linked Products Tab */}
+                <TabsContent value="products" className="mt-3">
+                  {invDetailData.linkedProducts.length === 0 ? (
+                    <div className="py-8 text-center">
+                      <Link2 className="h-6 w-6 text-slate-600 mx-auto mb-2" />
+                      <p className="text-xs text-slate-500">Item ini belum ditautkan ke produk manapun.</p>
+                      <p className="text-[10px] text-slate-600 mt-1">Gunakan komposisi di form produk untuk menautkan.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                      {invDetailData.linkedProducts.map((lp) => (
+                        <div key={lp.id} className="bg-white/[0.03] rounded-lg p-3 border border-white/[0.04] flex items-center justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs text-slate-200 font-medium truncate">
+                              {lp.productName}
+                              {lp.variantName && <span className="text-slate-400 font-normal"> ({lp.variantName})</span>}
+                            </p>
+                            <div className="flex items-center gap-3 mt-1">
+                              <span className="text-[10px] text-slate-500">
+                                Pakai: <span className="text-sky-400 font-medium">{formatNumber(lp.qty)}</span> {lp.baseUnit}
+                                {lp.yieldPerBatch > 1 && <span className="text-violet-400"> / {lp.yieldPerBatch} unit</span>}
+                              </span>
+                              <span className="text-[10px] text-slate-500">
+                                Harga: <span className="text-emerald-400 font-medium">{formatCurrency(lp.variantPrice || lp.productPrice)}</span>
+                              </span>
+                              <span className="text-[10px] text-slate-500">
+                                Stok: <span className="text-white font-medium">{lp.productStock}</span>
+                              </span>
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <Badge variant="outline" className="text-[9px] px-1.5 py-0 leading-none border border-sky-500/20 text-sky-400 bg-sky-500/[0.06]">
+                              Komposisi
+                            </Badge>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </TabsContent>
+
+                {/* Movements Tab */}
+                <TabsContent value="movements" className="mt-3">
+                  {invDetailData.movements.length === 0 ? (
+                    <div className="py-8 text-center">
+                      <Activity className="h-6 w-6 text-slate-600 mx-auto mb-2" />
+                      <p className="text-xs text-slate-500">Belum ada riwayat pergerakan stok.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
+                      {invDetailData.movements.map((m) => (
+                        <div key={m.id} className="flex items-center gap-3 py-2 px-2.5 rounded-lg bg-white/[0.02] border border-white/[0.03]">
+                          <div className={cn(
+                            'w-7 h-7 rounded-lg flex items-center justify-center shrink-0',
+                            m.quantity > 0 ? 'bg-emerald-500/10' : 'bg-red-500/10'
+                          )}>
+                            <ArrowUpDown className={cn('h-3.5 w-3.5', m.quantity > 0 ? 'text-emerald-400' : 'text-red-400')} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] text-slate-200 font-medium">
+                                {m.type === 'PURCHASE' ? 'Pembelian' :
+                                 m.type === 'CONSUMPTION' ? 'Konsumsi' :
+                                 m.type === 'ADJUSTMENT' ? 'Penyesuaian' :
+                                 m.type === 'TRANSFER_OUT' ? 'Transfer Keluar' :
+                                 m.type === 'TRANSFER_IN' ? 'Transfer Masuk' :
+                                 m.type}
+                              </span>
+                              <span className={cn('text-xs font-bold tabular-nums', m.quantity > 0 ? 'text-emerald-400' : 'text-red-400')}>
+                                {m.quantity > 0 ? '+' : ''}{formatNumber(m.quantity)}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className="text-[10px] text-slate-500">
+                                {formatNumber(m.previousStock)} → {formatNumber(m.newStock)}
+                              </span>
+                              {m.userName && (
+                                <span className="text-[10px] text-slate-600">• {m.userName}</span>
+                              )}
+                            </div>
+                            {m.notes && (
+                              <p className="text-[10px] text-slate-500 mt-0.5 truncate">{m.notes}</p>
+                            )}
+                            <p className="text-[9px] text-slate-600 mt-0.5">{formatDate(m.createdAt)}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Movement pagination */}
+                  {invDetailData.movementPagination && invDetailData.movementPagination.totalPages > 1 && (
+                    <div className="flex items-center justify-center gap-2 mt-3 pt-3 border-t border-white/[0.04]">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 text-[10px] text-slate-400 hover:text-white hover:bg-white/[0.04]"
+                        disabled={invDetailMovementPage <= 1}
+                        onClick={() => {
+                          const p = invDetailMovementPage - 1
+                          setInvDetailMovementPage(p)
+                          void fetchInvDetailMovements(invDetailData.id, p)
+                        }}
+                      >
+                        Prev
+                      </Button>
+                      <span className="text-[10px] text-slate-500">
+                        {invDetailMovementPage} / {invDetailData.movementPagination.totalPages}
+                      </span>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 text-[10px] text-slate-400 hover:text-white hover:bg-white/[0.04]"
+                        disabled={invDetailMovementPage >= invDetailData.movementPagination.totalPages}
+                        onClick={() => {
+                          const p = invDetailMovementPage + 1
+                          setInvDetailMovementPage(p)
+                          void fetchInvDetailMovements(invDetailData.id, p)
+                        }}
+                      >
+                        Next
+                      </Button>
+                    </div>
+                  )}
+                </TabsContent>
+              </Tabs>
+            </div>
+          ) : null}
         </ResponsiveDialogContent>
       </ResponsiveDialog>
     </motion.div>

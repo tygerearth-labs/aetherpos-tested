@@ -248,10 +248,10 @@ export default function InventoryMovementPage() {
         setTotalStockIn(data.totalStockIn)
         setTotalStockOut(data.totalStockOut)
       } else {
-        toast.error('Gagal memuat log stok bahan')
+        toast.error('Gagal memuat log stok item')
       }
     } catch {
-      toast.error('Gagal memuat log stok bahan')
+      toast.error('Gagal memuat log stok item')
     } finally {
       setLoading(false)
     }
@@ -334,10 +334,10 @@ export default function InventoryMovementPage() {
         <div>
           <h1 className="text-lg font-semibold text-zinc-100 flex items-center gap-2">
             <Activity className="h-5 w-5 text-emerald-400" />
-            Log Stok Bahan
+            Log Stok Item
           </h1>
           <p className="text-xs text-zinc-500 mt-0.5">
-            Riwayat pergerakan stok bahan baku
+            Riwayat pergerakan stok item
           </p>
         </div>
       </motion.div>
@@ -410,7 +410,7 @@ export default function InventoryMovementPage() {
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500 pointer-events-none" />
               <Input
                 type="text"
-                placeholder="Cari nama bahan..."
+                placeholder="Cari nama item..."
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
                 onKeyDown={handleKeyDown}
@@ -751,7 +751,7 @@ export default function InventoryMovementPage() {
               Detail Pergerakan Stok
             </ResponsiveDialogTitle>
             <ResponsiveDialogDescription className="text-zinc-500 text-xs">
-              Informasi lengkap pergerakan bahan baku
+              Informasi lengkap pergerakan item
             </ResponsiveDialogDescription>
           </ResponsiveDialogHeader>
 

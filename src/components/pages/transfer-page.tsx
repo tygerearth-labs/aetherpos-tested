@@ -255,10 +255,10 @@ export default function TransferPage() {
   // Action loading
   const [actionLoading, setActionLoading] = useState<string | null>(null)
 
-  // ── Top-level tab (produk vs bahan-baku) ──
+  // ── Top-level tab (produk vs item) ──
   const [mainTab, setMainTab] = useState('produk')
 
-  // ── Bahan Baku (Inventory) state ──
+  // ── Item (Inventory) state ──
   const [invTransfers, setInvTransfers] = useState<InventoryTransfer[]>([])
   const [invLoading, setInvLoading] = useState(true)
   const [invTab, setInvTab] = useState('outbound')
@@ -358,7 +358,7 @@ export default function TransferPage() {
   }, [])
 
   // ══════════════════════════════════════════
-  // Bahan Baku (Inventory Transfer) Logic
+  // Item (Inventory Transfer) Logic
   // ══════════════════════════════════════════
 
   // ── Fetch inventory transfers ──
@@ -371,7 +371,7 @@ export default function TransferPage() {
         setInvTransfers(data.transfers || [])
       }
     } catch {
-      toast.error('Gagal memuat data transfer bahan baku')
+      toast.error('Gagal memuat data transfer item')
     } finally {
       setInvLoading(false)
     }
@@ -421,7 +421,7 @@ export default function TransferPage() {
     try {
       const res = await fetch(`/api/transfers/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'IN_TRANSIT' }) })
       if (res.ok) {
-        toast.success('Transfer bahan baku berhasil dikirim')
+        toast.success('Transfer item berhasil dikirim')
         void fetchInvTransfers()
       } else {
         const data = await res.json()
@@ -440,7 +440,7 @@ export default function TransferPage() {
       const res = await fetch(`/api/transfers/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'RECEIVED' }) })
       if (res.ok) {
         const data = await res.json()
-        toast.success(data.message || 'Transfer bahan baku berhasil diterima', { duration: 5000 })
+        toast.success(data.message || 'Transfer item berhasil diterima', { duration: 5000 })
         void fetchInvTransfers()
         setInvDetailOpen(false)
       } else {
@@ -459,7 +459,7 @@ export default function TransferPage() {
     try {
       const res = await fetch(`/api/transfers/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'CANCELLED' }) })
       if (res.ok) {
-        toast.success('Transfer bahan baku dibatalkan')
+        toast.success('Transfer item dibatalkan')
         void fetchInvTransfers()
         setInvDetailOpen(false)
       } else {
@@ -498,7 +498,7 @@ export default function TransferPage() {
   // ── Inv add item ──
   const invHandleAddItem = (item: InventoryItemOption) => {
     if (invCreateItems.find(i => i.inventoryItemId === item.id)) {
-      toast.error('Bahan baku sudah ditambahkan')
+      toast.error('Item sudah ditambahkan')
       return
     }
     const qty = parseFloat(invAddQty) || 1
@@ -548,7 +548,7 @@ export default function TransferPage() {
       return
     }
     if (invCreateItems.length === 0) {
-      toast.error('Tambahkan minimal 1 bahan baku')
+      toast.error('Tambahkan minimal 1 item')
       return
     }
     setInvCreateLoading(true)
@@ -567,7 +567,7 @@ export default function TransferPage() {
         }),
       })
       if (res.ok) {
-        toast.success('Transfer bahan baku berhasil dibuat')
+        toast.success('Transfer item berhasil dibuat')
         setInvCreateOpen(false)
         setInvDestOutlet('')
         setInvCreateNotes('')
@@ -809,11 +809,11 @@ export default function TransferPage() {
         {hasGroup && isOwner && (
           <Button
             size="sm"
-            onClick={() => mainTab === 'bahan-baku' ? setInvCreateOpen(true) : setCreateOpen(true)}
+            onClick={() => mainTab === 'item' ? setInvCreateOpen(true) : setCreateOpen(true)}
             className="theme-bg theme-hover text-white text-xs font-medium h-8 px-3 rounded-lg gap-1.5 shrink-0"
           >
             <Plus className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">{mainTab === 'bahan-baku' ? 'Transfer BB' : 'Buat Transfer'}</span>
+            <span className="hidden sm:inline">{mainTab === 'item' ? 'Transfer BB' : 'Buat Transfer'}</span>
           </Button>
         )}
       </motion.div>
@@ -844,7 +844,7 @@ export default function TransferPage() {
                 className="text-xs font-medium h-7 rounded-md data-[state=active]:bg-white/[0.08] data-[state=active]:text-white text-slate-400 px-3 gap-1.5"
               >
                 <FlaskConical className="h-3 w-3" />
-                Transfer Bahan Baku
+                Transfer Item
               </TabsTrigger>
             </TabsList>
           </motion.div>
@@ -1083,7 +1083,7 @@ export default function TransferPage() {
           </motion.div>
           </TabsContent>
 
-          {/* ═══ Bahan Baku Tab Content ═══ */}
+          {/* ═══ Item Tab Content ═══ */}
           <TabsContent value="bahan-baku">
             <motion.div variants={itemVariants}>
               <Tabs id="inventory-sub-tabs" value={invTab} onValueChange={setInvTab}>
@@ -1134,7 +1134,7 @@ export default function TransferPage() {
                           <TableRow className="border-white/[0.04] hover:bg-transparent">
                             <TableCell colSpan={8} className="text-center py-12">
                               <PackageOpen className="h-8 w-8 text-slate-600 mx-auto mb-2" />
-                              <p className="text-sm text-slate-500">Belum ada transfer bahan baku</p>
+                              <p className="text-sm text-slate-500">Belum ada transfer item</p>
                             </TableCell>
                           </TableRow>
                         ) : (
@@ -1148,7 +1148,7 @@ export default function TransferPage() {
                                 <div className="flex items-center gap-2">
                                   {t.transferNumber}
                                   <Badge variant="outline" className="text-[10px] px-1.5 py-0 leading-none border bg-violet-500/10 border-violet-500/20 text-violet-400 font-medium">
-                                    Bahan Baku
+                                    Item
                                   </Badge>
                                 </div>
                               </TableCell>
@@ -1242,7 +1242,7 @@ export default function TransferPage() {
                     <Card className="bg-nebula border-white/[0.06]">
                       <CardContent className="py-12 text-center">
                         <PackageOpen className="h-8 w-8 text-slate-600 mx-auto mb-2" />
-                        <p className="text-sm text-slate-500">Belum ada transfer bahan baku</p>
+                        <p className="text-sm text-slate-500">Belum ada transfer item</p>
                       </CardContent>
                     </Card>
                   ) : (
@@ -1269,7 +1269,7 @@ export default function TransferPage() {
                                   )}
                                   <span className="text-xs text-white font-medium font-mono">{t.transferNumber}</span>
                                   <Badge variant="outline" className="text-[10px] px-1.5 py-0 leading-none border bg-violet-500/10 border-violet-500/20 text-violet-400 font-medium">
-                                    Bahan Baku
+                                    Item
                                   </Badge>
                                 </div>
                                 <StatusBadge status={t.status} />
@@ -1640,7 +1640,7 @@ export default function TransferPage() {
       <ResponsiveDialog open={invDetailOpen} onOpenChange={setInvDetailOpen}>
         <ResponsiveDialogContent className="sm:max-w-lg">
           <ResponsiveDialogHeader>
-            <ResponsiveDialogTitle className="text-white text-base">Detail Transfer Bahan Baku</ResponsiveDialogTitle>
+            <ResponsiveDialogTitle className="text-white text-base">Detail Transfer Item</ResponsiveDialogTitle>
             <ResponsiveDialogDescription className="text-slate-400 text-xs">
               {invSelectedTransfer?.transferNumber}
             </ResponsiveDialogDescription>
@@ -1663,7 +1663,7 @@ export default function TransferPage() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Badge variant="outline" className="text-[10px] px-1.5 py-0 leading-none border bg-violet-500/10 border-violet-500/20 text-violet-400 font-medium">
-                    Bahan Baku
+                    Item
                   </Badge>
                   <StatusBadge status={invSelectedTransfer.status} />
                   <span className="text-[11px] text-slate-500">{formatDate(invSelectedTransfer.createdAt)}</span>
@@ -1695,7 +1695,7 @@ export default function TransferPage() {
               {/* Inventory Items */}
               <div>
                 <p className="text-[11px] text-slate-500 uppercase tracking-wider font-medium mb-2">
-                  Daftar Bahan Baku ({invSelectedTransfer.inventoryTransferItems?.length || 0} item)
+                  Daftar Item ({invSelectedTransfer.inventoryTransferItems?.length || 0} item)
                 </p>
                 <div className="space-y-1.5 max-h-[260px] overflow-y-auto">
                   {invSelectedTransfer.inventoryTransferItems && invSelectedTransfer.inventoryTransferItems.length > 0 ? (
@@ -1776,9 +1776,9 @@ export default function TransferPage() {
       }}>
         <ResponsiveDialogContent className="sm:max-w-lg">
           <ResponsiveDialogHeader>
-            <ResponsiveDialogTitle className="text-white text-base">Buat Transfer Bahan Baku</ResponsiveDialogTitle>
+            <ResponsiveDialogTitle className="text-white text-base">Buat Transfer Item</ResponsiveDialogTitle>
             <ResponsiveDialogDescription className="text-slate-400 text-xs">
-              Pilih outlet tujuan dan bahan baku yang akan ditransfer
+              Pilih outlet tujuan dan item yang akan ditransfer
             </ResponsiveDialogDescription>
           </ResponsiveDialogHeader>
           <div className="space-y-4 mt-2">
@@ -1812,14 +1812,14 @@ export default function TransferPage() {
 
             {/* Inventory item search */}
             <div className="space-y-1.5" ref={(el) => { invSearchRef.current = el }}>
-              <label className="text-[11px] text-slate-500 uppercase tracking-wider font-medium">Tambah Bahan Baku</label>
+              <label className="text-[11px] text-slate-500 uppercase tracking-wider font-medium">Tambah Item</label>
               <div className="flex items-center gap-2">
                 <div className="relative flex-1">
                   <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
                   <Input
                     value={invSearch}
                     onChange={(e) => setInvSearch(e.target.value)}
-                    placeholder="Cari bahan baku..."
+                    placeholder="Cari item..."
                     className="bg-white/[0.04] border-white/[0.04] text-white text-xs h-9 pl-8 rounded-lg"
                   />
                   {invShowDropdown && invSearchResults.length > 0 && (
@@ -1872,13 +1872,13 @@ export default function TransferPage() {
             {/* Added items */}
             <div className="space-y-1.5">
               <label className="text-[11px] text-slate-500 uppercase tracking-wider font-medium">
-                Bahan Baku ({invCreateItems.length})
+                Item ({invCreateItems.length})
               </label>
               <div className="space-y-1.5 max-h-[200px] overflow-y-auto">
                 {invCreateItems.length === 0 ? (
                   <div className="py-6 text-center">
                     <FlaskConical className="h-6 w-6 text-slate-600 mx-auto mb-1.5" />
-                    <p className="text-[11px] text-slate-500">Cari dan tambahkan bahan baku</p>
+                    <p className="text-[11px] text-slate-500">Cari dan tambahkan item</p>
                   </div>
                 ) : (
                   invCreateItems.map((item) => (

@@ -3,7 +3,7 @@ import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 
-// GET /api/inventory/items/[id] — get single inventory item with composition count
+// GET /api/inventory/items/[id] — get single inventory item with linked products & movements
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -12,12 +12,16 @@ export async function GET(
     const user = await getAuthUser(request)
     if (!user) return unauthorized()
     const { id } = await params
+    const url = new URL(request.url)
+    const page = Math.max(1, parseInt(url.searchParams.get('page') || '1'))
+    const limit = 20
+    const skip = (page - 1) * limit
 
     const item = await db.inventoryItem.findFirst({
       where: { id, outletId: user.outletId },
       include: {
         category: { select: { id: true, name: true, color: true } },
-        _count: { select: { compositions: true, purchaseItems: true } },
+        _count: { select: { compositions: true, purchaseItems: true, movements: true } },
       },
     })
 
@@ -25,7 +29,75 @@ export async function GET(
       return safeJsonError('Inventory item not found', 404)
     }
 
-    return safeJson(item)
+    // Fetch linked products (products that use this inventory item in composition)
+    const compositions = await db.productComposition.findMany({
+      where: { inventoryItemId: id },
+      include: {
+        product: {
+          select: { id: true, name: true, sku: true, price: true, stock: true, hasVariants: true, image: true },
+        },
+        variant: {
+          select: { id: true, name: true, price: true, stock: true },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+
+    const linkedProducts = compositions.map((c) => ({
+      id: c.id,
+      productId: c.product.id,
+      productName: c.product.name,
+      productSku: c.product.sku,
+      productImage: c.product.image,
+      productPrice: c.product.price,
+      productStock: c.product.stock,
+      variantId: c.variant?.id || null,
+      variantName: c.variant?.name || null,
+      variantPrice: c.variant?.price || null,
+      qty: c.qty,
+      yieldPerBatch: c.yieldPerBatch,
+      baseUnit: c.baseUnit,
+    }))
+
+    // Fetch recent movements
+    const [movements, totalMovements] = await Promise.all([
+      db.inventoryMovement.findMany({
+        where: { inventoryItemId: id, outletId: user.outletId },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        skip,
+        include: {
+          user: { select: { id: true, name: true } },
+        },
+      }),
+      db.inventoryMovement.count({
+        where: { inventoryItemId: id, outletId: user.outletId },
+      }),
+    ])
+
+    const formattedMovements = movements.map((m) => ({
+      id: m.id,
+      type: m.type,
+      quantity: m.quantity,
+      previousStock: m.previousStock,
+      newStock: m.newStock,
+      referenceId: m.referenceId,
+      referenceType: m.referenceType,
+      notes: m.notes,
+      createdAt: m.createdAt.toISOString(),
+      userName: m.user?.name || null,
+    }))
+
+    return safeJson({
+      ...item,
+      linkedProducts,
+      movements: formattedMovements,
+      movementPagination: {
+        page,
+        totalPages: Math.ceil(totalMovements / limit),
+        total: totalMovements,
+      },
+    })
   } catch (error) {
     console.error('Inventory item GET error:', error)
     return safeJsonError('Failed to load inventory item')
@@ -156,7 +228,7 @@ export async function DELETE(
       )
     }
 
-    // Execute force delete: unlink compositions, recalculate HPP, then delete
+    // Execute force delete: unlink compositions, set product stock=0, recalculate HPP, then delete
     if (forceDelete && existing._count.compositions > 0) {
       await db.$transaction(async (tx) => {
         // 1. Find all affected products before deleting compositions
@@ -181,24 +253,24 @@ export async function DELETE(
           })
 
           if (remainingComps === 0) {
-            // No more compositions → set hasComposition = false, reset HPP
+            // No more compositions → set hasComposition = false, reset HPP, set stock = 0
             const product = compositions.find((c) => c.productId === productId)!.product
             await tx.product.update({
               where: { id: productId },
               data: {
                 hasComposition: false,
                 hpp: 0,
+                stock: 0,
               },
             })
 
-            // Also reset all variant HPP if product has variants
+            // Also reset ALL variant stock and HPP if product has variants
             if (product.hasVariants) {
               const variantIds = compositions
                 .filter((c) => c.productId === productId && c.variantId)
                 .map((c) => c.variantId!)
               const uniqueVariantIds = [...new Set(variantIds)]
 
-              // Reset variants that had this inventory item in their composition
               for (const variantId of uniqueVariantIds) {
                 const remainingVariantComps = await tx.productComposition.count({
                   where: { variantId },
@@ -206,7 +278,7 @@ export async function DELETE(
                 if (remainingVariantComps === 0) {
                   await tx.productVariant.update({
                     where: { id: variantId },
-                    data: { hpp: 0 },
+                    data: { hpp: 0, stock: 0 },
                   })
                 } else {
                   // Recalculate HPP for variants that still have other compositions
@@ -226,6 +298,22 @@ export async function DELETE(
                   })
                 }
               }
+
+              // Also zero out ALL variants of this product (not just the ones with this item)
+              // because the product's recipe is now broken
+              await tx.productVariant.updateMany({
+                where: { productId },
+                data: { stock: 0 },
+              })
+              // Re-sum parent product stock from variants
+              const aggResult = await tx.productVariant.aggregate({
+                where: { productId },
+                _sum: { stock: true },
+              })
+              await tx.product.update({
+                where: { id: productId },
+                data: { stock: aggResult._sum.stock || 0 },
+              })
             }
           } else {
             // Still has compositions → recalculate HPP for remaining items
@@ -273,7 +361,24 @@ export async function DELETE(
           }
         }
 
-        // 4. Finally delete the inventory item
+        // 4. Create audit logs for affected products
+        await tx.auditLog.createMany({
+          data: affectedProductIds.map((productId) => ({
+            action: 'UPDATE',
+            entityType: 'PRODUCT',
+            entityId: productId,
+            details: JSON.stringify({
+              reason: 'INVENTORY_ITEM_DELETED',
+              inventoryItemId: id,
+              inventoryItemName: existing.name,
+              message: `Item "${existing.name}" dihapus dari inventory. Stok produk direset ke 0. Sesuaikan komposisi secara manual.`,
+            }),
+            outletId,
+            userId,
+          })),
+        })
+
+        // 5. Finally delete the inventory item
         await tx.inventoryItem.delete({ where: { id } })
       }, { timeout: 30000 })
     } else {

@@ -734,7 +734,7 @@ export default function LandingPage({ onGetStarted }: LandingPageProps) {
               {
                 icon: UtensilsCrossed,
                 title: "F&B",
-                desc: "Menu dinamis, split bill, dan tracking bahan baku.",
+                desc: "Menu dinamis, split bill, dan tracking item.",
                 accent: "text-aether-pink",
                 bg: "bg-aether-pink/10",
               },
