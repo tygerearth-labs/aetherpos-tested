@@ -7,7 +7,7 @@
     "build": "prisma generate && next build",
     "start": "next start",
     "lint": "eslint .",
-    "postinstall": "npx prisma generate && prisma db push --skip-generate && next build",
+    "postinstall": "prisma generate && prisma db push",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy"
