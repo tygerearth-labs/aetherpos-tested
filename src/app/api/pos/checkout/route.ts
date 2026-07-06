@@ -8,6 +8,7 @@ import { runInsightEngine } from '@/lib/insight-engine'
 import { getPlanFeatures, isUnlimited } from '@/lib/config/plan-config'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 import { ensureMigrated } from '@/lib/db-migrate'
+import { InventoryConsumptionService } from '@/lib/inventory-consumption-service'
 
 interface CheckoutItem {
   productId: string
@@ -233,120 +234,21 @@ export async function POST(request: NextRequest) {
         })
       }
 
-      // 7c. Deduct inventory for composition products (bahan baku)
-      const compProductIds = [...new Set(
-        checkoutItems
-          .map((item) => productMap.get(item.productId))
-          .filter((p) => p?.hasComposition)
-          .map((p) => p!.id)
-      )]
-
-      if (compProductIds.length > 0) {
-        // Fetch ALL compositions for these products (both product-level and variant-level)
-        const allComps = await tx.productComposition.findMany({
-          where: { productId: { in: compProductIds } },
-          include: { inventoryItem: { select: { id: true, name: true } } },
-        })
-
-        // Aggregate deductions per inventory item
-        const invDeductions = new Map<string, { qty: number; baseUnit: string; itemName: string; sources: Array<{ productName: string; variantName?: string; qty: number }> }>()
-
-        for (const item of checkoutItems) {
-          const product = productMap.get(item.productId)
-          if (!product?.hasComposition) continue
-
-          // For variant products, use variant-level compositions
-          // For non-variant products, use product-level compositions (variantId = null)
-          const relevantComps = allComps.filter((c) => {
-            if (c.productId !== item.productId) return false
-            if (item.variantId) {
-              // Variant sale: use variant-specific compositions
-              return c.variantId === item.variantId
-            }
-            // Non-variant sale: use product-level compositions
-            return c.variantId === null
-          })
-
-          for (const comp of relevantComps) {
-            const deductQty = comp.qty * item.qty
-            const existing = invDeductions.get(comp.inventoryItemId)
-            if (existing) {
-              existing.qty += deductQty
-              existing.sources.push({
-                productName: item.productName,
-                variantName: item.variantName || undefined,
-                qty: deductQty,
-              })
-            } else {
-              invDeductions.set(comp.inventoryItemId, {
-                qty: deductQty,
-                baseUnit: comp.baseUnit,
-                itemName: comp.inventoryItem.name,
-                sources: [{
-                  productName: item.productName,
-                  variantName: item.variantName || undefined,
-                  qty: deductQty,
-                }],
-              })
-            }
-          }
-        }
-
-        // Fetch current stock before deduction
-        const invItemIds = [...invDeductions.keys()]
-        const invItemStocks = await tx.inventoryItem.findMany({
-          where: { id: { in: invItemIds } },
-          select: { id: true, stock: true },
-        })
-        const invStockMap = new Map(invItemStocks.map(i => [i.id, i.stock]))
-
-        // Deduct from inventory items
-        for (const [invItemId, deduction] of invDeductions) {
-          await tx.inventoryItem.update({
-            where: { id: invItemId },
-            data: { stock: { decrement: deduction.qty } },
-          })
-        }
-
-        // Create inventory movements for composition deductions
-        const compMovementData = [...invDeductions.entries()].map(([invItemId, deduction]) => {
-          const previousStock = invStockMap.get(invItemId) || 0
-          return {
-            type: 'CONSUMPTION' as const,
-            inventoryItemId: invItemId,
-            quantity: -deduction.qty,
-            previousStock,
-            newStock: previousStock - deduction.qty,
-            referenceId: transaction.id,
-            referenceType: 'TRANSACTION' as const,
-            notes: `Komposisi: ${deduction.sources.map(s => s.variantName ? `${s.productName} (${s.variantName})` : s.productName).join(', ')} (${invoiceNumber})`,
-            outletId,
-            userId,
-          }
-        })
-        if (compMovementData.length > 0) {
-          await tx.inventoryMovement.createMany({ data: compMovementData })
-        }
-
-        // Audit logs for inventory deductions
-        const invAuditData = [...invDeductions.entries()].map(([invItemId, deduction]) => ({
-          action: 'COMPOSITION_DEDUCT' as const,
-          entityType: 'INVENTORY_ITEM' as const,
-          entityId: invItemId,
-          details: JSON.stringify({
-            invoiceNumber,
-            itemName: deduction.itemName,
-            baseUnit: deduction.baseUnit,
-            totalDeducted: deduction.qty,
-            sources: deduction.sources,
-          }),
-          outletId,
-          userId,
-        }))
-        if (invAuditData.length > 0) {
-          await tx.auditLog.createMany({ data: invAuditData })
-        }
-      }
+      // 7c. Deduct inventory via InventoryConsumptionService (atomic, yield-aware, validated)
+      //     Jika stok bahan tidak cukup → error → seluruh transaksi di-rollback
+      const consumptionResult = await InventoryConsumptionService.consumeForTransaction(tx, {
+        items: checkoutItems.map(item => ({
+          productId: item.productId,
+          variantId: item.variantId || null,
+          productName: item.productName,
+          variantName: item.variantName || null,
+          qty: item.qty,
+        })),
+        transactionId: transaction.id,
+        invoiceNumber,
+        outletId,
+        userId,
+      })
 
       // 8. Batch create audit logs
       const auditData = checkoutItems.map((item) => {

@@ -112,10 +112,16 @@ interface PurchaseOrder {
   _count?: { items: number }
   items?: PurchaseOrderItemDetail[]
   createdAt: string
+  updatedAt?: string
+  supplierName?: string | null
+  createdByName?: string
+  supplier?: { id: string; name: string; phone: string | null; address: string | null } | null
+  createdBy?: { id: string; name: string; email: string } | null
 }
 
 interface PurchaseOrderItemDetail {
   id: string
+  inventoryItemId: string
   name: string
   inventoryItem: { id: string; name: string; sku: string | null; baseUnit: string } | null
   purchaseQty: number
@@ -250,6 +256,7 @@ export default function PurchasePage() {
   const [activeItemSearchIdx, setActiveItemSearchIdx] = useState<number | null>(null)
   const [itemPickerFilter, setItemPickerFilter] = useState('')
   const invItemSearchRefs = useRef<Record<number, HTMLDivElement | null>>({})
+  const invItemEditSearchRefs = useRef<Record<number, HTMLDivElement | null>>({})
 
   // Quick add new item from purchase dialog
   const [showQuickAddItem, setShowQuickAddItem] = useState(false)
@@ -262,6 +269,15 @@ export default function PurchasePage() {
   // Purchase delete
   const [deletePoId, setDeletePoId] = useState<string | null>(null)
   const [deletingPo, setDeletingPo] = useState(false)
+
+  // Purchase edit dialog
+  const [poEditOpen, setPoEditOpen] = useState(false)
+  const [poEditId, setPoEditId] = useState<string | null>(null)
+  const [poEditLoading, setPoEditLoading] = useState(false)
+  const [poEditNotes, setPoEditNotes] = useState('')
+  const [poEditItems, setPoEditItems] = useState<PurchaseOrderItem[]>([
+    { inventoryItemId: '', inventoryItemName: '', baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0' },
+  ])
 
   // ══════════════════════════════════════════════════════════
   // TAB 2: INVENTORY BAHAN (Inventory Items)
@@ -520,9 +536,13 @@ export default function PurchasePage() {
   // ══════════════════════════════════════════════════════════
   // Purchase Order: Detail
   // ══════════════════════════════════════════════════════════
+  // Detail error state
+  const [poDetailError, setPoDetailError] = useState<string | null>(null)
+
   const openPoDetail = async (po: PurchaseOrder) => {
     setPoDetailOpen(true)
     setPoDetailData(null)
+    setPoDetailError(null)
     setPoDetailLoading(true)
     try {
       const res = await fetch(`/api/purchases/${po.id}`)
@@ -530,12 +550,135 @@ export default function PurchasePage() {
         const data = await res.json()
         setPoDetailData(data)
       } else {
-        setPoDetailData(po)
+        const data = await res.json().catch(() => ({}))
+        setPoDetailError(data.error || 'Gagal memuat detail pembelian')
       }
     } catch {
-      setPoDetailData(po)
+      setPoDetailError('Gagal memuat detail pembelian')
     } finally {
       setPoDetailLoading(false)
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // Purchase Order: Edit
+  // ══════════════════════════════════════════════════════════
+  const openPoEdit = (po: PurchaseOrder) => {
+    if (!po.items || po.items.length === 0) {
+      toast.error('Tidak ada item untuk diedit')
+      return
+    }
+    setPoEditId(po.id)
+    setPoEditNotes(po.notes || '')
+    // Convert existing items to PurchaseOrderItem format
+    const editItems: PurchaseOrderItem[] = po.items.map((item) => ({
+      inventoryItemId: item.inventoryItemId,
+      inventoryItemName: item.inventoryItem?.name || item.name || '',
+      baseUnit: item.baseUnit,
+      qty: String(item.purchaseQty),
+      unit: item.purchaseUnit,
+      // Derive baseQty: baseQty = totalBaseQty / purchaseQty if possible
+      baseQty: item.purchaseQty > 0 ? String(item.baseQty / item.purchaseQty) : String(item.baseQty),
+      // Derive pricePerItem: totalCost / purchaseQty
+      pricePerItem: item.purchaseQty > 0 ? String(item.totalCost / item.purchaseQty) : String(item.unitCost * item.baseQty),
+    }))
+    setPoEditItems(editItems)
+    setPoEditOpen(true)
+    setPoDetailOpen(false)
+    // Pre-load item options
+    fetchPoItemOptions()
+  }
+
+  const handleUpdatePoEditItem = (idx: number, field: keyof PurchaseOrderItem, value: string) => {
+    setPoEditItems(prev => prev.map((item, i) => (i === idx ? { ...item, [field]: value } : item)))
+  }
+
+  const handleRemovePoEditItem = (idx: number) => {
+    if (poEditItems.length <= 1) return
+    setPoEditItems(prev => prev.filter((_, i) => i !== idx))
+  }
+
+  const handleAddPoEditItem = () => {
+    setPoEditItems(prev => [
+      ...prev,
+      { inventoryItemId: '', inventoryItemName: '', baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0' },
+    ])
+  }
+
+  const poEditTotalCost = useMemo(() => {
+    return poEditItems.reduce((sum, i) => {
+      const qty = parseFloat(i.qty) || 0
+      const price = parseFloat(i.pricePerItem) || 0
+      return sum + (price * qty)
+    }, 0)
+  }, [poEditItems])
+
+  const handlePoEditSubmit = async () => {
+    if (!poEditId) return
+    const validItems = poEditItems.filter(i => i.inventoryItemId)
+    if (validItems.length === 0) {
+      toast.error('Pilih minimal 1 item')
+      return
+    }
+    for (let idx = 0; idx < poEditItems.length; idx++) {
+      const i = poEditItems[idx]
+      if (!i.inventoryItemId) continue
+      const purchaseQty = parseFloat(i.qty) || 0
+      const isiPerUnit = parseFloat(i.baseQty) || 0
+      const pricePerItem = parseFloat(i.pricePerItem) || 0
+      if (purchaseQty <= 0) {
+        toast.error(`Item baris ${idx + 1}: jumlah harus lebih dari 0`)
+        return
+      }
+      if (isiPerUnit <= 0) {
+        toast.error(`Item baris ${idx + 1}: isi per unit harus lebih dari 0`)
+        return
+      }
+      if (pricePerItem <= 0) {
+        toast.error(`Item baris ${idx + 1}: harga harus lebih dari 0`)
+        return
+      }
+    }
+    setPoEditLoading(true)
+    try {
+      const res = await fetch(`/api/purchases/${poEditId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          notes: poEditNotes || undefined,
+          items: validItems.map(i => {
+            const purchaseQty = parseFloat(i.qty) || 0
+            const isiPerUnit = parseFloat(i.baseQty) || 0
+            const pricePerItem = parseFloat(i.pricePerItem) || 0
+            const totalCost = pricePerItem * purchaseQty
+            const totalBaseQty = purchaseQty * isiPerUnit
+            const unitCost = totalBaseQty > 0 ? totalCost / totalBaseQty : 0
+            return {
+              inventoryItemId: i.inventoryItemId,
+              purchaseQty,
+              purchaseUnit: i.unit || '',
+              baseQty: totalBaseQty,
+              baseUnit: i.baseUnit,
+              unitCost,
+              totalCost,
+            }
+          }),
+        }),
+      })
+      if (res.ok) {
+        toast.success('Pembelian berhasil diperbarui')
+        setPoEditOpen(false)
+        void fetchPurchaseOrders()
+        void fetchInventoryItems()
+        void fetchPurchaseSummary()
+      } else {
+        const data = await res.json()
+        toast.error(data.error || 'Gagal mengedit pembelian')
+      }
+    } catch {
+      toast.error('Gagal mengedit pembelian')
+    } finally {
+      setPoEditLoading(false)
     }
   }
 
@@ -638,6 +781,17 @@ export default function PurchasePage() {
 
   const handleSelectInvItem = (idx: number, item: InventoryItemOption) => {
     setPoCreateItems(prev => prev.map((it, i) =>
+      i === idx
+        ? { ...it, inventoryItemId: item.id, inventoryItemName: item.name, baseUnit: item.baseUnit }
+        : it
+    ))
+    setShowItemPicker(false)
+    setActiveItemSearchIdx(null)
+    setItemPickerFilter('')
+  }
+
+  const handleSelectInvItemForEdit = (idx: number, item: InventoryItemOption) => {
+    setPoEditItems(prev => prev.map((it, i) =>
       i === idx
         ? { ...it, inventoryItemId: item.id, inventoryItemName: item.name, baseUnit: item.baseUnit }
         : it
@@ -1249,52 +1403,54 @@ export default function PurchasePage() {
             {/* Purchase Summary Cards */}
             {purchaseSummary && (
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
-                <Card className="bg-nebula border-white/[0.06]">
+                <Card className="bg-nebula border-white/[0.06] rounded-xl">
                   <CardContent className="p-3 sm:p-4">
                     <div className="flex items-center gap-2 mb-1">
-                      <div className="w-7 h-7 rounded-lg bg-white/[0.04] flex items-center justify-center">
-                        <Banknote className="h-3.5 w-3.5 text-emerald-400" />
+                      <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+                        <Banknote className="h-4 w-4 text-emerald-400" />
                       </div>
                     </div>
                     <p className="text-base sm:text-lg font-bold text-white">{formatCurrency(purchaseSummary.totalPurchaseNominal)}</p>
                     <p className="text-[10px] sm:text-xs text-slate-500">{purchaseSummary.totalPurchaseCount} transaksi pembelian</p>
                   </CardContent>
                 </Card>
-                <Card className="bg-nebula border-white/[0.06]">
+                <Card className="bg-nebula border-white/[0.06] rounded-xl">
                   <CardContent className="p-3 sm:p-4">
                     <div className="flex items-center gap-2 mb-1">
-                      <div className="w-7 h-7 rounded-lg bg-white/[0.04] flex items-center justify-center">
-                        <Package className="h-3.5 w-3.5 text-cyan-400" />
+                      <div className="w-8 h-8 rounded-lg bg-cyan-500/10 flex items-center justify-center">
+                        <Package className="h-4 w-4 text-cyan-400" />
                       </div>
                     </div>
                     <p className="text-base sm:text-lg font-bold text-white">{formatCurrency(purchaseSummary.totalInventoryNominal)}</p>
                     <p className="text-[10px] sm:text-xs text-slate-500">{purchaseSummary.totalInventoryItems} jenis bahan</p>
                   </CardContent>
                 </Card>
-                <Card className="bg-nebula border-white/[0.06]">
+                <Card className="bg-nebula border-white/[0.06] rounded-xl">
                   <CardContent className="p-3 sm:p-4">
                     <div className="flex items-center gap-2 mb-1">
-                      <div className="w-7 h-7 rounded-lg bg-white/[0.04] flex items-center justify-center">
-                        <Scale className={cn('h-3.5 w-3.5', purchaseSummary.monthRatio > 70 ? 'text-amber-400' : 'text-emerald-400')} />
+                      <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center">
+                        <Scale className={cn('h-4 w-4', purchaseSummary.monthRatio > 70 ? 'text-amber-400' : 'text-emerald-400')} />
                       </div>
                     </div>
                     <p className={cn('text-base sm:text-lg font-bold', purchaseSummary.monthRatio > 70 ? 'text-amber-400' : 'text-emerald-400')}>
                       {purchaseSummary.monthRatio}%
                     </p>
-                    <p className="text-[10px] sm:text-xs text-slate-500">rasio pembelian / revenue bulan ini</p>
+                    <p className="text-[10px] sm:text-xs text-slate-500">rasio pembelian / revenue</p>
+                    <p className="text-[9px] text-slate-600">Bulan Ini</p>
                   </CardContent>
                 </Card>
-                <Card className="bg-nebula border-white/[0.06]">
+                <Card className="bg-nebula border-white/[0.06] rounded-xl">
                   <CardContent className="p-3 sm:p-4">
                     <div className="flex items-center gap-2 mb-1">
-                      <div className="w-7 h-7 rounded-lg bg-white/[0.04] flex items-center justify-center">
-                        <BarChart3 className={cn('h-3.5 w-3.5', purchaseSummary.overallRatio > 70 ? 'text-amber-400' : 'text-emerald-400')} />
+                      <div className="w-8 h-8 rounded-lg bg-violet-500/10 flex items-center justify-center">
+                        <BarChart3 className={cn('h-4 w-4', purchaseSummary.overallRatio > 70 ? 'text-amber-400' : 'text-emerald-400')} />
                       </div>
                     </div>
                     <p className={cn('text-base sm:text-lg font-bold', purchaseSummary.overallRatio > 70 ? 'text-amber-400' : 'text-emerald-400')}>
                       {purchaseSummary.overallRatio}%
                     </p>
-                    <p className="text-[10px] sm:text-xs text-slate-500">rasio pembelian / revenue total</p>
+                    <p className="text-[10px] sm:text-xs text-slate-500">rasio pembelian / revenue</p>
+                    <p className="text-[9px] text-slate-600">Total</p>
                   </CardContent>
                 </Card>
               </div>
@@ -1302,11 +1458,12 @@ export default function PurchasePage() {
 
             {/* Desktop Table */}
             <div className="hidden md:block">
-              <Card className="bg-nebula border-white/[0.06] overflow-hidden">
+              <Card className="bg-nebula border-white/[0.06] overflow-hidden rounded-xl">
                 <Table>
                   <TableHeader>
                     <TableRow className="border-white/[0.06] hover:bg-transparent">
                       <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">No. PO</TableHead>
+                      <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">Supplier</TableHead>
                       <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">Tanggal</TableHead>
                       <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider text-right">Jumlah Item</TableHead>
                       <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider text-right">Total Biaya</TableHead>
@@ -1316,15 +1473,17 @@ export default function PurchasePage() {
                   <TableBody>
                     {poList.length === 0 ? (
                       <TableRow className="border-white/[0.04] hover:bg-transparent">
-                        <TableCell colSpan={5} className="text-center py-12">
+                        <TableCell colSpan={6} className="text-center py-12">
                           <ShoppingCart className="h-8 w-8 text-slate-600 mx-auto mb-2" />
                           <p className="text-sm text-slate-500">Belum ada pembelian</p>
+                          <p className="text-xs text-slate-600 mt-1">Klik "Buat Pembelian" untuk mencatat pembelian bahan baku</p>
                         </TableCell>
                       </TableRow>
                     ) : (
                       poList.map((po) => (
-                        <TableRow key={po.id} className="border-white/[0.04] hover:bg-transparent">
+                        <TableRow key={po.id} className="border-white/[0.04] hover:bg-white/[0.02] transition-colors">
                           <TableCell className="text-xs text-slate-200 font-medium font-mono">{po.orderNumber}</TableCell>
+                          <TableCell className="text-xs text-slate-400">{po.supplierName || '-'}</TableCell>
                           <TableCell className="text-xs text-slate-400">{formatDate(po.createdAt)}</TableCell>
                           <TableCell className="text-xs text-slate-300 text-right">{po.itemCount ?? po._count?.items ?? 0}</TableCell>
                           <TableCell className="text-xs text-emerald-400 text-right font-medium">{formatCurrency(po.totalCost)}</TableCell>
@@ -1359,10 +1518,11 @@ export default function PurchasePage() {
             {/* Mobile Cards */}
             <div className="md:hidden space-y-2">
               {poList.length === 0 ? (
-                <Card className="bg-nebula border-white/[0.06]">
+                <Card className="bg-nebula border-white/[0.06] rounded-xl">
                   <CardContent className="py-12 text-center">
                     <ShoppingCart className="h-8 w-8 text-slate-600 mx-auto mb-2" />
                     <p className="text-sm text-slate-500">Belum ada pembelian</p>
+                    <p className="text-xs text-slate-600 mt-1">Klik "Buat Pembelian" untuk mencatat pembelian bahan baku</p>
                   </CardContent>
                 </Card>
               ) : (
@@ -1375,13 +1535,14 @@ export default function PurchasePage() {
                       exit={{ opacity: 0, y: -8 }}
                       transition={{ duration: 0.2 }}
                     >
-                      <Card className="bg-nebula border-white/[0.06]">
+                      <Card className="bg-nebula border-white/[0.06] rounded-xl hover:border-white/[0.1] transition-colors">
                         <CardContent className="p-3 space-y-2">
                           <div className="flex items-center justify-between">
                             <span className="text-xs text-white font-medium font-mono">{po.orderNumber}</span>
                             <span className="text-[11px] text-emerald-400 font-medium">{formatCurrency(po.totalCost)}</span>
                           </div>
-                          <div className="flex items-center justify-end text-slate-400">
+                          <div className="flex items-center justify-between text-slate-400">
+                            <span className="text-[11px]">{po.supplierName || '-'}</span>
                             <span className="text-[11px]">{formatDate(po.createdAt)}</span>
                           </div>
                           <div className="flex items-center gap-1.5 text-slate-500">
@@ -1723,23 +1884,47 @@ export default function PurchasePage() {
           </ResponsiveDialogHeader>
           {poDetailLoading ? (
             <div className="space-y-3 py-4">
-              <Skeleton className="h-10 bg-white/[0.04] rounded-lg" />
-              <Skeleton className="h-20 bg-white/[0.04] rounded-lg" />
-              <Skeleton className="h-10 bg-white/[0.04] rounded-lg" />
+              <Skeleton className="h-10 bg-white/[0.04] rounded-xl" />
+              <Skeleton className="h-20 bg-white/[0.04] rounded-xl" />
+              <Skeleton className="h-10 bg-white/[0.04] rounded-xl" />
+            </div>
+          ) : poDetailError ? (
+            <div className="py-8 text-center">
+              <AlertTriangle className="h-8 w-8 text-amber-400/60 mx-auto mb-2" />
+              <p className="text-xs text-slate-400">{poDetailError}</p>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="mt-3 h-8 text-xs text-slate-400 hover:text-white hover:bg-white/[0.04]"
+                onClick={() => { setPoDetailOpen(false) }}
+              >
+                Tutup
+              </Button>
             </div>
           ) : poDetailData ? (
             <div className="space-y-4 mt-2">
               {/* Header info */}
               <div className="grid grid-cols-2 gap-3">
-                <div className="bg-white/[0.03] rounded-lg p-2.5 border border-white/[0.04]">
+                <div className="bg-white/[0.03] rounded-xl p-3 border border-white/[0.04]">
                   <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Tanggal</p>
                   <p className="text-xs text-slate-200 font-medium">{formatDate(poDetailData.createdAt)}</p>
                 </div>
-                <div className="bg-white/[0.03] rounded-lg p-2.5 border border-white/[0.04]">
+                <div className="bg-white/[0.03] rounded-xl p-3 border border-white/[0.04]">
                   <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Dibuat Oleh</p>
-                  <p className="text-xs text-slate-200 font-medium">{session?.user?.name || 'Admin'}</p>
+                  <p className="text-xs text-slate-200 font-medium">{poDetailData.createdBy?.name || poDetailData.createdByName || session?.user?.name || 'Admin'}</p>
                 </div>
               </div>
+
+              {/* Supplier info card */}
+              {poDetailData.supplier && (
+                <div className="bg-white/[0.03] rounded-xl p-3 border border-white/[0.04] space-y-1.5">
+                  <p className="text-[10px] text-slate-500 uppercase tracking-wider">Supplier</p>
+                  <p className="text-xs text-slate-200 font-medium">{poDetailData.supplier.name}</p>
+                  {poDetailData.supplier.phone && (
+                    <p className="text-[11px] text-slate-400">{poDetailData.supplier.phone}</p>
+                  )}
+                </div>
+              )}
 
               {poDetailData.notes && (
                 <div className="flex items-start gap-2 text-slate-400">
@@ -1758,19 +1943,20 @@ export default function PurchasePage() {
                     poDetailData.items.map((item, idx) => (
                       <div
                         key={item.id || idx}
-                        className="flex items-center gap-3 p-2.5 rounded-lg bg-white/[0.02] border border-white/[0.04]"
+                        className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.02] border border-white/[0.04]"
                       >
+                        <span className="w-5 h-5 rounded-md bg-white/[0.06] flex items-center justify-center text-[10px] text-slate-500 font-medium shrink-0">{idx + 1}</span>
                         <div className="flex-1 min-w-0">
-                          <p className="text-xs text-slate-200 font-medium truncate">{item.inventoryItem?.name || 'Item dihapus'}</p>
+                          <p className="text-xs text-slate-200 font-medium truncate">{item.inventoryItem?.name || item.name || 'Item dihapus'}</p>
                           <div className="flex items-center gap-2 mt-0.5">
                             <span className="text-[10px] text-slate-500">
-                              {formatNumber(item.purchaseQty)} {item.purchaseUnit} = {formatNumber(item.baseQty)} {item.baseUnit}
+                              {formatNumber(item.purchaseQty)} {item.purchaseUnit || '-'} = {formatNumber(item.baseQty)} {item.baseUnit || '-'}
                             </span>
                           </div>
                         </div>
                         <div className="text-right shrink-0">
                           <p className="text-xs text-white font-medium">{formatCurrency(item.totalCost)}</p>
-                          <p className="text-[10px] text-amber-400/70">{formatCurrency(item.unitCost)}/{item.baseUnit}</p>
+                          <p className="text-[10px] text-amber-400/70">{formatCurrency(item.unitCost)}/{item.baseUnit || '-'}</p>
                         </div>
                       </div>
                     ))
@@ -1786,16 +1972,32 @@ export default function PurchasePage() {
                 <span className="text-sm font-bold text-emerald-400">{formatCurrency(poDetailData.totalCost)}</span>
               </div>
 
-              {/* Delete button */}
-              <div className="pt-2 border-t border-white/[0.04]">
+              {/* Updated timestamp */}
+              {poDetailData.updatedAt && poDetailData.updatedAt !== poDetailData.createdAt && (
+                <p className="text-[10px] text-slate-600 text-center">
+                  Diperbarui: {formatDate(poDetailData.updatedAt)}
+                </p>
+              )}
+
+              {/* Actions */}
+              <div className="flex gap-2 pt-2 border-t border-white/[0.04]">
                 <Button
                   size="sm"
                   variant="ghost"
-                  className="w-full h-8 text-xs gap-1.5 text-red-400 hover:text-red-300 hover:bg-red-500/[0.06]"
+                  className="flex-1 h-8 text-xs gap-1.5 text-slate-400 hover:text-white hover:bg-white/[0.04]"
+                  onClick={() => { openPoEdit(poDetailData!) }}
+                >
+                  <Edit3 className="h-3.5 w-3.5" />
+                  Edit
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="flex-1 h-8 text-xs gap-1.5 text-red-400 hover:text-red-300 hover:bg-red-500/[0.06]"
                   onClick={() => { setDeletePoId(poDetailData!.id) }}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
-                  Hapus Pembelian
+                  Hapus
                 </Button>
               </div>
             </div>
@@ -2204,6 +2406,289 @@ export default function PurchasePage() {
                   <CheckCircle2 className="h-3.5 w-3.5" />
                 )}
                 Simpan Pembelian
+              </Button>
+            </div>
+          </div>
+        </ResponsiveDialogContent>
+      </ResponsiveDialog>
+
+      {/* ── Edit Purchase Order Dialog ── */}
+      <ResponsiveDialog
+        open={poEditOpen}
+        onOpenChange={(open) => { if (!open) setPoEditOpen(false) }}
+      >
+        <ResponsiveDialogContent className="sm:max-w-2xl flex flex-col max-h-[90vh]">
+          <ResponsiveDialogHeader>
+            <ResponsiveDialogTitle className="text-white text-base flex items-center gap-2">
+              <Edit3 className="h-4 w-4 text-emerald-400" />
+              Edit Pembelian
+            </ResponsiveDialogTitle>
+            <ResponsiveDialogDescription className="text-slate-400 text-xs">
+              Ubah detail pembelian bahan baku
+            </ResponsiveDialogDescription>
+          </ResponsiveDialogHeader>
+
+          <div className="space-y-4 mt-2 flex-1 overflow-y-auto">
+            {/* Catatan */}
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-1.5">
+                <FileText className="h-3 w-3 text-slate-500" />
+                <label className="text-[11px] text-slate-300 font-medium">Catatan</label>
+                <span className="text-[10px] text-slate-600">(opsional)</span>
+              </div>
+              <Textarea
+                value={poEditNotes}
+                onChange={(e) => setPoEditNotes(e.target.value)}
+                placeholder="Cth: Bayar tempo 7 hari..."
+                className="bg-white/[0.04] border-white/[0.04] text-white text-xs min-h-[48px] rounded-lg resize-none placeholder:text-slate-500"
+              />
+            </div>
+
+            <Separator className="bg-white/[0.06]" />
+
+            {/* Items */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-1.5 px-1">
+                <Package className="h-3 w-3 text-slate-500" />
+                <span className="text-[11px] text-slate-300 font-medium">Item Pembelian</span>
+                {poEditItems.filter(i => i.inventoryItemId).length > 0 && (
+                  <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded-full font-medium">
+                    {poEditItems.filter(i => i.inventoryItemId).length}
+                  </span>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                {poEditItems.map((item, idx) => (
+                  <div key={idx} className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.04] space-y-3">
+                    {/* Item picker / selected display */}
+                    <div className="relative" ref={(el) => { invItemEditSearchRefs.current[idx] = el }}>
+                      {item.inventoryItemId ? (
+                        <div className="flex items-center gap-2 bg-emerald-500/[0.06] rounded-lg px-2.5 h-9 border border-emerald-500/10">
+                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                          <span className="text-xs text-emerald-300 truncate flex-1 font-medium">{item.inventoryItemName}</span>
+                          {poEditItems.length > 1 && (
+                            <button
+                              className="w-5 h-5 rounded bg-red-500/10 flex items-center justify-center text-red-400 hover:text-red-300 hover:bg-red-500/20 transition-colors mr-0.5"
+                              onClick={() => handleRemovePoEditItem(idx)}
+                              title="Hapus item ini"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          )}
+                          <button
+                            className="w-5 h-5 rounded hover:bg-white/[0.08] flex items-center justify-center text-slate-400 hover:text-white"
+                            onClick={() => {
+                              handleUpdatePoEditItem(idx, 'inventoryItemId', '')
+                              handleUpdatePoEditItem(idx, 'inventoryItemName', '')
+                              handleUpdatePoEditItem(idx, 'baseUnit', '')
+                            }}
+                            title="Ganti item"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          <button
+                            className="w-full flex items-center gap-2.5 bg-white/[0.04] rounded-lg px-3 h-10 text-left hover:bg-white/[0.06] transition-colors border border-dashed border-white/[0.08]"
+                            onClick={() => { setActiveItemSearchIdx(idx); setShowItemPicker(true); setItemPickerFilter(''); setShowQuickAddItem(false) }}
+                          >
+                            <Package className="h-4 w-4 text-slate-500 shrink-0" />
+                            <div className="flex-1">
+                              <span className="text-xs text-slate-400">Tap untuk pilih item...</span>
+                            </div>
+                            <ArrowRight className="h-3 w-3 text-slate-600" />
+                          </button>
+
+                          {/* Picker dropdown (reuses same state) */}
+                          {activeItemSearchIdx === idx && showItemPicker && (
+                            <div className="absolute top-full left-0 right-0 mt-1 bg-nebula border border-white/[0.06] rounded-lg shadow-xl z-50">
+                              <div className="p-2 border-b border-white/[0.06]">
+                                <div className="relative">
+                                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-500" />
+                                  <input
+                                    autoFocus
+                                    value={itemPickerFilter}
+                                    onChange={(e) => { setItemPickerFilter(e.target.value); setShowQuickAddItem(false) }}
+                                    placeholder="Ketik nama item untuk filter..."
+                                    className="w-full bg-white/[0.04] border-white/[0.04] text-white text-xs h-8 rounded-md pl-8 pr-2 outline-none placeholder:text-slate-500"
+                                  />
+                                </div>
+                              </div>
+                              {poItemOptionsLoading ? (
+                                <div className="flex items-center justify-center gap-2 py-4 text-slate-500">
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                  <span className="text-[10px]">Memuat daftar item...</span>
+                                </div>
+                              ) : filteredItemOptions.length === 0 && !showQuickAddItem ? (
+                                <div className="py-6 text-center px-3">
+                                  <Package className="h-6 w-6 text-slate-600 mx-auto mb-2" />
+                                  <p className="text-[11px] text-slate-400 mb-3">Tidak ada item yang cocok</p>
+                                </div>
+                              ) : !showQuickAddItem ? (
+                                <div className="max-h-[180px] overflow-y-auto">
+                                  {filteredItemOptions.map((r) => (
+                                    <button
+                                      key={r.id}
+                                      className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-white/[0.04] transition-colors"
+                                      onClick={() => handleSelectInvItemForEdit(idx, r)}
+                                    >
+                                      <Package className="h-3.5 w-3.5 text-slate-500 shrink-0" />
+                                      <div className="flex-1 min-w-0">
+                                        <p className="text-xs text-slate-200 truncate">{r.name}</p>
+                                        <p className="text-[10px] text-slate-500">Stok: {formatNumber(r.stock)} {r.baseUnit}</p>
+                                      </div>
+                                    </button>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+
+                    {/* Fields */}
+                    {item.inventoryItemId && (
+                      <div className="space-y-2.5 pl-0.5">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-1">
+                              <Ruler className="h-2.5 w-2.5 text-slate-500" />
+                              <label className="text-[10px] text-slate-300 font-medium">Satuan Beli</label>
+                            </div>
+                            <Input
+                              value={item.unit}
+                              onChange={(e) => handleUpdatePoEditItem(idx, 'unit', e.target.value)}
+                              className={inputClass}
+                              placeholder="Cth: sak"
+                            />
+                            <p className="text-[9px] text-slate-600">satuan dari supplier</p>
+                          </div>
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-1">
+                              <Hash className="h-2.5 w-2.5 text-slate-500" />
+                              <label className="text-[10px] text-slate-300 font-medium">Jumlah</label>
+                            </div>
+                            <Input
+                              type="number"
+                              min="0"
+                              step="any"
+                              value={item.qty}
+                              onChange={(e) => handleUpdatePoEditItem(idx, 'qty', e.target.value)}
+                              className={cn(inputClass, 'text-center')}
+                              placeholder="1"
+                            />
+                            <p className="text-[9px] text-slate-600">berapa {item.unit || 'unit'} yang dibeli</p>
+                          </div>
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-1">
+                              <Weight className="h-2.5 w-2.5 text-slate-500" />
+                              <label className="text-[10px] text-slate-300 font-medium">Isi per 1 {item.unit || 'unit'}</label>
+                            </div>
+                            <div className="relative">
+                              <Input
+                                type="number"
+                                min="0"
+                                step="any"
+                                value={item.baseQty}
+                                onChange={(e) => handleUpdatePoEditItem(idx, 'baseQty', e.target.value)}
+                                className={cn(inputClass, 'pr-10 text-center')}
+                                placeholder="1"
+                              />
+                              <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-500 pointer-events-none">{item.baseUnit || 'kg'}</span>
+                            </div>
+                            <p className="text-[9px] text-slate-600">isi dalam 1 {item.unit || 'unit'} ({item.baseUnit || 'kg'})</p>
+                          </div>
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-1">
+                              <Banknote className="h-2.5 w-2.5 text-slate-500" />
+                              <label className="text-[10px] text-slate-300 font-medium">Harga</label>
+                            </div>
+                            <Input
+                              type="number"
+                              min="0"
+                              value={item.pricePerItem}
+                              onChange={(e) => handleUpdatePoEditItem(idx, 'pricePerItem', e.target.value)}
+                              className={inputClass}
+                              placeholder="72000"
+                            />
+                            <p className="text-[9px] text-slate-600">per 1 {item.unit || 'satuan beli'} (Rp)</p>
+                          </div>
+                        </div>
+
+                        {item.unit && parseFloat(item.qty) > 0 && parseFloat(item.pricePerItem) > 0 && (
+                          <div className="flex items-center gap-1.5 text-[10px] text-slate-500 px-1">
+                            <Info className="h-2.5 w-2.5 shrink-0" />
+                            <span>
+                              {item.qty} {item.unit} × Rp{formatNumber(parseFloat(item.pricePerItem))} ={' '}
+                              <span className="text-slate-300 font-medium">
+                                {formatCurrency((parseFloat(item.pricePerItem) || 0) * (parseFloat(item.qty) || 0))}
+                              </span>
+                            </span>
+                          </div>
+                        )}
+                        {parseFloat(item.baseQty) > 0 && parseFloat(item.qty) > 0 && (
+                          <div className="flex items-center gap-1.5 text-[10px] text-slate-500 px-1">
+                            <ArrowRight className="h-2.5 w-2.5 shrink-0" />
+                            <span>
+                              Total stok masuk:{' '}
+                              <span className="text-slate-300 font-medium">
+                                {formatNumber(parseFloat(item.qty) * parseFloat(item.baseQty))} {item.baseUnit}
+                              </span>
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                <button
+                  className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-lg border border-dashed border-white/[0.08] text-slate-500 hover:text-slate-300 hover:border-white/[0.15] transition-colors text-xs"
+                  onClick={handleAddPoEditItem}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Tambah Item Lain
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="pt-3 mt-auto border-t border-white/[0.06]">
+            <div className="bg-emerald-500/[0.06] rounded-lg p-3 border border-emerald-500/[0.1] mb-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <Banknote className="h-3.5 w-3.5 text-emerald-400" />
+                  <span className="text-xs text-slate-400">Total Pembelian</span>
+                </div>
+                <span className="text-lg font-bold text-emerald-400">{formatCurrency(poEditTotalCost)}</span>
+              </div>
+              <p className="text-[9px] text-amber-500/60 mt-1">
+                ⚠ Stok bahan akan dikurangi lalu ditambah ulang sesuai perubahan
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="ghost"
+                className="flex-1 h-9 text-xs text-slate-400 hover:text-white hover:bg-white/[0.04]"
+                onClick={() => setPoEditOpen(false)}
+              >
+                Batal
+              </Button>
+              <Button
+                className="flex-1 h-9 text-xs theme-bg theme-hover text-white"
+                disabled={poEditLoading || poEditItems.filter(i => i.inventoryItemId).length === 0}
+                onClick={handlePoEditSubmit}
+              >
+                {poEditLoading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                )}
+                Simpan Perubahan
               </Button>
             </div>
           </div>

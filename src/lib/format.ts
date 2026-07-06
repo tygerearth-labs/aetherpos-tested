@@ -1,4 +1,7 @@
-export function formatCurrency(amount: number): string {
+export function formatCurrency(amount: number | null | undefined): string {
+  if (amount === null || amount === undefined || typeof amount !== 'number' || isNaN(amount)) {
+    return 'Rp0'
+  }
   return new Intl.NumberFormat('id-ID', {
     style: 'currency',
     currency: 'IDR',
@@ -7,8 +10,10 @@ export function formatCurrency(amount: number): string {
   }).format(amount)
 }
 
-export function formatDate(date: Date | string): string {
+export function formatDate(date: Date | string | null | undefined): string {
+  if (!date) return '-'
   const d = new Date(date)
+  if (isNaN(d.getTime())) return '-'
   const dd = String(d.getDate()).padStart(2, '0')
   const mm = String(d.getMonth() + 1).padStart(2, '0')
   const yyyy = d.getFullYear()
@@ -17,6 +22,9 @@ export function formatDate(date: Date | string): string {
   return `${dd}-${mm}-${yyyy} ${hh}:${min}`
 }
 
-export function formatNumber(num: number): string {
+export function formatNumber(num: number | null | undefined): string {
+  if (num === null || num === undefined || typeof num !== 'number' || isNaN(num)) {
+    return '0'
+  }
   return new Intl.NumberFormat('id-ID').format(num)
 }

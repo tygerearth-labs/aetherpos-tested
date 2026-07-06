@@ -483,12 +483,17 @@ model PurchaseOrderItem {
 }
 
 // ==================== PRODUCT COMPOSITION (Recipe / BOM) ====================
+// yieldPerBatch: How many output units one "batch" of this composition produces.
+//   qty = bahan per 1 batch, yieldPerBatch = hasil per 1 batch.
+//   Contoh: 1kg kopi → 55 cup  →  qty=1, baseUnit="kg", yieldPerBatch=55
+//   Default 1 = setiap 1 unit produk butuh `qty` bahan (behavior lama).
 model ProductComposition {
   id              String   @id @default(cuid())
   productId       String
   variantId       String?                      // Per-variant composition (null = product-level for non-variant products)
   inventoryItemId String
-  qty             Float                        // Quantity consumed per 1 unit of product/variant (in base unit)
+  qty             Float    @default(0)          // Quantity consumed per 1 batch (in base unit)
+  yieldPerBatch   Float    @default(1)          // How many product units 1 batch produces (default 1 = legacy mode)
   baseUnit        String                       // Base unit of the inventory item
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt

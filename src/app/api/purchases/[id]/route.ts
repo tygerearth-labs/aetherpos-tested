@@ -38,7 +38,9 @@ async function recalculateHppForAffectedProducts(
       const variantIds = [...new Set(productComps.filter((c) => c.variantId).map((c) => c.variantId!))]
       for (const variantId of variantIds) {
         const variantComps = productComps.filter((c) => c.variantId === variantId)
-        const newHpp = variantComps.reduce((sum, c) => sum + c.qty * c.inventoryItem.avgCost, 0)
+        const batchCost = variantComps.reduce((sum, c) => sum + c.qty * c.inventoryItem.avgCost, 0)
+        const yieldPerBatch = variantComps[0]?.yieldPerBatch || 1
+        const newHpp = yieldPerBatch > 1 ? batchCost / yieldPerBatch : batchCost
         await tx.productVariant.update({
           where: { id: variantId },
           data: { hpp: newHpp },
@@ -49,7 +51,9 @@ async function recalculateHppForAffectedProducts(
         data: { hpp: 0 },
       })
     } else {
-      const newHpp = productComps.reduce((sum, c) => sum + c.qty * c.inventoryItem.avgCost, 0)
+      const batchCost = productComps.reduce((sum, c) => sum + c.qty * c.inventoryItem.avgCost, 0)
+      const yieldPerBatch = productComps[0]?.yieldPerBatch || 1
+      const newHpp = yieldPerBatch > 1 ? batchCost / yieldPerBatch : batchCost
       await tx.product.update({
         where: { id: productId },
         data: { hpp: newHpp },
@@ -101,6 +105,317 @@ export async function GET(
   } catch (error) {
     console.error('Purchase order GET error:', error)
     return safeJsonError('Failed to load purchase order')
+  }
+}
+
+// PUT /api/purchases/[id] — edit purchase order (reverse old inventory, apply new)
+export async function PUT(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const user = await getAuthUser(request)
+    if (!user) return unauthorized()
+    const userId = user.id
+    const outletId = user.outletId
+    const { id } = await params
+
+    const body = await request.json()
+    const { notes, items } = body as {
+      notes?: string
+      items?: Array<{
+        inventoryItemId: string
+        purchaseQty: number
+        purchaseUnit: string
+        baseQty: number
+        baseUnit: string
+        unitCost: number
+        totalCost: number
+      }>
+    }
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return safeJsonError('Purchase order must have at least 1 item', 400)
+    }
+
+    // Validate each item
+    for (const item of items) {
+      if (!item.inventoryItemId) {
+        return safeJsonError('Setiap item harus memiliki inventoryItemId', 400)
+      }
+      if (!item.purchaseQty || item.purchaseQty <= 0) {
+        return safeJsonError('Jumlah pembelian harus lebih dari 0', 400)
+      }
+      if (!item.baseQty || item.baseQty <= 0) {
+        return safeJsonError('Isi per unit harus lebih dari 0', 400)
+      }
+      if (item.unitCost === undefined || item.unitCost < 0) {
+        return safeJsonError('Harga satuan tidak boleh negatif', 400)
+      }
+      if (!item.totalCost || item.totalCost <= 0) {
+        return safeJsonError('Total biaya item harus lebih dari 0', 400)
+      }
+    }
+
+    // Fetch existing purchase order with items and inventory items
+    const order = await db.purchaseOrder.findFirst({
+      where: { id, outletId },
+      include: {
+        items: {
+          include: {
+            inventoryItem: {
+              select: { id: true, name: true, stock: true, avgCost: true },
+            },
+          },
+        },
+      },
+    })
+
+    if (!order) {
+      return safeJsonError('Purchase order not found', 404)
+    }
+
+    // Validate all inventory items
+    const itemIds = items.map((i) => i.inventoryItemId)
+    const inventoryItems = await db.inventoryItem.findMany({
+      where: { id: { in: itemIds }, outletId },
+    })
+    if (inventoryItems.length !== itemIds.length) {
+      return safeJsonError('One or more inventory items not found', 400)
+    }
+
+    // Calculate total cost
+    const totalCost = items.reduce((sum, item) => sum + (item.totalCost || 0), 0)
+
+    const result = await db.$transaction(async (tx) => {
+      const affectedInventoryItemIds: string[] = []
+
+      // Build maps for old items
+      const oldItemMap = new Map(order.items.map((item) => [item.inventoryItemId, item]))
+
+      // Build maps for new items
+      const newItemMap = new Map(items.map((item) => [item.inventoryItemId, item]))
+
+      // ── STEP 1: Reverse old inventory changes for items that are removed or modified ──
+      for (const oldItem of order.items) {
+        const newItem = newItemMap.get(oldItem.inventoryItemId)
+        const invItem = oldItem.inventoryItem
+
+        if (newItem) {
+          // Item is modified: reverse the old qty (will re-apply new qty later)
+          if (invItem.stock < oldItem.baseQty) {
+            throw new Error(
+              `Stok ${invItem.name} tidak mencukupi untuk edit (stok saat ini: ${invItem.stock}, harus dikurangi: ${oldItem.baseQty})`
+            )
+          }
+          const existingStock = invItem.stock
+          const existingAvgCost = invItem.avgCost
+          const newStock = existingStock - oldItem.baseQty
+          let newAvgCost = 0
+          if (newStock > 0) {
+            newAvgCost = (existingStock * existingAvgCost - oldItem.baseQty * oldItem.unitCost) / newStock
+          }
+
+          await tx.inventoryItem.update({
+            where: { id: oldItem.inventoryItemId },
+            data: { stock: newStock, avgCost: newAvgCost },
+          })
+
+          await tx.auditLog.create({
+            data: {
+              action: 'UPDATE',
+              entityType: 'INVENTORY_ITEM',
+              entityId: oldItem.inventoryItemId,
+              details: JSON.stringify({
+                itemName: invItem.name,
+                action: 'REVERSE_PURCHASE_EDIT',
+                purchaseOrderNumber: order.orderNumber,
+                baseQtyReversed: oldItem.baseQty,
+                previousStock: existingStock,
+                newStock,
+                previousAvgCost: existingAvgCost,
+                newAvgCost,
+              }),
+              outletId,
+              userId,
+            },
+          })
+        } else {
+          // Item is removed entirely: reverse old stock
+          if (invItem.stock < oldItem.baseQty) {
+            throw new Error(
+              `Stok ${invItem.name} tidak mencukupi untuk edit (stok saat ini: ${invItem.stock}, harus dikurangi: ${oldItem.baseQty})`
+            )
+          }
+          const existingStock = invItem.stock
+          const existingAvgCost = invItem.avgCost
+          const newStock = existingStock - oldItem.baseQty
+          let newAvgCost = 0
+          if (newStock > 0) {
+            newAvgCost = (existingStock * existingAvgCost - oldItem.baseQty * oldItem.unitCost) / newStock
+          }
+
+          await tx.inventoryItem.update({
+            where: { id: oldItem.inventoryItemId },
+            data: { stock: newStock, avgCost: newAvgCost },
+          })
+
+          await tx.auditLog.create({
+            data: {
+              action: 'UPDATE',
+              entityType: 'INVENTORY_ITEM',
+              entityId: oldItem.inventoryItemId,
+              details: JSON.stringify({
+                itemName: invItem.name,
+                action: 'REMOVE_PURCHASE_ITEM',
+                purchaseOrderNumber: order.orderNumber,
+                baseQtyReversed: oldItem.baseQty,
+                previousStock: existingStock,
+                newStock,
+                previousAvgCost: existingAvgCost,
+                newAvgCost,
+              }),
+              outletId,
+              userId,
+            },
+          })
+        }
+
+        affectedInventoryItemIds.push(oldItem.inventoryItemId)
+      }
+
+      // ── STEP 2: Delete all old purchase order items ──
+      await tx.purchaseOrderItem.deleteMany({
+        where: { purchaseOrderId: id },
+      })
+
+      // ── STEP 3: Create new purchase order items ──
+      const createdItems = await tx.purchaseOrderItem.createMany({
+        data: items.map((item) => {
+          const invItem = inventoryItems.find((ii) => ii.id === item.inventoryItemId)!
+          return {
+            purchaseOrderId: id,
+            inventoryItemId: item.inventoryItemId,
+            name: invItem.name,
+            purchaseQty: item.purchaseQty,
+            purchaseUnit: item.purchaseUnit,
+            baseQty: item.baseQty,
+            baseUnit: item.baseUnit,
+            unitCost: item.unitCost,
+            totalCost: item.totalCost || (item.baseQty * item.unitCost),
+            outletId,
+          }
+        }),
+      })
+
+      // ── STEP 4: Re-apply inventory changes for all new items ──
+      for (const item of items) {
+        const invItem = inventoryItems.find((ii) => ii.id === item.inventoryItemId)!
+        // Re-fetch current stock since we may have reversed some items
+        const currentInv = await tx.inventoryItem.findUnique({
+          where: { id: item.inventoryItemId },
+          select: { stock: true, avgCost: true },
+        })
+        const existingStock = currentInv?.stock ?? 0
+        const existingAvgCost = currentInv?.avgCost ?? 0
+        const baseQty = item.baseQty
+        const unitCost = item.unitCost
+
+        const newStock = existingStock + baseQty
+        let newAvgCost = 0
+        if (newStock > 0) {
+          newAvgCost = (existingStock * existingAvgCost + baseQty * unitCost) / newStock
+        }
+
+        await tx.inventoryItem.update({
+          where: { id: item.inventoryItemId },
+          data: {
+            stock: newStock,
+            avgCost: newAvgCost,
+          },
+        })
+
+        // Audit log for re-applied purchase
+        const wasOldItem = oldItemMap.has(item.inventoryItemId)
+        await tx.auditLog.create({
+          data: {
+            action: 'UPDATE',
+            entityType: 'INVENTORY_ITEM',
+            entityId: item.inventoryItemId,
+            details: JSON.stringify({
+              itemName: invItem.name,
+              action: wasOldItem ? 'REAPPLY_PURCHASE_EDIT' : 'ADD_PURCHASE_ITEM',
+              purchaseOrderNumber: order.orderNumber,
+              baseQtyAdded: baseQty,
+              unitCost,
+              previousStock: existingStock,
+              newStock,
+              previousAvgCost: existingAvgCost,
+              newAvgCost,
+            }),
+            outletId,
+            userId,
+          },
+        })
+
+        // Create inventory movement
+        await tx.inventoryMovement.create({
+          data: {
+            type: 'ADJUSTMENT',
+            inventoryItemId: item.inventoryItemId,
+            quantity: baseQty,
+            previousStock: existingStock,
+            newStock,
+            referenceId: id,
+            referenceType: 'PURCHASE_ORDER',
+            notes: `Edit pembelian: ${invItem.name} (${order.orderNumber})`,
+            outletId,
+            userId,
+          },
+        })
+
+        affectedInventoryItemIds.push(item.inventoryItemId)
+      }
+
+      // ── STEP 5: Update purchase order ──
+      await tx.purchaseOrder.update({
+        where: { id },
+        data: {
+          totalCost,
+          notes: notes?.trim() || null,
+        },
+      })
+
+      // ── STEP 6: Recalculate HPP ──
+      const uniqueAffectedIds = [...new Set(affectedInventoryItemIds)]
+      await recalculateHppForAffectedProducts(tx, uniqueAffectedIds)
+
+      // Return updated order
+      return tx.purchaseOrder.findFirst({
+        where: { id, outletId },
+        include: {
+          items: {
+            orderBy: { createdAt: 'asc' },
+            include: {
+              inventoryItem: {
+                select: { id: true, name: true, sku: true, baseUnit: true },
+              },
+            },
+          },
+          supplier: { select: { id: true, name: true, phone: true, address: true } },
+          createdBy: { select: { id: true, name: true, email: true } },
+        },
+      })
+    }, { timeout: 30000 })
+
+    return safeJson(result)
+  } catch (error) {
+    console.error('Purchase order PUT error:', error)
+    if (error instanceof Error && (error.message.includes('tidak mencukupi') || error.message.includes('stok'))) {
+      return safeJsonError(error.message, 400)
+    }
+    const msg = error instanceof Error ? error.message : 'Unknown error'
+    return safeJsonError(`Gagal mengedit pembelian: ${msg}`)
   }
 }
 

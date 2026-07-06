@@ -49,7 +49,9 @@ async function recalculateHppForAffectedProducts(
       const variantIds = [...new Set(productComps.filter((c) => c.variantId).map((c) => c.variantId!))]
       for (const variantId of variantIds) {
         const variantComps = productComps.filter((c) => c.variantId === variantId)
-        const newHpp = variantComps.reduce((sum, c) => sum + c.qty * c.inventoryItem.avgCost, 0)
+        const batchCost = variantComps.reduce((sum, c) => sum + c.qty * c.inventoryItem.avgCost, 0)
+        const yieldPerBatch = variantComps[0]?.yieldPerBatch || 1
+        const newHpp = yieldPerBatch > 1 ? batchCost / yieldPerBatch : batchCost
         await tx.productVariant.update({
           where: { id: variantId },
           data: { hpp: newHpp },
@@ -61,8 +63,10 @@ async function recalculateHppForAffectedProducts(
         data: { hpp: 0 },
       })
     } else {
-      // Non-variant: recalculate product-level HPP
-      const newHpp = productComps.reduce((sum, c) => sum + c.qty * c.inventoryItem.avgCost, 0)
+      // Non-variant: recalculate product-level HPP (yield-aware)
+      const batchCost = productComps.reduce((sum, c) => sum + c.qty * c.inventoryItem.avgCost, 0)
+      const yieldPerBatch = productComps[0]?.yieldPerBatch || 1
+      const newHpp = yieldPerBatch > 1 ? batchCost / yieldPerBatch : batchCost
       await tx.product.update({
         where: { id: productId },
         data: { hpp: newHpp },

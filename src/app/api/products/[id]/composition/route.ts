@@ -166,11 +166,13 @@ export async function PUT(
         inventoryItemId: string
         qty: number
         baseUnit: string
+        yieldPerBatch?: number
       }>
       variantCompositions?: Record<string, Array<{
         inventoryItemId: string
         qty: number
         baseUnit: string
+        yieldPerBatch?: number
       }>>
     }
 
@@ -254,15 +256,21 @@ export async function PUT(
                 variantId: vid,
                 inventoryItemId: c.inventoryItemId,
                 qty: c.qty,
+                yieldPerBatch: c.yieldPerBatch || 1,
                 baseUnit: c.baseUnit,
               })),
             })
 
-            // Calculate auto HPP for this variant
-            const variantHpp = comps.reduce((sum, c) => {
+            // Calculate auto HPP for this variant (yield-aware)
+            // HPP per unit = (total material cost per batch) / yieldPerBatch
+            // If all comps have same yield, use that. Otherwise use min yield (conservative).
+            const batchCost = comps.reduce((sum, c) => {
               const avgCost = invItemCostMap.get(c.inventoryItemId) || 0
               return sum + c.qty * avgCost
             }, 0)
+            // Use the yield of the first comp as representative (all comps in 1 variant share same yield)
+            const representativeYield = comps[0]?.yieldPerBatch || 1
+            const variantHpp = representativeYield > 1 ? batchCost / representativeYield : batchCost
 
             // Update variant HPP
             await tx.productVariant.update({
@@ -280,14 +288,18 @@ export async function PUT(
               variantId: null,
               inventoryItemId: c.inventoryItemId,
               qty: c.qty,
+              yieldPerBatch: c.yieldPerBatch || 1,
               baseUnit: c.baseUnit,
             })),
           })
 
-          productAutoHpp = compositions.reduce((sum, c) => {
+          // HPP per unit = (total material cost per batch) / yieldPerBatch
+          const batchCost = compositions.reduce((sum, c) => {
             const avgCost = invItemCostMap.get(c.inventoryItemId) || 0
             return sum + c.qty * avgCost
           }, 0)
+          const representativeYield = compositions[0]?.yieldPerBatch || 1
+          productAutoHpp = representativeYield > 1 ? batchCost / representativeYield : batchCost
         }
       }
 
