@@ -2237,7 +2237,7 @@ export default function PurchasePage() {
             <AlertDialogCancel className="text-slate-400 hover:text-white hover:bg-white/[0.04]">Batal</AlertDialogCancel>
             <AlertDialogAction
               className="bg-red-500/15 text-red-400 hover:bg-red-500/25 border border-red-500/20"
-              onClick={handleDeletePo}
+              onClick={(e) => { e.preventDefault(); handleDeletePo() }}
               disabled={deletingPo}
             >
               {deletingPo ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Hapus'}
@@ -2500,7 +2500,7 @@ export default function PurchasePage() {
             {invDeleteBlocked ? (
               <AlertDialogAction
                 className="bg-red-500/15 text-red-400 hover:bg-red-500/25 border border-red-500/20"
-                onClick={() => handleDeleteInv(true)}
+                onClick={(e) => { e.preventDefault(); handleDeleteInv(true) }}
                 disabled={deletingInv}
               >
                 {deletingInv ? <Loader2 className="h-4 w-4 animate-spin" /> : (
@@ -2514,7 +2514,7 @@ export default function PurchasePage() {
             ) : (
               <AlertDialogAction
                 className="bg-red-500/15 text-red-400 hover:bg-red-500/25 border border-red-500/20"
-                onClick={() => handleDeleteInv(false)}
+                onClick={(e) => { e.preventDefault(); handleDeleteInv(false) }}
                 disabled={deletingInv}
               >
                 {deletingInv ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Hapus'}
@@ -2624,7 +2624,7 @@ export default function PurchasePage() {
             <AlertDialogCancel className="text-slate-400 hover:text-white hover:bg-white/[0.04]">Batal</AlertDialogCancel>
             <AlertDialogAction
               className="bg-red-500/15 text-red-400 hover:bg-red-500/25 border border-red-500/20"
-              onClick={handleDeleteCategory}
+              onClick={(e) => { e.preventDefault(); handleDeleteCategory() }}
               disabled={deletingCat}
             >
               {deletingCat ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Hapus'}
