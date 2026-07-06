@@ -4,6 +4,7 @@ import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { generateInvoiceNumber } from '@/lib/api/api-helpers'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 import { ensureMigrated } from '@/lib/db-migrate'
+import { InventoryConsumptionService } from '@/lib/inventory-consumption-service'
 
 interface SyncTransactionItem {
   productId: string
@@ -218,6 +219,22 @@ export async function POST(request: NextRequest) {
               })
             }
           }
+
+          // 7c. Deduct inventory via InventoryConsumptionService (atomic, yield-aware)
+          //     Jika stok bahan tidak cukup → error → seluruh transaksi di-rollback
+          await InventoryConsumptionService.consumeForTransaction(txDb, {
+            items: payload.items.map(item => ({
+              productId: item.productId,
+              variantId: item.variantId || null,
+              productName: item.productName,
+              variantName: item.variantName || null,
+              qty: item.qty,
+            })),
+            transactionId: transaction.id,
+            invoiceNumber,
+            outletId,
+            userId,
+          })
 
           // 8. Create audit logs — VARIANT type for variant items, PRODUCT for normal
           const auditLogs = []
