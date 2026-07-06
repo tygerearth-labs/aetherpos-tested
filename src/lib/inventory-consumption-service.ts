@@ -3,20 +3,26 @@
  *
  * SINGLE SOURCE OF TRUTH untuk semua konsumsi inventory saat transaksi.
  *
+ * CRITICAL: Service ini TIDAK bergantung pada flag `hasComposition` di Product.
+ *   Malah langsung query ProductComposition — karena flag bisa stale/race condition.
+ *   Jika ada composition row → proses. Tidak ada → skip. Simple & reliable.
+ *
  * Alur:
- *   CreateTransaction()
+ *   POS Checkout → db.$transaction
  *     ↓
- *   consumeInventory(tx, items)
- *     ↓ foreach TransactionItem
- *     validateStock()      ← cek stok cukup, hitung dengan yield
+ *   consumeForTransaction(tx, items)
  *     ↓
- *     consumeInventory()    ← kurangi stok bahan baku
+ *   Query ProductComposition langsung (bukan via hasComposition flag)
  *     ↓
- *     createMovement()      ← log pergerakan CONSUMPTION
+ *   validateStock()      ← cek stok cukup, hitung dengan yield
  *     ↓
- *     createAuditLog()      ← audit trail
+ *   deductStock()        ← kurangi stok inventory item
  *     ↓
- *   commit()                ← prisma.$transaction handle ini
+ *   createMovement()      ← log pergerakan CONSUMPTION
+ *     ↓
+ *   createAuditLog()      ← audit trail
+ *     ↓
+ *   commit()
  *
  * KONSEP YIELD:
  *   qty = bahan per 1 batch
@@ -31,7 +37,6 @@
  * ATOMICITY:
  *   Service ini MUST dipanggil di dalam prisma.$transaction.
  *   Jika update stok gagal → seluruh transaksi di-rollback.
- *   Tidak ada kondisi "transaksi berhasil tapi stok gagal".
  */
 
 import { Prisma } from '@prisma/client'
@@ -45,14 +50,14 @@ export interface ConsumptionItem {
   variantId?: string | null
   productName: string
   variantName?: string | null
-  qty: number // qty produk yang dijual
+  qty: number
 }
 
 export interface InventoryDeduction {
   inventoryItemId: string
   itemName: string
   baseUnit: string
-  totalDeducted: number // jumlah bahan yang dikurangi (sudah dihitung dengan yield)
+  totalDeducted: number
   previousStock: number
   newStock: number
   sources: Array<{
@@ -67,10 +72,12 @@ export interface InventoryDeduction {
 export interface ConsumptionResult {
   success: true
   deductions: InventoryDeduction[]
-  totalMaterialCost: number // total biaya bahan yang dikonsumsi
+  totalMaterialCost: number
 }
 
 interface CompositionRow {
+  productId: string
+  variantId: string | null
   inventoryItemId: string
   qty: number
   yieldPerBatch: number
@@ -98,12 +105,15 @@ export class InventoryConsumptionService {
   /**
    * Main entry point. Dipanggil dari dalam db.$transaction.
    *
-   * 1. Validasi stok bahan baku cukup untuk semua item
-   * 2. Kurangi stok bahan baku
-   * 3. Buat inventory movement (CONSUMPTION)
-   * 4. Buat audit log
+   * LANGSUNG query ProductComposition — tidak bergantung pada hasComposition flag.
+   * Ini mencegah bug dimana flag stale menyebabkan inventory tidak ter-deduct.
    *
-   * @throws Error jika stok bahan baku tidak cukup
+   * 3 skenario produk:
+   *   A) Produk + varian + komposisi → deduct per komposisi varian
+   *   B) Produk tanpa komposisi      → tidak ada yang di-deduct (correct)
+   *   C) Produk tanpa varian + komposisi → deduct per komposisi produk
+   *
+   * @throws Error jika stok inventory item tidak cukup
    */
   static async consumeForTransaction(
     tx: TxClient,
@@ -117,35 +127,25 @@ export class InventoryConsumptionService {
   ): Promise<ConsumptionResult> {
     const { items, transactionId, invoiceNumber, outletId, userId } = params
 
-    // 1. Identifikasi produk yang punya komposisi
-    const compositionProductIds = [...new Set(
-      items.map(i => i.productId)
-    )]
-
-    // Cek mana yang punya komposisi
-    const products = await tx.product.findMany({
-      where: { id: { in: compositionProductIds }, hasComposition: true },
-      select: { id: true, hasVariants: true },
-    })
-    const compProductSet = new Set(products.map(p => p.id))
-
-    const compItems = items.filter(i => compProductSet.has(i.productId))
-    if (compItems.length === 0) {
+    if (items.length === 0) {
       return { success: true, deductions: [], totalMaterialCost: 0 }
     }
 
-    // 2. Fetch semua komposisi yang relevan (product-level + variant-level)
-    const variantIds = compItems.filter(i => i.variantId).map(i => i.variantId!)
+    // ── 1. Kumpulkan semua product & variant ID dari item yang dijual ──
+    const allProductIds = [...new Set(items.map(i => i.productId))]
+    const soldVariantIds = items.filter(i => i.variantId).map(i => i.variantId!)
 
+    // ── 2. LANGSUNG query ProductComposition — bukan via hasComposition flag ──
+    //    Ini adalah fix utama: kita cek data aktual, bukan flag yang bisa stale.
     const allComps: CompositionRow[] = await tx.productComposition.findMany({
       where: {
-        productId: { in: compProductSet },
-        ...(variantIds.length > 0 ? {
-          OR: [
-            { variantId: null },
-            { variantId: { in: variantIds } },
-          ]
-        } : { variantId: null }),
+        productId: { in: allProductIds },
+        // Fetch: product-level compositions (variantId: null) OR
+        //         variant-level compositions for sold variants
+        ...(soldVariantIds.length > 0
+          ? { OR: [{ variantId: null }, { variantId: { in: soldVariantIds } }] }
+          : { variantId: null }
+        ),
       },
       include: {
         inventoryItem: {
@@ -154,14 +154,16 @@ export class InventoryConsumptionService {
       },
     })
 
+    // Jika tidak ada komposisi sama sekali → tidak ada yang perlu di-deduct
     if (allComps.length === 0) {
+      console.log(`[InvConsumption] ${invoiceNumber} — no compositions found for ${allProductIds.length} product(s), skipping inventory deduction`)
       return { success: true, deductions: [], totalMaterialCost: 0 }
     }
 
-    // 3. Hitung total konsumsi per inventory item
-    //    Key insight: untuk setiap item terjual, hitung berapa batch yang dibutuhkan
-    //    batchesNeeded = ceil(productQty / yieldPerBatch)
-    //    materialNeeded = batchesNeeded * qty
+    // Build lookup: productId → Set of variant IDs that have compositions
+    const compProductIds = new Set(allComps.map(c => c.productId))
+
+    // ── 3. Hitung total konsumsi per inventory item ──
     const deductions = new Map<string, {
       itemName: string
       baseUnit: string
@@ -169,15 +171,20 @@ export class InventoryConsumptionService {
       sources: InventoryDeduction['sources']
     }>()
 
-    for (const item of compItems) {
+    for (const item of items) {
+      // Skip items yang produknya tidak punya komposisi
+      if (!compProductIds.has(item.productId)) continue
+
       const relevantComps = allComps.filter(c => {
         if (c.productId !== item.productId) return false
         if (item.variantId) return c.variantId === item.variantId
         return c.variantId === null
       })
 
+      if (relevantComps.length === 0) continue
+
       for (const comp of relevantComps) {
-        const yieldPerBatch = comp.yieldPerBatch || 1 // backward compat
+        const yieldPerBatch = comp.yieldPerBatch || 1
         const batchesNeeded = Math.ceil(item.qty / yieldPerBatch)
         const materialNeeded = batchesNeeded * comp.qty
 
@@ -208,11 +215,16 @@ export class InventoryConsumptionService {
       }
     }
 
-    // 4. VALIDASI STOK — cek sebelum deduct
+    if (deductions.size === 0) {
+      console.log(`[InvConsumption] ${invoiceNumber} — compositions exist but no relevant matches for sold items, skipping`)
+      return { success: true, deductions: [], totalMaterialCost: 0 }
+    }
+
+    // ── 4. VALIDASI STOK ──
     const invItemIds = [...deductions.keys()]
     const invItems = await tx.inventoryItem.findMany({
       where: { id: { in: invItemIds } },
-      select: { id: true, name: true, stock: true },
+      select: { id: true, name: true, stock: true, avgCost: true },
     })
     const stockMap = new Map(invItems.map(i => [i.id, i.stock]))
 
@@ -223,7 +235,7 @@ export class InventoryConsumptionService {
           .map(s => s.variantName ? `${s.productName} (${s.variantName})` : s.productName)
           .join(', ')
         throw new Error(
-          `Stok bahan "${deduction.itemName}" tidak cukup. ` +
+          `Stok item "${deduction.itemName}" tidak cukup. ` +
           `Tersedia: ${currentStock} ${deduction.baseUnit}, ` +
           `Dibutuhkan: ${deduction.totalDeducted} ${deduction.baseUnit} ` +
           `untuk: ${sourceDesc}`
@@ -231,7 +243,7 @@ export class InventoryConsumptionService {
       }
     }
 
-    // 5. DEDUCT STOK — kurangi stok bahan baku
+    // ── 5. DEDUCT STOK ──
     const resultDeductions: InventoryDeduction[] = []
     let totalMaterialCost = 0
 
@@ -244,7 +256,6 @@ export class InventoryConsumptionService {
         data: { stock: newStock },
       })
 
-      // Hitung biaya material (avgCost × qty deducted)
       const avgCost = invItems.find(i => i.id === invItemId)?.avgCost ?? 0
       totalMaterialCost += deduction.totalDeducted * avgCost
 
@@ -259,7 +270,12 @@ export class InventoryConsumptionService {
       })
     }
 
-    // 6. CREATE INVENTORY MOVEMENTS
+    console.log(
+      `[InvConsumption] ${invoiceNumber} — deducted ${resultDeductions.length} inventory item(s), ` +
+      `total material cost: Rp ${totalMaterialCost.toLocaleString('id-ID')}`
+    )
+
+    // ── 6. CREATE INVENTORY MOVEMENTS ──
     if (resultDeductions.length > 0) {
       await tx.inventoryMovement.createMany({
         data: resultDeductions.map(d => ({
@@ -281,7 +297,7 @@ export class InventoryConsumptionService {
       })
     }
 
-    // 7. CREATE AUDIT LOGS
+    // ── 7. CREATE AUDIT LOGS ──
     if (resultDeductions.length > 0) {
       await tx.auditLog.createMany({
         data: resultDeductions.map(d => ({
@@ -314,45 +330,44 @@ export class InventoryConsumptionService {
   /**
    * Helper: validasi saja tanpa mengurangi stok.
    * Berguna untuk pre-check di POS sebelum checkout.
+   * Juga TIDAK bergantung pada hasComposition flag.
    */
   static async validateConsumption(
     tx: TxClient,
     items: ConsumptionItem[],
     outletId: string,
   ): Promise<{ valid: true } | { valid: false; error: string }> {
-    const compositionProductIds = [...new Set(items.map(i => i.productId))]
-    const products = await tx.product.findMany({
-      where: { id: { in: compositionProductIds }, hasComposition: true, outletId },
-      select: { id: true },
-    })
-    const compProductSet = new Set(products.map(p => p.id))
-    const compItems = items.filter(i => compProductSet.has(i.productId))
-    if (compItems.length === 0) return { valid: true }
+    if (items.length === 0) return { valid: true }
 
-    const variantIds = compItems.filter(i => i.variantId).map(i => i.variantId!)
+    const allProductIds = [...new Set(items.map(i => i.productId))]
+    const soldVariantIds = items.filter(i => i.variantId).map(i => i.variantId!)
+
     const allComps = await tx.productComposition.findMany({
       where: {
-        productId: { in: compProductSet },
-        ...(variantIds.length > 0 ? {
-          OR: [
-            { variantId: null },
-            { variantId: { in: variantIds } },
-          ]
-        } : { variantId: null }),
+        productId: { in: allProductIds },
+        ...(soldVariantIds.length > 0
+          ? { OR: [{ variantId: null }, { variantId: { in: soldVariantIds } }] }
+          : { variantId: null }
+        ),
       },
       include: { inventoryItem: { select: { id: true, name: true, stock: true } } },
     })
 
     if (allComps.length === 0) return { valid: true }
 
+    const compProductIds = new Set(allComps.map(c => c.productId))
+
     const deductions = new Map<string, { itemName: string; baseUnit: string; totalDeducted: number; sources: string[] }>()
 
-    for (const item of compItems) {
+    for (const item of items) {
+      if (!compProductIds.has(item.productId)) continue
+
       const relevantComps = allComps.filter(c => {
         if (c.productId !== item.productId) return false
         if (item.variantId) return c.variantId === item.variantId
         return c.variantId === null
       })
+
       for (const comp of relevantComps) {
         const yieldPerBatch = comp.yieldPerBatch || 1
         const batchesNeeded = Math.ceil(item.qty / yieldPerBatch)

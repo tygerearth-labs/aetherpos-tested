@@ -78,7 +78,7 @@ export async function GET(request: NextRequest) {
       ['SATUAN', 'Unit produk (lihat daftar satuan di bawah)', 'porsi', 'Tidak'],
       ['KATEGORI', 'Nama kategori (auto-create jika belum ada)', 'Makanan', 'Tidak'],
       ['PUNYA VARIAN', 'Isi "ya" jika produk punya varian, lalu isi varian di sheet "Varian Produk"', 'ya', 'Tidak'],
-      ['PUNYA KOMPOSISI', 'Isi "ya" jika produk punya komposisi/bahan baku, lalu isi di sheet "Komposisi"', 'ya', 'Tidak'],
+      ['PUNYA KOMPOSISI', 'Isi "ya" jika produk punya komposisi item, lalu isi di sheet "Komposisi"', 'ya', 'Tidak'],
       [''],
       ['DAFTAR SATUAN YANG TERSEDIA:'],
       ['pcs, ml, lt, gr, kg, box, pack, botol, gelas, mangkuk, porsi, bungkus, sachet, dus, rim, lembar, meter, cm, ons'],
@@ -93,7 +93,7 @@ export async function GET(request: NextRequest) {
       ['1. Isi produk di sheet "Produk" dengan "Punya Komposisi" = ya'],
       ['2. Isi komposisi di sheet "Komposisi" dengan Nama Produk yang SAMA PERSIS'],
       ['3. Kolom NAMA VARIAN opsional — isi jika komposisi khusus untuk varian tertentu'],
-      ['4. Kolom NAMA BAHAN harus sesuai dengan nama Bahan Baku yang sudah ada di sistem'],
+      ['4. Kolom NAMA BAHAN harus sesuai dengan nama Item yang sudah ada di sistem'],
       ['5. Kolom QTY adalah jumlah bahan yang digunakan per 1 unit produk (dalam satuan dasar bahan)'],
       ['6. Untuk produk varian, setiap varian bisa punya komposisi berbeda'],
       [''],
@@ -110,7 +110,7 @@ export async function GET(request: NextRequest) {
       ['• Produk yang ditandai "Punya Varian" = ya wajib memiliki minimal 1 baris varian di sheet "Varian Produk"'],
       ['• Nama Produk di sheet "Varian Produk" harus SAMA PERSIS dengan Nama Produk di sheet "Produk" (case-sensitive)'],
       ['• Nama Produk & Nama Bahan di sheet "Komposisi" harus SAMA PERSIS (case-sensitive)'],
-      ['• Bahan baku harus sudah terdaftar di sistem sebelum mengimport komposisi'],
+      ['• Item harus sudah terdaftar di sistem sebelum mengimport komposisi'],
       ['• Upload produk utama terlebih dahulu, baru upload varian & komposisi di sheet terpisah'],
     ]
 

@@ -214,7 +214,7 @@ export async function PATCH(
               select: { id: true, name: true, stock: true },
             })
             if (!invItem) {
-              throw new Error(`Bahan baku ${item.itemName} tidak ditemukan di outlet pengirim`)
+              throw new Error(`Item ${item.itemName} tidak ditemukan di outlet pengirim`)
             }
             const prevStock = invItem.stock
             const newStock = invItem.stock - item.quantity
@@ -736,8 +736,8 @@ export async function PATCH(
         })
 
         const parts: string[] = []
-        if (addedItems.length > 0) parts.push(`${addedItems.length} bahan baku baru ditambahkan`)
-        if (restockedItems.length > 0) parts.push(`${restockedItems.length} bahan baku di-restock`)
+        if (addedItems.length > 0) parts.push(`${addedItems.length} item baru ditambahkan`)
+        if (restockedItems.length > 0) parts.push(`${restockedItems.length} item di-restock`)
         const detailMsg = parts.length > 0 ? ` (${parts.join(', ')})` : ''
 
         return safeJson({
@@ -1143,7 +1143,7 @@ export async function PATCH(
 
         return safeJson({
           ...updated,
-          message: `Transfer ${transfer.transferNumber} dibatalkan, stok bahan baku dikembalikan`,
+          message: `Transfer ${transfer.transferNumber} dibatalkan, stok item dikembalikan`,
         })
       }
 

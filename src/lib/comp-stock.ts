@@ -144,9 +144,9 @@ export async function validateCompositionStock(
       const yieldInfo = limitingItem.yieldPerBatch > 1
         ? ` (1 batch = ${limitingItem.required} ${limitingItem?.name?.split(' ')[0] || ''} → ${limitingItem.yieldPerBatch} produk)`
         : ''
-      return `Stok melebihi kapasitas bahan baku. "${limitingItem.name}" hanya tersedia ${limitingItem.available} (butuh ${limitingItem.required} per batch${yieldInfo}). Maksimal: ${maxStock} unit.`
+      return `Stok melebihi kapasitas item. "${limitingItem.name}" hanya tersedia ${limitingItem.available} (butuh ${limitingItem.required} per batch${yieldInfo}). Maksimal: ${maxStock} unit.`
     }
-    return `Stok melebihi kapasitas bahan baku. Maksimal: ${maxStock} unit.`
+    return `Stok melebihi kapasitas item. Maksimal: ${maxStock} unit.`
   }
 
   return null
@@ -170,9 +170,9 @@ export async function validateVariantCompositionStock(
       const yieldInfo = limitingItem.yieldPerBatch > 1
         ? ` (1 batch = ${limitingItem.required} → ${limitingItem.yieldPerBatch} varian)`
         : ''
-      return `Stok "${variantName}" melebihi kapasitas bahan baku. "${limitingItem.name}" hanya tersedia ${limitingItem.available} (butuh ${limitingItem.required} per batch${yieldInfo}). Maksimal: ${maxStock} unit.`
+      return `Stok "${variantName}" melebihi kapasitas item. "${limitingItem.name}" hanya tersedia ${limitingItem.available} (butuh ${limitingItem.required} per batch${yieldInfo}). Maksimal: ${maxStock} unit.`
     }
-    return `Stok "${variantName}" melebihi kapasitas bahan baku. Maksimal: ${maxStock} unit.`
+    return `Stok "${variantName}" melebihi kapasitas item. Maksimal: ${maxStock} unit.`
   }
 
   return null

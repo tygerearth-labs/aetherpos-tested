@@ -452,7 +452,7 @@ export async function POST(request: NextRequest) {
           // Find inventory item
           const invItem = inventoryItemCache.get(bahanName)
           if (!invItem) {
-            errors.push(`Baris ${rowNum} (Komposisi): Bahan "${bahanName}" tidak ditemukan. Daftarkan bahan baku terlebih dahulu.`)
+            errors.push(`Baris ${rowNum} (Komposisi): Item "${bahanName}" tidak ditemukan. Daftarkan item terlebih dahulu.`)
             compSkipped++
             continue
           }

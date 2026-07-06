@@ -214,7 +214,7 @@ export async function DELETE(
 
       return safeJson({
         blocked: true,
-        message: 'Bahan baku ini digunakan dalam komposisi produk',
+        message: 'Item ini digunakan dalam komposisi produk',
         compositionCount: existing._count.compositions,
         linkedProducts,
       })
@@ -223,7 +223,7 @@ export async function DELETE(
     // Also block if there are purchase order items referencing this
     if (existing._count.purchaseItems > 0) {
       return safeJsonError(
-        `Tidak dapat menghapus bahan baku ini karena sudah memiliki ${existing._count.purchaseItems} riwayat pembelian. Gunakan fitur nonaktifkan sebagai gantinya.`,
+        `Tidak dapat menghapus item ini karena sudah memiliki ${existing._count.purchaseItems} riwayat pembelian. Gunakan fitur nonaktifkan sebagai gantinya.`,
         400
       )
     }
@@ -247,115 +247,62 @@ export async function DELETE(
 
         // 3. For each affected product, check remaining compositions and update
         const affectedProductIds = [...new Set(compositions.map((c) => c.productId))]
+
+        // Helper: yield-aware HPP calculation (matches composition PUT logic)
+        const calcHpp = (comps: Array<{ qty: number; yieldPerBatch: number; inventoryItem: { avgCost: number } }>) => {
+          if (comps.length === 0) return 0
+          const batchCost = comps.reduce((sum, c) => sum + c.qty * c.inventoryItem.avgCost, 0)
+          const representativeYield = comps[0]?.yieldPerBatch || 1
+          return representativeYield > 1 ? batchCost / representativeYield : batchCost
+        }
+
         for (const productId of affectedProductIds) {
+          const product = compositions.find((c) => c.productId === productId)!.product
           const remainingComps = await tx.productComposition.count({
             where: { productId },
           })
 
           if (remainingComps === 0) {
-            // No more compositions → set hasComposition = false, reset HPP, set stock = 0
-            const product = compositions.find((c) => c.productId === productId)!.product
+            // No more compositions → recipe broken → reset everything
             await tx.product.update({
               where: { id: productId },
-              data: {
-                hasComposition: false,
-                hpp: 0,
-                stock: 0,
-              },
+              data: { hasComposition: false, hpp: 0, stock: 0 },
             })
-
-            // Also reset ALL variant stock and HPP if product has variants
             if (product.hasVariants) {
-              const variantIds = compositions
-                .filter((c) => c.productId === productId && c.variantId)
-                .map((c) => c.variantId!)
-              const uniqueVariantIds = [...new Set(variantIds)]
-
-              for (const variantId of uniqueVariantIds) {
-                const remainingVariantComps = await tx.productComposition.count({
-                  where: { variantId },
-                })
-                if (remainingVariantComps === 0) {
-                  await tx.productVariant.update({
-                    where: { id: variantId },
-                    data: { hpp: 0, stock: 0 },
-                  })
-                } else {
-                  // Recalculate HPP for variants that still have other compositions
-                  const variantComps = await tx.productComposition.findMany({
-                    where: { variantId },
-                    include: {
-                      inventoryItem: { select: { avgCost: true } },
-                    },
-                  })
-                  const newHpp = variantComps.reduce(
-                    (sum, c) => sum + c.qty * c.inventoryItem.avgCost,
-                    0
-                  )
-                  await tx.productVariant.update({
-                    where: { id: variantId },
-                    data: { hpp: newHpp },
-                  })
-                }
-              }
-
-              // Also zero out ALL variants of this product (not just the ones with this item)
-              // because the product's recipe is now broken
+              // Zero out ALL variant stock + HPP
               await tx.productVariant.updateMany({
                 where: { productId },
-                data: { stock: 0 },
-              })
-              // Re-sum parent product stock from variants
-              const aggResult = await tx.productVariant.aggregate({
-                where: { productId },
-                _sum: { stock: true },
-              })
-              await tx.product.update({
-                where: { id: productId },
-                data: { stock: aggResult._sum.stock || 0 },
+                data: { hpp: 0, stock: 0 },
               })
             }
           } else {
-            // Still has compositions → recalculate HPP for remaining items
-            const product = compositions.find((c) => c.productId === productId)!.product
-
+            // Still has compositions → recalculate HPP (yield-aware)
             if (product.hasVariants) {
-              const variantIds = compositions
-                .filter((c) => c.productId === productId && c.variantId)
-                .map((c) => c.variantId!)
-              const uniqueVariantIds = [...new Set(variantIds)]
-
-              for (const variantId of uniqueVariantIds) {
+              // Recalculate HPP per variant that was affected
+              const affectedVariantIds = [...new Set(
+                compositions
+                  .filter((c) => c.productId === productId && c.variantId)
+                  .map((c) => c.variantId!)
+              )]
+              for (const variantId of affectedVariantIds) {
                 const variantComps = await tx.productComposition.findMany({
                   where: { variantId },
-                  include: {
-                    inventoryItem: { select: { avgCost: true } },
-                  },
+                  include: { inventoryItem: { select: { avgCost: true } } },
                 })
-                const newHpp = variantComps.reduce(
-                  (sum, c) => sum + c.qty * c.inventoryItem.avgCost,
-                  0
-                )
                 await tx.productVariant.update({
                   where: { id: variantId },
-                  data: { hpp: newHpp },
+                  data: { hpp: calcHpp(variantComps) },
                 })
               }
-              // Product-level HPP stays 0 for variant products
             } else {
+              // Non-variant product: recalculate product-level HPP
               const remainingCompsWithCost = await tx.productComposition.findMany({
                 where: { productId },
-                include: {
-                  inventoryItem: { select: { avgCost: true } },
-                },
+                include: { inventoryItem: { select: { avgCost: true } } },
               })
-              const newHpp = remainingCompsWithCost.reduce(
-                (sum, c) => sum + c.qty * c.inventoryItem.avgCost,
-                0
-              )
               await tx.product.update({
                 where: { id: productId },
-                data: { hpp: newHpp },
+                data: { hpp: calcHpp(remainingCompsWithCost) },
               })
             }
           }

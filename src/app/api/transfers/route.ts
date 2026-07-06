@@ -189,7 +189,7 @@ export async function POST(request: NextRequest) {
           return safeJsonError('Setiap item harus memiliki quantity > 0', 400)
         }
         if (!item.inventoryItemId) {
-          return safeJsonError('Transfer bahan baku harus memiliki inventoryItemId pada setiap item', 400)
+          return safeJsonError('Transfer item harus memiliki inventoryItemId pada setiap item', 400)
         }
 
         const invItem = await db.inventoryItem.findFirst({
@@ -197,7 +197,7 @@ export async function POST(request: NextRequest) {
           select: { id: true, name: true, sku: true, baseUnit: true, stock: true, avgCost: true },
         })
         if (!invItem) {
-          return safeJsonError(`Bahan baku dengan ID ${item.inventoryItemId} tidak ditemukan`, 400)
+          return safeJsonError(`Item dengan ID ${item.inventoryItemId} tidak ditemukan`, 400)
         }
         if (invItem.stock < item.quantity) {
           return safeJsonError(`Stok ${invItem.name} tidak mencukupi (sisa: ${invItem.stock})`, 400)
