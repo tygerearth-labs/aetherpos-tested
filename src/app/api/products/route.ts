@@ -263,7 +263,7 @@ export async function POST(request: NextRequest) {
     const outletId = user.outletId
 
     const body = await request.json()
-    const { name, sku, barcode, hpp, price, stock, lowStockAlert, image, categoryId, unit, hasVariants, hasComposition, variants } = body
+    const { name, sku, barcode, hpp, price, stock, lowStockAlert, image, categoryId, unit, hasVariants, variants } = body
 
     if (!name || price === undefined || price === null) {
       return safeJsonError('Product name and price are required', 400)
@@ -354,7 +354,6 @@ export async function POST(request: NextRequest) {
           unit: unit || 'pcs',
           outletId,
           hasVariants: !!hasVariants,
-          hasComposition: !!hasComposition,
         },
       })
 

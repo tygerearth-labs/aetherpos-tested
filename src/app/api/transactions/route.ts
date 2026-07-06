@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
     if (search) {
       where.OR = [
         { invoiceNumber: { contains: search } },
-        { customerName: { contains: search } },
+        { customer: { name: { contains: search } } },
       ]
     }
 
@@ -68,9 +68,11 @@ export async function GET(request: NextRequest) {
     const safeSortDir = sortDir === 'asc' ? 'asc' : 'desc'
     const orderBy: Record<string, string> = { [safeSortField]: safeSortDir }
 
-    // For customer sort, use the snapshot field directly (relation may be null after SetNull)
+    // For customer sort, need to use relation
+    let customerOrderBy: any = undefined
     if (sortField === 'customerName') {
-      orderBy.customerName = safeSortDir
+      customerOrderBy = { customer: { name: sortDir === 'asc' ? 'asc' : 'desc' } }
+      delete orderBy.customerName
     }
 
     // Get outlet name for display
@@ -83,7 +85,7 @@ export async function GET(request: NextRequest) {
     const [transactions, total] = await Promise.all([
       db.transaction.findMany({
         where,
-        orderBy,
+        orderBy: customerOrderBy || orderBy,
         skip,
         take: limit,
         select: {
@@ -96,8 +98,9 @@ export async function GET(request: NextRequest) {
           paymentMethod: true,
           paidAmount: true,
           change: true,
-          userName: true,
-          customerName: true,
+          customer: {
+            select: { name: true },
+          },
           user: {
             select: { id: true, name: true },
           },
@@ -127,8 +130,8 @@ export async function GET(request: NextRequest) {
         paymentMethod: t.paymentMethod,
         paidAmount: t.paidAmount,
         change: t.change,
-        customerName: t.customerName ?? null,
-        cashierName: t.user?.name ?? t.userName,
+        customerName: t.customer?.name ?? null,
+        cashierName: t.user?.name ?? null,
         cashierId: t.user?.id ?? null,
         outletName,
         createdAt: t.createdAt,

@@ -55,16 +55,6 @@ export async function POST(request: NextRequest) {
 
     const checkoutItems: CheckoutItem[] = items
 
-    // Pre-fetch customer name for snapshot (before transaction)
-    let customerName: string | null = null
-    if (customerId) {
-      const cust = await db.customer.findFirst({
-        where: { id: customerId, outletId },
-        select: { name: true },
-      })
-      customerName = cust?.name || null
-    }
-
     // K4: Monthly transaction limit check
     const outlet = await db.outlet.findUnique({
       where: { id: outletId },
@@ -188,8 +178,6 @@ export async function POST(request: NextRequest) {
           outletId,
           customerId: customerId || null,
           userId,
-          userName: user.name,
-          customerName,
         },
       })
 
@@ -246,8 +234,6 @@ export async function POST(request: NextRequest) {
       }
 
       // 7c. Deduct inventory for composition products (bahan baku)
-      // Defensive: also include products that have compositions in DB even if hasComposition flag is stale
-      const allProductIds = [...new Set(checkoutItems.map((item) => item.productId))]
       const compProductIds = [...new Set(
         checkoutItems
           .map((item) => productMap.get(item.productId))
@@ -255,53 +241,29 @@ export async function POST(request: NextRequest) {
           .map((p) => p!.id)
       )]
 
-      // Double-check: fetch any compositions for ALL products (catches stale hasComposition=false)
-      let allComps = await tx.productComposition.findMany({
-        where: { productId: { in: compProductIds.length > 0 ? compProductIds : allProductIds } },
-        include: { inventoryItem: { select: { id: true, name: true } } },
-      })
+      if (compProductIds.length > 0) {
+        // Fetch ALL compositions for these products (both product-level and variant-level)
+        const allComps = await tx.productComposition.findMany({
+          where: { productId: { in: compProductIds } },
+          include: { inventoryItem: { select: { id: true, name: true } } },
+        })
 
-      // If compositions found for products NOT in compProductIds, the flag was stale — fix it
-      const compProductIdsFromDb = new Set(allComps.map((c) => c.productId))
-      for (const pid of compProductIdsFromDb) {
-        if (!compProductIds.includes(pid)) {
-          const product = productMap.get(pid)
-          if (product && !product.hasComposition) {
-            console.log(`[checkout] ⚠️ Fixing stale hasComposition for product ${pid} (${product.name})`)
-            await tx.product.update({ where: { id: pid }, data: { hasComposition: true } })
-            product.hasComposition = true
-          }
-        }
-      }
+        // Aggregate deductions per inventory item
+        const invDeductions = new Map<string, { qty: number; baseUnit: string; itemName: string; sources: Array<{ productName: string; variantName?: string; qty: number }> }>()
 
-      // Build per-line snapshot data AND aggregate deductions
-      const invDeductions = new Map<string, { qty: number; baseUnit: string; itemName: string; sources: Array<{ productName: string; variantName?: string; qty: number }> }>()
-      const snapshotData: Array<{
-        transactionId: string
-        productId: string
-        variantId: string | null
-        inventoryItemId: string
-        inventoryItemName: string
-        compQty: number
-        unitsSold: number
-        totalDeducted: number
-        baseUnit: string
-        outletId: string
-      }> = []
-
-      if (allComps.length > 0) {
         for (const item of checkoutItems) {
           const product = productMap.get(item.productId)
-          // Check both the flag AND actual compositions (defensive)
-          if (!product?.hasComposition && !compProductIdsFromDb.has(item.productId)) continue
+          if (!product?.hasComposition) continue
 
           // For variant products, use variant-level compositions
           // For non-variant products, use product-level compositions (variantId = null)
           const relevantComps = allComps.filter((c) => {
             if (c.productId !== item.productId) return false
             if (item.variantId) {
+              // Variant sale: use variant-specific compositions
               return c.variantId === item.variantId
             }
+            // Non-variant sale: use product-level compositions
             return c.variantId === null
           })
 
@@ -327,78 +289,62 @@ export async function POST(request: NextRequest) {
                 }],
               })
             }
-
-            // Snapshot: one record per composition line per sale item
-            snapshotData.push({
-              transactionId: transaction.id,
-              productId: item.productId,
-              variantId: item.variantId || null,
-              inventoryItemId: comp.inventoryItemId,
-              inventoryItemName: comp.inventoryItem.name,
-              compQty: comp.qty,
-              unitsSold: item.qty,
-              totalDeducted: deductQty,
-              baseUnit: comp.baseUnit,
-              outletId,
-            })
           }
         }
 
-        // Deduct from inventory items (only if there are deductions)
-        if (invDeductions.size > 0) {
-          // Fetch current stock before deduction
-          const invItemIds = [...invDeductions.keys()]
-          const invItemStocks = await tx.inventoryItem.findMany({
-            where: { id: { in: invItemIds } },
-            select: { id: true, stock: true },
+        // Fetch current stock before deduction
+        const invItemIds = [...invDeductions.keys()]
+        const invItemStocks = await tx.inventoryItem.findMany({
+          where: { id: { in: invItemIds } },
+          select: { id: true, stock: true },
+        })
+        const invStockMap = new Map(invItemStocks.map(i => [i.id, i.stock]))
+
+        // Deduct from inventory items
+        for (const [invItemId, deduction] of invDeductions) {
+          await tx.inventoryItem.update({
+            where: { id: invItemId },
+            data: { stock: { decrement: deduction.qty } },
           })
-          const invStockMap = new Map(invItemStocks.map(i => [i.id, i.stock]))
+        }
 
-          for (const [invItemId, deduction] of invDeductions) {
-            await tx.inventoryItem.update({
-              where: { id: invItemId },
-              data: { stock: { decrement: deduction.qty } },
-            })
-          }
-
-          // Create inventory movements for composition deductions
-          const compMovementData = [...invDeductions.entries()].map(([invItemId, deduction]) => {
-            const previousStock = invStockMap.get(invItemId) || 0
-            return {
-              type: 'CONSUMPTION' as const,
-              inventoryItemId: invItemId,
-              quantity: -deduction.qty,
-              previousStock,
-              newStock: previousStock - deduction.qty,
-              referenceId: transaction.id,
-              referenceType: 'TRANSACTION' as const,
-              notes: `Komposisi: ${deduction.sources.map(s => s.variantName ? `${s.productName} (${s.variantName})` : s.productName).join(', ')} (${invoiceNumber})`,
-              outletId,
-              userId,
-            }
-          })
-          if (compMovementData.length > 0) {
-            await tx.inventoryMovement.createMany({ data: compMovementData })
-          }
-
-          // Audit logs for inventory deductions
-          const invAuditData = [...invDeductions.entries()].map(([invItemId, deduction]) => ({
-            action: 'COMPOSITION_DEDUCT' as const,
-            entityType: 'INVENTORY_ITEM' as const,
-            entityId: invItemId,
-            details: JSON.stringify({
-              invoiceNumber,
-              itemName: deduction.itemName,
-              baseUnit: deduction.baseUnit,
-              totalDeducted: deduction.qty,
-              sources: deduction.sources,
-            }),
+        // Create inventory movements for composition deductions
+        const compMovementData = [...invDeductions.entries()].map(([invItemId, deduction]) => {
+          const previousStock = invStockMap.get(invItemId) || 0
+          return {
+            type: 'CONSUMPTION' as const,
+            inventoryItemId: invItemId,
+            quantity: -deduction.qty,
+            previousStock,
+            newStock: previousStock - deduction.qty,
+            referenceId: transaction.id,
+            referenceType: 'TRANSACTION' as const,
+            notes: `Komposisi: ${deduction.sources.map(s => s.variantName ? `${s.productName} (${s.variantName})` : s.productName).join(', ')} (${invoiceNumber})`,
             outletId,
             userId,
-          }))
-          if (invAuditData.length > 0) {
-            await tx.auditLog.createMany({ data: invAuditData })
           }
+        })
+        if (compMovementData.length > 0) {
+          await tx.inventoryMovement.createMany({ data: compMovementData })
+        }
+
+        // Audit logs for inventory deductions
+        const invAuditData = [...invDeductions.entries()].map(([invItemId, deduction]) => ({
+          action: 'COMPOSITION_DEDUCT' as const,
+          entityType: 'INVENTORY_ITEM' as const,
+          entityId: invItemId,
+          details: JSON.stringify({
+            invoiceNumber,
+            itemName: deduction.itemName,
+            baseUnit: deduction.baseUnit,
+            totalDeducted: deduction.qty,
+            sources: deduction.sources,
+          }),
+          outletId,
+          userId,
+        }))
+        if (invAuditData.length > 0) {
+          await tx.auditLog.createMany({ data: invAuditData })
         }
       }
 
@@ -503,7 +449,6 @@ export async function POST(request: NextRequest) {
           points: number
           description: string
           customerId: string
-          customerName: string
           transactionId: string
         }> = []
         if (earnedPoints > 0) {
@@ -512,7 +457,6 @@ export async function POST(request: NextRequest) {
             points: earnedPoints,
             description: `Earned ${earnedPoints} points from transaction ${invoiceNumber} (Rp ${total.toLocaleString('id-ID')})`,
             customerId,
-            customerName: customer.name,
             transactionId: transaction.id,
           })
         }
@@ -523,7 +467,6 @@ export async function POST(request: NextRequest) {
             points: -pointsToUse,
             description: `Redeemed ${pointsToUse} points for Rp ${pointsDiscount.toLocaleString('id-ID')} discount on transaction ${invoiceNumber}`,
             customerId,
-            customerName: customer.name,
             transactionId: transaction.id,
           })
         }
@@ -532,22 +475,8 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      return { invoiceNumber, transactionId: transaction.id, compSnapshots: snapshotData }
+      return { invoiceNumber }
     }, { timeout: 15000 })
-
-    // POST-TRANSACTION: Save composition usage snapshots (outside tx so they persist)
-    // These are audit trail records. If transaction succeeded, deduct already happened.
-    // Snapshots are saved as synced=true since deduction already completed inside tx.
-    if (result.compSnapshots && result.compSnapshots.length > 0) {
-      try {
-        await db.compositionUsageSnapshot.createMany({
-          data: result.compSnapshots.map(s => ({ ...s, transactionId: result.transactionId, synced: true })),
-        })
-      } catch (snapshotErr) {
-        // Non-fatal: snapshot save failed but checkout succeeded
-        console.error('[checkout] Composition snapshot save failed (non-fatal):', snapshotErr)
-      }
-    }
 
     // H4: Post-transaction notification — properly awaited to ensure delivery.
     //     Wrapped in try/catch so a notification failure never causes a
