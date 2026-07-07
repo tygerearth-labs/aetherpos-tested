@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeAuditLog } from '@/lib/safe-audit'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
+import { InventoryConsumptionService } from '@/lib/inventory-consumption-service'
 
 export async function POST(
   request: NextRequest,
@@ -52,64 +53,181 @@ export async function POST(
     // Fetch transaction items for stock restoration
     const transactionItems = await db.transactionItem.findMany({
       where: { transactionId: id },
-      select: { productId: true, productName: true, variantId: true, variantName: true, qty: true },
+      select: { productId: true, productName: true, productSku: true, variantId: true, variantName: true, variantSku: true, qty: true },
     })
 
-    // Fetch product & variant SKUs for audit logs
+    // Fetch product & variant SKUs for audit logs (fallback for old transactions without snapshot SKU)
+    const needsSkuLookup = transactionItems.some(i => !i.productSku && i.productId) || transactionItems.some(i => !i.variantSku && i.variantId)
     const productIds = [...new Set(transactionItems.map(i => i.productId).filter(Boolean))]
     const variantIds = [...new Set(transactionItems.filter(i => i.variantId).map(i => i.variantId!))]
 
-    const [productSkuMap, variantSkuMap] = await Promise.all([
-      productIds.length > 0
-        ? db.product.findMany({ where: { id: { in: productIds } }, select: { id: true, sku: true } }).then(arr => new Map(arr.map(p => [p.id, p.sku])))
-        : Promise.resolve(new Map()),
-      variantIds.length > 0
-        ? db.productVariant.findMany({ where: { id: { in: variantIds } }, select: { id: true, sku: true } }).then(arr => new Map(arr.map(v => [v.id, v.sku])))
-        : Promise.resolve(new Map()),
-    ])
+    let productSkuMap = new Map<string, string | null>()
+    let variantSkuMap = new Map<string, string | null>()
 
-    // Perform void in a transaction: restore stock + create audit logs
+    if (needsSkuLookup) {
+      const [productSkuArr, variantSkuArr] = await Promise.all([
+        productIds.length > 0
+          ? db.product.findMany({ where: { id: { in: productIds } }, select: { id: true, sku: true } }).then(arr => new Map(arr.map(p => [p.id, p.sku])))
+          : Promise.resolve(new Map()),
+        variantIds.length > 0
+          ? db.productVariant.findMany({ where: { id: { in: variantIds } }, select: { id: true, sku: true } }).then(arr => new Map(arr.map(v => [v.id, v.sku])))
+          : Promise.resolve(new Map()),
+      ])
+      productSkuMap = productSkuArr
+      variantSkuMap = variantSkuArr
+    }
+
+    // Helper: get SKU from snapshot first, fallback to DB lookup
+    const getProductSku = (item: typeof transactionItems[number]) =>
+      (item as any).productSku || productSkuMap.get(item.productId!) || null
+    const getVariantSku = (item: typeof transactionItems[number]) =>
+      (item as any).variantSku || (item.variantId ? (variantSkuMap.get(item.variantId) || null) : null)
+
+    // Determine which product IDs need parent stock recalculation (variant products)
+    const variantProductIds = [...new Set(
+      transactionItems.filter(i => i.variantId).map(i => i.productId).filter(Boolean)
+    )]
+
+    // Perform void in a transaction: restore stock + reverse inventory + reverse loyalty + audit logs
     await db.$transaction(async (tx) => {
-      // Restore stock for each item
+      // ════════════════════════════════════════════════════════════
+      // STEP 1: Restore product/variant stock
+      // ════════════════════════════════════════════════════════════
       for (const item of transactionItems) {
         if (item.variantId) {
-          // Increment variant stock
           await tx.productVariant.update({
             where: { id: item.variantId },
             data: { stock: { increment: item.qty } },
           })
-        } else {
-          // Increment parent product stock
+        } else if (item.productId) {
           await tx.product.update({
-            where: { id: item.productId! },
+            where: { id: item.productId },
             data: { stock: { increment: item.qty } },
           })
         }
       }
 
-      // Fetch updated stocks for audit logs
-      const productIds = transactionItems.filter(i => !i.variantId).map(i => i.productId!).filter(Boolean)
-      const variantIds = transactionItems.filter(i => i.variantId).map(i => i.variantId!)
+      // ════════════════════════════════════════════════════════════
+      // STEP 2 (GAP 3): Recalculate parent product stock for variants
+      // ════════════════════════════════════════════════════════════
+      for (const productId of variantProductIds) {
+        const aggResult = await tx.productVariant.aggregate({
+          where: { productId, outletId },
+          _sum: { stock: true },
+        })
+        await tx.product.update({
+          where: { id: productId },
+          data: { stock: aggResult._sum.stock || 0 },
+        })
+      }
+
+      // ════════════════════════════════════════════════════════════
+      // STEP 3 (GAP 1): Reverse inventory (bahan baku) consumption
+      //   Skip items where product was deleted (productId is null)
+      // ════════════════════════════════════════════════════════════
+      const reversableItems = transactionItems.filter(i => i.productId)
+      if (reversableItems.length > 0) {
+        await InventoryConsumptionService.reverseForTransaction(tx, {
+          items: reversableItems.map(item => ({
+            productId: item.productId!,
+            variantId: item.variantId,
+            productName: item.productName,
+            variantName: item.variantName || undefined,
+            qty: item.qty,
+          })),
+          transactionId: id,
+          invoiceNumber: transaction.invoiceNumber,
+          outletId,
+          userId,
+        })
+      }
+
+      // ════════════════════════════════════════════════════════════
+      // STEP 4 (GAP 2): Reverse loyalty points & customer totalSpend
+      // ════════════════════════════════════════════════════════════
+      if (transaction.customerId) {
+        // Find loyalty logs for this transaction
+        const loyaltyLogs = await tx.loyaltyLog.findMany({
+          where: { transactionId: id },
+          select: { id: true, type: true, points: true, description: true },
+        })
+
+        let netPointsDelta = 0
+
+        for (const log of loyaltyLogs) {
+          if (log.type === 'EARN') {
+            // Earned points → reverse: decrement points
+            netPointsDelta -= Math.abs(log.points)
+          } else if (log.type === 'REDEEM') {
+            // Redeemed points → reverse: increment points back
+            netPointsDelta += Math.abs(log.points)
+          }
+        }
+
+        if (netPointsDelta !== 0 || transaction.total > 0) {
+          const customerUpdateData: { totalSpend?: { decrement: number }; points?: { increment: number } | { decrement: number } } = {}
+
+          // Always reverse totalSpend
+          if (transaction.total > 0) {
+            customerUpdateData.totalSpend = { decrement: transaction.total }
+          }
+
+          // Reverse points
+          if (netPointsDelta > 0) {
+            customerUpdateData.points = { increment: netPointsDelta }
+          } else if (netPointsDelta < 0) {
+            customerUpdateData.points = { decrement: Math.abs(netPointsDelta) }
+          }
+
+          if (Object.keys(customerUpdateData).length > 0) {
+            await tx.customer.update({
+              where: { id: transaction.customerId },
+              data: customerUpdateData,
+            })
+          }
+        }
+
+        // Create reverse loyalty logs
+        if (loyaltyLogs.length > 0) {
+          const reverseLogs = loyaltyLogs.map(log => ({
+            type: log.type === 'EARN' ? 'REDEEM' as const : 'EARN' as const,
+            points: -log.points,
+            description: `[VOID] ${log.description}`,
+            customerId: transaction.customerId,
+            transactionId: id,
+          }))
+          await tx.loyaltyLog.createMany({ data: reverseLogs })
+        }
+      }
+
+      // ════════════════════════════════════════════════════════════
+      // STEP 5: Fetch updated stocks for audit logs
+      // ════════════════════════════════════════════════════════════
+      const restockProductIds = transactionItems.filter(i => !i.variantId).map(i => i.productId!).filter(Boolean)
+      const restockVariantIds = transactionItems.filter(i => i.variantId).map(i => i.variantId!)
 
       const productStockMap = new Map<string, number>()
-      if (productIds.length > 0) {
+      if (restockProductIds.length > 0) {
         const updatedProducts = await tx.product.findMany({
-          where: { id: { in: productIds } },
+          where: { id: { in: restockProductIds } },
           select: { id: true, stock: true },
         })
         for (const p of updatedProducts) productStockMap.set(p.id, p.stock)
       }
 
       const variantStockMap = new Map<string, number>()
-      if (variantIds.length > 0) {
+      if (restockVariantIds.length > 0) {
         const updatedVariants = await tx.productVariant.findMany({
-          where: { id: { in: variantIds } },
+          where: { id: { in: restockVariantIds } },
           select: { id: true, stock: true },
         })
         for (const v of updatedVariants) variantStockMap.set(v.id, v.stock)
       }
 
-      // Batch create audit logs for stock restoration
+      // ════════════════════════════════════════════════════════════
+      // STEP 6: Create audit logs
+      // ════════════════════════════════════════════════════════════
+      // RESTOCK logs per item
       await tx.auditLog.createMany({
         data: transactionItems.map(item => {
           const isVariant = !!item.variantId
@@ -120,9 +238,9 @@ export async function POST(
             details: JSON.stringify({
               reason: `Void transaksi ${transaction.invoiceNumber}`,
               productName: item.productName,
-              productSku: productSkuMap.get(item.productId!) || null,
+              productSku: getProductSku(item),
               variantName: item.variantName ?? undefined,
-              variantSku: item.variantId ? (variantSkuMap.get(item.variantId) || null) : undefined,
+              variantSku: getVariantSku(item),
               quantityAdded: item.qty,
               newStock: isVariant
                 ? (variantStockMap.get(item.variantId!) ?? 0)
@@ -134,7 +252,7 @@ export async function POST(
         }),
       })
 
-      // Create void audit log
+      // VOID audit log (main record)
       await tx.auditLog.create({
         data: {
           action: 'VOID',
@@ -146,11 +264,14 @@ export async function POST(
             reason: reason.trim(),
             voidedBy: user.name || user.email,
             voidedAt: new Date().toISOString(),
+            inventoryRestored: true,
+            loyaltyReversed: !!transaction.customerId,
+            parentStockRecalculated: variantProductIds.length > 0,
             itemsRestored: transactionItems.map(i => ({
               productName: i.productName,
-              productSku: i.productId ? (productSkuMap.get(i.productId) || null) : null,
+              productSku: getProductSku(i),
               variantName: i.variantName ?? undefined,
-              variantSku: i.variantId ? (variantSkuMap.get(i.variantId) || null) : undefined,
+              variantSku: getVariantSku(i),
               qty: i.qty,
             })),
           }),
@@ -158,9 +279,9 @@ export async function POST(
           userId,
         },
       })
-    }, { timeout: 10000 })
+    }, { timeout: 15000 })
 
-    return safeJson({ success: true, message: 'Transaction voided, stock restored' })
+    return safeJson({ success: true, message: 'Transaction voided, stock restored, inventory reversed, loyalty adjusted' })
   } catch (error) {
     console.error('Void transaction error:', error)
     return safeJsonError('Failed to void transaction', 500)

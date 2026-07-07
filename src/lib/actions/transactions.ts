@@ -199,16 +199,30 @@ export async function processCheckout(data: CheckoutInput) {
     });
 
     // 8. Batch create TransactionItem records
+    //    productName: server-verified from DB
+    //    productSku: snapshotted from DB
+    //    hpp: snapshotted from DB
+    //    price: kept from client (effective selling price)
     await tx.transactionItem.createMany({
       data: data.items.map((item) => {
         const product = productMap.get(item.productId)!;
+
+        // Server-side name verification — log if client name differs from DB
+        const verifiedProductName = product.name
+        if (item.name && item.name !== product.name) {
+          console.warn(
+            `[processCheckout] productName mismatch: client="${item.name}" db="${product.name}" productId=${product.id}`
+          )
+        }
+
         return {
           productId: item.productId,
-          productName: item.name,
+          productName: verifiedProductName,
+          productSku: product.sku || null,
           price: item.price,
           qty: item.qty,
           subtotal: item.price * item.qty,
-          hpp: item.hpp,
+          hpp: product.hpp,
           transactionId: transaction.id,
         };
       }),

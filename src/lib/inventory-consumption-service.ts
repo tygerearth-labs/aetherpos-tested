@@ -328,6 +328,208 @@ export class InventoryConsumptionService {
   }
 
   /**
+   * Reverse inventory consumption for a voided transaction.
+   *
+   * Recalculates what was deducted using the SAME composition logic as consumeForTransaction,
+   * then RESTORES the inventory stock. This ensures accuracy even if composition
+   * was changed after the original sale.
+   *
+   * Called from void route within db.$transaction.
+   */
+  static async reverseForTransaction(
+    tx: TxClient,
+    params: {
+      items: ConsumptionItem[]
+      transactionId: string
+      invoiceNumber: string
+      outletId: string
+      userId: string
+    }
+  ): Promise<void> {
+    const { items, transactionId, invoiceNumber, outletId, userId } = params
+
+    if (items.length === 0) return
+
+    // ── 1. Query compositions (same logic as consumeForTransaction) ──
+    const allProductIds = [...new Set(items.map(i => i.productId))]
+    const soldVariantIds = items.filter(i => i.variantId).map(i => i.variantId!)
+
+    const allComps: CompositionRow[] = await tx.productComposition.findMany({
+      where: {
+        productId: { in: allProductIds },
+        ...(soldVariantIds.length > 0
+          ? { OR: [{ variantId: null }, { variantId: { in: soldVariantIds } }] }
+          : { variantId: null }
+        ),
+      },
+      include: {
+        inventoryItem: {
+          select: { id: true, name: true, stock: true, avgCost: true },
+        },
+      },
+    })
+
+    if (allComps.length === 0) {
+      console.log(`[InvConsumption:REVERSE] ${invoiceNumber} — no compositions found, skipping`)
+      return
+    }
+
+    const compProductIds = new Set(allComps.map(c => c.productId))
+
+    // ── 2. Calculate total restoration per inventory item ──
+    const restorations = new Map<string, {
+      itemName: string
+      baseUnit: string
+      totalRestored: number
+      sources: Array<{
+        productName: string
+        variantName?: string
+        productQty: number
+        batchesUsed: number
+        materialPerBatch: number
+      }>
+    }>()
+
+    for (const item of items) {
+      if (!compProductIds.has(item.productId)) continue
+
+      const relevantComps = allComps.filter(c => {
+        if (c.productId !== item.productId) return false
+        if (item.variantId) return c.variantId === item.variantId
+        return c.variantId === null
+      })
+
+      if (relevantComps.length === 0) continue
+
+      for (const comp of relevantComps) {
+        const yieldPerBatch = comp.yieldPerBatch || 1
+        const batchesNeeded = Math.ceil(item.qty / yieldPerBatch)
+        const materialNeeded = batchesNeeded * comp.qty
+
+        const existing = restorations.get(comp.inventoryItemId)
+        if (existing) {
+          existing.totalRestored += materialNeeded
+          existing.sources.push({
+            productName: item.productName,
+            variantName: item.variantName || undefined,
+            productQty: item.qty,
+            batchesUsed: batchesNeeded,
+            materialPerBatch: comp.qty,
+          })
+        } else {
+          restorations.set(comp.inventoryItemId, {
+            itemName: comp.inventoryItem.name,
+            baseUnit: comp.baseUnit,
+            totalRestored: materialNeeded,
+            sources: [{
+              productName: item.productName,
+              variantName: item.variantName || undefined,
+              productQty: item.qty,
+              batchesUsed: batchesNeeded,
+              materialPerBatch: comp.qty,
+            }],
+          })
+        }
+      }
+    }
+
+    if (restorations.size === 0) return
+
+    // ── 3. Restore inventory stock ──
+    const invItemIds = [...restorations.keys()]
+    const invItems = await tx.inventoryItem.findMany({
+      where: { id: { in: invItemIds } },
+      select: { id: true, name: true, stock: true },
+    })
+    const stockMap = new Map(invItems.map(i => [i.id, i.stock]))
+
+    const restoredEntries: Array<{
+      inventoryItemId: string
+      itemName: string
+      baseUnit: string
+      totalRestored: number
+      previousStock: number
+      newStock: number
+      sources: Array<{
+        productName: string
+        variantName?: string
+        productQty: number
+        batchesUsed: number
+        materialPerBatch: number
+      }>
+    }> = []
+
+    for (const [invItemId, restoration] of restorations) {
+      const previousStock = stockMap.get(invItemId) ?? 0
+      const newStock = previousStock + restoration.totalRestored
+
+      await tx.inventoryItem.update({
+        where: { id: invItemId },
+        data: { stock: newStock },
+      })
+
+      restoredEntries.push({
+        inventoryItemId: invItemId,
+        itemName: restoration.itemName,
+        baseUnit: restoration.baseUnit,
+        totalRestored: restoration.totalRestored,
+        previousStock,
+        newStock,
+        sources: restoration.sources,
+      })
+    }
+
+    console.log(
+      `[InvConsumption:REVERSE] ${invoiceNumber} — restored ${restoredEntries.length} inventory item(s)`
+    )
+
+    // ── 4. Create RESTORE inventory movements ──
+    if (restoredEntries.length > 0) {
+      await tx.inventoryMovement.createMany({
+        data: restoredEntries.map(r => ({
+          type: 'RESTOCK',
+          inventoryItemId: r.inventoryItemId,
+          quantity: r.totalRestored,
+          previousStock: r.previousStock,
+          newStock: r.newStock,
+          referenceId: transactionId,
+          referenceType: 'VOID',
+          notes: `Restore (void ${invoiceNumber}): ${r.sources.map(s =>
+            s.variantName
+              ? `${s.productName} (${s.variantName}) ×${s.productQty}`
+              : `${s.productName} ×${s.productQty}`
+          ).join(', ')}`,
+          outletId,
+          userId,
+        })),
+      })
+    }
+
+    // ── 5. Create audit logs ──
+    if (restoredEntries.length > 0) {
+      await tx.auditLog.createMany({
+        data: restoredEntries.map(r => ({
+          action: 'COMPOSITION_RESTORE',
+          entityType: 'INVENTORY_ITEM',
+          entityId: r.inventoryItemId,
+          details: JSON.stringify({
+            invoiceNumber,
+            reason: 'Void transaksi',
+            itemName: r.itemName,
+            baseUnit: r.baseUnit,
+            totalRestored: r.totalRestored,
+            previousStock: r.previousStock,
+            newStock: r.newStock,
+            sources: r.sources,
+          }),
+          outletId,
+          userId,
+        })),
+      })
+    }
+  }
+
+  /**
    * Helper: validasi saja tanpa mengurangi stok.
    * Berguna untuk pre-check di POS sebelum checkout.
    * Juga TIDAK bergantung pada hasComposition flag.

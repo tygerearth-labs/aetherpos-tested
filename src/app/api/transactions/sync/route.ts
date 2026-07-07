@@ -175,24 +175,42 @@ export async function POST(request: NextRequest) {
           })
 
           // 6. Create TransactionItems — with variant support
+          //    productName & variantName: server-verified from DB
+          //    productSku & variantSku: snapshotted from DB at sale time
+          //    hpp: snapshotted from DB at sync time
+          //    price: kept from client (offline effective price)
           await txDb.transactionItem.createMany({
             data: payload.items.map((item) => {
               const product = productMap.get(item.productId)!
+              const variant = item.variantId ? variantMap.get(item.variantId) : null
               let itemHpp = product.hpp
 
               // Use variant HPP if variant is specified
-              if (item.variantId) {
-                const variant = variantMap.get(item.variantId)
-                if (variant) {
-                  itemHpp = variant.hpp
-                }
+              if (item.variantId && variant) {
+                itemHpp = variant.hpp
+              }
+
+              // Server-side name verification — log if client name differs from DB
+              const verifiedProductName = product.name
+              const verifiedVariantName = variant?.name || item.variantName || null
+              if (item.productName && item.productName !== product.name) {
+                console.warn(
+                  `[sync] productName mismatch: client="${item.productName}" db="${product.name}" productId=${product.id}`
+                )
+              }
+              if (item.variantName && variant && item.variantName !== variant.name) {
+                console.warn(
+                  `[sync] variantName mismatch: client="${item.variantName}" db="${variant.name}" variantId=${variant.id}`
+                )
               }
 
               return {
                 productId: item.productId,
-                productName: item.productName,
+                productName: verifiedProductName,
+                productSku: product.sku || null,
                 variantId: item.variantId || null,
-                variantName: item.variantName || null,
+                variantName: verifiedVariantName,
+                variantSku: variant?.sku || null,
                 price: item.price,
                 qty: item.qty,
                 subtotal: item.subtotal,

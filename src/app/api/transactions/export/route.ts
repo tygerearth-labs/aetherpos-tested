@@ -74,12 +74,7 @@ export async function GET(request: NextRequest) {
             price: true,
             qty: true,
             subtotal: true,
-            product: {
-              select: { sku: true },
-            },
-            variant: {
-              select: { sku: true },
-            },
+            hpp: true,
           },
         },
         createdAt: true,
@@ -106,6 +101,9 @@ export async function GET(request: NextRequest) {
     const detailRows: Record<string, unknown>[] = []
     for (const t of transactions) {
       for (const item of t.items) {
+        const itemHpp = (item as any).hpp ?? 0
+        const itemPrice = (item as any).price ?? 0
+        const itemProfit = (itemPrice - itemHpp) * (item.qty ?? 1)
         detailRows.push({
           'No': detailRows.length + 1,
           'Invoice #': t.invoiceNumber,
@@ -114,10 +112,12 @@ export async function GET(request: NextRequest) {
           'Customer': t.customer?.name || 'Walk-in',
           'Nama Produk': item.productName,
           'Varian': item.variantName || '-',
-          'SKU Produk': item.product?.sku || '-',
-          'SKU Varian': item.variant?.sku || '-',
+          'SKU Produk': (item as any).productSku || '-',
+          'SKU Varian': (item as any).variantSku || '-',
           'QTY': item.qty,
           'Harga Satuan': item.price,
+          'HPP (Snapshot)': itemHpp,
+          'Laba per Item': itemProfit,
           'Subtotal Item': item.subtotal,
           'Metode Pembayaran': t.paymentMethod,
           'PPN': t.taxAmount,
