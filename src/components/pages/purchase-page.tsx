@@ -3564,7 +3564,7 @@ export default function PurchasePage() {
               </Button>
             </div>
           ) : invDetailData ? (
-            <div className="space-y-4 mt-2">
+            <div className="space-y-4 mt-2 min-w-0 overflow-hidden">
               {/* Info cards */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-white/[0.03] rounded-xl p-3 border border-white/[0.04]">
@@ -3620,8 +3620,8 @@ export default function PurchasePage() {
               </div>
 
               {/* Tabs: Produk Terkait & Movement */}
-              <Tabs value={invDetailTab} onValueChange={setInvDetailTab} className="w-full">
-                <TabsList className="bg-white/[0.04] h-8 w-full grid grid-cols-2">
+              <Tabs value={invDetailTab} onValueChange={setInvDetailTab} className="w-full min-w-0">
+                <TabsList className="bg-white/[0.04] h-8 w-full grid grid-cols-2 min-w-0">
                   <TabsTrigger value="products" className="text-[10px] h-7 gap-1 data-[state=active]:bg-white/[0.08] text-slate-400 data-[state=active]:text-white">
                     <Link2 className="h-3 w-3" />
                     Produk Terkait ({invDetailData.linkedProducts.length})
@@ -3641,15 +3641,20 @@ export default function PurchasePage() {
                       <p className="text-[10px] text-slate-600 mt-1">Gunakan komposisi di form produk untuk menautkan.</p>
                     </div>
                   ) : (
-                    <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                    <div className="space-y-2 max-h-64 overflow-y-auto overflow-x-hidden pr-1">
                       {invDetailData.linkedProducts.map((lp) => (
-                        <div key={lp.id} className="bg-white/[0.03] rounded-lg p-3 border border-white/[0.04] flex items-center justify-between gap-3">
-                          <div className="min-w-0 flex-1">
-                            <p className="text-xs text-slate-200 font-medium truncate">
-                              {lp.productName}
-                              {lp.variantName && <span className="text-slate-400 font-normal"> ({lp.variantName})</span>}
-                            </p>
-                            <div className="flex items-center gap-3 mt-1">
+                        <div key={lp.id} className="bg-white/[0.03] rounded-lg p-3 border border-white/[0.04]">
+                          <div className="min-w-0">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-xs text-slate-200 font-medium truncate">
+                                {lp.productName}
+                                {lp.variantName && <span className="text-slate-400 font-normal"> ({lp.variantName})</span>}
+                              </p>
+                              <Badge variant="outline" className="text-[9px] px-1.5 py-0 leading-none border border-sky-500/20 text-sky-400 bg-sky-500/[0.06] shrink-0">
+                                Komposisi
+                              </Badge>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1">
                               <span className="text-[10px] text-slate-500">
                                 Pakai: <span className="text-sky-400 font-medium">{formatNumber(lp.qty)}</span> {lp.baseUnit}
                                 {lp.yieldPerBatch > 1 && <span className="text-violet-400"> / {lp.yieldPerBatch} unit</span>}
@@ -3661,11 +3666,6 @@ export default function PurchasePage() {
                                 Stok: <span className="text-white font-medium">{lp.productStock}</span>
                               </span>
                             </div>
-                          </div>
-                          <div className="text-right shrink-0">
-                            <Badge variant="outline" className="text-[9px] px-1.5 py-0 leading-none border border-sky-500/20 text-sky-400 bg-sky-500/[0.06]">
-                              Komposisi
-                            </Badge>
                           </div>
                         </div>
                       ))}
@@ -3681,18 +3681,18 @@ export default function PurchasePage() {
                       <p className="text-xs text-slate-500">Belum ada riwayat pergerakan stok.</p>
                     </div>
                   ) : (
-                    <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
+                    <div className="space-y-1.5 max-h-64 overflow-y-auto overflow-x-hidden pr-1">
                       {invDetailData.movements.map((m) => (
-                        <div key={m.id} className="flex items-center gap-3 py-2 px-2.5 rounded-lg bg-white/[0.02] border border-white/[0.03]">
+                        <div key={m.id} className="flex items-center gap-2.5 py-2 px-2.5 rounded-lg bg-white/[0.02] border border-white/[0.03] min-w-0">
                           <div className={cn(
                             'w-7 h-7 rounded-lg flex items-center justify-center shrink-0',
                             m.quantity > 0 ? 'bg-emerald-500/10' : 'bg-red-500/10'
                           )}>
                             <ArrowUpDown className={cn('h-3.5 w-3.5', m.quantity > 0 ? 'text-emerald-400' : 'text-red-400')} />
                           </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between">
-                              <span className="text-[11px] text-slate-200 font-medium">
+                          <div className="flex-1 min-w-0 overflow-hidden">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[11px] text-slate-200 font-medium truncate">
                                 {m.type === 'PURCHASE' ? 'Pembelian' :
                                  m.type === 'CONSUMPTION' ? 'Konsumsi' :
                                  m.type === 'ADJUSTMENT' ? 'Penyesuaian' :
@@ -3700,16 +3700,16 @@ export default function PurchasePage() {
                                  m.type === 'TRANSFER_IN' ? 'Transfer Masuk' :
                                  m.type}
                               </span>
-                              <span className={cn('text-xs font-bold tabular-nums', m.quantity > 0 ? 'text-emerald-400' : 'text-red-400')}>
+                              <span className={cn('text-xs font-bold tabular-nums shrink-0', m.quantity > 0 ? 'text-emerald-400' : 'text-red-400')}>
                                 {m.quantity > 0 ? '+' : ''}{formatNumber(m.quantity)}
                               </span>
                             </div>
                             <div className="flex items-center gap-2 mt-0.5">
-                              <span className="text-[10px] text-slate-500">
+                              <span className="text-[10px] text-slate-500 shrink-0">
                                 {formatNumber(m.previousStock)} → {formatNumber(m.newStock)}
                               </span>
                               {m.userName && (
-                                <span className="text-[10px] text-slate-600">• {m.userName}</span>
+                                <span className="text-[10px] text-slate-600 truncate">• {m.userName}</span>
                               )}
                             </div>
                             {m.notes && (
