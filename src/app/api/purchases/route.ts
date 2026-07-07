@@ -95,7 +95,7 @@ export async function GET(request: NextRequest) {
       ]
     }
 
-    const [orders, total] = await Promise.all([
+    const [orders, total, linkedPoItems] = await Promise.all([
       db.purchaseOrder.findMany({
         where,
         orderBy: { createdAt: 'desc' },
@@ -120,13 +120,25 @@ export async function GET(request: NextRequest) {
         },
       }),
       db.purchaseOrder.count({ where }),
+      // Find purchase orders whose inventory items are linked to product compositions
+      db.purchaseOrderItem.findMany({
+        where: {
+          purchaseOrder: { outletId },
+          inventoryItem: { compositions: { some: {} } },
+        },
+        select: { purchaseOrderId: true },
+        distinct: ['purchaseOrderId'],
+      }),
     ])
+
+    const linkedPoIds = new Set(linkedPoItems.map(p => p.purchaseOrderId))
 
     const mappedOrders = orders.map((o) => ({
       ...o,
       itemCount: o.items.length,
       supplierName: o.supplier?.name || null,
       createdByName: o.createdBy.name,
+      hasLinkedItems: linkedPoIds.has(o.id),
     }))
 
     return safeJson(

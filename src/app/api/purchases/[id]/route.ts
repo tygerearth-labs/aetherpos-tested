@@ -101,7 +101,31 @@ export async function GET(
       return safeJsonError('Purchase order not found', 404)
     }
 
-    return safeJson(order)
+    // Map to plain object to avoid Prisma serialization edge cases
+    const result = {
+      id: order.id,
+      orderNumber: order.orderNumber,
+      totalCost: order.totalCost,
+      notes: order.notes,
+      createdAt: order.createdAt.toISOString(),
+      updatedAt: order.updatedAt?.toISOString() ?? null,
+      supplier: order.supplier,
+      createdBy: order.createdBy,
+      items: order.items.map((item) => ({
+        id: item.id,
+        inventoryItemId: item.inventoryItemId,
+        name: item.name,
+        purchaseQty: item.purchaseQty,
+        purchaseUnit: item.purchaseUnit,
+        baseQty: item.baseQty,
+        baseUnit: item.baseUnit,
+        unitCost: item.unitCost,
+        totalCost: item.totalCost,
+        inventoryItem: item.inventoryItem,
+      })),
+    }
+
+    return safeJson(result)
   } catch (error) {
     console.error('Purchase order GET error:', error)
     return safeJsonError('Failed to load purchase order')

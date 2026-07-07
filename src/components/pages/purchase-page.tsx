@@ -115,6 +115,7 @@ interface PurchaseOrder {
   updatedAt?: string
   supplierName?: string | null
   createdByName?: string
+  hasLinkedItems?: boolean
   supplier?: { id: string; name: string; phone: string | null; address: string | null } | null
   createdBy?: { id: string; name: string; email: string } | null
 }
@@ -284,6 +285,7 @@ export default function PurchasePage() {
   const [poDetailOpen, setPoDetailOpen] = useState(false)
   const [poDetailData, setPoDetailData] = useState<PurchaseOrder | null>(null)
   const [poDetailLoading, setPoDetailLoading] = useState(false)
+  const [poDetailHasLinked, setPoDetailHasLinked] = useState(false)
 
   // Purchase create dialog
   const [poCreateOpen, setPoCreateOpen] = useState(false)
@@ -377,6 +379,7 @@ export default function PurchasePage() {
   // Purchase summary (ratio)
   const [purchaseSummary, setPurchaseSummary] = useState<PurchaseSummary | null>(null)
   const [infoExpanded, setInfoExpanded] = useState(false)
+  const [invInfoExpanded, setInvInfoExpanded] = useState(false)
 
   // Post as Product feature
   const [selectedInvIds, setSelectedInvIds] = useState<Set<string>>(new Set())
@@ -589,6 +592,7 @@ export default function PurchasePage() {
     setPoDetailData(null)
     setPoDetailError(null)
     setPoDetailLoading(true)
+    setPoDetailHasLinked(!!po.hasLinkedItems)
     try {
       const res = await fetch(`/api/purchases/${po.id}`)
       if (res.ok) {
@@ -1477,6 +1481,7 @@ export default function PurchasePage() {
                     </p>
                     <p className="text-[10px] sm:text-xs text-slate-500">rasio pembelian / revenue</p>
                     <p className="text-[9px] text-slate-600">Bulan Ini</p>
+                    <p className="text-[9px] text-slate-600 break-words">Pembelian {formatCurrency(purchaseSummary.monthPurchaseNominal)} / Revenue {formatCurrency(purchaseSummary.monthRevenue)}</p>
                   </CardContent>
                 </Card>
                 <Card className="bg-nebula border-white/[0.06] rounded-xl">
@@ -1491,6 +1496,7 @@ export default function PurchasePage() {
                     </p>
                     <p className="text-[10px] sm:text-xs text-slate-500">rasio pembelian / revenue</p>
                     <p className="text-[9px] text-slate-600">Total</p>
+                    <p className="text-[9px] text-slate-600 break-words">Pembelian {formatCurrency(purchaseSummary.totalPurchaseNominal)} / Revenue {formatCurrency(purchaseSummary.totalRevenue)}</p>
                   </CardContent>
                 </Card>
               </div>
@@ -1541,8 +1547,9 @@ export default function PurchasePage() {
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                className="h-7 px-2 text-red-400 hover:text-red-300 hover:bg-red-500/[0.06]"
+                                className={cn("h-7 px-2 hover:text-red-300 hover:bg-red-500/[0.06]", po.hasLinkedItems ? "opacity-50 cursor-not-allowed text-red-400/50" : "text-red-400")}
                                 onClick={() => setDeletePoId(po.id)}
+                                disabled={po.hasLinkedItems}
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
                               </Button>
@@ -1579,9 +1586,32 @@ export default function PurchasePage() {
                     >
                       <Card className="bg-nebula border-white/[0.06] rounded-xl hover:border-white/[0.1] transition-colors">
                         <CardContent className="p-3 space-y-2">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs text-white font-medium font-mono">{po.orderNumber}</span>
-                            <span className="text-[11px] text-emerald-400 font-medium">{formatCurrency(po.totalCost)}</span>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs text-white font-medium font-mono truncate">{po.orderNumber}</span>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <span className="text-[11px] text-emerald-400 font-medium">{formatCurrency(po.totalCost)}</span>
+                              <button
+                                className="w-7 h-7 rounded-md flex items-center justify-center text-slate-500 hover:text-white hover:bg-white/[0.06] transition-colors"
+                                onClick={() => openPoDetail(po)}
+                              >
+                                <Eye className="h-3.5 w-3.5" />
+                              </button>
+                              {session?.user?.role === 'OWNER' && (
+                              <button
+                                className={cn(
+                                  "w-7 h-7 rounded-md flex items-center justify-center transition-colors",
+                                  po.hasLinkedItems
+                                    ? "text-red-400/30 cursor-not-allowed"
+                                    : "text-slate-500 hover:text-red-400 hover:bg-red-500/[0.06]"
+                                )}
+                                onClick={() => !po.hasLinkedItems && setDeletePoId(po.id)}
+                                disabled={po.hasLinkedItems}
+                                title={po.hasLinkedItems ? 'Item terkait produk — tidak bisa dihapus' : 'Hapus'}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                              )}
+                            </div>
                           </div>
                           <div className="flex items-center justify-between text-slate-400">
                             <span className="text-[11px]">{po.supplierName || '-'}</span>
@@ -1590,26 +1620,6 @@ export default function PurchasePage() {
                           <div className="flex items-center gap-1.5 text-slate-500">
                             <Package className="h-3 w-3" />
                             <span className="text-[11px]">{po.itemCount ?? po._count?.items ?? 0} item</span>
-                          </div>
-                          <div className="flex items-center gap-1.5 pt-1 border-t border-white/[0.04]">
-                            <Button
-                              size="sm"
-                              className="flex-1 h-7 text-[10px] gap-1 text-slate-400 hover:text-white hover:bg-white/[0.04]"
-                              onClick={() => openPoDetail(po)}
-                            >
-                              <Eye className="h-3 w-3" />
-                              Detail
-                            </Button>
-                            {session?.user?.role === 'OWNER' && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-7 text-[10px] gap-1 text-red-400 hover:text-red-300 hover:bg-red-500/[0.06]"
-                              onClick={() => setDeletePoId(po.id)}
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
-                            )}
                           </div>
                         </CardContent>
                       </Card>
@@ -1718,9 +1728,115 @@ export default function PurchasePage() {
               </Card>
             </div>
 
+            {/* Info Section — Post sebagai Produk */}
+            <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+              <button
+                className="w-full flex items-center justify-between gap-3 p-3 sm:p-4 text-left hover:bg-white/[0.02] transition-colors"
+                onClick={() => setInvInfoExpanded(!invInfoExpanded)}
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="w-7 h-7 rounded-lg bg-violet-500/10 flex items-center justify-center shrink-0">
+                    <Info className="h-3.5 w-3.5 text-violet-400" />
+                  </div>
+                  <span className="text-xs font-medium text-slate-200">Panduan Post Produk</span>
+                </div>
+                <ChevronDown className={cn('h-4 w-4 text-slate-500 transition-transform duration-200', invInfoExpanded && 'rotate-180')} />
+              </button>
+              <AnimatePresence>
+                {invInfoExpanded && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="px-3 sm:px-4 pb-4 space-y-3 border-t border-white/[0.04] pt-3">
+                      <div className="flex gap-3">
+                        <div className="w-5 h-5 rounded-full bg-emerald-500/15 flex items-center justify-center shrink-0 mt-0.5">
+                          <span className="text-[9px] font-bold text-emerald-400">1</span>
+                        </div>
+                        <div>
+                          <p className="text-xs font-medium text-slate-200 mb-0.5">Pilih Item</p>
+                          <p className="text-[11px] text-slate-400 leading-relaxed">
+                            Centang item inventory yang ingin dijadikan bahan baku produk
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex gap-3">
+                        <div className="w-5 h-5 rounded-full bg-cyan-500/15 flex items-center justify-center shrink-0 mt-0.5">
+                          <span className="text-[9px] font-bold text-cyan-400">2</span>
+                        </div>
+                        <div>
+                          <p className="text-xs font-medium text-slate-200 mb-0.5">Klik "Post sebagai Produk"</p>
+                          <p className="text-[11px] text-slate-400 leading-relaxed">
+                            Tombol muncul otomatis saat ada item terpilih
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex gap-3">
+                        <div className="w-5 h-5 rounded-full bg-violet-500/15 flex items-center justify-center shrink-0 mt-0.5">
+                          <span className="text-[9px] font-bold text-violet-400">3</span>
+                        </div>
+                        <div>
+                          <p className="text-xs font-medium text-slate-200 mb-0.5">Atur Komposisi</p>
+                          <p className="text-[11px] text-slate-400 leading-relaxed">
+                            Isi jumlah pemakaian tiap item per 1 produk (cth: 200gr kopi per cup)
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex gap-3">
+                        <div className="w-5 h-5 rounded-full bg-amber-500/15 flex items-center justify-center shrink-0 mt-0.5">
+                          <span className="text-[9px] font-bold text-amber-400">4</span>
+                        </div>
+                        <div>
+                          <p className="text-xs font-medium text-slate-200 mb-0.5">Buat Produk</p>
+                          <p className="text-[11px] text-slate-400 leading-relaxed">
+                            Isi nama, harga jual, dan produk otomatis terbuat dengan HPP &amp; stok terhitung
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            {/* Selection action bar */}
+            {selectedInvIds.size > 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="flex items-center justify-between gap-3 p-2.5 rounded-xl bg-emerald-500/[0.06] border border-emerald-500/10"
+              >
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                  <span className="text-xs text-slate-300 font-medium">
+                    <span className="text-emerald-400">{selectedInvIds.size}</span> item terpilih
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    className="text-[11px] text-slate-500 hover:text-slate-300 transition-colors"
+                    onClick={() => setSelectedInvIds(new Set())}
+                  >
+                    Batal
+                  </button>
+                  <Button
+                    size="sm"
+                    onClick={() => { setPostStep(1); setPostProductOpen(true); void fetchProductCategories() }}
+                    className="h-7 text-[11px] theme-bg theme-hover text-white px-3 gap-1.5 rounded-lg"
+                  >
+                    <Sparkles className="h-3 w-3" />
+                    Post Produk
+                  </Button>
+                </div>
+              </motion.div>
+            )}
+
             {/* Desktop Table */}
             <div className="hidden md:block">
-              <Card className="bg-nebula border-white/[0.06] overflow-hidden">
+              <Card className="bg-nebula border-white/[0.06] overflow-hidden rounded-xl">
                 <Table>
                   <TableHeader>
                     <TableRow className="border-white/[0.06] hover:bg-transparent">
@@ -1827,7 +1943,7 @@ export default function PurchasePage() {
                         exit={{ opacity: 0, y: -8 }}
                         transition={{ duration: 0.2 }}
                       >
-                        <Card className={cn('bg-nebula border-white/[0.06]', isSelected && 'border-emerald-500/30')}>
+                        <Card className={cn('bg-nebula border-white/[0.06] transition-all', isSelected && 'border-emerald-500/40 ring-1 ring-emerald-500/10')}>
                           <CardContent className="p-3 space-y-2">
                             <div className="flex items-start justify-between gap-2">
                               <div className="flex items-start gap-2 min-w-0">
@@ -1997,25 +2113,38 @@ export default function PurchasePage() {
 
               {/* Actions — Owner only */}
               {session?.user?.role === 'OWNER' && (
-              <div className="flex gap-2 pt-2 border-t border-white/[0.04]">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="flex-1 h-8 text-xs gap-1.5 text-slate-400 hover:text-white hover:bg-white/[0.04]"
-                  onClick={() => { openPoEdit(poDetailData!) }}
-                >
-                  <Edit3 className="h-3.5 w-3.5" />
-                  Edit
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="flex-1 h-8 text-xs gap-1.5 text-red-400 hover:text-red-300 hover:bg-red-500/[0.06]"
-                  onClick={() => { setDeletePoId(poDetailData!.id) }}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  Hapus
-                </Button>
+              <div>
+                <div className="flex gap-2 pt-2 border-t border-white/[0.04]">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="flex-1 h-8 text-xs gap-1.5 text-slate-400 hover:text-white hover:bg-white/[0.04]"
+                    onClick={() => { openPoEdit(poDetailData!) }}
+                  >
+                    <Edit3 className="h-3.5 w-3.5" />
+                    Edit
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className={cn(
+                      "flex-1 h-8 text-xs gap-1.5",
+                      poDetailHasLinked
+                        ? "text-red-400/40 cursor-not-allowed"
+                        : "text-red-400 hover:text-red-300 hover:bg-red-500/[0.06]"
+                    )}
+                    onClick={() => { if (!poDetailHasLinked) setDeletePoId(poDetailData!.id) }}
+                    disabled={poDetailHasLinked}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Hapus
+                  </Button>
+                </div>
+                {poDetailHasLinked && (
+                  <p className="text-[10px] text-amber-400/70 text-center -mt-1">
+                    ⚠ Item terkait produk — hapus pembelian bisa mengubah komposisi
+                  </p>
+                )}
               </div>
               )}
             </div>
