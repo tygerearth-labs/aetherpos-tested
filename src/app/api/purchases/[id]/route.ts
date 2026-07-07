@@ -76,7 +76,7 @@ export async function GET(
       where: { id, outletId: user.outletId },
       include: {
         items: {
-          orderBy: { createdAt: 'asc' },
+          orderBy: { id: 'asc' },
           include: {
             inventoryItem: {
               select: {
@@ -420,7 +420,7 @@ export async function PUT(
         where: { id, outletId },
         include: {
           items: {
-            orderBy: { createdAt: 'asc' },
+            orderBy: { id: 'asc' },
             include: {
               inventoryItem: {
                 select: { id: true, name: true, sku: true, baseUnit: true },
