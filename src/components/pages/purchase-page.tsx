@@ -67,9 +67,6 @@ import {
   Scale,
   Edit3,
   FileText,
-  Ruler,
-  Hash,
-  Weight,
   Banknote,
   Info,
   ArrowRight,
@@ -2046,24 +2043,6 @@ export default function PurchasePage() {
           </ResponsiveDialogHeader>
 
           <div className="space-y-4 mt-2 flex-1 overflow-y-auto">
-            {/* ── Step flow guide ── */}
-            <div className="flex items-center gap-1.5 px-1">
-              <div className="flex items-center gap-1.5 text-[10px]">
-                <span className="w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-medium text-[9px]">1</span>
-                <span className="text-slate-300">Pilih Item</span>
-              </div>
-              <ArrowRight className="h-2.5 w-2.5 text-slate-600" />
-              <div className="flex items-center gap-1.5 text-[10px]">
-                <span className="w-4 h-4 rounded-full bg-white/[0.06] text-slate-500 flex items-center justify-center font-medium text-[9px]">2</span>
-                <span className="text-slate-500">Isi Detail</span>
-              </div>
-              <ArrowRight className="h-2.5 w-2.5 text-slate-600" />
-              <div className="flex items-center gap-1.5 text-[10px]">
-                <span className="w-4 h-4 rounded-full bg-white/[0.06] text-slate-500 flex items-center justify-center font-medium text-[9px]">3</span>
-                <span className="text-slate-500">Simpan</span>
-              </div>
-            </div>
-
             {/* Catatan */}
             <div className="space-y-1.5">
               <div className="flex items-center gap-1.5">
@@ -2075,7 +2054,7 @@ export default function PurchasePage() {
                 value={poCreateNotes}
                 onChange={(e) => setPoCreateNotes(e.target.value)}
                 placeholder="Cth: Bayar tempo 7 hari, PO dari PT Indomaret..."
-                className="bg-white/[0.04] border-white/[0.04] text-white text-xs min-h-[48px] rounded-lg resize-none placeholder:text-slate-500"
+                className="bg-white/[0.04] border-white/[0.04] text-white text-xs min-h-[40px] rounded-lg resize-none placeholder:text-slate-500"
               />
             </div>
 
@@ -2097,7 +2076,7 @@ export default function PurchasePage() {
 
               <div className="space-y-2">
                 {poCreateItems.map((item, idx) => (
-                  <div key={idx} className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.04] space-y-3">
+                  <div key={idx} className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.04] space-y-2.5">
                     {/* Item picker / selected display */}
                     <div className="relative" ref={(el) => { invItemSearchRefs.current[idx] = el }}>
                       {item.inventoryItemId ? (
@@ -2262,36 +2241,23 @@ export default function PurchasePage() {
                       )}
                     </div>
 
-                    {/* Unit → Qty → Berat Aktual → Harga — with icons & helper text */}
+                    {/* Compact fields: 2-column layout */}
                     {item.inventoryItemId && (
-                      <div className="space-y-2.5 pl-0.5">
-                        {/* Info banner */}
-                        <div className="flex items-start gap-1.5 text-[10px] text-slate-500">
-                          <Info className="h-3 w-3 mt-0.5 shrink-0" />
-                          <span>Isi detail pembelian item <span className="text-slate-300">{item.inventoryItemName}</span> di bawah ini</span>
-                        </div>
-
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                      <div className="space-y-2 pl-0.5">
+                        <div className="grid grid-cols-2 gap-2">
                           {/* Satuan Beli */}
                           <div className="space-y-1">
-                            <div className="flex items-center gap-1">
-                              <Ruler className="h-2.5 w-2.5 text-slate-500" />
-                              <label className="text-[10px] text-slate-300 font-medium">Satuan Beli</label>
-                            </div>
+                            <label className="text-[10px] text-slate-400 font-medium">Satuan Beli</label>
                             <Input
                               value={item.unit}
                               onChange={(e) => handleUpdatePoItem(idx, 'unit', e.target.value)}
                               className={inputClass}
-                              placeholder="Cth: sak"
+                              placeholder="Cth: sak, ekor"
                             />
-                            <p className="text-[9px] text-slate-600">satuan dari supplier</p>
                           </div>
                           {/* Jumlah */}
                           <div className="space-y-1">
-                            <div className="flex items-center gap-1">
-                              <Hash className="h-2.5 w-2.5 text-slate-500" />
-                              <label className="text-[10px] text-slate-300 font-medium">Jumlah</label>
-                            </div>
+                            <label className="text-[10px] text-slate-400 font-medium">Jumlah</label>
                             <Input
                               type="number"
                               min="0"
@@ -2301,14 +2267,10 @@ export default function PurchasePage() {
                               className={cn(inputClass, 'text-center')}
                               placeholder="1"
                             />
-                            <p className="text-[9px] text-slate-600">berapa {item.unit || 'unit'} yang dibeli</p>
                           </div>
                           {/* Isi per 1 Satuan Beli */}
                           <div className="space-y-1">
-                            <div className="flex items-center gap-1">
-                              <Weight className="h-2.5 w-2.5 text-slate-500" />
-                              <label className="text-[10px] text-slate-300 font-medium">Isi per 1 {item.unit || 'unit'}</label>
-                            </div>
+                            <label className="text-[10px] text-slate-400 font-medium">Isi per 1 {item.unit || 'unit'}</label>
                             <div className="relative">
                               <Input
                                 type="number"
@@ -2321,14 +2283,10 @@ export default function PurchasePage() {
                               />
                               <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-500 pointer-events-none">{item.baseUnit || 'kg'}</span>
                             </div>
-                            <p className="text-[9px] text-slate-600">isi dalam 1 {item.unit || 'unit'} ({item.baseUnit || 'kg'})</p>
                           </div>
-                          {/* Harga per Satuan */}
+                          {/* Harga per Satuan Beli */}
                           <div className="space-y-1">
-                            <div className="flex items-center gap-1">
-                              <Banknote className="h-2.5 w-2.5 text-slate-500" />
-                              <label className="text-[10px] text-slate-300 font-medium">Harga</label>
-                            </div>
+                            <label className="text-[10px] text-slate-400 font-medium">Harga per {item.unit || 'unit'} (Rp)</label>
                             <Input
                               type="number"
                               min="0"
@@ -2337,44 +2295,26 @@ export default function PurchasePage() {
                               className={inputClass}
                               placeholder="72000"
                             />
-                            <p className="text-[9px] text-slate-600">per 1 {item.unit || 'satuan beli'} (Rp)</p>
                           </div>
                         </div>
 
-                        {/* Example calculation hint */}
-                        {item.unit && parseFloat(item.qty) > 0 && parseFloat(item.pricePerItem) > 0 && (
-                          <div className="flex items-center gap-1.5 text-[10px] text-slate-500 px-1">
-                            <Info className="h-2.5 w-2.5 shrink-0" />
-                            <span>
-                              {item.qty} {item.unit} × Rp{formatNumber(parseFloat(item.pricePerItem))} ={' '}
-                              <span className="text-slate-300 font-medium">
-                                {formatCurrency((parseFloat(item.pricePerItem) || 0) * (parseFloat(item.qty) || 0))}
-                              </span>
-                            </span>
+                        {/* Consolidated summary line */}
+                        {(parseFloat(item.qty) > 0 && parseFloat(item.pricePerItem) > 0 && parseFloat(item.baseQty) > 0) ? (
+                          <div className="bg-white/[0.03] rounded-md px-2.5 py-2 text-[10px] text-slate-400 space-y-0.5 border border-white/[0.03]">
+                            <div className="flex items-center justify-between">
+                              <span>{item.qty} {item.unit} × {formatCurrency(parseFloat(item.pricePerItem))}</span>
+                              <span className="text-white font-medium">{formatCurrency((parseFloat(item.pricePerItem) || 0) * (parseFloat(item.qty) || 0))}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span>Stok masuk: <span className="text-slate-300">{formatNumber(parseFloat(item.qty) * parseFloat(item.baseQty))} {item.baseUnit}</span></span>
+                              <span>HPP: <span className="text-amber-400/80 font-medium">Rp{formatNumber(Math.round((parseFloat(item.pricePerItem) || 0) / (parseFloat(item.baseQty) || 0)))}/{item.baseUnit}</span></span>
+                            </div>
                           </div>
-                        )}
-                        {/* Total base qty info */}
-                        {parseFloat(item.baseQty) > 0 && parseFloat(item.qty) > 0 && (
-                          <div className="flex items-center gap-1.5 text-[10px] text-slate-500 px-1">
-                            <ArrowRight className="h-2.5 w-2.5 shrink-0" />
-                            <span>
-                              Total stok masuk:{' '}
-                              <span className="text-slate-300 font-medium">
-                                {formatNumber(parseFloat(item.qty) * parseFloat(item.baseQty))} {item.baseUnit}
-                              </span>
-                              {' '}({item.qty} {item.unit} × {formatNumber(parseFloat(item.baseQty))} {item.baseUnit})
-                            </span>
+                        ) : (parseFloat(item.qty) > 0 && parseFloat(item.pricePerItem) > 0) ? (
+                          <div className="text-[10px] text-slate-500 px-1">
+                            {item.qty} {item.unit || 'unit'} × {formatCurrency(parseFloat(item.pricePerItem))} = <span className="text-slate-300 font-medium">{formatCurrency((parseFloat(item.pricePerItem) || 0) * (parseFloat(item.qty) || 0))}</span>
                           </div>
-                        )}
-                        {/* HPP per base unit */}
-                        {(parseFloat(item.baseQty) > 0) && (parseFloat(item.pricePerItem) > 0) && (
-                          <div className="flex items-center gap-1.5 text-[10px] text-amber-500/80 px-1">
-                            <Scale className="h-2.5 w-2.5 shrink-0" />
-                            <span>
-                              HPP: Rp{formatNumber(Math.round((parseFloat(item.pricePerItem) || 0) / (parseFloat(item.baseQty) || 0)))} per {item.baseUnit}
-                            </span>
-                          </div>
-                        )}
+                        ) : null}
                       </div>
                     )}
                   </div>
@@ -2481,7 +2421,7 @@ export default function PurchasePage() {
 
               <div className="space-y-2">
                 {poEditItems.map((item, idx) => (
-                  <div key={idx} className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.04] space-y-3">
+                  <div key={idx} className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.04] space-y-2.5">
                     {/* Item picker / selected display */}
                     <div className="relative" ref={(el) => { invItemEditSearchRefs.current[idx] = el }}>
                       {item.inventoryItemId ? (
@@ -2570,28 +2510,23 @@ export default function PurchasePage() {
                       )}
                     </div>
 
-                    {/* Fields */}
+                    {/* Compact fields: 2-column layout */}
                     {item.inventoryItemId && (
-                      <div className="space-y-2.5 pl-0.5">
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                      <div className="space-y-2 pl-0.5">
+                        <div className="grid grid-cols-2 gap-2">
+                          {/* Satuan Beli */}
                           <div className="space-y-1">
-                            <div className="flex items-center gap-1">
-                              <Ruler className="h-2.5 w-2.5 text-slate-500" />
-                              <label className="text-[10px] text-slate-300 font-medium">Satuan Beli</label>
-                            </div>
+                            <label className="text-[10px] text-slate-400 font-medium">Satuan Beli</label>
                             <Input
                               value={item.unit}
                               onChange={(e) => handleUpdatePoEditItem(idx, 'unit', e.target.value)}
                               className={inputClass}
-                              placeholder="Cth: sak"
+                              placeholder="Cth: sak, ekor"
                             />
-                            <p className="text-[9px] text-slate-600">satuan dari supplier</p>
                           </div>
+                          {/* Jumlah */}
                           <div className="space-y-1">
-                            <div className="flex items-center gap-1">
-                              <Hash className="h-2.5 w-2.5 text-slate-500" />
-                              <label className="text-[10px] text-slate-300 font-medium">Jumlah</label>
-                            </div>
+                            <label className="text-[10px] text-slate-400 font-medium">Jumlah</label>
                             <Input
                               type="number"
                               min="0"
@@ -2601,13 +2536,10 @@ export default function PurchasePage() {
                               className={cn(inputClass, 'text-center')}
                               placeholder="1"
                             />
-                            <p className="text-[9px] text-slate-600">berapa {item.unit || 'unit'} yang dibeli</p>
                           </div>
+                          {/* Isi per 1 Satuan Beli */}
                           <div className="space-y-1">
-                            <div className="flex items-center gap-1">
-                              <Weight className="h-2.5 w-2.5 text-slate-500" />
-                              <label className="text-[10px] text-slate-300 font-medium">Isi per 1 {item.unit || 'unit'}</label>
-                            </div>
+                            <label className="text-[10px] text-slate-400 font-medium">Isi per 1 {item.unit || 'unit'}</label>
                             <div className="relative">
                               <Input
                                 type="number"
@@ -2620,13 +2552,10 @@ export default function PurchasePage() {
                               />
                               <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-500 pointer-events-none">{item.baseUnit || 'kg'}</span>
                             </div>
-                            <p className="text-[9px] text-slate-600">isi dalam 1 {item.unit || 'unit'} ({item.baseUnit || 'kg'})</p>
                           </div>
+                          {/* Harga per Satuan Beli */}
                           <div className="space-y-1">
-                            <div className="flex items-center gap-1">
-                              <Banknote className="h-2.5 w-2.5 text-slate-500" />
-                              <label className="text-[10px] text-slate-300 font-medium">Harga</label>
-                            </div>
+                            <label className="text-[10px] text-slate-400 font-medium">Harga per {item.unit || 'unit'} (Rp)</label>
                             <Input
                               type="number"
                               min="0"
@@ -2635,32 +2564,26 @@ export default function PurchasePage() {
                               className={inputClass}
                               placeholder="72000"
                             />
-                            <p className="text-[9px] text-slate-600">per 1 {item.unit || 'satuan beli'} (Rp)</p>
                           </div>
                         </div>
 
-                        {item.unit && parseFloat(item.qty) > 0 && parseFloat(item.pricePerItem) > 0 && (
-                          <div className="flex items-center gap-1.5 text-[10px] text-slate-500 px-1">
-                            <Info className="h-2.5 w-2.5 shrink-0" />
-                            <span>
-                              {item.qty} {item.unit} × Rp{formatNumber(parseFloat(item.pricePerItem))} ={' '}
-                              <span className="text-slate-300 font-medium">
-                                {formatCurrency((parseFloat(item.pricePerItem) || 0) * (parseFloat(item.qty) || 0))}
-                              </span>
-                            </span>
+                        {/* Consolidated summary line */}
+                        {(parseFloat(item.qty) > 0 && parseFloat(item.pricePerItem) > 0 && parseFloat(item.baseQty) > 0) ? (
+                          <div className="bg-white/[0.03] rounded-md px-2.5 py-2 text-[10px] text-slate-400 space-y-0.5 border border-white/[0.03]">
+                            <div className="flex items-center justify-between">
+                              <span>{item.qty} {item.unit} × {formatCurrency(parseFloat(item.pricePerItem))}</span>
+                              <span className="text-white font-medium">{formatCurrency((parseFloat(item.pricePerItem) || 0) * (parseFloat(item.qty) || 0))}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span>Stok masuk: <span className="text-slate-300">{formatNumber(parseFloat(item.qty) * parseFloat(item.baseQty))} {item.baseUnit}</span></span>
+                              <span>HPP: <span className="text-amber-400/80 font-medium">Rp{formatNumber(Math.round((parseFloat(item.pricePerItem) || 0) / (parseFloat(item.baseQty) || 0)))}/{item.baseUnit}</span></span>
+                            </div>
                           </div>
-                        )}
-                        {parseFloat(item.baseQty) > 0 && parseFloat(item.qty) > 0 && (
-                          <div className="flex items-center gap-1.5 text-[10px] text-slate-500 px-1">
-                            <ArrowRight className="h-2.5 w-2.5 shrink-0" />
-                            <span>
-                              Total stok masuk:{' '}
-                              <span className="text-slate-300 font-medium">
-                                {formatNumber(parseFloat(item.qty) * parseFloat(item.baseQty))} {item.baseUnit}
-                              </span>
-                            </span>
+                        ) : (parseFloat(item.qty) > 0 && parseFloat(item.pricePerItem) > 0) ? (
+                          <div className="text-[10px] text-slate-500 px-1">
+                            {item.qty} {item.unit || 'unit'} × {formatCurrency(parseFloat(item.pricePerItem))} = <span className="text-slate-300 font-medium">{formatCurrency((parseFloat(item.pricePerItem) || 0) * (parseFloat(item.qty) || 0))}</span>
                           </div>
-                        )}
+                        ) : null}
                       </div>
                     )}
                   </div>
@@ -3491,7 +3414,7 @@ export default function PurchasePage() {
 
       {/* ── Inventory Item Detail Dialog ── */}
       <ResponsiveDialog open={invDetailOpen} onOpenChange={setInvDetailOpen}>
-        <ResponsiveDialogContent className="sm:max-w-xl max-h-[85vh] overflow-y-auto">
+        <ResponsiveDialogContent className="sm:max-w-xl">
           <ResponsiveDialogHeader>
             <ResponsiveDialogTitle className="text-white text-base">Detail Item</ResponsiveDialogTitle>
             <ResponsiveDialogDescription className="text-slate-400 text-xs">
