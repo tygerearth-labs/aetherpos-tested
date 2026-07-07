@@ -183,15 +183,35 @@ export async function POST(request: NextRequest) {
       })
 
       // 6. Batch create TransactionItems
+      //    productName & variantName: server-verified from DB (not trusted from client)
+      //    productSku & variantSku: snapshotted from DB at sale time
+      //    hpp: snapshotted from DB at sale time
+      //    price: kept from client (effective selling price at checkout, may include custom price)
       const itemData = checkoutItems.map((item) => {
         const product = productMap.get(item.productId)!
         const variant = item.variantId ? variantMap.get(item.variantId) : null
 
+        // Server-side name verification — log if client name differs from DB
+        const verifiedProductName = product.name
+        const verifiedVariantName = variant?.name || item.variantName || null
+        if (item.productName && item.productName !== product.name) {
+          console.warn(
+            `[checkout] productName mismatch: client="${item.productName}" db="${product.name}" productId=${product.id} invoice=${invoiceNumber}`
+          )
+        }
+        if (item.variantName && variant && item.variantName !== variant.name) {
+          console.warn(
+            `[checkout] variantName mismatch: client="${item.variantName}" db="${variant.name}" variantId=${variant.id} invoice=${invoiceNumber}`
+          )
+        }
+
         return {
           productId: item.productId,
-          productName: item.productName,
+          productName: verifiedProductName,
+          productSku: product.sku || null,
           variantId: item.variantId || null,
-          variantName: item.variantName || null,
+          variantName: verifiedVariantName,
+          variantSku: variant?.sku || null,
           price: item.price,
           qty: item.qty,
           subtotal: item.price * item.qty,
