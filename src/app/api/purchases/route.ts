@@ -123,7 +123,7 @@ export async function GET(request: NextRequest) {
       // Find purchase orders whose inventory items are linked to product compositions
       db.purchaseOrderItem.findMany({
         where: {
-          purchaseOrder: { outletId },
+          purchaseOrder: { outletId: user.outletId },
           inventoryItem: { compositions: { some: {} } },
         },
         select: { purchaseOrderId: true },
