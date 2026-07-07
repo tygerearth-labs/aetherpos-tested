@@ -240,7 +240,7 @@ export async function POST(request: NextRequest) {
 
           // 7c. Deduct inventory via InventoryConsumptionService (atomic, yield-aware)
           //     Jika stok bahan tidak cukup → error → seluruh transaksi di-rollback
-          await InventoryConsumptionService.consumeForTransaction(txDb, {
+          const syncConsumptionResult = await InventoryConsumptionService.consumeForTransaction(txDb, {
             items: payload.items.map(item => ({
               productId: item.productId,
               variantId: item.variantId || null,
@@ -253,6 +253,15 @@ export async function POST(request: NextRequest) {
             outletId,
             userId,
           })
+
+          // 7d. Snapshot consumption data for accurate void reversal
+          if (syncConsumptionResult.deductions.length > 0) {
+            const snapshots = InventoryConsumptionService.buildConsumptionSnapshots(
+              syncConsumptionResult.deductions,
+              transaction.id,
+            )
+            await txDb.transactionConsumption.createMany({ data: snapshots })
+          }
 
           // 8. Create audit logs — VARIANT type for variant items, PRODUCT for normal
           const auditLogs = []

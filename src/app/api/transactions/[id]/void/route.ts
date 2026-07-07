@@ -123,23 +123,45 @@ export async function POST(
 
       // ════════════════════════════════════════════════════════════
       // STEP 3 (GAP 1): Reverse inventory (bahan baku) consumption
-      //   Skip items where product was deleted (productId is null)
+      //   PREFER snapshot from TransactionConsumption — this restores exactly
+      //   what was consumed at checkout, even if recipe changed later.
+      //   FALLBACK to recalculation for old transactions without snapshots.
       // ════════════════════════════════════════════════════════════
-      const reversableItems = transactionItems.filter(i => i.productId)
-      if (reversableItems.length > 0) {
-        await InventoryConsumptionService.reverseForTransaction(tx, {
-          items: reversableItems.map(item => ({
-            productId: item.productId!,
-            variantId: item.variantId,
-            productName: item.productName,
-            variantName: item.variantName || undefined,
-            qty: item.qty,
-          })),
-          transactionId: id,
-          invoiceNumber: transaction.invoiceNumber,
-          outletId,
-          userId,
-        })
+      let inventoryRestoreMethod: 'SNAPSHOT' | 'RECALC' | 'NONE' = 'NONE'
+
+      // Try snapshot-first approach
+      await InventoryConsumptionService.restoreFromSnapshots(tx, {
+        transactionId: id,
+        invoiceNumber: transaction.invoiceNumber,
+        outletId,
+        userId,
+      })
+      // Check if snapshots were found by querying after the call
+      // (restoreFromSnapshots returns void, but logs when no snapshots found)
+      const snapshotCount = await tx.transactionConsumption.count({
+        where: { transactionId: id },
+      })
+      if (snapshotCount > 0) {
+        inventoryRestoreMethod = 'SNAPSHOT'
+      } else {
+        // Fallback: recalculate from current composition (for pre-snapshot transactions)
+        inventoryRestoreMethod = 'RECALC'
+        const reversableItems = transactionItems.filter(i => i.productId)
+        if (reversableItems.length > 0) {
+          await InventoryConsumptionService.reverseForTransaction(tx, {
+            items: reversableItems.map(item => ({
+              productId: item.productId!,
+              variantId: item.variantId,
+              productName: item.productName,
+              variantName: item.variantName || undefined,
+              qty: item.qty,
+            })),
+            transactionId: id,
+            invoiceNumber: transaction.invoiceNumber,
+            outletId,
+            userId,
+          })
+        }
       }
 
       // ════════════════════════════════════════════════════════════
@@ -265,6 +287,7 @@ export async function POST(
             voidedBy: user.name || user.email,
             voidedAt: new Date().toISOString(),
             inventoryRestored: true,
+            inventoryRestoreMethod,
             loyaltyReversed: !!transaction.customerId,
             parentStockRecalculated: variantProductIds.length > 0,
             itemsRestored: transactionItems.map(i => ({

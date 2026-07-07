@@ -612,4 +612,122 @@ export class InventoryConsumptionService {
 
     return { valid: true }
   }
+
+  /**
+   * Restore inventory from saved consumption snapshots (TransactionConsumption).
+   *
+   * This is the PREFERRED way to reverse inventory on void — it uses the exact
+   * quantities that were consumed at checkout time, regardless of whether the
+   * product recipe/composition has since changed.
+   *
+   * Called from void route within db.$transaction.
+   */
+  static async restoreFromSnapshots(
+    tx: TxClient,
+    params: {
+      transactionId: string
+      invoiceNumber: string
+      outletId: string
+      userId: string
+    }
+  ): Promise<void> {
+    const { transactionId, invoiceNumber, outletId, userId } = params
+
+    // Read consumption snapshots for this transaction
+    const snapshots = await tx.transactionConsumption.findMany({
+      where: { transactionId },
+    })
+
+    if (snapshots.length === 0) {
+      console.log(`[InvConsumption:SNAPSHOT_RESTORE] ${invoiceNumber} — no snapshots found, void will use recalculation fallback`)
+      return
+    }
+
+    // Get current inventory item stocks
+    const invItemIds = snapshots.map(s => s.inventoryItemId)
+    const invItems = await tx.inventoryItem.findMany({
+      where: { id: { in: invItemIds } },
+      select: { id: true, name: true, stock: true },
+    })
+    const stockMap = new Map(invItems.map(i => [i.id, i.stock]))
+
+    // Restore each snapshot
+    for (const snapshot of snapshots) {
+      const previousStock = stockMap.get(snapshot.inventoryItemId) ?? 0
+      const newStock = previousStock + snapshot.quantityUsed
+
+      await tx.inventoryItem.update({
+        where: { id: snapshot.inventoryItemId },
+        data: { stock: newStock },
+      })
+
+      // Create RESTORE inventory movement
+      await tx.inventoryMovement.create({
+        data: {
+          type: 'RESTOCK',
+          inventoryItemId: snapshot.inventoryItemId,
+          quantity: snapshot.quantityUsed,
+          previousStock,
+          newStock,
+          referenceId: transactionId,
+          referenceType: 'VOID',
+          notes: `Snapshot restore (void ${invoiceNumber}): ${snapshot.itemName} +${snapshot.quantityUsed} ${snapshot.baseUnit}`,
+          outletId,
+          userId,
+        },
+      })
+
+      // Create audit log
+      await tx.auditLog.create({
+        data: {
+          action: 'COMPOSITION_RESTORE',
+          entityType: 'INVENTORY_ITEM',
+          entityId: snapshot.inventoryItemId,
+          details: JSON.stringify({
+            invoiceNumber,
+            reason: 'Void transaksi (from snapshot)',
+            method: 'SNAPSHOT',
+            itemName: snapshot.itemName,
+            baseUnit: snapshot.baseUnit,
+            totalRestored: snapshot.quantityUsed,
+            previousStock,
+            newStock,
+            sourceDetails: JSON.parse(snapshot.sourceDetails),
+          }),
+          outletId,
+          userId,
+        },
+      })
+    }
+
+    console.log(
+      `[InvConsumption:SNAPSHOT_RESTORE] ${invoiceNumber} — restored ${snapshots.length} inventory item(s) from snapshots`
+    )
+  }
+
+  /**
+   * Build TransactionConsumption records from the deduction result.
+   * Called by checkout/sync routes to snapshot consumption data.
+   * Returns array of objects ready for `createMany`.
+   */
+  static buildConsumptionSnapshots(
+    deductions: InventoryDeduction[],
+    transactionId: string,
+  ): Array<{
+    transactionId: string
+    inventoryItemId: string
+    itemName: string
+    baseUnit: string
+    quantityUsed: number
+    sourceDetails: string
+  }> {
+    return deductions.map(d => ({
+      transactionId,
+      inventoryItemId: d.inventoryItemId,
+      itemName: d.itemName,
+      baseUnit: d.baseUnit,
+      quantityUsed: d.totalDeducted,
+      sourceDetails: JSON.stringify(d.sources),
+    }))
+  }
 }

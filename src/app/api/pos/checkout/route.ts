@@ -270,6 +270,17 @@ export async function POST(request: NextRequest) {
         userId,
       })
 
+      // 7d. Snapshot consumption data for accurate void reversal later
+      //     This ensures void restores exactly what was consumed, even if
+      //     the product recipe/composition changes months after the sale.
+      if (consumptionResult.deductions.length > 0) {
+        const snapshots = InventoryConsumptionService.buildConsumptionSnapshots(
+          consumptionResult.deductions,
+          transaction.id,
+        )
+        await tx.transactionConsumption.createMany({ data: snapshots })
+      }
+
       // 8. Batch create audit logs
       const auditData = checkoutItems.map((item) => {
         const product = productMap.get(item.productId)!

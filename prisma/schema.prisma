@@ -192,6 +192,7 @@ model Transaction {
   user             User              @relation(fields: [userId], references: [id])
   items            TransactionItem[]
   loyaltyLogs      LoyaltyLog[]
+  consumptionSnapshots TransactionConsumption[]
 }
 
 // ==================== TRANSACTION ITEM ====================
@@ -213,6 +214,27 @@ model TransactionItem {
   product     Product?        @relation(fields: [productId], references: [id], onDelete: SetNull)
   variant     ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
   transaction Transaction     @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+}
+
+// ==================== TRANSACTION CONSUMPTION (Snapshot) ====================
+// Snapshots inventory consumption at checkout time so that void can restore
+// exactly what was consumed — even if the product recipe/composition
+// was changed months after the original sale.
+//
+// Aggregated per inventory item per transaction (not per TransactionItem).
+// One transaction may consume 3000g coffee from 3 different cart items → 1 row here.
+model TransactionConsumption {
+  id               String   @id @default(cuid())
+  transactionId    String
+  inventoryItemId  String
+  itemName         String               // Snapshot: inventory item name at checkout
+  baseUnit         String               // Snapshot: "kg", "gr", "ml", etc.
+  quantityUsed     Float                // Total consumed in base units (e.g. 2.5 kg)
+  sourceDetails    String               // JSON: [{productName, variantName?, qty, batches}] for audit trail
+  createdAt        DateTime @default(now())
+
+  transaction    Transaction    @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  inventoryItem  InventoryItem  @relation(fields: [inventoryItemId], references: [id])
 }
 
 // ==================== LOYALTY LOG ====================
@@ -445,6 +467,7 @@ model InventoryItem {
   compositions   ProductComposition[]
   movements      InventoryMovement[]
   inventoryTransferItems InventoryTransferItem[]
+  consumptionSnapshots    TransactionConsumption[]
 }
 
 // ==================== PURCHASE ORDER ====================
