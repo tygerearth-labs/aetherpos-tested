@@ -248,6 +248,8 @@ export async function processCheckout(data: CheckoutInput) {
             invoiceNumber,
             productName: item.name,
             quantitySold: item.qty,
+            price: item.price,
+            subtotal: item.price * item.qty,
             previousStock: product.stock,
             newStock: product.stock - item.qty,
           }),

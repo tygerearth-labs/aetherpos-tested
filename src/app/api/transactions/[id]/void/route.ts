@@ -253,6 +253,10 @@ export async function POST(
       await tx.auditLog.createMany({
         data: transactionItems.map(item => {
           const isVariant = !!item.variantId
+          const newStock = isVariant
+            ? (variantStockMap.get(item.variantId!) ?? 0)
+            : (productStockMap.get(item.productId!) ?? 0)
+          const previousStock = newStock - item.qty
           return {
             action: 'RESTOCK' as const,
             entityType: isVariant ? 'VARIANT' as const : 'PRODUCT' as const,
@@ -264,9 +268,8 @@ export async function POST(
               variantName: item.variantName ?? undefined,
               variantSku: getVariantSku(item),
               quantityAdded: item.qty,
-              newStock: isVariant
-                ? (variantStockMap.get(item.variantId!) ?? 0)
-                : (productStockMap.get(item.productId!) ?? 0),
+              previousStock,
+              newStock,
             }),
             outletId,
             userId,

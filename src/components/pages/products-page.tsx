@@ -181,7 +181,7 @@ interface MovementResponse {
   totalLogs: number
 }
 
-type MovementFilterTab = 'all' | 'restock' | 'sale' | 'adjustment' | 'transfer'
+type MovementFilterTab = 'all' | 'restock' | 'sale' | 'void' | 'adjustment' | 'transfer'
 
 const SORT_OPTIONS: { value: SortOption; label: string }[] = [
   { value: 'newest', label: 'Terbaru' },
@@ -249,6 +249,11 @@ function getStockDiff(details: Record<string, unknown>): { from: number; to: num
   return null
 }
 
+// Detect if a RESTOCK log is from a void transaction
+function isVoidRestock(details?: Record<string, unknown>): boolean {
+  return !!(details?.reason && typeof details.reason === 'string' && details.reason.includes('Void'))
+}
+
 function getActionBadge(action: string, details?: Record<string, unknown>) {
   // Transfer detection
   const isTransfer = action === 'ADJUSTMENT' && (details?.action === 'TRANSFER_SENT' || details?.action === 'TRANSFER_IN')
@@ -260,18 +265,21 @@ function getActionBadge(action: string, details?: Record<string, unknown>) {
     case 'CREATE':
       return <Badge className="bg-blue-500/10 border-blue-500/20 text-blue-400 text-[10px]">Create</Badge>
     case 'RESTOCK':
+      if (isVoidRestock(details)) {
+        return <Badge className="bg-red-500/10 border-red-500/20 text-red-400 text-[10px]">Void Restore</Badge>
+      }
       return <Badge className="theme-bg-very-light theme-border-light theme-text text-[10px]">Restock</Badge>
     case 'SALE':
-      return <Badge className="bg-amber-500/10 border-amber-500/20 text-amber-400 text-[10px]">Sale</Badge>
+      return <Badge className="bg-amber-500/10 border-amber-500/20 text-amber-400 text-[10px]">Penjualan</Badge>
     case 'UPDATE':
       return <Badge className="bg-violet-500/10 border-violet-500/20 text-violet-400 text-[10px]">Update</Badge>
     case 'DELETE':
-      return <Badge className="bg-red-500/10 border-red-500/20 text-red-400 text-[10px]">Delete</Badge>
+      return <Badge className="bg-red-500/10 border-red-500/20 text-red-400 text-[10px]">Hapus</Badge>
     case 'ADJUSTMENT':
       if (isTransfer) {
         return <Badge className="bg-sky-500/10 border-sky-500/20 text-sky-400 text-[10px]">Transfer</Badge>
       }
-      return <Badge className="bg-orange-500/10 border-orange-500/20 text-orange-400 text-[10px]">Adjustment</Badge>
+      return <Badge className="bg-orange-500/10 border-orange-500/20 text-orange-400 text-[10px]">Penyesuaian</Badge>
     case 'BULK_UPDATE':
       return <Badge className="bg-cyan-500/10 border-cyan-500/20 text-cyan-400 text-[10px]">Bulk Update</Badge>
     default:
@@ -290,9 +298,28 @@ function getActionDescription(action: string, details: Record<string, unknown>):
       if (details.action === 'TRANSFER_IN_NEW') {
         return `Produk baru dari transfer ${details.transferNumber || ''} — Stok awal: ${formatNumber(Number(details.initialStock) || 0)}`
       }
-      return `Product created — Price: ${formatCurrency(Number(details.price) || 0)}, Stock: ${formatNumber(Number(details.stock) || 0)}`
+      return `Produk dibuat — Harga: ${formatCurrency(Number(details.price) || 0)}, Stok awal: ${formatNumber(Number(details.stock) || 0)}`
     }
     case 'RESTOCK': {
+      // Void restore — show invoice, reason, and who voided
+      if (isVoidRestock(details)) {
+        const reason = (details.reason as string) || ''
+        const invoiceMatch = reason.match(/(INV-[\w-]+)/)
+        const invoiceLabel = invoiceMatch ? invoiceMatch[1] : ''
+        const qty = Number(details.quantityAdded) || 0
+        const prev = Number(details.previousStock)
+        const next = Number(details.newStock)
+        const hasStock = !isNaN(prev) && !isNaN(next)
+
+        const parts: string[] = []
+        if (invoiceLabel) parts.push(`Void ${invoiceLabel}`)
+        else parts.push('Void transaksi')
+        parts.push(`Stok dikembalikan +${formatNumber(qty)} unit`)
+        if (hasStock) parts.push(`Stok: ${formatNumber(prev)} → ${formatNumber(next)}`)
+        if (details.productName) parts.push(`(${details.productName as string})`)
+
+        return parts.join(' — ') + variantLabel
+      }
       if (details.action === 'TRANSFER_IN') {
         const totalVal = Number(details.totalValue)
         const valueInfo = totalVal > 0 ? ` — Nilai: ${formatCurrency(totalVal)}` : ''
@@ -300,37 +327,46 @@ function getActionDescription(action: string, details: Record<string, unknown>):
       }
       const totalVal = Number(details.totalValue)
       const valueInfo = totalVal > 0 ? ` — Nilai: ${formatCurrency(totalVal)}` : ''
-      return `+${formatNumber(Number(details.quantityAdded) || 0)} units${variantLabel} (Stock: ${formatNumber(Number(details.previousStock) || 0)} → ${formatNumber(Number(details.newStock) || 0)})${valueInfo}`
+      return `Restock +${formatNumber(Number(details.quantityAdded) || 0)} unit${variantLabel} (Stok: ${formatNumber(Number(details.previousStock) || 0)} → ${formatNumber(Number(details.newStock) || 0)})${valueInfo}`
     }
     case 'SALE': {
       const qty = Number(details.quantitySold) || Number(details.qty) || 0
       const sub = Number(details.subtotal) || 0
       const price = Number(details.price) || 0
-      let desc = `Sold ${formatNumber(qty)} units`
-      if (price > 0) desc += ` @ ${formatCurrency(price)}`
-      if (sub > 0) desc += ` — ${formatCurrency(sub)}`
-      return desc + variantLabel
+      const invoice = (details.invoiceNumber as string) || ''
+      const prev = Number(details.previousStock)
+      const next = Number(details.newStock)
+      const hasStock = !isNaN(prev) && !isNaN(next)
+
+      const parts: string[] = []
+      if (invoice) parts.push(invoice)
+      parts.push(`Terjual ${formatNumber(qty)} unit`)
+      if (price > 0) parts.push(`@ ${formatCurrency(price)}`)
+      if (sub > 0) parts.push(`Total ${formatCurrency(sub)}`)
+      if (hasStock) parts.push(`Stok: ${formatNumber(prev)} → ${formatNumber(next)}`)
+
+      return parts.join(' — ') + variantLabel
     }
     case 'UPDATE':
       if (details.variantCount !== undefined) {
-        return `Product updated — ${Number(details.variantCount)} variant(s)`
+        return `Produk diperbarui — ${Number(details.variantCount)} varian`
       }
       if (details.changes && typeof details.changes === 'object') {
         const changes = details.changes as Record<string, { from: unknown; to: unknown }>
         const parts: string[] = []
         if (changes.stock) {
           const diff = Number(changes.stock.to) - Number(changes.stock.from)
-          parts.push(`Stock: ${formatNumber(Number(changes.stock.from))} → ${formatNumber(Number(changes.stock.to))} (${diff >= 0 ? '+' : ''}${formatNumber(diff)})`)
+          parts.push(`Stok: ${formatNumber(Number(changes.stock.from))} → ${formatNumber(Number(changes.stock.to))} (${diff >= 0 ? '+' : ''}${formatNumber(diff)})`)
         }
-        if (changes.price) parts.push(`Price: ${formatCurrency(Number(changes.price.from))} → ${formatCurrency(Number(changes.price.to))}`)
+        if (changes.price) parts.push(`Harga: ${formatCurrency(Number(changes.price.from))} → ${formatCurrency(Number(changes.price.to))}`)
         if (parts.length > 0) return parts.join(', ')
       }
       if (variantName) {
-        return `Variant "${variantName}" updated`
+        return `Varian "${variantName}" diperbarui`
       }
-      return 'Product details updated'
+      return 'Detail produk diperbarui'
     case 'DELETE':
-      return 'Product deleted'
+      return 'Produk dihapus'
     case 'ADJUSTMENT': {
       if (details.action === 'TRANSFER_SENT') {
         const qty = Number(details.quantity) || 0
@@ -353,7 +389,7 @@ function getActionDescription(action: string, details: Record<string, unknown>):
       if (!isNaN(prev) && !isNaN(next)) {
         return `Penyesuaian stok: ${formatNumber(prev)} → ${formatNumber(next)} (${diff >= 0 ? '+' : ''}${formatNumber(diff)})${details.reason ? ` — ${details.reason}` : ''}`
       }
-      return `Stock adjusted${variantLabel} — ${details.reason || 'No reason'}`
+      return `Penyesuaian stok${variantLabel}${details.reason ? ` — ${details.reason}` : ' — Tanpa alasan'}`
     }
     case 'BULK_UPDATE': {
       const bulkVariantName = details.variantName as string | undefined
@@ -363,17 +399,17 @@ function getActionDescription(action: string, details: Record<string, unknown>):
         const diff = stockDiff.to - stockDiff.from
         const hpp = Number(details.hpp)
         const hppInfo = hpp > 0 ? ` — Nilai: ${formatCurrency(diff * hpp)}` : ''
-        return `Bulk stock: ${formatNumber(stockDiff.from)} → ${formatNumber(stockDiff.to)} (${diff >= 0 ? '+' : ''}${formatNumber(diff)})${hppInfo}${bulkVariantLabel}${parentLabel}`
+        return `Bulk stok: ${formatNumber(stockDiff.from)} → ${formatNumber(stockDiff.to)} (${diff >= 0 ? '+' : ''}${formatNumber(diff)})${hppInfo}${bulkVariantLabel}${parentLabel}`
       }
       // Check for price changes (top-level or under changes)
       const priceObj = (details.price || (details.changes as Record<string, unknown>)?.price) as { from: number; to: number } | undefined
       if (priceObj && typeof priceObj === 'object') {
-        return `Bulk price: ${formatCurrency(priceObj.from)} → ${formatCurrency(priceObj.to)}${bulkVariantLabel}${parentLabel}`
+        return `Bulk harga: ${formatCurrency(priceObj.from)} → ${formatCurrency(priceObj.to)}${bulkVariantLabel}${parentLabel}`
       }
-      return 'Bulk update applied'
+      return 'Bulk update diterapkan'
     }
     default:
-      return 'Action performed'
+      return 'Aksi dilakukan'
   }
 }
 
@@ -381,6 +417,10 @@ function getActionRowBg(action: string, details?: Record<string, unknown>): stri
   // Stock-related bulk updates get restock color
   if (action === 'BULK_UPDATE' && hasStockChange(details)) {
     return 'theme-bg-ultra-light rounded'
+  }
+  // Void restores get red-tinted background
+  if (action === 'RESTOCK' && isVoidRestock(details)) {
+    return 'bg-red-500/5 rounded'
   }
   switch (action) {
     case 'RESTOCK':
@@ -583,6 +623,20 @@ export default function ProductsPage() {
       if (res.ok) {
         const data: MovementResponse = await res.json()
         setDetailData(data)
+        // Keep detailProduct in sync with fresh data from API
+        if (data.product) {
+          setDetailProduct(prev => prev ? {
+            ...prev,
+            name: data.product.name,
+            sku: data.product.sku || prev.sku,
+            stock: data.product.stock,
+            price: data.product.price,
+            hpp: data.product.hpp,
+            lowStockAlert: data.product.lowStockAlert,
+            image: data.product.image || prev.image,
+            hasVariants: data.product.hasVariants,
+          } : prev)
+        }
       } else {
         toast.error('Failed to load product details')
       }
@@ -1180,11 +1234,16 @@ export default function ProductsPage() {
     return detailData.movements.filter((m) => {
       if (movementFilter === 'all') return true
       if (movementFilter === 'restock') {
-        if (m.action === 'RESTOCK') return true
+        if (m.action === 'RESTOCK' && !isVoidRestock(m.details)) return true
         if (m.action === 'BULK_UPDATE' && hasStockChange(m.details)) return true
         return false
       }
       if (movementFilter === 'sale') return m.action === 'SALE'
+      if (movementFilter === 'void') {
+        // Show void RESTOCK logs
+        if (m.action === 'RESTOCK' && isVoidRestock(m.details)) return true
+        return false
+      }
       if (movementFilter === 'adjustment') {
         // Show only manual adjustments, not transfer-related
         if (m.action !== 'ADJUSTMENT') return false
@@ -2029,7 +2088,14 @@ export default function ProductsPage() {
         open={formOpen}
         onOpenChange={setFormOpen}
         product={editProduct}
-        onSaved={() => { fetchProducts(); fetchCategories() }}
+        onSaved={() => {
+          fetchProducts()
+          fetchCategories()
+          // Refresh detail sheet if open for the same product
+          if (detailOpen && detailProduct) {
+            fetchDetail(detailProduct, detailPage)
+          }
+        }}
       />
 
       {/* Category Create/Edit Dialog */}
@@ -3488,6 +3554,9 @@ export default function ProductsPage() {
                             </TabsTrigger>
                             <TabsTrigger value="sale" className="text-[11px] h-5 px-2.5 data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-400 text-slate-400">
                               Penjualan
+                            </TabsTrigger>
+                            <TabsTrigger value="void" className="text-[11px] h-5 px-2.5 data-[state=active]:bg-red-500/20 data-[state=active]:text-red-400 text-slate-400">
+                              Void
                             </TabsTrigger>
                             <TabsTrigger value="transfer" className="text-[11px] h-5 px-2.5 data-[state=active]:bg-sky-500/20 data-[state=active]:text-sky-400 text-slate-400">
                               Transfer
