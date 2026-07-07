@@ -352,19 +352,12 @@ export default function PurchasePage() {
   const [invFormInitialStock, setInvFormInitialStock] = useState('')
   const [invFormAvgCost, setInvFormAvgCost] = useState('')
 
-  // Inventory adjust dialog
-  const [invAdjustOpen, setInvAdjustOpen] = useState(false)
-  const [invAdjustItem, setInvAdjustItem] = useState<InventoryItem | null>(null)
-  const [invAdjustNewStock, setInvAdjustNewStock] = useState('')
-  const [invAdjustReason, setInvAdjustReason] = useState('')
-  const [invAdjusting, setInvAdjusting] = useState(false)
-
   // Inventory detail dialog
   const [invDetailOpen, setInvDetailOpen] = useState(false)
   const [invDetailData, setInvDetailData] = useState<InventoryItemDetail | null>(null)
   const [invDetailLoading, setInvDetailLoading] = useState(false)
   const [invDetailError, setInvDetailError] = useState<string | null>(null)
-  const [invDetailTab, setInvDetailTab] = useState('detail')
+  const [invDetailTab, setInvDetailTab] = useState('products')
   const [invDetailMovementPage, setInvDetailMovementPage] = useState(1)
 
   // Inventory delete
@@ -1027,21 +1020,14 @@ export default function PurchasePage() {
 
 
   // ══════════════════════════════════════════════════════════
-  // Inventory Adjust
+  // Inventory Detail
   // ══════════════════════════════════════════════════════════
-  const openInvAdjust = (item: InventoryItem) => {
-    setInvAdjustItem(item)
-    setInvAdjustNewStock(String(item.stock))
-    setInvAdjustReason('')
-    setInvAdjustOpen(true)
-  }
-
   const openInvDetail = async (item: InventoryItem) => {
     setInvDetailOpen(true)
     setInvDetailData(null)
     setInvDetailError(null)
     setInvDetailLoading(true)
-    setInvDetailTab('detail')
+    setInvDetailTab('products')
     setInvDetailMovementPage(1)
     try {
       const res = await fetch(`/api/inventory/items/${item.id}?page=1`)
@@ -1068,38 +1054,6 @@ export default function PurchasePage() {
         setInvDetailData((prev) => prev ? { ...prev, movements: data.movements, movementPagination: data.movementPagination } : null)
       }
     } catch { /* ignore pagination fetch errors */ }
-  }
-
-  const handleInvAdjustSubmit = async () => {
-    if (!invAdjustItem) return
-    const newStock = parseFloat(invAdjustNewStock)
-    if (isNaN(newStock) || newStock < 0) {
-      toast.error('Stok baru harus berupa angka positif')
-      return
-    }
-    setInvAdjusting(true)
-    try {
-      const res = await fetch(`/api/inventory/items/${invAdjustItem.id}/adjust`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          newStock,
-          reason: invAdjustReason || undefined,
-        }),
-      })
-      if (res.ok) {
-        toast.success('Stok berhasil disesuaikan')
-        setInvAdjustOpen(false)
-        void fetchInventoryItems()
-      } else {
-        const data = await res.json()
-        toast.error(data.error || 'Gagal menyesuaikan stok')
-      }
-    } catch {
-      toast.error('Gagal menyesuaikan stok')
-    } finally {
-      setInvAdjusting(false)
-    }
   }
 
   // ══════════════════════════════════════════════════════════
@@ -1824,18 +1778,10 @@ export default function PurchasePage() {
                               )}
                             </TableCell>
                             <TableCell className="text-xs text-right font-medium">
-                              <button
-                                className={cn(
-                                  'inline-flex items-center gap-1 px-2 py-1 rounded-md transition-colors tabular-nums hover:bg-white/[0.06]',
-                                  isLow ? 'text-red-400 hover:text-red-300' : 'text-slate-200 hover:text-white'
-                                )}
-                                onClick={(e) => { e.stopPropagation(); openInvAdjust(item) }}
-                                title="Klik untuk sesuaikan stok"
-                              >
+                              <span className={cn('inline-flex items-center gap-1 px-2 py-1 rounded-md tabular-nums', isLow ? 'text-red-400' : 'text-slate-200')}>
                                 {formatNumber(item.stock)}
                                 <span className="text-slate-500 font-normal">{item.baseUnit}</span>
-                                <Edit3 className="h-2.5 w-2.5 text-slate-500" />
-                              </button>
+                              </span>
                             </TableCell>
                             <TableCell className="text-xs text-slate-400 text-right">{formatCurrency(item.avgCost)}/{item.baseUnit}</TableCell>
                             <TableCell className="text-xs text-emerald-400 text-right font-medium">{formatCurrency(item.stock * item.avgCost)}</TableCell>
@@ -1903,18 +1849,15 @@ export default function PurchasePage() {
                                   )}
                                 </div>
                               </div>
-                              <button
+                              <span
                                 className={cn(
-                                  'flex items-center gap-1 px-2.5 py-1.5 rounded-lg transition-colors tabular-nums hover:bg-white/[0.06] shrink-0',
-                                  isLow ? 'text-red-400 hover:text-red-300' : 'text-white hover:text-white'
+                                  'flex items-center gap-1 px-2.5 py-1.5 rounded-lg tabular-nums shrink-0',
+                                  isLow ? 'text-red-400' : 'text-white'
                                 )}
-                                onClick={(e) => { e.stopPropagation(); openInvAdjust(item) }}
-                                title="Klik untuk sesuaikan stok"
                               >
                                 <span className="font-bold">{formatNumber(item.stock)}</span>
                                 <span className="text-[10px] text-slate-400 font-normal">{item.baseUnit}</span>
-                                <Edit3 className="h-2.5 w-2.5 text-slate-500" />
-                              </button>
+                              </span>
                             </div>
                             <div className="flex items-center justify-between text-slate-500">
                               <span className="text-[11px]">HPP: {formatCurrency(item.avgCost)}/{item.baseUnit}</span>
@@ -2916,69 +2859,6 @@ export default function PurchasePage() {
               onClick={handleInvFormSubmit}
             >
               {invFormLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Simpan'}
-            </Button>
-          </ResponsiveDialogFooter>
-        </ResponsiveDialogContent>
-      </ResponsiveDialog>
-
-      {/* Inventory Adjust Dialog */}
-      <ResponsiveDialog open={invAdjustOpen} onOpenChange={setInvAdjustOpen}>
-        <ResponsiveDialogContent className="sm:max-w-lg">
-          <ResponsiveDialogHeader>
-            <ResponsiveDialogTitle className="text-white text-base">Penyesuaian Stok</ResponsiveDialogTitle>
-            <ResponsiveDialogDescription className="text-slate-400 text-xs">
-              {invAdjustItem?.name || ''}
-            </ResponsiveDialogDescription>
-          </ResponsiveDialogHeader>
-          {invAdjustItem && (
-            <div className="space-y-4 mt-2">
-              <div className="bg-white/[0.03] rounded-lg p-3 border border-white/[0.04]">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-slate-400">Stok Saat Ini</span>
-                  <span className="text-sm font-bold text-white">
-                    {formatNumber(invAdjustItem.stock)} {invAdjustItem.baseUnit}
-                  </span>
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label className={labelClass}>Stok Baru *</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="any"
-                  value={invAdjustNewStock}
-                  onChange={(e) => setInvAdjustNewStock(e.target.value)}
-                  className={inputClass}
-                  placeholder="Masukkan stok baru"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label className={labelClass}>Alasan</Label>
-                <Input
-                  value={invAdjustReason}
-                  onChange={(e) => setInvAdjustReason(e.target.value)}
-                  placeholder="Alasan penyesuaian (opsional)"
-                  className={inputClass}
-                />
-              </div>
-            </div>
-          )}
-          <ResponsiveDialogFooter className="mt-4 gap-2">
-            <Button
-              variant="ghost"
-              className="flex-1 h-9 text-xs text-slate-400 hover:text-white hover:bg-white/[0.04]"
-              onClick={() => setInvAdjustOpen(false)}
-            >
-              Batal
-            </Button>
-            <Button
-              className="flex-1 h-9 text-xs theme-bg theme-hover text-white"
-              disabled={invAdjusting}
-              onClick={handleInvAdjustSubmit}
-            >
-              {invAdjusting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Simpan'}
             </Button>
           </ResponsiveDialogFooter>
         </ResponsiveDialogContent>

@@ -30,7 +30,10 @@ export async function POST(request: NextRequest) {
       return safeJsonError(`Maksimal ${maxDelete} produk yang bisa dihapus sekaligus`, 400)
     }
 
-    // Delete in a transaction: variants, transaction items references, then products
+    // Delete in a transaction: variants, then products
+    // TransactionItem rows are preserved — Prisma's onDelete: SetNull
+    // will nullify productId/variantId, but snapshot fields (productName,
+    // variantName, price, qty, subtotal) remain intact.
     const deletedCount = await db.$transaction(async (tx) => {
       // Get all product IDs to delete (including all if selectAllMode)
       const idsToDelete = selectAllMode
@@ -42,12 +45,7 @@ export async function POST(request: NextRequest) {
 
       if (idsToDelete.length === 0) return 0
 
-      // Delete transaction items referencing these products
-      await tx.transactionItem.deleteMany({
-        where: { productId: { in: idsToDelete } },
-      })
-
-      // Delete product variants
+      // Delete product variants (onDelete: Cascade handles TransactionItem references)
       await tx.productVariant.deleteMany({
         where: { productId: { in: idsToDelete } },
       })
