@@ -79,6 +79,7 @@ import {
   Activity,
   ArrowUpDown,
   Link2,
+  ScanBarcode,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -89,13 +90,16 @@ import { cn } from '@/lib/utils'
 interface InventoryItemOption {
   id: string
   name: string
+  sku: string | null
   baseUnit: string
   stock: number
+  active: boolean
 }
 
 interface PurchaseOrderItem {
   inventoryItemId: string
   inventoryItemName: string
+  inventoryItemSku: string | null
   baseUnit: string
   qty: string
   unit: string
@@ -308,8 +312,20 @@ export default function PurchasePage() {
   // Quick add new item from purchase dialog
   const [showQuickAddItem, setShowQuickAddItem] = useState(false)
   const [quickItemName, setQuickItemName] = useState('')
+  const [quickItemSku, setQuickItemSku] = useState('')
   const [quickItemUnit, setQuickItemUnit] = useState('kg')
   const [quickItemCreating, setQuickItemCreating] = useState(false)
+  const [quickSkuEnabled, setQuickSkuEnabled] = useState(false)
+
+  // Smart input (batch add by comma-separated names)
+  const [smartInput, setSmartInput] = useState('')
+  const [showInactiveItems, setShowInactiveItems] = useState(false)
+  // Barcode scan detection (timing-based, like POS page)
+  const smartInputLastCharTimeRef = useRef(0)
+  const smartInputCharCountRef = useRef(0)
+  const smartInputScanDetectedRef = useRef(false)
+  const [scanModeActive, setScanModeActive] = useState(false) // visual indicator
+  const smartInputRef = useRef<HTMLInputElement>(null)
 
 
 
@@ -323,7 +339,7 @@ export default function PurchasePage() {
   const [poEditLoading, setPoEditLoading] = useState(false)
   const [poEditNotes, setPoEditNotes] = useState('')
   const [poEditItems, setPoEditItems] = useState<PurchaseOrderItem[]>([
-    { inventoryItemId: '', inventoryItemName: '', baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0' },
+    { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0' },
   ])
 
   // ══════════════════════════════════════════════════════════
@@ -533,14 +549,17 @@ export default function PurchasePage() {
   const fetchPoItemOptions = useCallback(async () => {
     setPoItemOptionsLoading(true)
     try {
-      const res = await fetch('/api/inventory/items?limit=200')
+      const activeParam = showInactiveItems ? 'false' : 'true'
+      const res = await fetch(`/api/inventory/items?limit=200&activeOnly=${activeParam}`)
       if (res.ok) {
         const data = await res.json()
-        setPoItemOptions((data.items || []).map((i: { id: string; name: string; baseUnit: string; stock: number }) => ({
+        setPoItemOptions((data.items || []).map((i: { id: string; name: string; sku: string | null; baseUnit: string; stock: number; active?: boolean }) => ({
           id: i.id,
           name: i.name,
+          sku: i.sku || null,
           baseUnit: i.baseUnit,
           stock: i.stock ?? 0,
+          active: i.active !== false,
         })))
       }
     } catch {
@@ -548,7 +567,7 @@ export default function PurchasePage() {
     } finally {
       setPoItemOptionsLoading(false)
     }
-  }, [])
+  }, [showInactiveItems])
 
   // Pre-load items when purchase dialog opens
   useEffect(() => {
@@ -565,7 +584,10 @@ export default function PurchasePage() {
   const filteredItemOptions = useMemo(() => {
     const q = itemPickerFilter.trim().toLowerCase()
     if (!q) return poItemOptions
-    return poItemOptions.filter(i => i.name.toLowerCase().includes(q))
+    return poItemOptions.filter(i =>
+      i.name.toLowerCase().includes(q) ||
+      (i.sku && i.sku.toLowerCase().includes(q))
+    )
   }, [poItemOptions, itemPickerFilter])
 
   // Close picker on outside click
@@ -624,6 +646,7 @@ export default function PurchasePage() {
     const editItems: PurchaseOrderItem[] = po.items.map((item) => ({
       inventoryItemId: item.inventoryItemId,
       inventoryItemName: item.inventoryItem?.name || item.name || '',
+      inventoryItemSku: item.inventoryItem?.sku || null,
       baseUnit: item.baseUnit,
       qty: String(item.purchaseQty),
       unit: item.purchaseUnit,
@@ -651,7 +674,7 @@ export default function PurchasePage() {
   const handleAddPoEditItem = () => {
     setPoEditItems(prev => [
       ...prev,
-      { inventoryItemId: '', inventoryItemName: '', baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0' },
+      { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0' },
     ])
   }
 
@@ -806,17 +829,22 @@ export default function PurchasePage() {
 
   const resetPoCreateForm = () => {
     setPoCreateNotes('')
-    setPoCreateItems([{ inventoryItemId: '', inventoryItemName: '', baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0' }])
+    setPoCreateItems([{ inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0' }])
     setShowItemPicker(false)
     setActiveItemSearchIdx(null)
     setItemPickerFilter('')
     setShowQuickAddItem(false)
+    setSmartInput('')
+    setQuickSkuEnabled(false)
+    smartInputScanDetectedRef.current = false
+    smartInputCharCountRef.current = 0
+    setScanModeActive(false)
   }
 
   const handleAddPoItem = () => {
     setPoCreateItems(prev => [
       ...prev,
-      { inventoryItemId: '', inventoryItemName: '', baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0' },
+      { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0' },
     ])
   }
 
@@ -832,7 +860,7 @@ export default function PurchasePage() {
   const handleSelectInvItem = (idx: number, item: InventoryItemOption) => {
     setPoCreateItems(prev => prev.map((it, i) =>
       i === idx
-        ? { ...it, inventoryItemId: item.id, inventoryItemName: item.name, baseUnit: item.baseUnit }
+        ? { ...it, inventoryItemId: item.id, inventoryItemName: item.name, inventoryItemSku: item.sku, baseUnit: item.baseUnit }
         : it
     ))
     setShowItemPicker(false)
@@ -843,7 +871,7 @@ export default function PurchasePage() {
   const handleSelectInvItemForEdit = (idx: number, item: InventoryItemOption) => {
     setPoEditItems(prev => prev.map((it, i) =>
       i === idx
-        ? { ...it, inventoryItemId: item.id, inventoryItemName: item.name, baseUnit: item.baseUnit }
+        ? { ...it, inventoryItemId: item.id, inventoryItemName: item.name, inventoryItemSku: item.sku, baseUnit: item.baseUnit }
         : it
     ))
     setShowItemPicker(false)
@@ -862,15 +890,16 @@ export default function PurchasePage() {
       const res = await fetch('/api/inventory/items', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: quickItemName.trim(), baseUnit: quickItemUnit, stock: 0, avgCost: 0 }),
+        body: JSON.stringify({ name: quickItemName.trim(), sku: quickItemSku.trim() || undefined, baseUnit: quickItemUnit, stock: 0, avgCost: 0 }),
       })
       if (res.ok) {
         const data = await res.json()
-        const newItem: InventoryItemOption = { id: data.id, name: data.name, baseUnit: data.baseUnit, stock: 0 }
+        const newItem: InventoryItemOption = { id: data.id, name: data.name, sku: data.sku || null, baseUnit: data.baseUnit, stock: 0, active: true }
         setPoItemOptions(prev => [newItem, ...prev])
         handleSelectInvItem(targetIdx, newItem)
         setShowQuickAddItem(false)
         setQuickItemName('')
+        setQuickItemSku('')
         setQuickItemUnit('kg')
         toast.success('Item baru ditambahkan')
       } else {
@@ -881,6 +910,198 @@ export default function PurchasePage() {
       toast.error('Gagal menambahkan item')
     } finally {
       setQuickItemCreating(false)
+    }
+  }
+
+  // ── Smart Input: Scan detection (timing-based like POS) ──
+  // Barcode scanner = hardware yang kirim karakter satu-satu sangat cepat (< 80ms per char)
+  // Paste / ketik manual = TIDAK dianggap scan, user tekan Enter sendiri
+  const handleSmartInputChange = (value: string) => {
+    const now = Date.now()
+    const prevLen = smartInput.length
+
+    if (prevLen < value.length) {
+      const charsAdded = value.length - prevLen
+      if (charsAdded === 1) {
+        // Satu karakter ditambahkan — cek apakah kecepatannya kayak barcode scanner
+        const timeSince = now - smartInputLastCharTimeRef.current
+        if (timeSince > 0 && timeSince < 80) {
+          smartInputCharCountRef.current++
+          if (smartInputCharCountRef.current >= 4) {
+            smartInputScanDetectedRef.current = true
+          }
+        } else {
+          smartInputCharCountRef.current = 1
+          smartInputScanDetectedRef.current = false
+        }
+      }
+      // Paste (charsAdded > 1) — JANGAN anggap scan.
+      // Biarkan user tekan Enter. Paste "Kopi Susu" atau "SMAHS7127" sama-sama treated sebagai text.
+    } else {
+      smartInputCharCountRef.current = 0
+      smartInputScanDetectedRef.current = false
+    }
+
+    smartInputLastCharTimeRef.current = now
+    setSmartInput(value)
+  }
+
+  // Auto-process barcode scan (no Enter needed) — scans one item at a time
+  useEffect(() => {
+    if (!smartInputScanDetectedRef.current || !smartInput.trim()) return
+    const query = smartInput.trim().toLowerCase()
+
+    // Only auto-process if no comma/semicolon (pure scan, not multi-text)
+    if (query.includes(',') || query.includes(';') || query.includes('\n')) return
+
+    // Try exact SKU match
+    const skuMatch = poItemOptions.find(i => i.sku && i.sku.toLowerCase() === query)
+    if (skuMatch) {
+      // Check if already in items list → increment qty
+      const existingIdx = poCreateItems.findIndex(i => i.inventoryItemId === skuMatch.id)
+      if (existingIdx >= 0) {
+        const currentQty = parseFloat(poCreateItems[existingIdx].qty) || 0
+        handleUpdatePoItem(existingIdx, 'qty', String(currentQty + 1))
+        toast.success(`${skuMatch.name} qty +1 (scan)`)
+      } else {
+        // Find first empty slot or append
+        const emptyIdx = poCreateItems.findIndex(i => !i.inventoryItemId)
+        if (emptyIdx >= 0) {
+          handleSelectInvItem(emptyIdx, skuMatch)
+        } else {
+          setPoCreateItems(prev => [...prev, { inventoryItemId: skuMatch.id, inventoryItemName: skuMatch.name, inventoryItemSku: skuMatch.sku, baseUnit: skuMatch.baseUnit, qty: '1', unit: '', baseQty: '0', pricePerItem: '0' }])
+        }
+        toast.success(`${skuMatch.name} ditambahkan (scan)`)
+      }
+      setSmartInput('')
+      smartInputScanDetectedRef.current = false
+      smartInputCharCountRef.current = 0
+      // Re-focus for next scan
+      setTimeout(() => smartInputRef.current?.focus(), 50)
+      return
+    }
+
+    // No match — flash warning, let user handle manually
+    setScanModeActive(true)
+    toast.warning(`SKU "${smartInput.trim()}" tidak ditemukan`)
+    setSmartInput('')
+    smartInputScanDetectedRef.current = false
+    smartInputCharCountRef.current = 0
+    setTimeout(() => smartInputRef.current?.focus(), 50)
+    const timer = setTimeout(() => setScanModeActive(false), 1500)
+    return () => clearTimeout(timer)
+  }, [smartInput, poItemOptions])
+
+  // Smart input: Enter key — parse comma-separated names and create item rows
+  const handleSmartInputSubmit = () => {
+    const text = smartInput.trim()
+    if (!text) return
+
+    // Reset scan state
+    smartInputScanDetectedRef.current = false
+    smartInputCharCountRef.current = 0
+
+    // Split by comma, semicolon, or newline
+    const names = text.split(/[,;\n]+/).map(s => s.trim()).filter(Boolean)
+    if (names.length === 0) return
+
+    // Check if it's a single item (might be SKU or name)
+    if (names.length === 1) {
+      const query = names[0].toLowerCase()
+      // Try exact SKU match first
+      const skuMatch = poItemOptions.find(i => i.sku && i.sku.toLowerCase() === query)
+      if (skuMatch) {
+        const existingIdx = poCreateItems.findIndex(i => i.inventoryItemId === skuMatch.id)
+        if (existingIdx >= 0) {
+          const currentQty = parseFloat(poCreateItems[existingIdx].qty) || 0
+          handleUpdatePoItem(existingIdx, 'qty', String(currentQty + 1))
+        } else {
+          const emptyIdx = poCreateItems.findIndex(i => !i.inventoryItemId)
+          if (emptyIdx >= 0) {
+            handleSelectInvItem(emptyIdx, skuMatch)
+          } else {
+            setPoCreateItems(prev => [...prev, { inventoryItemId: skuMatch.id, inventoryItemName: skuMatch.name, inventoryItemSku: skuMatch.sku, baseUnit: skuMatch.baseUnit, qty: '1', unit: '', baseQty: '0', pricePerItem: '0' }])
+          }
+        }
+        setSmartInput('')
+        toast.success(`${skuMatch.name} ditambahkan`)
+        return
+      }
+
+      // Try exact name match
+      const nameMatch = poItemOptions.find(i => i.name.toLowerCase() === query)
+      if (nameMatch) {
+        const existingIdx = poCreateItems.findIndex(i => i.inventoryItemId === nameMatch.id)
+        if (existingIdx >= 0) {
+          const currentQty = parseFloat(poCreateItems[existingIdx].qty) || 0
+          handleUpdatePoItem(existingIdx, 'qty', String(currentQty + 1))
+        } else {
+          const emptyIdx = poCreateItems.findIndex(i => !i.inventoryItemId)
+          if (emptyIdx >= 0) {
+            handleSelectInvItem(emptyIdx, nameMatch)
+          } else {
+            setPoCreateItems(prev => [...prev, { inventoryItemId: nameMatch.id, inventoryItemName: nameMatch.name, inventoryItemSku: nameMatch.sku, baseUnit: nameMatch.baseUnit, qty: '1', unit: '', baseQty: '0', pricePerItem: '0' }])
+          }
+        }
+        setSmartInput('')
+        toast.success(`${nameMatch.name} ditambahkan`)
+        return
+      }
+
+      // Single item not found — create empty row with the name as placeholder
+      const emptyIdx = poCreateItems.findIndex(i => !i.inventoryItemId)
+      if (emptyIdx >= 0) {
+        handleUpdatePoItem(emptyIdx, 'inventoryItemName', names[0])
+      } else {
+        setPoCreateItems(prev => [...prev, { inventoryItemId: '', inventoryItemName: names[0], inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0' }])
+      }
+      setSmartInput('')
+      toast.info('Item tidak ditemukan — pilih manual dari daftar')
+      return
+    }
+
+    // Batch: create rows for each name, auto-matching existing items
+    const newItems: PurchaseOrderItem[] = names.map(name => {
+      const query = name.toLowerCase()
+      const matched = poItemOptions.find(i =>
+        i.sku && i.sku.toLowerCase() === query
+      ) || poItemOptions.find(i =>
+        i.name.toLowerCase() === query
+      )
+      return matched
+        ? { inventoryItemId: matched.id, inventoryItemName: matched.name, inventoryItemSku: matched.sku, baseUnit: matched.baseUnit, qty: '1', unit: '', baseQty: '0', pricePerItem: '0' }
+        : { inventoryItemId: '', inventoryItemName: name, inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0' }
+    })
+
+    const matchedCount = newItems.filter(i => i.inventoryItemId).length
+    const unmatchedCount = newItems.filter(i => !i.inventoryItemId).length
+
+    // Replace empty items or append
+    const existingFilled = poCreateItems.filter(i => i.inventoryItemId)
+    const emptySlots = poCreateItems.filter(i => !i.inventoryItemId).length
+
+    if (emptySlots >= newItems.length) {
+      let slotIdx = 0
+      setPoCreateItems(prev => prev.map(item => {
+        if (!item.inventoryItemId && slotIdx < newItems.length) {
+          const newItem = newItems[slotIdx]
+          slotIdx++
+          return newItem
+        }
+        return item
+      }))
+    } else {
+      setPoCreateItems(prev => [...prev.filter(i => i.inventoryItemId), ...newItems])
+    }
+
+    setSmartInput('')
+
+    if (matchedCount > 0 && unmatchedCount === 0) {
+      toast.success(`${matchedCount} item cocok dan ditambahkan`)
+    } else if (matchedCount > 0 && unmatchedCount > 0) {
+      toast.info(`${matchedCount} cocok, ${unmatchedCount} belum ada — pilih manual`)
+    } else {
+      toast.info(`${unmatchedCount} item baru — pilih dari daftar atau buat baru`)
     }
   }
 
@@ -2189,27 +2410,99 @@ export default function PurchasePage() {
 
             {/* Items */}
             <div className="space-y-3">
-              <div className="flex items-center gap-1.5 px-1">
-                <Package className="h-3 w-3 text-slate-500" />
-                <span className="text-[11px] text-slate-300 font-medium">
-                  Item Pembelian
-                </span>
-                {poCreateItems.filter(i => i.inventoryItemId).length > 0 && (
-                  <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded-full font-medium">
-                    {poCreateItems.filter(i => i.inventoryItemId).length}
-                  </span>
-                )}
+              {/* ── Smart Input Bar ── */}
+              <div className="space-y-2">
+                <div className={cn(
+                  'flex items-center gap-2 rounded-lg p-[3px] transition-colors duration-300',
+                  scanModeActive && 'ring-1 ring-amber-500/40 bg-amber-500/[0.03]'
+                )}>
+                  <div className="relative flex-1">
+                    <ScanBarcode className={cn(
+                      'absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 pointer-events-none transition-colors duration-300',
+                      scanModeActive ? 'text-amber-400' : 'text-slate-500'
+                    )} />
+                    <input
+                      ref={smartInputRef}
+                      value={smartInput}
+                      onChange={(e) => handleSmartInputChange(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleSmartInputSubmit() }}
+                      placeholder={scanModeActive ? 'Scan barcode...' : 'Ketik nama / scan barcode / koma utk multi: Air, Kopi, Susu'}
+                      className={cn(inputClass, 'pl-8 pr-2 h-10 transition-colors duration-300', scanModeActive && 'border-amber-500/30 bg-amber-500/[0.04]')}
+                    />
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <Switch
+                      checked={showInactiveItems}
+                      onCheckedChange={setShowInactiveItems}
+                      className="scale-75"
+                    />
+                    <span className="text-[10px] text-slate-500 whitespace-nowrap">Nonaktif</span>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between px-1">
+                  <p className="text-[10px] text-slate-600">
+                    <span className="text-emerald-500/60">Scan</span> = otomatis, <span className="text-sky-500/60">Ketik</span> = Enter utk proses, <span className="text-amber-500/60">Koma</span> = pisah multi item
+                  </p>
+                  {smartInputScanDetectedRef.current && (
+                    <motion.span
+                      initial={{ opacity: 0, scale: 0.8 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className="text-[9px] text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded-full font-medium flex items-center gap-1"
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                      Scan terdeteksi...
+                    </motion.span>
+                  )}
+                </div>
               </div>
 
+              {/* ── Item Count + Tab Pills ── */}
+              {poCreateItems.length > 1 && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded-full font-medium shrink-0">
+                    {poCreateItems.length} item
+                  </span>
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {poCreateItems.map((item, idx) => (
+                      <button
+                        key={idx}
+                        className="text-[10px] px-2 py-0.5 rounded-full border truncate max-w-[120px] transition-colors"
+                        onClick={() => {
+                          const el = document.getElementById(`po-item-${idx}`)
+                          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                        }}
+                        title={item.inventoryItemName || 'Belum dipilih'}
+                      >
+                        {item.inventoryItemId ? (
+                          <span className="text-emerald-400/80 border-emerald-500/15 bg-emerald-500/[0.06]">{item.inventoryItemName}</span>
+                        ) : (
+                          <span className="text-slate-600 border-white/[0.06] bg-white/[0.02]">—</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ── Item Rows ── */}
               <div className="space-y-2">
                 {poCreateItems.map((item, idx) => (
-                  <div key={idx} className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.04] space-y-2.5">
+                  <div
+                    key={idx}
+                    id={`po-item-${idx}`}
+                    className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.04] space-y-2.5"
+                  >
                     {/* Item picker / selected display */}
                     <div className="relative" ref={(el) => { invItemSearchRefs.current[idx] = el }}>
                       {item.inventoryItemId ? (
                         <div className="flex items-center gap-2 bg-emerald-500/[0.06] rounded-lg px-2.5 h-9 border border-emerald-500/10">
                           <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-                          <span className="text-xs text-emerald-300 truncate flex-1 font-medium">{item.inventoryItemName}</span>
+                          <div className="flex-1 min-w-0 flex items-center gap-1.5">
+                            <span className="text-xs text-emerald-300 truncate font-medium">{item.inventoryItemName}</span>
+                            {item.inventoryItemSku && (
+                              <span className="text-[10px] text-emerald-400/50 bg-emerald-500/10 px-1 py-0.5 rounded font-mono shrink-0">{item.inventoryItemSku}</span>
+                            )}
+                          </div>
                           {poCreateItems.length > 1 && (
                             <button
                               className="w-5 h-5 rounded bg-red-500/10 flex items-center justify-center text-red-400 hover:text-red-300 hover:bg-red-500/20 transition-colors mr-0.5"
@@ -2224,6 +2517,7 @@ export default function PurchasePage() {
                             onClick={() => {
                               handleUpdatePoItem(idx, 'inventoryItemId', '')
                               handleUpdatePoItem(idx, 'inventoryItemName', '')
+                              handleUpdatePoItem(idx, 'inventoryItemSku', null)
                               handleUpdatePoItem(idx, 'baseUnit', '')
                             }}
                             title="Ganti item"
@@ -2249,15 +2543,24 @@ export default function PurchasePage() {
                           {activeItemSearchIdx === idx && showItemPicker && (
                             <div className="absolute top-full left-0 right-0 mt-1 bg-nebula border border-white/[0.06] rounded-lg shadow-xl z-50">
                               {/* Filter search */}
-                              <div className="p-2 border-b border-white/[0.06]">
+                              <div className="p-2 border-b border-white/[0.06] space-y-2">
                                 <div className="relative">
                                   <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-500" />
                                   <input
                                     autoFocus
                                     value={itemPickerFilter}
                                     onChange={(e) => { setItemPickerFilter(e.target.value); setShowQuickAddItem(false) }}
-                                    placeholder="Ketik nama item untuk filter..."
+                                    placeholder="Ketik nama / SKU untuk filter..."
                                     className="w-full bg-white/[0.04] border-white/[0.04] text-white text-xs h-8 rounded-md pl-8 pr-2 outline-none placeholder:text-slate-500"
+                                  />
+                                </div>
+                                {/* Tampilkan Nonaktif toggle inside picker */}
+                                <div className="flex items-center justify-between px-0.5">
+                                  <span className="text-[10px] text-slate-500">Tampilkan Nonaktif</span>
+                                  <Switch
+                                    checked={showInactiveItems}
+                                    onCheckedChange={setShowInactiveItems}
+                                    className="scale-[0.65]"
                                   />
                                 </div>
                               </div>
@@ -2294,12 +2597,20 @@ export default function PurchasePage() {
                                   {filteredItemOptions.map((r) => (
                                     <button
                                       key={r.id}
-                                      className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-white/[0.04] transition-colors"
+                                      className={cn(
+                                        'w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-white/[0.04] transition-colors',
+                                        !r.active && 'opacity-50'
+                                      )}
                                       onClick={() => handleSelectInvItem(idx, r)}
                                     >
                                       <Package className="h-3.5 w-3.5 text-slate-500 shrink-0" />
                                       <div className="flex-1 min-w-0">
-                                        <p className="text-xs text-slate-200 truncate">{r.name}</p>
+                                        <div className="flex items-center gap-1.5">
+                                          <p className="text-xs text-slate-200 truncate">{r.name}</p>
+                                          {r.sku && (
+                                            <span className="text-[10px] text-slate-500 font-mono shrink-0">{r.sku}</span>
+                                          )}
+                                        </div>
                                         <p className="text-[10px] text-slate-500">Stok: {formatNumber(r.stock)} {r.baseUnit}</p>
                                       </div>
                                     </button>
@@ -2323,12 +2634,22 @@ export default function PurchasePage() {
                                       <PackageOpen className="h-3.5 w-3.5 text-emerald-400" />
                                       <span className="text-[11px] text-slate-300 font-medium">Buat Item Baru</span>
                                     </div>
-                                    <button
-                                      className="w-5 h-5 rounded hover:bg-white/[0.08] flex items-center justify-center text-slate-400 hover:text-white"
-                                      onClick={() => setShowQuickAddItem(false)}
-                                    >
-                                      <X className="h-3 w-3" />
-                                    </button>
+                                    <div className="flex items-center gap-2">
+                                      <div className="flex items-center gap-1.5">
+                                        <Switch
+                                          checked={quickSkuEnabled}
+                                          onCheckedChange={(v) => { setQuickSkuEnabled(v); if (!v) setQuickItemSku('') }}
+                                          className="scale-[0.65]"
+                                        />
+                                        <span className="text-[10px] text-slate-500">SKU</span>
+                                      </div>
+                                      <button
+                                        className="w-5 h-5 rounded hover:bg-white/[0.08] flex items-center justify-center text-slate-400 hover:text-white"
+                                        onClick={() => setShowQuickAddItem(false)}
+                                      >
+                                        <X className="h-3 w-3" />
+                                      </button>
+                                    </div>
                                   </div>
                                   <p className="text-[10px] text-slate-500">Item akan otomatis masuk ke inventory toko</p>
                                   <div className="grid grid-cols-[1fr_auto] gap-2">
@@ -2352,6 +2673,26 @@ export default function PurchasePage() {
                                       ))}
                                     </select>
                                   </div>
+                                  {/* SKU field with toggle */}
+                                  <AnimatePresence>
+                                    {quickSkuEnabled && (
+                                      <motion.div
+                                        initial={{ height: 0, opacity: 0 }}
+                                        animate={{ height: 'auto', opacity: 1 }}
+                                        exit={{ height: 0, opacity: 0 }}
+                                        transition={{ duration: 0.15 }}
+                                        className="overflow-hidden"
+                                      >
+                                        <input
+                                          value={quickItemSku}
+                                          onChange={(e) => setQuickItemSku(e.target.value)}
+                                          onKeyDown={(e) => { if (e.key === 'Enter') handleQuickAddItem(idx) }}
+                                          placeholder="SKU — cth: SKU-001"
+                                          className="w-full bg-white/[0.04] border-white/[0.04] text-white text-xs h-8 rounded-md px-2.5 outline-none placeholder:text-slate-500 font-mono"
+                                        />
+                                      </motion.div>
+                                    )}
+                                  </AnimatePresence>
                                   <button
                                     className="w-full h-8 rounded-md bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
                                     onClick={() => handleQuickAddItem(idx)}
@@ -2555,6 +2896,9 @@ export default function PurchasePage() {
                         <div className="flex items-center gap-2 bg-emerald-500/[0.06] rounded-lg px-2.5 h-9 border border-emerald-500/10">
                           <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
                           <span className="text-xs text-emerald-300 truncate flex-1 font-medium">{item.inventoryItemName}</span>
+                          {item.inventoryItemSku && (
+                            <span className="text-[9px] font-mono text-emerald-400/60 bg-emerald-500/10 px-1.5 py-0.5 rounded shrink-0">{item.inventoryItemSku}</span>
+                          )}
                           {poEditItems.length > 1 && (
                             <button
                               className="w-5 h-5 rounded bg-red-500/10 flex items-center justify-center text-red-400 hover:text-red-300 hover:bg-red-500/20 transition-colors mr-0.5"
@@ -2569,6 +2913,7 @@ export default function PurchasePage() {
                             onClick={() => {
                               handleUpdatePoEditItem(idx, 'inventoryItemId', '')
                               handleUpdatePoEditItem(idx, 'inventoryItemName', '')
+                              handleUpdatePoEditItem(idx, 'inventoryItemSku', 'null')
                               handleUpdatePoEditItem(idx, 'baseUnit', '')
                             }}
                             title="Ganti item"
@@ -2619,7 +2964,7 @@ export default function PurchasePage() {
                                   {filteredItemOptions.map((r) => (
                                     <button
                                       key={r.id}
-                                      className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-white/[0.04] transition-colors"
+                                      className={cn("w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-white/[0.04] transition-colors", !r.active && "opacity-50")}
                                       onClick={() => handleSelectInvItemForEdit(idx, r)}
                                     >
                                       <Package className="h-3.5 w-3.5 text-slate-500 shrink-0" />
@@ -2627,6 +2972,9 @@ export default function PurchasePage() {
                                         <p className="text-xs text-slate-200 truncate">{r.name}</p>
                                         <p className="text-[10px] text-slate-500">Stok: {formatNumber(r.stock)} {r.baseUnit}</p>
                                       </div>
+                                      {r.sku && (
+                                        <span className="text-[9px] font-mono text-slate-500 bg-white/[0.04] px-1.5 py-0.5 rounded shrink-0">{r.sku}</span>
+                                      )}
                                     </button>
                                   ))}
                                 </div>
