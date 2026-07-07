@@ -993,7 +993,7 @@ export default function PurchasePage() {
   }, [smartInput, poItemOptions])
 
   // Smart input: Enter key — parse comma-separated names and create item rows
-  const handleSmartInputSubmit = () => {
+  const handleSmartInputSubmit = async () => {
     const text = smartInput.trim()
     if (!text) return
 
@@ -1005,7 +1005,7 @@ export default function PurchasePage() {
     const names = text.split(/[,;\n]+/).map(s => s.trim()).filter(Boolean)
     if (names.length === 0) return
 
-    // Check if it's a single item (might be SKU or name)
+    // ── Single item mode ──
     if (names.length === 1) {
       const query = names[0].toLowerCase()
       // Try exact SKU match first
@@ -1048,60 +1048,111 @@ export default function PurchasePage() {
         return
       }
 
-      // Single item not found — create empty row with the name as placeholder
-      const emptyIdx = poCreateItems.findIndex(i => !i.inventoryItemId)
-      if (emptyIdx >= 0) {
-        handleUpdatePoItem(emptyIdx, 'inventoryItemName', names[0])
-      } else {
-        setPoCreateItems(prev => [...prev, { inventoryItemId: '', inventoryItemName: names[0], inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0' }])
-      }
+      // Single item not found — auto-create as new inventory item
       setSmartInput('')
-      toast.info('Item tidak ditemukan — pilih manual dari daftar')
+      try {
+        const res = await fetch('/api/inventory/items', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: names[0], baseUnit: 'kg', stock: 0, avgCost: 0 }),
+        })
+        if (res.ok) {
+          const data = await res.json()
+          const newItem: InventoryItemOption = { id: data.id, name: data.name, sku: data.sku || null, baseUnit: data.baseUnit, stock: 0, active: true }
+          setPoItemOptions(prev => [newItem, ...prev])
+          const emptyIdx = poCreateItems.findIndex(i => !i.inventoryItemId)
+          if (emptyIdx >= 0) {
+            handleSelectInvItem(emptyIdx, newItem)
+          } else {
+            setPoCreateItems(prev => [...prev, { inventoryItemId: newItem.id, inventoryItemName: newItem.name, inventoryItemSku: newItem.sku, baseUnit: newItem.baseUnit, qty: '1', unit: '', baseQty: '0', pricePerItem: '0' }])
+          }
+          toast.success(`"${names[0]}" dibuat otomatis & ditambahkan`)
+        } else {
+          const err = await res.json()
+          toast.error(err.error || `Gagal membuat item "${names[0]}"`)
+        }
+      } catch {
+        toast.error(`Gagal membuat item "${names[0]}"`)
+      }
       return
     }
 
-    // Batch: create rows for each name, auto-matching existing items
-    const newItems: PurchaseOrderItem[] = names.map(name => {
+    // ── Batch mode: auto-match existing, auto-create new ──
+    setSmartInput('')
+
+    const matchedItems: PurchaseOrderItem[] = []
+    const unmatchedNames: string[] = []
+
+    for (const name of names) {
       const query = name.toLowerCase()
-      const matched = poItemOptions.find(i =>
-        i.sku && i.sku.toLowerCase() === query
-      ) || poItemOptions.find(i =>
-        i.name.toLowerCase() === query
-      )
-      return matched
-        ? { inventoryItemId: matched.id, inventoryItemName: matched.name, inventoryItemSku: matched.sku, baseUnit: matched.baseUnit, qty: '1', unit: '', baseQty: '0', pricePerItem: '0' }
-        : { inventoryItemId: '', inventoryItemName: name, inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0' }
-    })
+      // Skip if already added (duplicate in same batch)
+      if (matchedItems.some(i => i.inventoryItemName.toLowerCase() === query) || unmatchedNames.some(n => n.toLowerCase() === query)) continue
 
-    const matchedCount = newItems.filter(i => i.inventoryItemId).length
-    const unmatchedCount = newItems.filter(i => !i.inventoryItemId).length
+      const matched = poItemOptions.find(i => i.sku && i.sku.toLowerCase() === query)
+        || poItemOptions.find(i => i.name.toLowerCase() === query)
+      if (matched) {
+        matchedItems.push({ inventoryItemId: matched.id, inventoryItemName: matched.name, inventoryItemSku: matched.sku, baseUnit: matched.baseUnit, qty: '1', unit: '', baseQty: '0', pricePerItem: '0' })
+      } else {
+        unmatchedNames.push(name)
+      }
+    }
 
-    // Replace empty items or append
-    const existingFilled = poCreateItems.filter(i => i.inventoryItemId)
+    // Auto-create unmatched items
+    const createdItems: PurchaseOrderItem[] = []
+    if (unmatchedNames.length > 0) {
+      toast.loading(`Membuat ${unmatchedNames.length} item baru...`, { id: 'batch-create' })
+      for (const name of unmatchedNames) {
+        try {
+          const res = await fetch('/api/inventory/items', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, baseUnit: 'kg', stock: 0, avgCost: 0 }),
+          })
+          if (res.ok) {
+            const data = await res.json()
+            const opt: InventoryItemOption = { id: data.id, name: data.name, sku: data.sku || null, baseUnit: data.baseUnit, stock: 0, active: true }
+            setPoItemOptions(prev => [opt, ...prev])
+            createdItems.push({ inventoryItemId: opt.id, inventoryItemName: opt.name, inventoryItemSku: opt.sku, baseUnit: opt.baseUnit, qty: '1', unit: '', baseQty: '0', pricePerItem: '0' })
+          } else {
+            const err = await res.json()
+            toast.error(err.error || `Gagal membuat "${name}"`)
+          }
+        } catch {
+          toast.error(`Gagal membuat "${name}"`)
+        }
+      }
+    }
+
+    // Merge all items
+    const allItems = [...matchedItems, ...createdItems]
+
+    // Fill empty slots or append
     const emptySlots = poCreateItems.filter(i => !i.inventoryItemId).length
-
-    if (emptySlots >= newItems.length) {
+    if (emptySlots >= allItems.length) {
       let slotIdx = 0
       setPoCreateItems(prev => prev.map(item => {
-        if (!item.inventoryItemId && slotIdx < newItems.length) {
-          const newItem = newItems[slotIdx]
+        if (!item.inventoryItemId && slotIdx < allItems.length) {
+          const newItem = allItems[slotIdx]
           slotIdx++
           return newItem
         }
         return item
       }))
     } else {
-      setPoCreateItems(prev => [...prev.filter(i => i.inventoryItemId), ...newItems])
+      setPoCreateItems(prev => [...prev.filter(i => i.inventoryItemId), ...allItems])
     }
 
-    setSmartInput('')
-
-    if (matchedCount > 0 && unmatchedCount === 0) {
-      toast.success(`${matchedCount} item cocok dan ditambahkan`)
-    } else if (matchedCount > 0 && unmatchedCount > 0) {
-      toast.info(`${matchedCount} cocok, ${unmatchedCount} belum ada — pilih manual`)
+    // Toast summary
+    toast.dismiss('batch-create')
+    const total = allItems.length
+    const existing = matchedItems.length
+    const created = createdItems.length
+    if (created === 0) {
+      toast.success(`${existing} item cocok dan ditambahkan`)
+    } else if (existing > 0) {
+      toast.success(`${existing} cocok, ${created} item baru dibuat otomatis — total ${total} item`)
     } else {
-      toast.info(`${unmatchedCount} item baru — pilih dari daftar atau buat baru`)
+      toast.success(`${created} item baru dibuat otomatis dan ditambahkan`)
     }
   }
 
@@ -2436,7 +2487,7 @@ export default function PurchasePage() {
                       onCheckedChange={setShowInactiveItems}
                       className="scale-75"
                     />
-                    <span className="text-[10px] text-slate-500 whitespace-nowrap">Nonaktif</span>
+                    <span className="text-[10px] text-slate-500 whitespace-nowrap">Tampilkan nonaktif</span>
                   </div>
                 </div>
                 <div className="flex items-center justify-between px-1">
@@ -2641,7 +2692,7 @@ export default function PurchasePage() {
                                           onCheckedChange={(v) => { setQuickSkuEnabled(v); if (!v) setQuickItemSku('') }}
                                           className="scale-[0.65]"
                                         />
-                                        <span className="text-[10px] text-slate-500">SKU</span>
+                                        <span className="text-[10px] text-slate-500">Isi SKU</span>
                                       </div>
                                       <button
                                         className="w-5 h-5 rounded hover:bg-white/[0.08] flex items-center justify-center text-slate-400 hover:text-white"
