@@ -315,7 +315,6 @@ export default function PurchasePage() {
   const [quickItemSku, setQuickItemSku] = useState('')
   const [quickItemUnit, setQuickItemUnit] = useState('kg')
   const [quickItemCreating, setQuickItemCreating] = useState(false)
-  const [quickSkuEnabled, setQuickSkuEnabled] = useState(false)
 
   // Smart input (batch add by comma-separated names)
   const [smartInput, setSmartInput] = useState('')
@@ -835,7 +834,6 @@ export default function PurchasePage() {
     setItemPickerFilter('')
     setShowQuickAddItem(false)
     setSmartInput('')
-    setQuickSkuEnabled(false)
     smartInputScanDetectedRef.current = false
     smartInputCharCountRef.current = 0
     setScanModeActive(false)
@@ -2685,22 +2683,12 @@ export default function PurchasePage() {
                                       <PackageOpen className="h-3.5 w-3.5 text-emerald-400" />
                                       <span className="text-[11px] text-slate-300 font-medium">Buat Item Baru</span>
                                     </div>
-                                    <div className="flex items-center gap-2">
-                                      <div className="flex items-center gap-1.5">
-                                        <Switch
-                                          checked={quickSkuEnabled}
-                                          onCheckedChange={(v) => { setQuickSkuEnabled(v); if (!v) setQuickItemSku('') }}
-                                          className="scale-[0.65]"
-                                        />
-                                        <span className="text-[10px] text-slate-500">Isi SKU</span>
-                                      </div>
-                                      <button
-                                        className="w-5 h-5 rounded hover:bg-white/[0.08] flex items-center justify-center text-slate-400 hover:text-white"
-                                        onClick={() => setShowQuickAddItem(false)}
-                                      >
-                                        <X className="h-3 w-3" />
-                                      </button>
-                                    </div>
+                                    <button
+                                      className="w-5 h-5 rounded hover:bg-white/[0.08] flex items-center justify-center text-slate-400 hover:text-white"
+                                      onClick={() => setShowQuickAddItem(false)}
+                                    >
+                                      <X className="h-3 w-3" />
+                                    </button>
                                   </div>
                                   <p className="text-[10px] text-slate-500">Item akan otomatis masuk ke inventory toko</p>
                                   <div className="grid grid-cols-[1fr_auto] gap-2">
@@ -2724,26 +2712,14 @@ export default function PurchasePage() {
                                       ))}
                                     </select>
                                   </div>
-                                  {/* SKU field with toggle */}
-                                  <AnimatePresence>
-                                    {quickSkuEnabled && (
-                                      <motion.div
-                                        initial={{ height: 0, opacity: 0 }}
-                                        animate={{ height: 'auto', opacity: 1 }}
-                                        exit={{ height: 0, opacity: 0 }}
-                                        transition={{ duration: 0.15 }}
-                                        className="overflow-hidden"
-                                      >
-                                        <input
-                                          value={quickItemSku}
-                                          onChange={(e) => setQuickItemSku(e.target.value)}
-                                          onKeyDown={(e) => { if (e.key === 'Enter') handleQuickAddItem(idx) }}
-                                          placeholder="SKU — cth: SKU-001"
-                                          className="w-full bg-white/[0.04] border-white/[0.04] text-white text-xs h-8 rounded-md px-2.5 outline-none placeholder:text-slate-500 font-mono"
-                                        />
-                                      </motion.div>
-                                    )}
-                                  </AnimatePresence>
+                                  {/* SKU field — selalu tampil, opsional */}
+                                  <input
+                                    value={quickItemSku}
+                                    onChange={(e) => setQuickItemSku(e.target.value)}
+                                    onKeyDown={(e) => { if (e.key === 'Enter') handleQuickAddItem(idx) }}
+                                    placeholder="SKU (opsional) — cth: SKU-001"
+                                    className="w-full bg-white/[0.04] border-white/[0.04] text-white text-xs h-8 rounded-md px-2.5 outline-none placeholder:text-slate-500 font-mono"
+                                  />
                                   <button
                                     className="w-full h-8 rounded-md bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
                                     onClick={() => handleQuickAddItem(idx)}
