@@ -200,7 +200,9 @@ model TransactionItem {
   productId      String?
   variantId      String?
   productName    String
+  productSku     String?                          // Snapshot: product SKU at time of sale
   variantName    String?
+  variantSku     String?                          // Snapshot: variant SKU at time of sale
   price          Float
   qty            Int
   subtotal       Float
