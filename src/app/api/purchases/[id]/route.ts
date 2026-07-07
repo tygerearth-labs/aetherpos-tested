@@ -101,7 +101,7 @@ export async function GET(
       return safeJsonError('Purchase order not found', 404)
     }
 
-    // Map to plain object to avoid Prisma serialization edge cases
+    // Map everything to plain objects to avoid any Prisma serialization edge cases
     const result = {
       id: order.id,
       orderNumber: order.orderNumber,
@@ -109,8 +109,8 @@ export async function GET(
       notes: order.notes,
       createdAt: order.createdAt.toISOString(),
       updatedAt: order.updatedAt?.toISOString() ?? null,
-      supplier: order.supplier,
-      createdBy: order.createdBy,
+      supplier: order.supplier ? { ...order.supplier } : null,
+      createdBy: order.createdBy ? { ...order.createdBy } : null,
       items: order.items.map((item) => ({
         id: item.id,
         inventoryItemId: item.inventoryItemId,
@@ -121,14 +121,15 @@ export async function GET(
         baseUnit: item.baseUnit,
         unitCost: item.unitCost,
         totalCost: item.totalCost,
-        inventoryItem: item.inventoryItem,
+        inventoryItem: item.inventoryItem ? { ...item.inventoryItem } : null,
       })),
     }
 
     return safeJson(result)
   } catch (error) {
     console.error('Purchase order GET error:', error)
-    return safeJsonError('Failed to load purchase order')
+    const msg = error instanceof Error ? error.message : 'Unknown error'
+    return safeJsonError(`Failed to load purchase order: ${msg}`)
   }
 }
 
@@ -432,7 +433,31 @@ export async function PUT(
       })
     }, { timeout: 30000 })
 
-    return safeJson(result)
+    // Map Prisma result to plain object for safe serialization
+    const mapped = result ? {
+      id: result.id,
+      orderNumber: result.orderNumber,
+      totalCost: result.totalCost,
+      notes: result.notes,
+      createdAt: result.createdAt.toISOString(),
+      updatedAt: result.updatedAt?.toISOString() ?? null,
+      supplier: result.supplier ? { ...result.supplier } : null,
+      createdBy: result.createdBy ? { ...result.createdBy } : null,
+      items: (result.items || []).map((item: { id: string; inventoryItemId: string; name: string; purchaseQty: number; purchaseUnit: string; baseQty: number; baseUnit: string; unitCost: number; totalCost: number; inventoryItem?: { id: string; name: string; sku: string | null; baseUnit: string } | null }) => ({
+        id: item.id,
+        inventoryItemId: item.inventoryItemId,
+        name: item.name,
+        purchaseQty: item.purchaseQty,
+        purchaseUnit: item.purchaseUnit,
+        baseQty: item.baseQty,
+        baseUnit: item.baseUnit,
+        unitCost: item.unitCost,
+        totalCost: item.totalCost,
+        inventoryItem: item.inventoryItem ? { ...item.inventoryItem } : null,
+      })),
+    } : null
+
+    return safeJson(mapped)
   } catch (error) {
     console.error('Purchase order PUT error:', error)
     if (error instanceof Error && (error.message.includes('tidak mencukupi') || error.message.includes('stok'))) {

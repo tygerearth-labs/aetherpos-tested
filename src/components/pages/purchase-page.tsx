@@ -49,6 +49,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Pagination } from '@/components/shared/pagination'
 import { Switch } from '@/components/ui/switch'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Plus,
   Search,
@@ -1841,11 +1842,10 @@ export default function PurchasePage() {
                   <TableHeader>
                     <TableRow className="border-white/[0.06] hover:bg-transparent">
                       <TableHead className="w-10">
-                        <input
-                          type="checkbox"
-                          checked={invList.length > 0 && invList.every(i => selectedInvIds.has(i.id))}
-                          onChange={toggleSelectAllInv}
-                          className="rounded border-white/20 bg-white/[0.04] h-3.5 w-3.5 accent-emerald-500"
+                        <Checkbox
+                          checked={invList.length > 0 && invList.every(i => selectedInvIds.has(i.id)) ? true : invList.length > 0 ? 'indeterminate' : false}
+                          onCheckedChange={() => toggleSelectAllInv()}
+                          className="h-4 w-4"
                         />
                       </TableHead>
                       <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider min-w-[200px]">Nama</TableHead>
@@ -1873,11 +1873,10 @@ export default function PurchasePage() {
                         return (
                           <TableRow key={item.id} className={cn('border-white/[0.04] hover:bg-transparent', isSelected && 'bg-emerald-500/[0.04]')}>
                             <TableCell>
-                              <input
-                                type="checkbox"
+                              <Checkbox
                                 checked={isSelected}
-                                onChange={() => toggleInvSelect(item.id)}
-                                className="rounded border-white/20 bg-white/[0.04] h-3.5 w-3.5 accent-emerald-500"
+                                onCheckedChange={() => toggleInvSelect(item.id)}
+                                className="h-4 w-4"
                               />
                             </TableCell>
                             <TableCell className="text-xs text-slate-200 font-medium">{item.name}</TableCell>
@@ -1947,11 +1946,10 @@ export default function PurchasePage() {
                           <CardContent className="p-3 space-y-2">
                             <div className="flex items-start justify-between gap-2">
                               <div className="flex items-start gap-2 min-w-0">
-                                <input
-                                  type="checkbox"
+                                <Checkbox
                                   checked={isSelected}
-                                  onChange={() => toggleInvSelect(item.id)}
-                                  className="rounded border-white/20 bg-white/[0.04] h-3.5 w-3.5 accent-emerald-500 mt-0.5 shrink-0"
+                                  onCheckedChange={() => toggleInvSelect(item.id)}
+                                  className="h-4 w-4 mt-0.5 shrink-0"
                                 />
                                 <div className="min-w-0">
                                   <p className="text-xs text-slate-200 font-medium truncate">{item.name}</p>
