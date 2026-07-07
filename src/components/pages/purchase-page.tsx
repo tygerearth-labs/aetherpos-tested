@@ -1586,6 +1586,7 @@ export default function PurchasePage() {
                               >
                                 <Eye className="h-3.5 w-3.5" />
                               </Button>
+                              {session?.user?.role === 'OWNER' && (
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -1594,6 +1595,7 @@ export default function PurchasePage() {
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
                               </Button>
+                              )}
                             </div>
                           </TableCell>
                         </TableRow>
@@ -1647,6 +1649,7 @@ export default function PurchasePage() {
                               <Eye className="h-3 w-3" />
                               Detail
                             </Button>
+                            {session?.user?.role === 'OWNER' && (
                             <Button
                               size="sm"
                               variant="ghost"
@@ -1655,6 +1658,7 @@ export default function PurchasePage() {
                             >
                               <Trash2 className="h-3 w-3" />
                             </Button>
+                            )}
                           </div>
                         </CardContent>
                       </Card>
@@ -1846,22 +1850,6 @@ export default function PurchasePage() {
                                 >
                                   <Eye className="h-3.5 w-3.5" />
                                 </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-7 px-2 text-slate-400 hover:text-white hover:bg-white/[0.04]"
-                                  onClick={() => openInvForm(item)}
-                                >
-                                  <Edit3 className="h-3.5 w-3.5" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-7 px-2 text-red-400 hover:text-red-300 hover:bg-red-500/[0.06]"
-                                  onClick={() => setDeleteInvId(item.id)}
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </Button>
                               </div>
                             </TableCell>
                           </TableRow>
@@ -1940,23 +1928,6 @@ export default function PurchasePage() {
                               >
                                 <Eye className="h-3 w-3" />
                                 Detail
-                              </Button>
-                              <Button
-                                size="sm"
-                                className="flex-1 h-7 text-[10px] gap-1 text-slate-400 hover:text-white hover:bg-white/[0.04]"
-                                onClick={() => openInvForm(item)}
-                              >
-                                <Edit3 className="h-3 w-3" />
-                                Edit
-                              </Button>
-
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-7 text-[10px] gap-1 text-red-400 hover:text-red-300 hover:bg-red-500/[0.06]"
-                                onClick={() => setDeleteInvId(item.id)}
-                              >
-                                <Trash2 className="h-3 w-3" />
                               </Button>
                             </div>
                           </CardContent>
@@ -2084,7 +2055,8 @@ export default function PurchasePage() {
                 </p>
               )}
 
-              {/* Actions */}
+              {/* Actions — Owner only */}
+              {session?.user?.role === 'OWNER' && (
               <div className="flex gap-2 pt-2 border-t border-white/[0.04]">
                 <Button
                   size="sm"
@@ -2105,6 +2077,7 @@ export default function PurchasePage() {
                   Hapus
                 </Button>
               </div>
+              )}
             </div>
           ) : null}
         </ResponsiveDialogContent>

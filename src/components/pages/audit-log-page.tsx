@@ -101,10 +101,16 @@ function matchTransfer(log: AuditLog): boolean {
 }
 
 function matchPembelian(log: AuditLog): boolean {
-  return (
-    log.action === 'PURCHASE' &&
-    ['INVENTORY_ITEM', 'PURCHASE_ORDER'].includes(log.entityType)
-  )
+  if (log.entityType !== 'INVENTORY_ITEM' && log.entityType !== 'PURCHASE_ORDER') return false
+  if (log.action === 'PURCHASE') return true
+  // Purchase edit/delete creates UPDATE/DELETE with purchaseOrderNumber in details
+  if (log.action === 'UPDATE' || log.action === 'DELETE') {
+    try {
+      const d = JSON.parse(log.details || '{}')
+      return !!d.purchaseOrderNumber
+    } catch { return false }
+  }
+  return false
 }
 
 function matchInventory(log: AuditLog): boolean {
@@ -356,6 +362,14 @@ const DETAIL_LABELS: Record<string, string> = {
   batchOperation: 'Operasi Batch',
   changes: 'Perubahan',
   quantitySold: 'Jumlah Terjual',
+  // Purchase-specific
+  itemName: 'Nama Item',
+  purchaseOrderNumber: 'No. Pembelian',
+  baseQtyAdded: 'Qty Ditambah',
+  baseQtyReversed: 'Qty Dikurangi',
+  unitCost: 'Harga Satuan',
+  previousAvgCost: 'HPP Sebelum',
+  newAvgCost: 'HPP Baru',
   // Multi-outlet / Transfer
   action: 'Aksi',
   transferNumber: 'No. Transfer',
@@ -390,10 +404,10 @@ function parseDetails(details: string | null): Record<string, unknown> | string 
 function formatDetailValue(key: string, value: unknown): string {
   if (value === null || value === undefined) return '-'
   if (typeof value === 'number') {
-    if (['price', 'total', 'hpp', 'discount', 'subtotal', 'paidAmount', 'change', 'taxAmount'].includes(key)) {
+    if (['price', 'total', 'hpp', 'discount', 'subtotal', 'paidAmount', 'change', 'taxAmount', 'unitCost', 'previousAvgCost', 'newAvgCost'].includes(key)) {
       return formatCurrency(value)
     }
-    if (['stock', 'previousStock', 'newStock', 'initialStock', 'quantityAdded', 'quantityDecreased', 'qty', 'quantitySold'].includes(key)) {
+    if (['stock', 'previousStock', 'newStock', 'initialStock', 'quantityAdded', 'quantityDecreased', 'qty', 'quantitySold', 'baseQtyAdded', 'baseQtyReversed'].includes(key)) {
       return `${value} unit`
     }
     if (key === 'points') {
@@ -471,7 +485,7 @@ function DetailsDisplay({ action, details }: { action: string; details: string |
     SALE: ['invoiceNumber', 'productName', 'productSku', 'variantName', 'variantSku', 'quantitySold', 'previousStock', 'newStock'],
     RESTOCK: ['productName', 'productSku', 'action', 'transferNumber', 'fromOutlet', 'toOutlet', 'itemCount', 'createdProducts', 'restockedProducts', 'reason', 'quantityAdded', 'newStock'],
     VOID: ['invoiceNumber', 'total', 'reason', 'voidedBy', 'itemsRestored'],
-    PURCHASE: ['productName', 'productSku', 'quantityAdded', 'newStock', 'hpp', 'reason', 'total', 'totalValue'],
+    PURCHASE: ['itemName', 'purchaseOrderNumber', 'baseQtyAdded', 'unitCost', 'newStock', 'previousStock', 'newAvgCost', 'previousAvgCost'],
     COMPOSITION_DEDUCT: ['productName', 'productSku', 'quantityDecreased', 'newStock', 'reason'],
     ADJUSTMENT: ['productName', 'productSku', 'action', 'transferNumber', 'fromOutlet', 'toOutlet', 'itemCount', 'totalQty', 'totalValue', 'previousStock', 'newStock', 'reason', 'items'],
     TRANSFER: ['productName', 'productSku', 'action', 'transferNumber', 'fromOutlet', 'toOutlet', 'itemCount', 'items'],
