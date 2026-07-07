@@ -191,6 +191,32 @@ export default function PosPage() {
   const [syncing, setSyncing] = useState(false)
   const [dataSyncing, setDataSyncing] = useState(false)
   const [lastSyncTimes, setLastSyncTimes] = useState<{ products: number | null; categories: number | null; customers: number | null; promos: number | null }>({ products: null, categories: null, customers: null, promos: null })
+  const [syncAgeSec, setSyncAgeSec] = useState(0) // ticks every 30s to recompute stale display
+
+  // Relative time formatter
+  const timeAgo = useCallback((ts: number | null): string | null => {
+    if (!ts) return null
+    const sec = Math.floor((Date.now() - ts) / 1000)
+    if (sec < 60) return 'baru'
+    const min = Math.floor(sec / 60)
+    if (min < 60) return `${min}m`
+    const hrs = Math.floor(min / 60)
+    if (hrs < 24) return `${hrs}j`
+    const days = Math.floor(hrs / 24)
+    return `${days}h`
+  }, [])
+
+  // Whether product sync is considered stale (> 10 min)
+  const isSyncStale = useMemo(() => {
+    if (!lastSyncTimes.products || dataSyncing) return false
+    return (Date.now() - lastSyncTimes.products) > 10 * 60 * 1000
+  }, [lastSyncTimes.products, dataSyncing, syncAgeSec])
+
+  // Tick every 30s to recompute stale state
+  useEffect(() => {
+    const iv = setInterval(() => setSyncAgeSec(s => s + 1), 30_000)
+    return () => clearInterval(iv)
+  }, [])
 
   // Products & Categories
   const [products, setProducts] = useState<Product[]>([])
@@ -617,6 +643,7 @@ export default function PosPage() {
           loadCustomersFromCache()
           const times = await getAllSyncTimes()
           setLastSyncTimes(times)
+          setSyncAgeSec(0)
           setDataSyncing(false)
         } catch {
           setDataSyncing(false)
@@ -642,6 +669,7 @@ export default function PosPage() {
           loadCustomersFromCache()
           const times = await getAllSyncTimes()
           setLastSyncTimes(times)
+          setSyncAgeSec(0)
           if (result.products.count > 0 || result.customers.count > 0) {
             toast.success(`Data synced: ${result.products.count} produk, ${result.categories.count} kategori, ${result.customers.count} customer`)
           }
@@ -2067,6 +2095,17 @@ export default function PosPage() {
               {unsyncedCount}
             </button>
           )}
+          {/* Sync timestamp badge — mobile */}
+          {lastSyncTimes.products && !dataSyncing && (
+            <div className={`flex items-center gap-1 px-2 py-1.5 rounded-xl text-[10px] font-medium border shrink-0 transition-colors ${
+              isSyncStale
+                ? 'bg-amber-500/10 border-amber-500/30 text-amber-400 animate-pulse-slow'
+                : 'aether-card text-slate-500'
+            }`}>
+              <Database className="h-2.5 w-2.5" strokeWidth={1.5} />
+              {timeAgo(lastSyncTimes.products)}
+            </div>
+          )}
         </div>
         <button onClick={async () => {
           if (dataSyncing || !isOnline) return
@@ -2078,11 +2117,17 @@ export default function PosPage() {
             loadCustomersFromCache()
             const times = await getAllSyncTimes()
             setLastSyncTimes(times)
+            setSyncAgeSec(0)
             toast.success(`Data direfresh: ${result.products.count} produk, ${result.customers.count} customer`)
           } catch { toast.error('Gagal refresh data') }
           finally { setDataSyncing(false) }
         }} disabled={dataSyncing || !isOnline}
-          className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl aether-card text-slate-500 text-[10px] font-medium shrink-0 disabled:opacity-50">
+          className={cn(
+            'flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-[10px] font-medium shrink-0 transition-all disabled:opacity-50',
+            isSyncStale && !dataSyncing
+              ? 'bg-amber-500/15 border border-amber-500/40 text-amber-300 active:scale-95 shadow-[0_0_6px_rgba(245,158,11,0.15)]'
+              : 'aether-card text-slate-500'
+          )}>
           {dataSyncing ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowDownToLine className="h-3 w-3" strokeWidth={1.5} />}
         </button>
       </div>
@@ -2155,13 +2200,17 @@ export default function PosPage() {
             {isOnline ? <><Wifi className="h-3 w-3" strokeWidth={1.5} /><span>Online</span></> : <><WifiOff className="h-3 w-3" strokeWidth={1.5} /><span>Offline</span></>}
           </div>
 
-          {/* Data sync */}
+          {/* Data sync badge — shows timestamp, pulses when stale */}
           {lastSyncTimes.products ? (
-            <div className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium border ${
-              dataSyncing ? 'bg-blue-500/10 border-blue-500/20 text-blue-400' : 'bg-white/[0.04] border-white/[0.08] text-slate-500'
+            <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors ${
+              dataSyncing
+                ? 'bg-blue-500/10 border-blue-500/20 text-blue-400'
+                : isSyncStale
+                  ? 'bg-amber-500/10 border-amber-500/30 text-amber-400 animate-pulse-slow'
+                  : 'bg-white/[0.04] border-white/[0.08] text-slate-500'
             }`}>
               {dataSyncing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Database className="h-3 w-3" strokeWidth={1.5} />}
-              <span>{dataSyncing ? 'Syncing...' : 'Cached'}</span>
+              <span>{dataSyncing ? 'Syncing...' : timeAgo(lastSyncTimes.products)}</span>
             </div>
           ) : (
             <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[11px] font-medium">
@@ -2177,7 +2226,7 @@ export default function PosPage() {
             </button>
           )}
 
-          {/* Buttons */}
+          {/* Sync / Refresh button — glows when stale */}
           <Button onClick={async () => {
             if (dataSyncing || !isOnline) return
             setDataSyncing(true)
@@ -2188,13 +2237,20 @@ export default function PosPage() {
               loadCustomersFromCache()
               const times = await getAllSyncTimes()
               setLastSyncTimes(times)
+              setSyncAgeSec(0) // reset stale tick
               toast.success(`Data direfresh: ${result.products.count} produk, ${result.customers.count} customer`)
             } catch { toast.error('Gagal refresh data') }
             finally { setDataSyncing(false) }
           }} disabled={dataSyncing || !isOnline} variant="outline" size="sm"
-            className="bg-white/[0.04] border-white/[0.08] text-slate-400 hover:bg-white/[0.06] hover:text-slate-200 disabled:opacity-50 h-7 text-xs gap-1.5">
+            className={cn(
+              'h-7 text-xs gap-1.5 transition-all',
+              isSyncStale && !dataSyncing
+                ? 'bg-amber-500/15 border-amber-500/40 text-amber-300 hover:bg-amber-500/25 hover:text-amber-200 shadow-[0_0_8px_rgba(245,158,11,0.15)]'
+                : 'bg-white/[0.04] border-white/[0.08] text-slate-400 hover:bg-white/[0.06] hover:text-slate-200',
+              'disabled:opacity-50'
+            )}>
             {dataSyncing ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowDownToLine className="h-3 w-3" strokeWidth={1.5} />}
-            Refresh
+            Sync
           </Button>
 
           {unsyncedCount > 0 && (
