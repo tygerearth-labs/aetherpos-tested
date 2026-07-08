@@ -316,9 +316,13 @@ export default function PurchasePage() {
   const [showQuickAddItem, setShowQuickAddItem] = useState(false)
   const [quickItemName, setQuickItemName] = useState('')
   const [quickItemSku, setQuickItemSku] = useState('')
-  const [quickItemUnit, setQuickItemUnit] = useState('kg')
+  const [quickItemUnit, setQuickItemUnit] = useState('')
   const [quickItemCreating, setQuickItemCreating] = useState(false)
   const pendingCounterRef = useRef(0)
+  // Queue for batch smart-input: names waiting to be created via Quick Add form
+  const [quickAddQueue, setQuickAddQueue] = useState<string[]>([])
+  // Target index where the Quick Add item should be placed
+  const [quickAddTargetIdx, setQuickAddTargetIdx] = useState<number>(0)
 
   // Smart input (batch add by comma-separated names)
   const [smartInput, setSmartInput] = useState('')
@@ -896,6 +900,8 @@ export default function PurchasePage() {
     smartInputCharCountRef.current = 0
     setScanModeActive(false)
     pendingCounterRef.current = 0
+    setQuickAddQueue([])
+    setQuickAddTargetIdx(0)
   }
 
   const handleAddPoItem = () => {
@@ -942,12 +948,26 @@ export default function PurchasePage() {
       toast.error('Nama item wajib diisi')
       return
     }
+    if (!quickItemSku.trim()) {
+      toast.error('SKU wajib diisi untuk item baru')
+      return
+    }
+    if (!quickItemUnit) {
+      toast.error('Pilih satuan (base unit) untuk item baru')
+      return
+    }
+    // Check duplicate SKU
+    const duplicateSku = poItemOptions.find(i => i.sku && i.sku.toLowerCase() === quickItemSku.trim().toLowerCase())
+    if (duplicateSku) {
+      toast.error(`SKU "${quickItemSku.trim()}" sudah digunakan oleh "${duplicateSku.name}"`)
+      return
+    }
     pendingCounterRef.current++
     const tempId = `__pending_${pendingCounterRef.current}_${Date.now()}`
     const newItem: InventoryItemOption = {
       id: tempId,
       name: quickItemName.trim(),
-      sku: quickItemSku.trim() || null,
+      sku: quickItemSku.trim(),
       baseUnit: quickItemUnit,
       stock: 0,
       active: true,
@@ -955,11 +975,33 @@ export default function PurchasePage() {
     }
     setPoItemOptions(prev => [newItem, ...prev])
     handleSelectInvItem(targetIdx, newItem)
-    setShowQuickAddItem(false)
-    setQuickItemName('')
-    setQuickItemSku('')
-    setQuickItemUnit('kg')
-    toast.success('Item baru ditambahkan (pending)')
+
+    // Check if there are more items in queue (batch smart input)
+    const remaining = quickAddQueue.length > 1 ? quickAddQueue.slice(1) : []
+    if (remaining.length > 0) {
+      // Advance queue: load next name
+      setQuickAddQueue(remaining)
+      setQuickItemName(remaining[0])
+      setQuickItemSku('')
+      setQuickItemUnit('')
+      // Find next empty slot or add new row
+      const nextEmpty = poCreateItems.findIndex(i => !i.inventoryItemId)
+      if (nextEmpty >= 0) {
+        setQuickAddTargetIdx(nextEmpty)
+      } else {
+        setPoCreateItems(prev => [...prev, { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0' }])
+        setQuickAddTargetIdx(poCreateItems.length)
+      }
+      toast.success(`Item "${newItem.name}" ditambahkan — lanjut ${remaining.length} item lagi`)
+    } else {
+      // Queue empty — close form
+      setShowQuickAddItem(false)
+      setQuickItemName('')
+      setQuickItemSku('')
+      setQuickItemUnit('')
+      setQuickAddQueue([])
+      toast.success('Item baru ditambahkan (pending)')
+    }
   }
 
   // ── Smart Input: Scan detection (timing-based like POS) ──
@@ -1042,7 +1084,7 @@ export default function PurchasePage() {
   }, [smartInput, poItemOptions])
 
   // Smart input: Enter key — parse comma-separated names and create item rows
-  const handleSmartInputSubmit = async () => {
+  const handleSmartInputSubmit = () => {
     const text = smartInput.trim()
     if (!text) return
 
@@ -1097,23 +1139,24 @@ export default function PurchasePage() {
         return
       }
 
-      // Single item not found — create as pending item (not saved to DB yet)
+      // Single item not found — open Quick Add form so user must set SKU + unit
       setSmartInput('')
-      pendingCounterRef.current++
-      const tempId = `__pending_${pendingCounterRef.current}_${Date.now()}`
-      const newItem: InventoryItemOption = { id: tempId, name: names[0], sku: null, baseUnit: 'kg', stock: 0, active: true, _isNew: true }
-      setPoItemOptions(prev => [newItem, ...prev])
       const emptyIdx = poCreateItems.findIndex(i => !i.inventoryItemId)
-      if (emptyIdx >= 0) {
-        handleSelectInvItem(emptyIdx, newItem)
-      } else {
-        setPoCreateItems(prev => [...prev, { inventoryItemId: newItem.id, inventoryItemName: newItem.name, inventoryItemSku: newItem.sku, baseUnit: newItem.baseUnit, qty: '1', unit: '', baseQty: '0', pricePerItem: '0' }])
+      const targetIdx = emptyIdx >= 0 ? emptyIdx : poCreateItems.length
+      if (emptyIdx < 0) {
+        setPoCreateItems(prev => [...prev, { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0' }])
       }
-      toast.success(`"${names[0]}" ditambahkan (item baru, pending)`)
+      setQuickAddTargetIdx(targetIdx)
+      setQuickAddQueue([names[0]])
+      setQuickItemName(names[0])
+      setQuickItemSku('')
+      setQuickItemUnit('')
+      setShowQuickAddItem(true)
+      toast.info(`Item "${names[0]}" belum ada — isi SKU & satuan`)
       return
     }
 
-    // ── Batch mode: auto-match existing, auto-create new ──
+    // ── Batch mode: auto-match existing, queue unmatched for Quick Add ──
     setSmartInput('')
 
     const matchedItems: PurchaseOrderItem[] = []
@@ -1133,47 +1176,44 @@ export default function PurchasePage() {
       }
     }
 
-    // Create pending items for unmatched (not saved to DB yet)
-    const createdItems: PurchaseOrderItem[] = []
-    if (unmatchedNames.length > 0) {
-      for (const name of unmatchedNames) {
-        pendingCounterRef.current++
-        const tempId = `__pending_${pendingCounterRef.current}_${Date.now()}`
-        const opt: InventoryItemOption = { id: tempId, name, sku: null, baseUnit: 'kg', stock: 0, active: true, _isNew: true }
-        setPoItemOptions(prev => [opt, ...prev])
-        createdItems.push({ inventoryItemId: opt.id, inventoryItemName: opt.name, inventoryItemSku: opt.sku, baseUnit: opt.baseUnit, qty: '1', unit: '', baseQty: '0', pricePerItem: '0' })
+    // Add matched items immediately (they already have SKU & unit)
+    if (matchedItems.length > 0) {
+      const emptySlots = poCreateItems.filter(i => !i.inventoryItemId).length
+      if (emptySlots >= matchedItems.length) {
+        let slotIdx = 0
+        setPoCreateItems(prev => prev.map(item => {
+          if (!item.inventoryItemId && slotIdx < matchedItems.length) {
+            const newItem = matchedItems[slotIdx]
+            slotIdx++
+            return newItem
+          }
+          return item
+        }))
+      } else {
+        setPoCreateItems(prev => [...prev.filter(i => i.inventoryItemId), ...matchedItems])
       }
     }
 
-    // Merge all items
-    const allItems = [...matchedItems, ...createdItems]
-
-    // Fill empty slots or append
-    const emptySlots = poCreateItems.filter(i => !i.inventoryItemId).length
-    if (emptySlots >= allItems.length) {
-      let slotIdx = 0
-      setPoCreateItems(prev => prev.map(item => {
-        if (!item.inventoryItemId && slotIdx < allItems.length) {
-          const newItem = allItems[slotIdx]
-          slotIdx++
-          return newItem
-        }
-        return item
-      }))
+    // Unmatched items → open Quick Add form with queue
+    if (unmatchedNames.length > 0) {
+      const targetIdx = poCreateItems.findIndex(i => !i.inventoryItemId)
+      const actualTarget = targetIdx >= 0 ? targetIdx : poCreateItems.length
+      if (targetIdx < 0) {
+        setPoCreateItems(prev => [...prev, { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0' }])
+      }
+      setQuickAddTargetIdx(actualTarget)
+      setQuickAddQueue(unmatchedNames)
+      setQuickItemName(unmatchedNames[0])
+      setQuickItemSku('')
+      setQuickItemUnit('')
+      setShowQuickAddItem(true)
+      if (matchedItems.length > 0) {
+        toast.info(`${matchedItems.length} item cocok ditambahkan — isi SKU & satuan untuk ${unmatchedNames.length} item baru`)
+      } else {
+        toast.info(`${unmatchedNames.length} item baru — isi SKU & satuan satu per satu`)
+      }
     } else {
-      setPoCreateItems(prev => [...prev.filter(i => i.inventoryItemId), ...allItems])
-    }
-
-    // Toast summary
-    const total = allItems.length
-    const existing = matchedItems.length
-    const created = createdItems.length
-    if (created === 0) {
-      toast.success(`${existing} item cocok dan ditambahkan`)
-    } else if (existing > 0) {
-      toast.success(`${existing} cocok, ${created} item baru (pending) — total ${total} item`)
-    } else {
-      toast.success(`${created} item baru (pending) ditambahkan`)
+      toast.success(`${matchedItems.length} item cocok dan ditambahkan`)
     }
   }
 
@@ -1770,6 +1810,20 @@ export default function PurchasePage() {
               </div>
             )}
 
+            {/* Panduan Alur */}
+            <div className="rounded-xl bg-white/[0.02] border border-white/[0.04] p-3">
+              <div className="flex items-start gap-2.5">
+                <Info className="h-3.5 w-3.5 text-slate-500 mt-0.5 shrink-0" />
+                <div className="text-[10px] text-slate-500 leading-relaxed space-y-0.5">
+                  <p className="text-slate-400 font-medium">Alur Pembelian:</p>
+                  <p><span className="text-slate-300">1.</span> Klik <span className="text-slate-300">"Buat Pembelian"</span> → ketik nama/scan barcode di input bar</p>
+                  <p><span className="text-slate-300">2.</span> Item <span className="text-emerald-400">sudah ada</span> otomatis dipilih • Item <span className="text-amber-400">baru</span> wajib isi <span className="text-white">SKU + Satuan</span></p>
+                  <p><span className="text-slate-300">3.</span> Isi <span className="text-slate-300">jumlah, satuan beli, isi/unit, harga</span> → klik <span className="text-slate-300">"Simpan Pembelian"</span></p>
+                  <p className="text-slate-600">Item baru otomatis dibuat di inventory saat disimpan. HPP dihitung otomatis dari harga beli ÷ isi per unit.</p>
+                </div>
+              </div>
+            </div>
+
             {/* Desktop Table */}
             <div className="hidden md:block">
               <Card className="bg-nebula border-white/[0.06] overflow-hidden rounded-xl">
@@ -2014,6 +2068,20 @@ export default function PurchasePage() {
               <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-3">
                 <p className="text-[10px] text-slate-500 mb-0.5">Stok Rendah</p>
                 <p className={cn('text-sm font-bold', invStats.lowStockCount > 0 ? 'text-amber-400' : 'text-white')}>{formatNumber(invStats.lowStockCount)}</p>
+              </div>
+            </div>
+
+            {/* Panduan Alur */}
+            <div className="rounded-xl bg-white/[0.02] border border-white/[0.04] p-3">
+              <div className="flex items-start gap-2.5">
+                <Info className="h-3.5 w-3.5 text-slate-500 mt-0.5 shrink-0" />
+                <div className="text-[10px] text-slate-500 leading-relaxed space-y-0.5">
+                  <p className="text-slate-400 font-medium">Alur Inventory:</p>
+                  <p><span className="text-slate-300">1.</span> <span className="text-slate-300">"Tambah Item"</span> untuk buat item baru (wajib SKU + satuan) atau via pembelian</p>
+                  <p><span className="text-slate-300">2.</span> Stok masuk otomatis saat <span className="text-emerald-400">pembelian disimpan</span> — HPP dihitung otomatis</p>
+                  <p><span className="text-slate-300">3.</span> Pilih item → <span className="text-emerald-400">"Post Produk"</span> untuk jadikan item sebagai produk jual (F&B komposisi atau ritel 1:1)</p>
+                  <p className="text-slate-600">Item yang sudah dipakai di komposisi produk tidak bisa dihapus.</p>
+                </div>
               </div>
             </div>
 
@@ -2599,7 +2667,7 @@ export default function PurchasePage() {
                                   )}
                                   <button
                                     className="inline-flex items-center gap-1.5 text-[11px] text-emerald-400 hover:text-emerald-300 font-medium"
-                                    onClick={() => setShowQuickAddItem(true)}
+                                    onClick={() => { setQuickAddTargetIdx(idx); setQuickAddQueue([]); setQuickItemName(''); setQuickItemSku(''); setQuickItemUnit(''); setShowQuickAddItem(true) }}
                                   >
                                     <PackageOpen className="h-3 w-3" />
                                     Buat Item Baru
@@ -2637,7 +2705,7 @@ export default function PurchasePage() {
                                   {/* Add new item option at bottom */}
                                   <button
                                     className="w-full flex items-center justify-center gap-1.5 px-3 py-2.5 text-left border-t border-white/[0.06] text-emerald-400 hover:bg-emerald-500/[0.06] transition-colors"
-                                    onClick={() => setShowQuickAddItem(true)}
+                                    onClick={() => { setQuickAddTargetIdx(idx); setQuickAddQueue([]); setQuickItemName(''); setQuickItemSku(''); setQuickItemUnit(''); setShowQuickAddItem(true) }}
                                   >
                                     <PackageOpen className="h-3 w-3" />
                                     <span className="text-[11px] font-medium">Buat Item Baru</span>
@@ -2661,6 +2729,15 @@ export default function PurchasePage() {
                                     </button>
                                   </div>
                                   <p className="text-[10px] text-slate-500">Item akan dibuat di inventory saat pembelian disimpan</p>
+                                  {/* Queue indicator */}
+                                  {quickAddQueue.length > 1 && (
+                                    <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-md bg-amber-500/[0.06] border border-amber-500/10">
+                                      <Activity className="h-3 w-3 text-amber-400 shrink-0" />
+                                      <span className="text-[10px] text-amber-300 font-medium">
+                                        {quickAddQueue.length - quickAddQueue.indexOf(quickItemName)} dari {quickAddQueue.length} item baru
+                                      </span>
+                                    </div>
+                                  )}
                                   {/* Nama item */}
                                   <div className="space-y-1">
                                     <label className="text-[10px] text-slate-400 font-medium">Nama Item *</label>
@@ -2668,45 +2745,71 @@ export default function PurchasePage() {
                                       autoFocus
                                       value={quickItemName}
                                       onChange={(e) => setQuickItemName(e.target.value)}
-                                      onKeyDown={(e) => { if (e.key === 'Enter') handleQuickAddItem(idx) }}
+                                      onKeyDown={(e) => { if (e.key === 'Enter') handleQuickAddItem(quickAddTargetIdx) }}
                                       placeholder="cth: Susu UHT Full Cream"
                                       className="w-full bg-white/[0.04] border border-white/[0.08] text-white text-xs h-8 rounded-md px-2.5 outline-none focus:border-emerald-500/40 placeholder:text-slate-500"
                                     />
                                   </div>
-                                  {/* Satuan + SKU row */}
-                                  <div className="grid grid-cols-2 gap-2">
-                                    <div className="space-y-1">
-                                      <label className="text-[10px] text-slate-400 font-medium">Satuan (Base Unit)</label>
-                                      <Select value={quickItemUnit} onValueChange={setQuickItemUnit}>
-                                        <SelectTrigger className="h-8 text-xs bg-white/[0.04] border-white/[0.08] text-white rounded-md px-2">
-                                          <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent className="bg-nebula border-white/[0.06]">
-                                          {BASE_UNIT_OPTIONS.map((u) => (
-                                            <SelectItem key={u} value={u} className="text-slate-200 text-xs">{u}</SelectItem>
-                                          ))}
-                                        </SelectContent>
-                                      </Select>
-                                    </div>
-                                    <div className="space-y-1">
-                                      <label className="text-[10px] text-slate-400 font-medium">SKU <span className="text-slate-600">(opsional)</span></label>
-                                      <input
-                                        value={quickItemSku}
-                                        onChange={(e) => setQuickItemSku(e.target.value)}
-                                        onKeyDown={(e) => { if (e.key === 'Enter') handleQuickAddItem(idx) }}
-                                        placeholder="cth: SKU-001"
-                                        className="w-full bg-white/[0.04] border border-white/[0.08] text-white text-xs h-8 rounded-md px-2.5 outline-none focus:border-emerald-500/40 placeholder:text-slate-500 font-mono"
-                                      />
-                                    </div>
+                                  {/* SKU */}
+                                  <div className="space-y-1">
+                                    <label className="text-[10px] text-slate-400 font-medium">SKU *</label>
+                                    <input
+                                      value={quickItemSku}
+                                      onChange={(e) => setQuickItemSku(e.target.value)}
+                                      onKeyDown={(e) => { if (e.key === 'Enter') handleQuickAddItem(quickAddTargetIdx) }}
+                                      placeholder="cth: SKU-001"
+                                      className="w-full bg-white/[0.04] border border-white/[0.08] text-white text-xs h-8 rounded-md px-2.5 outline-none focus:border-emerald-500/40 placeholder:text-slate-500 font-mono"
+                                    />
+                                  </div>
+                                  {/* Satuan (Base Unit) */}
+                                  <div className="space-y-1">
+                                    <label className="text-[10px] text-slate-400 font-medium">Satuan (Base Unit) *</label>
+                                    <Select value={quickItemUnit} onValueChange={setQuickItemUnit}>
+                                      <SelectTrigger className="h-8 text-xs bg-white/[0.04] border-white/[0.08] text-white rounded-md px-2">
+                                        <SelectValue placeholder="Pilih satuan..." />
+                                      </SelectTrigger>
+                                      <SelectContent className="bg-nebula border-white/[0.06]">
+                                        {BASE_UNIT_OPTIONS.map((u) => (
+                                          <SelectItem key={u} value={u} className="text-slate-200 text-xs">{u}</SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
                                   </div>
                                   <button
                                     className="w-full h-8 rounded-md bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
-                                    onClick={() => handleQuickAddItem(idx)}
-                                    disabled={!quickItemName.trim()}
+                                    onClick={() => handleQuickAddItem(quickAddTargetIdx)}
+                                    disabled={!quickItemName.trim() || !quickItemSku.trim() || !quickItemUnit}
                                   >
                                     <Plus className="h-3 w-3" />
-                                    Buat & Pilih Item
+                                    {quickAddQueue.length > 1 ? 'Buat & Lanjutkan' : 'Buat & Pilih Item'}
                                   </button>
+                                  {/* Skip button for queue */}
+                                  {quickAddQueue.length > 1 && (
+                                    <button
+                                      className="w-full h-7 rounded-md text-[11px] text-slate-500 hover:text-slate-300 hover:bg-white/[0.04] transition-colors"
+                                      onClick={() => {
+                                        const remaining = quickAddQueue.slice(1)
+                                        if (remaining.length > 0) {
+                                          setQuickAddQueue(remaining)
+                                          setQuickItemName(remaining[0])
+                                          setQuickItemSku('')
+                                          setQuickItemUnit('')
+                                          const nextEmpty = poCreateItems.findIndex(i => !i.inventoryItemId)
+                                          if (nextEmpty >= 0) {
+                                            setQuickAddTargetIdx(nextEmpty)
+                                          } else {
+                                            setPoCreateItems(prev => [...prev, { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0' }])
+                                            setQuickAddTargetIdx(poCreateItems.length)
+                                          }
+                                        } else {
+                                          setShowQuickAddItem(false)
+                                          setQuickAddQueue([])
+                                        }
+                                      }}
+                                    >
+                                      Lewati item ini
+                                    </button>
+                                  )}
                                 </div>
                               )}
                             </div>
