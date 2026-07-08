@@ -67,6 +67,7 @@ import {
   BarChart3,
   Scale,
   Edit3,
+  Pencil,
   FileText,
   Banknote,
   Info,
@@ -403,6 +404,7 @@ export default function PurchasePage() {
   // Post as Product feature
   const [selectedInvIds, setSelectedInvIds] = useState<Set<string>>(new Set())
   const [postProductOpen, setPostProductOpen] = useState(false)
+  const [postMode, setPostMode] = useState<'select'|'composition'|'retail'>('select')
   const [postStep, setPostStep] = useState<1|2|3>(1)
   const [postProductName, setPostProductName] = useState('')
   const [postProductPrice, setPostProductPrice] = useState('')
@@ -420,6 +422,14 @@ export default function PurchasePage() {
 
   // Per-variant composition qty overrides: variantIndex → invItemId → qty string
   const [postVariantCompQty, setPostVariantCompQty] = useState<Record<number, Record<string, string>>>({})
+
+  // Retail mode: per-item price overrides & comp qty (1 per item by default)
+  const [retailPrices, setRetailPrices] = useState<Record<string, string>>({})
+  const [retailQtyPerProduct, setRetailQtyPerProduct] = useState<Record<string, string>>({})
+  const [retailBulkPrice, setRetailBulkPrice] = useState('')
+  const [retailUseBulkPrice, setRetailUseBulkPrice] = useState(true)
+  const [retailCategory, setRetailCategory] = useState('')
+  const [retailSubmitting, setRetailSubmitting] = useState(false)
 
   // ══════════════════════════════════════════════════════════
   // Fetch: Purchase Orders
@@ -1442,6 +1452,7 @@ export default function PurchasePage() {
   }
 
   const resetPostProductForm = () => {
+    setPostMode('select')
     setPostStep(1)
     setPostProductName('')
     setPostProductPrice('')
@@ -1453,6 +1464,12 @@ export default function PurchasePage() {
     setPostCompQty({})
     setPostVariants([])
     setPostVariantCompQty({})
+    setRetailPrices({})
+    setRetailQtyPerProduct({})
+    setRetailBulkPrice('')
+    setRetailUseBulkPrice(true)
+    setRetailCategory('')
+    setRetailSubmitting(false)
   }
 
   const handlePostProductSubmit = async () => {
@@ -1544,6 +1561,70 @@ export default function PurchasePage() {
     } finally {
       setPostProductSubmitting(false)
     }
+  }
+
+  // Retail mode submit: each inventory item → 1 product with 1:1 composition
+  const handleRetailSubmit = async () => {
+    if (retailUseBulkPrice && !retailBulkPrice) {
+      toast.error('Isi harga jual bulk atau aktifkan harga per item')
+      return
+    }
+    setRetailSubmitting(true)
+    const items = invList.filter(i => selectedInvIds.has(i.id))
+    let created = 0
+    let failed = 0
+
+    for (const item of items) {
+      const price = retailUseBulkPrice
+        ? (parseFloat(retailBulkPrice) || 0)
+        : (parseFloat(retailPrices[item.id]) || 0)
+      if (price <= 0) { failed++; continue }
+
+      const compQty = parseFloat(retailQtyPerProduct[item.id]) || 1
+      const hpp = compQty * item.avgCost
+      const maxStock = compQty > 0 ? Math.floor(item.stock / compQty) : 0
+
+      try {
+        const res = await fetch('/api/products', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: item.name,
+            price,
+            hpp,
+            stock: maxStock,
+            unit: item.baseUnit,
+            categoryId: retailCategory || undefined,
+            hasComposition: true,
+          }),
+        })
+        if (!res.ok) { failed++; continue }
+        const product = await res.json()
+
+        // Set 1:1 composition
+        await fetch(`/api/products/${product.id}/composition`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            hasComposition: true,
+            compositions: [{ inventoryItemId: item.id, qty: compQty, baseUnit: item.baseUnit }],
+          }),
+        })
+        created++
+      } catch {
+        failed++
+      }
+    }
+
+    if (created > 0) {
+      toast.success(`${created} produk berhasil dibuat dari ${items.length} item${failed > 0 ? ` (${failed} gagal)` : ''}`)
+      setPostProductOpen(false)
+      resetPostProductForm()
+      void fetchInventoryItems()
+    } else {
+      toast.error(`Gagal membuat semua produk (${failed} gagal)`)
+    }
+    setRetailSubmitting(false)
   }
 
   // Toggle inventory item selection
@@ -1653,136 +1734,39 @@ export default function PurchasePage() {
                   className={cn(inputClass, 'pl-8')}
                 />
               </div>
-              <div className="flex items-center gap-2 w-full sm:w-auto">
-                <Button
-                  size="sm"
-                  onClick={() => { resetPoCreateForm(); setPoCreateOpen(true) }}
-                  className="theme-bg theme-hover text-white text-xs font-medium h-8 px-3 rounded-lg gap-1.5 shrink-0"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  Buat Pembelian
-                </Button>
-              </div>
-            </div>
-
-            {/* Info Section */}
-            <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
-              <button
-                className="w-full flex items-center justify-between gap-3 p-3 sm:p-4 text-left hover:bg-white/[0.02] transition-colors"
-                onClick={() => setInfoExpanded(!infoExpanded)}
+              <Button
+                size="sm"
+                onClick={() => { resetPoCreateForm(); setPoCreateOpen(true) }}
+                className="theme-bg theme-hover text-white text-xs font-medium h-8 px-3 rounded-lg gap-1.5 shrink-0 w-full sm:w-auto"
               >
-                <div className="flex items-center gap-2.5">
-                  <div className="w-7 h-7 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0">
-                    <Info className="h-3.5 w-3.5 text-emerald-400" />
-                  </div>
-                  <span className="text-xs font-medium text-slate-200">Panduan Pembelian &amp; Inventory</span>
-                </div>
-                <ChevronDown className={cn('h-4 w-4 text-slate-500 transition-transform duration-200', infoExpanded && 'rotate-180')} />
-              </button>
-              <AnimatePresence>
-                {infoExpanded && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.2 }}
-                    className="overflow-hidden"
-                  >
-                    <div className="px-3 sm:px-4 pb-4 space-y-3 border-t border-white/[0.04] pt-3">
-                      <div className="flex gap-3">
-                        <div className="w-5 h-5 rounded-full bg-emerald-500/15 flex items-center justify-center shrink-0 mt-0.5">
-                          <span className="text-[9px] font-bold text-emerald-400">1</span>
-                        </div>
-                        <div>
-                          <p className="text-xs font-medium text-slate-200 mb-0.5">Flow Pembelian</p>
-                          <p className="text-[11px] text-slate-400 leading-relaxed">
-                            Pilih item inventory → isi <span className="text-amber-400/80 font-medium">jumlah, satuan, dan harga</span> → sistem otomatis menghitung HPP rata-rata berbobot &amp; menambah stok item
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex gap-3">
-                        <div className="w-5 h-5 rounded-full bg-cyan-500/15 flex items-center justify-center shrink-0 mt-0.5">
-                          <span className="text-[9px] font-bold text-cyan-400">2</span>
-                        </div>
-                        <div>
-                          <p className="text-xs font-medium text-slate-200 mb-0.5">HPP Otomatis</p>
-                          <p className="text-[11px] text-slate-400 leading-relaxed">
-                            Setiap pembelian memperbarui <span className="text-cyan-400/80 font-medium">HPP rata-rata berbobot</span> (weighted average cost) yang langsung terpropagasi ke produk yang menggunakan item tersebut
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex gap-3">
-                        <div className="w-5 h-5 rounded-full bg-violet-500/15 flex items-center justify-center shrink-0 mt-0.5">
-                          <span className="text-[9px] font-bold text-violet-400">3</span>
-                        </div>
-                        <div>
-                          <p className="text-xs font-medium text-slate-200 mb-0.5">Inventory Otomatis</p>
-                          <p className="text-[11px] text-slate-400 leading-relaxed">
-                            Daftar item muncul otomatis dari hasil pembelian. <span className="text-violet-400/80 font-medium">Tidak perlu menambahkan item manual</span> — gunakan "Buat Pembelian" untuk mulai
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+                <Plus className="h-3.5 w-3.5" />
+                Buat Pembelian
+              </Button>
             </div>
 
-            {/* Purchase Summary Cards */}
+            {/* Compact Summary Row */}
             {purchaseSummary && (
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
-                <Card className="bg-nebula border-white/[0.06] rounded-xl">
-                  <CardContent className="p-3 sm:p-4">
-                    <div className="flex items-center gap-2 mb-1">
-                      <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center">
-                        <Banknote className="h-4 w-4 text-emerald-400" />
-                      </div>
-                    </div>
-                    <p className="text-base sm:text-lg font-bold text-white">{formatCurrency(purchaseSummary.totalPurchaseNominal)}</p>
-                    <p className="text-[10px] sm:text-xs text-slate-500">{purchaseSummary.totalPurchaseCount} transaksi pembelian</p>
-                  </CardContent>
-                </Card>
-                <Card className="bg-nebula border-white/[0.06] rounded-xl">
-                  <CardContent className="p-3 sm:p-4">
-                    <div className="flex items-center gap-2 mb-1">
-                      <div className="w-8 h-8 rounded-lg bg-cyan-500/10 flex items-center justify-center">
-                        <Package className="h-4 w-4 text-cyan-400" />
-                      </div>
-                    </div>
-                    <p className="text-base sm:text-lg font-bold text-white">{formatCurrency(purchaseSummary.totalInventoryNominal)}</p>
-                    <p className="text-[10px] sm:text-xs text-slate-500">{purchaseSummary.totalInventoryItems} jenis item</p>
-                  </CardContent>
-                </Card>
-                <Card className="bg-nebula border-white/[0.06] rounded-xl">
-                  <CardContent className="p-3 sm:p-4">
-                    <div className="flex items-center gap-2 mb-1">
-                      <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center">
-                        <Scale className={cn('h-4 w-4', purchaseSummary.monthRatio > 70 ? 'text-amber-400' : 'text-emerald-400')} />
-                      </div>
-                    </div>
-                    <p className={cn('text-base sm:text-lg font-bold', purchaseSummary.monthRatio > 70 ? 'text-amber-400' : 'text-emerald-400')}>
-                      {purchaseSummary.monthRatio}%
-                    </p>
-                    <p className="text-[10px] sm:text-xs text-slate-500">rasio pembelian / revenue</p>
-                    <p className="text-[9px] text-slate-600">Bulan Ini</p>
-                    <p className="text-[9px] text-slate-600 break-words">Pembelian {formatCurrency(purchaseSummary.monthPurchaseNominal)} / Revenue {formatCurrency(purchaseSummary.monthRevenue)}</p>
-                  </CardContent>
-                </Card>
-                <Card className="bg-nebula border-white/[0.06] rounded-xl">
-                  <CardContent className="p-3 sm:p-4">
-                    <div className="flex items-center gap-2 mb-1">
-                      <div className="w-8 h-8 rounded-lg bg-violet-500/10 flex items-center justify-center">
-                        <BarChart3 className={cn('h-4 w-4', purchaseSummary.overallRatio > 70 ? 'text-amber-400' : 'text-emerald-400')} />
-                      </div>
-                    </div>
-                    <p className={cn('text-base sm:text-lg font-bold', purchaseSummary.overallRatio > 70 ? 'text-amber-400' : 'text-emerald-400')}>
-                      {purchaseSummary.overallRatio}%
-                    </p>
-                    <p className="text-[10px] sm:text-xs text-slate-500">rasio pembelian / revenue</p>
-                    <p className="text-[9px] text-slate-600">Total</p>
-                    <p className="text-[9px] text-slate-600 break-words">Pembelian {formatCurrency(purchaseSummary.totalPurchaseNominal)} / Revenue {formatCurrency(purchaseSummary.totalRevenue)}</p>
-                  </CardContent>
-                </Card>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-3">
+                  <p className="text-[10px] text-slate-500 mb-1">Total Pembelian</p>
+                  <p className="text-sm font-bold text-white">{formatCurrency(purchaseSummary.totalPurchaseNominal)}</p>
+                  <p className="text-[10px] text-slate-600">{purchaseSummary.totalPurchaseCount} transaksi</p>
+                </div>
+                <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-3">
+                  <p className="text-[10px] text-slate-500 mb-1">Nilai Inventory</p>
+                  <p className="text-sm font-bold text-white">{formatCurrency(purchaseSummary.totalInventoryNominal)}</p>
+                  <p className="text-[10px] text-slate-600">{purchaseSummary.totalInventoryItems} jenis item</p>
+                </div>
+                <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-3">
+                  <p className="text-[10px] text-slate-500 mb-1">Rasio Bulan Ini</p>
+                  <p className={cn('text-sm font-bold', purchaseSummary.monthRatio > 70 ? 'text-amber-400' : 'text-emerald-400')}>{purchaseSummary.monthRatio}%</p>
+                  <p className="text-[10px] text-slate-600">pembelian / revenue</p>
+                </div>
+                <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-3">
+                  <p className="text-[10px] text-slate-500 mb-1">Rasio Total</p>
+                  <p className={cn('text-sm font-bold', purchaseSummary.overallRatio > 70 ? 'text-amber-400' : 'text-emerald-400')}>{purchaseSummary.overallRatio}%</p>
+                  <p className="text-[10px] text-slate-600">pembelian / revenue</p>
+                </div>
               </div>
             )}
 
@@ -1803,10 +1787,22 @@ export default function PurchasePage() {
                   <TableBody>
                     {poList.length === 0 ? (
                       <TableRow className="border-white/[0.04] hover:bg-transparent">
-                        <TableCell colSpan={6} className="text-center py-12">
-                          <ShoppingCart className="h-8 w-8 text-slate-600 mx-auto mb-2" />
-                          <p className="text-sm text-slate-500">Belum ada pembelian</p>
-                          <p className="text-xs text-slate-600 mt-1">Klik "Buat Pembelian" untuk mencatat pembelian item</p>
+                        <TableCell colSpan={6} className="text-center py-16">
+                          <div className="flex flex-col items-center">
+                            <div className="w-12 h-12 rounded-2xl bg-white/[0.04] flex items-center justify-center mb-3">
+                              <ShoppingCart className="h-6 w-6 text-slate-600" />
+                            </div>
+                            <p className="text-sm text-slate-400 mb-1">Belum ada pembelian</p>
+                            <p className="text-xs text-slate-600 mb-4">Catat pembelian pertama untuk mulai melacak stok</p>
+                            <Button
+                              size="sm"
+                              onClick={() => { resetPoCreateForm(); setPoCreateOpen(true) }}
+                              className="theme-bg theme-hover text-white text-xs h-8 px-4 rounded-lg gap-1.5"
+                            >
+                              <Plus className="h-3.5 w-3.5" />
+                              Buat Pembelian
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ) : (
@@ -1818,7 +1814,7 @@ export default function PurchasePage() {
                           <TableCell className="text-xs text-slate-300 text-right">{po.itemCount ?? po._count?.items ?? 0}</TableCell>
                           <TableCell className="text-xs text-emerald-400 text-right font-medium">{formatCurrency(po.totalCost)}</TableCell>
                           <TableCell className="text-right">
-                            <div className="flex items-center justify-end gap-1">
+                            <div className="flex items-center justify-end gap-0.5">
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -1826,6 +1822,14 @@ export default function PurchasePage() {
                                 onClick={() => openPoDetail(po)}
                               >
                                 <Eye className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 px-2 text-slate-400 hover:text-white hover:bg-white/[0.04]"
+                                onClick={() => openPoEdit(po)}
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
                               </Button>
                               {session?.user?.role === 'OWNER' && (
                               <Button
@@ -1853,9 +1857,21 @@ export default function PurchasePage() {
               {poList.length === 0 ? (
                 <Card className="bg-nebula border-white/[0.06] rounded-xl">
                   <CardContent className="py-12 text-center">
-                    <ShoppingCart className="h-8 w-8 text-slate-600 mx-auto mb-2" />
-                    <p className="text-sm text-slate-500">Belum ada pembelian</p>
-                    <p className="text-xs text-slate-600 mt-1">Klik "Buat Pembelian" untuk mencatat pembelian item</p>
+                    <div className="flex flex-col items-center">
+                      <div className="w-12 h-12 rounded-2xl bg-white/[0.04] flex items-center justify-center mb-3">
+                        <ShoppingCart className="h-6 w-6 text-slate-600" />
+                      </div>
+                      <p className="text-sm text-slate-400 mb-1">Belum ada pembelian</p>
+                      <p className="text-xs text-slate-600 mb-4">Catat pembelian pertama untuk mulai melacak stok</p>
+                      <Button
+                        size="sm"
+                        onClick={() => { resetPoCreateForm(); setPoCreateOpen(true) }}
+                        className="theme-bg theme-hover text-white text-xs h-8 px-4 rounded-lg gap-1.5"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                        Buat Pembelian
+                      </Button>
+                    </div>
                   </CardContent>
                 </Card>
               ) : (
@@ -1872,13 +1888,19 @@ export default function PurchasePage() {
                         <CardContent className="p-3 space-y-2">
                           <div className="flex items-center justify-between gap-2">
                             <span className="text-xs text-white font-medium font-mono truncate">{po.orderNumber}</span>
-                            <div className="flex items-center gap-1 shrink-0">
-                              <span className="text-[11px] text-emerald-400 font-medium">{formatCurrency(po.totalCost)}</span>
+                            <div className="flex items-center gap-0.5 shrink-0">
+                              <span className="text-[11px] text-emerald-400 font-medium mr-1">{formatCurrency(po.totalCost)}</span>
                               <button
                                 className="w-7 h-7 rounded-md flex items-center justify-center text-slate-500 hover:text-white hover:bg-white/[0.06] transition-colors"
                                 onClick={() => openPoDetail(po)}
                               >
                                 <Eye className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                className="w-7 h-7 rounded-md flex items-center justify-center text-slate-500 hover:text-white hover:bg-white/[0.06] transition-colors"
+                                onClick={() => openPoEdit(po)}
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
                               </button>
                               {session?.user?.role === 'OWNER' && (
                               <button
@@ -1933,31 +1955,37 @@ export default function PurchasePage() {
                 />
               </div>
               <div className="flex items-center gap-2 w-full sm:w-auto">
-                <div className="flex items-center gap-1">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 text-[10px] gap-1 text-slate-400 hover:text-white hover:bg-white/[0.04] border border-white/[0.06] shrink-0"
-                    onClick={() => setCategoryDialogOpen(true)}
-                  >
-                    <Tags className="h-3 w-3" />
-                    <span className="hidden sm:inline">Kelola Kategori</span>
-                    <span className="sm:hidden">Kategori</span>
-                  </Button>
-                  <Select value={invCategoryFilter} onValueChange={(v) => { setInvCategoryFilter(v); setInvPage(1) }}>
-                    <SelectTrigger className="bg-white/[0.04] border-white/[0.06] text-white text-xs h-8 w-[120px] rounded-lg">
-                      <SelectValue placeholder="Semua" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-nebula border-white/[0.06]">
-                      <SelectItem value="all" className="text-slate-200 text-xs">Semua Kategori</SelectItem>
-                      {categories.map((c) => (
-                        <SelectItem key={c.id} value={c.id} className="text-slate-200 text-xs">
-                          {c.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                <Button
+                  size="sm"
+                  onClick={() => openInvForm(null)}
+                  className="theme-bg theme-hover text-white text-xs font-medium h-8 px-3 rounded-lg gap-1.5 shrink-0"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Tambah Item</span>
+                  <span className="sm:hidden">Tambah</span>
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 text-[10px] gap-1 text-slate-400 hover:text-white hover:bg-white/[0.04] border border-white/[0.06] shrink-0"
+                  onClick={() => setCategoryDialogOpen(true)}
+                >
+                  <Tags className="h-3 w-3" />
+                  <span className="hidden sm:inline">Kategori</span>
+                </Button>
+                <Select value={invCategoryFilter} onValueChange={(v) => { setInvCategoryFilter(v); setInvPage(1) }}>
+                  <SelectTrigger className="bg-white/[0.04] border-white/[0.06] text-white text-xs h-8 w-[120px] rounded-lg">
+                    <SelectValue placeholder="Semua" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-nebula border-white/[0.06]">
+                    <SelectItem value="all" className="text-slate-200 text-xs">Semua Kategori</SelectItem>
+                    {categories.map((c) => (
+                      <SelectItem key={c.id} value={c.id} className="text-slate-200 text-xs">
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 {selectedInvIds.size > 0 && (
                   <Button
                     size="sm"
@@ -1965,7 +1993,7 @@ export default function PurchasePage() {
                     className="theme-bg theme-hover text-white text-xs font-medium h-8 px-3 rounded-lg gap-1.5 shrink-0"
                   >
                     <Sparkles className="h-3.5 w-3.5" />
-                    <span className="hidden sm:inline">Post sebagai Produk</span>
+                    <span className="hidden sm:inline">Post Produk</span>
                     <span className="sm:hidden">Post</span>
                     <span className="bg-white/20 px-1.5 py-0.5 rounded-full text-[10px]">{selectedInvIds.size}</span>
                   </Button>
@@ -1973,117 +2001,20 @@ export default function PurchasePage() {
               </div>
             </div>
 
-            {/* Stats cards */}
-            <div className="grid grid-cols-3 gap-2 sm:gap-3">
-              <Card className="bg-nebula border-white/[0.06]">
-                <CardContent className="p-3 sm:p-4">
-                  <div className="flex items-center gap-2 mb-1">
-                    <div className="w-7 h-7 rounded-lg bg-white/[0.04] flex items-center justify-center">
-                      <PackagePlus className="h-3.5 w-3.5 theme-text" />
-                    </div>
-                  </div>
-                  <p className="text-lg sm:text-xl font-bold text-white">{formatNumber(invStats.totalItems)}</p>
-                  <p className="text-[10px] sm:text-xs text-slate-500">Total Item</p>
-                </CardContent>
-              </Card>
-              <Card className="bg-nebula border-white/[0.06]">
-                <CardContent className="p-3 sm:p-4">
-                  <div className="flex items-center gap-2 mb-1">
-                    <div className="w-7 h-7 rounded-lg bg-white/[0.04] flex items-center justify-center">
-                      <TrendingUp className="h-3.5 w-3.5 text-emerald-400" />
-                    </div>
-                  </div>
-                  <p className="text-lg sm:text-xl font-bold text-white">{formatCurrency(invStats.totalValue)}</p>
-                  <p className="text-[10px] sm:text-xs text-slate-500">Total Nilai</p>
-                </CardContent>
-              </Card>
-              <Card className="bg-nebula border-white/[0.06]">
-                <CardContent className="p-3 sm:p-4">
-                  <div className="flex items-center gap-2 mb-1">
-                    <div className="w-7 h-7 rounded-lg bg-white/[0.04] flex items-center justify-center">
-                      <AlertTriangle className={cn('h-3.5 w-3.5', invStats.lowStockCount > 0 ? 'text-amber-400' : 'text-slate-500')} />
-                    </div>
-                  </div>
-                  <p className={cn('text-lg sm:text-xl font-bold', invStats.lowStockCount > 0 ? 'text-amber-400' : 'text-white')}>
-                    {formatNumber(invStats.lowStockCount)}
-                  </p>
-                  <p className="text-[10px] sm:text-xs text-slate-500">Stok Rendah</p>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Info Section — Post sebagai Produk */}
-            <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
-              <button
-                className="w-full flex items-center justify-between gap-3 p-3 sm:p-4 text-left hover:bg-white/[0.02] transition-colors"
-                onClick={() => setInvInfoExpanded(!invInfoExpanded)}
-              >
-                <div className="flex items-center gap-2.5">
-                  <div className="w-7 h-7 rounded-lg bg-violet-500/10 flex items-center justify-center shrink-0">
-                    <Info className="h-3.5 w-3.5 text-violet-400" />
-                  </div>
-                  <span className="text-xs font-medium text-slate-200">Panduan Post Produk</span>
-                </div>
-                <ChevronDown className={cn('h-4 w-4 text-slate-500 transition-transform duration-200', invInfoExpanded && 'rotate-180')} />
-              </button>
-              <AnimatePresence>
-                {invInfoExpanded && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.2 }}
-                    className="overflow-hidden"
-                  >
-                    <div className="px-3 sm:px-4 pb-4 space-y-3 border-t border-white/[0.04] pt-3">
-                      <div className="flex gap-3">
-                        <div className="w-5 h-5 rounded-full bg-emerald-500/15 flex items-center justify-center shrink-0 mt-0.5">
-                          <span className="text-[9px] font-bold text-emerald-400">1</span>
-                        </div>
-                        <div>
-                          <p className="text-xs font-medium text-slate-200 mb-0.5">Pilih Item</p>
-                          <p className="text-[11px] text-slate-400 leading-relaxed">
-                            Centang item inventory yang ingin dijadikan bahan baku produk
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex gap-3">
-                        <div className="w-5 h-5 rounded-full bg-cyan-500/15 flex items-center justify-center shrink-0 mt-0.5">
-                          <span className="text-[9px] font-bold text-cyan-400">2</span>
-                        </div>
-                        <div>
-                          <p className="text-xs font-medium text-slate-200 mb-0.5">Klik "Post sebagai Produk"</p>
-                          <p className="text-[11px] text-slate-400 leading-relaxed">
-                            Tombol muncul otomatis saat ada item terpilih
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex gap-3">
-                        <div className="w-5 h-5 rounded-full bg-violet-500/15 flex items-center justify-center shrink-0 mt-0.5">
-                          <span className="text-[9px] font-bold text-violet-400">3</span>
-                        </div>
-                        <div>
-                          <p className="text-xs font-medium text-slate-200 mb-0.5">Atur Komposisi</p>
-                          <p className="text-[11px] text-slate-400 leading-relaxed">
-                            Isi jumlah pemakaian tiap item per 1 produk (cth: 200gr kopi per cup)
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex gap-3">
-                        <div className="w-5 h-5 rounded-full bg-amber-500/15 flex items-center justify-center shrink-0 mt-0.5">
-                          <span className="text-[9px] font-bold text-amber-400">4</span>
-                        </div>
-                        <div>
-                          <p className="text-xs font-medium text-slate-200 mb-0.5">Buat Produk</p>
-                          <p className="text-[11px] text-slate-400 leading-relaxed">
-                            Isi nama, harga jual, dan produk otomatis terbuat dengan HPP &amp; stok terhitung
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+            {/* Compact Stats Row */}
+            <div className="grid grid-cols-3 gap-2">
+              <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-3">
+                <p className="text-[10px] text-slate-500 mb-0.5">Total Item</p>
+                <p className="text-sm font-bold text-white">{formatNumber(invStats.totalItems)}</p>
+              </div>
+              <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-3">
+                <p className="text-[10px] text-slate-500 mb-0.5">Total Nilai</p>
+                <p className="text-sm font-bold text-white">{formatCurrency(invStats.totalValue)}</p>
+              </div>
+              <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-3">
+                <p className="text-[10px] text-slate-500 mb-0.5">Stok Rendah</p>
+                <p className={cn('text-sm font-bold', invStats.lowStockCount > 0 ? 'text-amber-400' : 'text-white')}>{formatNumber(invStats.lowStockCount)}</p>
+              </div>
             </div>
 
             {/* Selection action bar */}
@@ -2143,9 +2074,24 @@ export default function PurchasePage() {
                   <TableBody>
                     {invList.length === 0 ? (
                       <TableRow className="border-white/[0.04] hover:bg-transparent">
-                        <TableCell colSpan={8} className="text-center py-12">
-                          <PackagePlus className="h-8 w-8 text-slate-600 mx-auto mb-2" />
-                          <p className="text-sm text-slate-500">Belum ada item. Buat pembelian untuk menambahkan item.</p>
+                        <TableCell colSpan={8} className="text-center py-16">
+                          <div className="flex flex-col items-center">
+                            <div className="w-12 h-12 rounded-2xl bg-white/[0.04] flex items-center justify-center mb-3">
+                              <PackagePlus className="h-6 w-6 text-slate-600" />
+                            </div>
+                            <p className="text-sm text-slate-400 mb-1">Belum ada item inventory</p>
+                            <p className="text-xs text-slate-600 mb-4">Tambahkan item baru atau buat pembelian</p>
+                            <div className="flex gap-2">
+                              <Button
+                                size="sm"
+                                onClick={() => openInvForm(null)}
+                                className="theme-bg theme-hover text-white text-xs h-8 px-4 rounded-lg gap-1.5"
+                              >
+                                <Plus className="h-3.5 w-3.5" />
+                                Tambah Item
+                              </Button>
+                            </div>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ) : (
@@ -2182,7 +2128,7 @@ export default function PurchasePage() {
                             <TableCell className="text-xs text-emerald-400 text-right font-medium">{formatCurrency(item.stock * item.avgCost)}</TableCell>
                             <TableCell className="text-xs text-slate-400 text-right">{item._count?.compositions ?? 0}</TableCell>
                             <TableCell className="text-right">
-                              <div className="flex items-center justify-end gap-1">
+                              <div className="flex items-center justify-end gap-0.5">
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -2190,6 +2136,22 @@ export default function PurchasePage() {
                                   onClick={() => openInvDetail(item)}
                                 >
                                   <Eye className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 px-2 text-slate-400 hover:text-white hover:bg-white/[0.04]"
+                                  onClick={() => openInvForm(item)}
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 px-2 text-slate-400 hover:text-red-400 hover:bg-red-500/[0.06]"
+                                  onClick={() => setDeleteInvId(item.id)}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
                                 </Button>
                               </div>
                             </TableCell>
@@ -2207,8 +2169,21 @@ export default function PurchasePage() {
               {invList.length === 0 ? (
                 <Card className="bg-nebula border-white/[0.06]">
                   <CardContent className="py-12 text-center">
-                    <PackagePlus className="h-8 w-8 text-slate-600 mx-auto mb-2" />
-                    <p className="text-sm text-slate-500">Belum ada item. Buat pembelian untuk menambahkan item.</p>
+                    <div className="flex flex-col items-center">
+                      <div className="w-12 h-12 rounded-2xl bg-white/[0.04] flex items-center justify-center mb-3">
+                        <PackagePlus className="h-6 w-6 text-slate-600" />
+                      </div>
+                      <p className="text-sm text-slate-400 mb-1">Belum ada item inventory</p>
+                      <p className="text-xs text-slate-600 mb-4">Tambahkan item baru atau buat pembelian</p>
+                      <Button
+                        size="sm"
+                        onClick={() => openInvForm(null)}
+                        className="theme-bg theme-hover text-white text-xs h-8 px-4 rounded-lg gap-1.5"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                        Tambah Item
+                      </Button>
+                    </div>
                   </CardContent>
                 </Card>
               ) : (
@@ -2257,7 +2232,7 @@ export default function PurchasePage() {
                               <span className="text-[11px]">HPP: {formatCurrency(item.avgCost)}/{item.baseUnit}</span>
                               <span className="text-[11px] text-emerald-400 font-medium">{formatCurrency(item.stock * item.avgCost)}</span>
                             </div>
-                            <div className="flex items-center gap-1.5 pt-1 border-t border-white/[0.04]">
+                            <div className="flex items-center gap-1 pt-1 border-t border-white/[0.04]">
                               <Button
                                 size="sm"
                                 className="flex-1 h-7 text-[10px] gap-1 text-slate-400 hover:text-white hover:bg-white/[0.04]"
@@ -2265,6 +2240,20 @@ export default function PurchasePage() {
                               >
                                 <Eye className="h-3 w-3" />
                                 Detail
+                              </Button>
+                              <Button
+                                size="sm"
+                                className="h-7 px-2 text-slate-400 hover:text-white hover:bg-white/[0.04]"
+                                onClick={() => openInvForm(item)}
+                              >
+                                <Pencil className="h-3 w-3" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                className="h-7 px-2 text-slate-400 hover:text-red-400 hover:bg-red-500/[0.06]"
+                                onClick={() => setDeleteInvId(item.id)}
+                              >
+                                <Trash2 className="h-3 w-3" />
                               </Button>
                             </div>
                           </CardContent>
@@ -2473,76 +2462,25 @@ export default function PurchasePage() {
             {/* Items */}
             <div className="space-y-3">
               {/* ── Smart Input Bar ── */}
-              <div className="space-y-2">
-                <div className={cn(
-                  'flex items-center gap-2 rounded-lg p-[3px] transition-colors duration-300',
-                  scanModeActive && 'ring-1 ring-amber-500/40 bg-amber-500/[0.03]'
-                )}>
-                  <div className="relative flex-1">
-                    <ScanBarcode className={cn(
-                      'absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 pointer-events-none transition-colors duration-300',
-                      scanModeActive ? 'text-amber-400' : 'text-slate-500'
-                    )} />
-                    <input
-                      ref={smartInputRef}
-                      value={smartInput}
-                      onChange={(e) => handleSmartInputChange(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') handleSmartInputSubmit() }}
-                      placeholder={scanModeActive ? 'Scan barcode...' : 'Ketik nama / scan barcode / koma utk multi: Air, Kopi, Susu'}
-                      className={cn(inputClass, 'pl-8 pr-2 h-10 transition-colors duration-300', scanModeActive && 'border-amber-500/30 bg-amber-500/[0.04]')}
-                    />
-                  </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <Switch
-                      checked={showInactiveItems}
-                      onCheckedChange={setShowInactiveItems}
-                      className="scale-75"
-                    />
-                    <span className="text-[10px] text-slate-500 whitespace-nowrap">Tampilkan nonaktif</span>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between px-1">
-                  <p className="text-[10px] text-slate-600">
-                    <span className="text-emerald-500/60">Scan</span> = otomatis, <span className="text-sky-500/60">Ketik</span> = Enter utk proses, <span className="text-amber-500/60">Koma</span> = pisah multi item
-                  </p>
-                  {smartInputScanDetectedRef.current && (
-                    <motion.span
-                      initial={{ opacity: 0, scale: 0.8 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      className="text-[9px] text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded-full font-medium flex items-center gap-1"
-                    >
-                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-                      Scan terdeteksi...
-                    </motion.span>
-                  )}
-                </div>
+              <div className="relative">
+                <ScanBarcode className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500 pointer-events-none" />
+                <input
+                  ref={smartInputRef}
+                  value={smartInput}
+                  onChange={(e) => handleSmartInputChange(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleSmartInputSubmit() }}
+                  placeholder="Ketik nama item / scan barcode / koma utk multi: Air, Kopi, Susu"
+                  className={cn(inputClass, 'pl-8 pr-2 h-9')}
+                />
               </div>
 
-              {/* ── Item Count + Tab Pills ── */}
+              {/* ── Item Count Badge ── */}
               {poCreateItems.length > 1 && (
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded-full font-medium shrink-0">
-                    {poCreateItems.length} item
+                <div className="flex items-center gap-2">
+                  <Package className="h-3 w-3 text-slate-500" />
+                  <span className="text-[11px] text-slate-400 font-medium">
+                    <span className="text-emerald-400">{poCreateItems.filter(i => i.inventoryItemId).length}</span> dari {poCreateItems.length} item dipilih
                   </span>
-                  <div className="flex items-center gap-1 flex-wrap">
-                    {poCreateItems.map((item, idx) => (
-                      <button
-                        key={idx}
-                        className="text-[10px] px-2 py-0.5 rounded-full border truncate max-w-[120px] transition-colors"
-                        onClick={() => {
-                          const el = document.getElementById(`po-item-${idx}`)
-                          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-                        }}
-                        title={item.inventoryItemName || 'Belum dipilih'}
-                      >
-                        {item.inventoryItemId ? (
-                          <span className="text-emerald-400/80 border-emerald-500/15 bg-emerald-500/[0.06]">{item.inventoryItemName}</span>
-                        ) : (
-                          <span className="text-slate-600 border-white/[0.06] bg-white/[0.02]">—</span>
-                        )}
-                      </button>
-                    ))}
-                  </div>
                 </div>
               )}
 
@@ -2617,7 +2555,7 @@ export default function PurchasePage() {
 
                           {/* Picker dropdown */}
                           {activeItemSearchIdx === idx && showItemPicker && (
-                            <div className="absolute top-full left-0 right-0 mt-1 bg-nebula border border-white/[0.06] rounded-lg shadow-xl z-50">
+                            <div className="absolute top-full left-0 right-0 mt-1 bg-nebula border border-white/[0.06] rounded-lg shadow-xl z-50 max-h-[70vh] flex flex-col">
                               {/* Filter search */}
                               <div className="p-2 border-b border-white/[0.06] space-y-2">
                                 <div className="relative">
@@ -2669,7 +2607,7 @@ export default function PurchasePage() {
                                 </div>
                               ) : /* Normal list */
                               !showQuickAddItem ? (
-                                <div className="max-h-[180px] overflow-y-auto">
+                                <div className="max-h-[180px] overflow-y-auto flex-1 min-h-0">
                                   {filteredItemOptions.map((r) => (
                                     <button
                                       key={r.id}
@@ -2709,7 +2647,7 @@ export default function PurchasePage() {
 
                               {/* Quick add inline form */}
                               {showQuickAddItem && (
-                                <div className="p-3 border-t border-white/[0.06] space-y-2.5">
+                                <div className="p-3 border-t border-white/[0.06] space-y-2 overflow-y-auto flex-1 min-h-0">
                                   <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-1.5">
                                       <PackageOpen className="h-3.5 w-3.5 text-emerald-400" />
@@ -2723,35 +2661,44 @@ export default function PurchasePage() {
                                     </button>
                                   </div>
                                   <p className="text-[10px] text-slate-500">Item akan dibuat di inventory saat pembelian disimpan</p>
-                                  <div className="grid grid-cols-[1fr_auto] gap-2">
+                                  {/* Nama item */}
+                                  <div className="space-y-1">
+                                    <label className="text-[10px] text-slate-400 font-medium">Nama Item *</label>
+                                    <input
+                                      autoFocus
+                                      value={quickItemName}
+                                      onChange={(e) => setQuickItemName(e.target.value)}
+                                      onKeyDown={(e) => { if (e.key === 'Enter') handleQuickAddItem(idx) }}
+                                      placeholder="cth: Susu UHT Full Cream"
+                                      className="w-full bg-white/[0.04] border border-white/[0.08] text-white text-xs h-8 rounded-md px-2.5 outline-none focus:border-emerald-500/40 placeholder:text-slate-500"
+                                    />
+                                  </div>
+                                  {/* Satuan + SKU row */}
+                                  <div className="grid grid-cols-2 gap-2">
                                     <div className="space-y-1">
+                                      <label className="text-[10px] text-slate-400 font-medium">Satuan (Base Unit)</label>
+                                      <Select value={quickItemUnit} onValueChange={setQuickItemUnit}>
+                                        <SelectTrigger className="h-8 text-xs bg-white/[0.04] border-white/[0.08] text-white rounded-md px-2">
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent className="bg-nebula border-white/[0.06]">
+                                          {BASE_UNIT_OPTIONS.map((u) => (
+                                            <SelectItem key={u} value={u} className="text-slate-200 text-xs">{u}</SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                    <div className="space-y-1">
+                                      <label className="text-[10px] text-slate-400 font-medium">SKU <span className="text-slate-600">(opsional)</span></label>
                                       <input
-                                        autoFocus
-                                        value={quickItemName}
-                                        onChange={(e) => setQuickItemName(e.target.value)}
+                                        value={quickItemSku}
+                                        onChange={(e) => setQuickItemSku(e.target.value)}
                                         onKeyDown={(e) => { if (e.key === 'Enter') handleQuickAddItem(idx) }}
-                                        placeholder="Nama item — cth: Susu UHT Full Cream"
-                                        className="w-full bg-white/[0.04] border-white/[0.04] text-white text-xs h-8 rounded-md px-2.5 outline-none placeholder:text-slate-500"
+                                        placeholder="cth: SKU-001"
+                                        className="w-full bg-white/[0.04] border border-white/[0.08] text-white text-xs h-8 rounded-md px-2.5 outline-none focus:border-emerald-500/40 placeholder:text-slate-500 font-mono"
                                       />
                                     </div>
-                                    <select
-                                      value={quickItemUnit}
-                                      onChange={(e) => setQuickItemUnit(e.target.value)}
-                                      className="bg-white/[0.04] border-white/[0.04] text-white text-xs h-8 rounded-md px-2 outline-none min-w-[70px]"
-                                    >
-                                      {BASE_UNIT_OPTIONS.map(u => (
-                                        <option key={u} value={u} className="bg-zinc-900">{u}</option>
-                                      ))}
-                                    </select>
                                   </div>
-                                  {/* SKU field — selalu tampil, opsional */}
-                                  <input
-                                    value={quickItemSku}
-                                    onChange={(e) => setQuickItemSku(e.target.value)}
-                                    onKeyDown={(e) => { if (e.key === 'Enter') handleQuickAddItem(idx) }}
-                                    placeholder="SKU (opsional) — cth: SKU-001"
-                                    className="w-full bg-white/[0.04] border-white/[0.04] text-white text-xs h-8 rounded-md px-2.5 outline-none placeholder:text-slate-500 font-mono"
-                                  />
                                   <button
                                     className="w-full h-8 rounded-md bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
                                     onClick={() => handleQuickAddItem(idx)}
@@ -2995,7 +2942,7 @@ export default function PurchasePage() {
 
                           {/* Picker dropdown (reuses same state) */}
                           {activeItemSearchIdx === idx && showItemPicker && (
-                            <div className="absolute top-full left-0 right-0 mt-1 bg-nebula border border-white/[0.06] rounded-lg shadow-xl z-50">
+                            <div className="absolute top-full left-0 right-0 mt-1 bg-nebula border border-white/[0.06] rounded-lg shadow-xl z-50 max-h-[70vh] flex flex-col">
                               <div className="p-2 border-b border-white/[0.06]">
                                 <div className="relative">
                                   <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-500" />
@@ -3019,7 +2966,7 @@ export default function PurchasePage() {
                                   <p className="text-[11px] text-slate-400 mb-3">Tidak ada item yang cocok</p>
                                 </div>
                               ) : !showQuickAddItem ? (
-                                <div className="max-h-[180px] overflow-y-auto">
+                                <div className="max-h-[180px] overflow-y-auto flex-1 min-h-0">
                                   {filteredItemOptions.filter(r => !r._isNew).map((r) => (
                                     <button
                                       key={r.id}
@@ -3500,35 +3447,234 @@ export default function PurchasePage() {
         open={postProductOpen}
         onOpenChange={(open) => { if (!open) { setPostProductOpen(false); resetPostProductForm() } }}
       >
-        <ResponsiveDialogContent className="sm:max-w-2xl flex flex-col max-h-[90vh]">
+        <ResponsiveDialogContent className={cn("flex flex-col max-h-[90vh]", postMode === 'retail' ? 'sm:max-w-3xl' : 'sm:max-w-2xl')}>
           <ResponsiveDialogHeader>
             <ResponsiveDialogTitle className="text-white text-base flex items-center gap-2">
               <Sparkles className="h-4 w-4 text-emerald-400" />
-              Post sebagai Produk
+              {postMode === 'select' && 'Post sebagai Produk'}
+              {postMode === 'composition' && 'Post — Komposisi (F&B)'}
+              {postMode === 'retail' && `Post — Satu-satu (Ritel)`}
             </ResponsiveDialogTitle>
             <ResponsiveDialogDescription className="text-slate-400 text-xs">
-              {postStep === 1 && 'Atur jumlah pemakaian tiap item'}
-              {postStep === 2 && 'Isi detail produk dan atur varian'}
-              {postStep === 3 && 'Review sebelum membuat produk'}
+              {postMode === 'select' && 'Pilih mode konversi item inventory menjadi produk'}
+              {postMode === 'composition' && postStep === 1 && 'Atur jumlah pemakaian tiap item'}
+              {postMode === 'composition' && postStep === 2 && 'Isi detail produk dan atur varian'}
+              {postMode === 'composition' && postStep === 3 && 'Review sebelum membuat produk'}
+              {postMode === 'retail' && `${selectedInvIds.size} item akan masing-masing menjadi 1 produk terpisah`}
             </ResponsiveDialogDescription>
           </ResponsiveDialogHeader>
 
-          {/* Step indicators */}
-          <div className="flex items-center gap-1.5 px-1 mt-1">
-            {[1, 2, 3].map(s => (
-              <div key={s} className="flex items-center gap-1.5">
-                <span className={cn(
-                  'w-5 h-5 rounded-full flex items-center justify-center font-medium text-[9px] transition-colors',
-                  postStep >= s ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/[0.06] text-slate-500'
-                )}>
-                  {postStep > s ? <CheckCircle2 className="h-3 w-3" /> : s}
-                </span>
-                {s < 3 && <ArrowRight className="h-2 w-2 text-slate-600" />}
-              </div>
-            ))}
-          </div>
-
           <div className="mt-3 flex-1 overflow-y-auto">
+            {/* ═══ MODE SELECTOR ═══ */}
+            {postMode === 'select' && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* F&B Composition */}
+                <button
+                  className="p-4 rounded-xl border border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04] text-left transition-colors group"
+                  onClick={() => setPostMode('composition')}
+                >
+                  <div className="flex items-center gap-2.5 mb-3">
+                    <div className="w-9 h-9 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+                      <span className="text-lg">🍳</span>
+                    </div>
+                    <div>
+                      <p className="text-sm text-white font-medium group-hover:text-emerald-300 transition-colors">Komposisi (F&B)</p>
+                      <p className="text-[10px] text-slate-500">Banyak item → 1 produk</p>
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    Gabungkan beberapa bahan baku menjadi satu produk. Cth: kopi + susu + gula → <span className="text-emerald-400/70">Kopi Susu</span>
+                  </p>
+                  <div className="flex items-center gap-1.5 mt-3 text-[10px] text-slate-500">
+                    <Package className="h-3 w-3" />
+                    <span>{selectedInvIds.size} item terpilih</span>
+                    <ArrowRight className="h-2.5 w-2.5 ml-auto" />
+                  </div>
+                </button>
+
+                {/* Retail 1:1 */}
+                <button
+                  className="p-4 rounded-xl border border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04] text-left transition-colors group"
+                  onClick={() => setPostMode('retail')}
+                >
+                  <div className="flex items-center gap-2.5 mb-3">
+                    <div className="w-9 h-9 rounded-lg bg-violet-500/10 flex items-center justify-center">
+                      <span className="text-lg">🛒</span>
+                    </div>
+                    <div>
+                      <p className="text-sm text-white font-medium group-hover:text-violet-300 transition-colors">Satu-satu (Ritel)</p>
+                      <p className="text-[10px] text-slate-500">1 item → 1 produk</p>
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    Setiap item inventory jadi produk jualan terpisah. Cth: <span className="text-violet-400/70">Teh Poci</span>, <span className="text-violet-400/70">Gula Pasir</span>, masing-masing 1 produk
+                  </p>
+                  <div className="flex items-center gap-1.5 mt-3 text-[10px] text-slate-500">
+                    <Package className="h-3 w-3" />
+                    <span>{selectedInvIds.size} item → {selectedInvIds.size} produk</span>
+                    <ArrowRight className="h-2.5 w-2.5 ml-auto" />
+                  </div>
+                </button>
+              </div>
+            )}
+
+            {/* ═══ RETAIL MODE ═══ */}
+            {postMode === 'retail' && (
+              <div className="space-y-4">
+                {/* Bulk settings */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className={labelClass}>Kategori Produk</Label>
+                    <Select value={retailCategory} onValueChange={setRetailCategory}>
+                      <SelectTrigger className={cn(inputClass, 'h-9')}>
+                        <SelectValue placeholder="Pilih kategori (opsional)" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-nebula border-white/[0.06]">
+                        {postProductCategories.map((c) => (
+                          <SelectItem key={c.id} value={c.id} className="text-slate-200 text-xs">{c.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <Label className={labelClass}>Harga Jual</Label>
+                      <button
+                        className="text-[10px] text-emerald-400 hover:text-emerald-300 font-medium"
+                        onClick={() => setRetailUseBulkPrice(!retailUseBulkPrice)}
+                      >
+                        {retailUseBulkPrice ? '→ Harga per item' : '→ Harga bulk'}
+                      </button>
+                    </div>
+                    {retailUseBulkPrice ? (
+                      <Input
+                        type="number"
+                        min="0"
+                        value={retailBulkPrice}
+                        onChange={(e) => setRetailBulkPrice(e.target.value)}
+                        className={inputClass}
+                        placeholder="Harga sama untuk semua produk"
+                      />
+                    ) : (
+                      <div className="rounded-lg bg-white/[0.03] border border-white/[0.04] px-3 py-2">
+                        <p className="text-[10px] text-slate-400">Isi harga di kolom masing-masing item di bawah</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Items table */}
+                <div className="rounded-xl border border-white/[0.06] overflow-hidden">
+                  <div className="max-h-[360px] overflow-y-auto">
+                    {selectedInvItems.map((item, i) => {
+                      const qty = parseFloat(retailQtyPerProduct[item.id]) || 1
+                      const hpp = qty * item.avgCost
+                      const price = retailUseBulkPrice
+                        ? (parseFloat(retailBulkPrice) || 0)
+                        : (parseFloat(retailPrices[item.id]) || 0)
+                      const margin = price - hpp
+                      const maxStock = qty > 0 ? Math.floor(item.stock / qty) : 0
+                      return (
+                        <div key={item.id} className={cn("p-3 space-y-2 border-b border-white/[0.04] last:border-0", i % 2 === 1 && 'bg-white/[0.01]')}>
+                          <div className="flex items-center gap-2.5">
+                            <span className="text-[10px] text-slate-500 w-5 text-right shrink-0">{i + 1}</span>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs text-white font-medium truncate">{item.name}</p>
+                              <p className="text-[10px] text-slate-500">
+                                HPP item: {formatCurrency(item.avgCost)}/{item.baseUnit} · Stok: {formatNumber(item.stock)} {item.baseUnit}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 pl-7">
+                            {/* Qty per product */}
+                            <div className="flex items-center gap-1 shrink-0">
+                              <input
+                                type="number"
+                                step="any"
+                                min="0"
+                                value={retailQtyPerProduct[item.id] || ''}
+                                onChange={(e) => setRetailQtyPerProduct(p => ({ ...p, [item.id]: e.target.value }))}
+                                className="bg-white/[0.04] border-white/[0.04] text-white text-[11px] h-7 w-16 rounded-md px-2 text-right outline-none placeholder:text-slate-500"
+                                placeholder="1"
+                              />
+                              <span className="text-[10px] text-slate-500 w-10">{item.baseUnit}/produk</span>
+                            </div>
+                            {/* Price (if not bulk) */}
+                            {!retailUseBulkPrice && (
+                              <div className="flex items-center gap-1 shrink-0">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={retailPrices[item.id] || ''}
+                                  onChange={(e) => setRetailPrices(p => ({ ...p, [item.id]: e.target.value }))}
+                                  className="bg-white/[0.04] border-white/[0.04] text-white text-[11px] h-7 w-24 rounded-md px-2 text-right outline-none placeholder:text-slate-500"
+                                  placeholder="0"
+                                />
+                                <span className="text-[10px] text-slate-500">Rp</span>
+                              </div>
+                            )}
+                            <div className="flex-1" />
+                            {/* Summary badges */}
+                            <div className="flex items-center gap-2 shrink-0">
+                              {price > 0 && (
+                                <span className={cn("text-[10px] font-medium", margin >= 0 ? 'text-emerald-400' : 'text-red-400')}>
+                                  Margin {formatCurrency(margin)}
+                                </span>
+                              )}
+                              <span className="text-[10px] text-slate-500 bg-white/[0.04] px-1.5 py-0.5 rounded">
+                                HPP {formatCurrency(hpp)}
+                              </span>
+                              <span className="text-[10px] text-slate-500 bg-white/[0.04] px-1.5 py-0.5 rounded">
+                                Stok ~{formatNumber(maxStock)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Summary */}
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="bg-white/[0.03] rounded-lg p-2.5 border border-white/[0.04] text-center">
+                    <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-0.5">Produk</p>
+                    <p className="text-sm font-bold text-white">{selectedInvItems.length}</p>
+                  </div>
+                  <div className="bg-white/[0.03] rounded-lg p-2.5 border border-white/[0.04] text-center">
+                    <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-0.5">Harga</p>
+                    <p className="text-sm font-bold text-emerald-400">
+                      {retailUseBulkPrice
+                        ? (retailBulkPrice ? formatCurrency(parseFloat(retailBulkPrice)) : '-')
+                        : `${retailPrices && Object.values(retailPrices).filter(v => v).length}/${selectedInvItems.length}`}
+                    </p>
+                  </div>
+                  <div className="bg-white/[0.03] rounded-lg p-2.5 border border-white/[0.04] text-center">
+                    <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-0.5">Komposisi</p>
+                    <p className="text-sm font-bold text-violet-400">1:1</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ═══ COMPOSITION MODE (existing 3-step wizard) ═══ */}
+            {postMode === 'composition' && (
+              <div className="space-y-0">
+                {/* Step indicators */}
+                <div className="flex items-center gap-1.5 px-1 mb-3">
+                  {[1, 2, 3].map(s => (
+                    <div key={s} className="flex items-center gap-1.5">
+                      <span className={cn(
+                        'w-5 h-5 rounded-full flex items-center justify-center font-medium text-[9px] transition-colors',
+                        postStep >= s ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/[0.06] text-slate-500'
+                      )}>
+                        {postStep > s ? <CheckCircle2 className="h-3 w-3" /> : s}
+                      </span>
+                      {s < 3 && <ArrowRight className="h-2 w-2 text-slate-600" />}
+                    </div>
+                  ))}
+                </div>
+
             {/* Step 1: Composition qty per item */}
             {postStep === 1 && (
               <div className="space-y-3">
@@ -3887,60 +4033,108 @@ export default function PurchasePage() {
                 )}
               </div>
             )}
+              </div>
+            )}
           </div>
 
+          {/* ═══ FOOTER ═══ */}
           <ResponsiveDialogFooter className="mt-4 gap-2">
-            {postStep > 1 && (
+            {/* Mode selector: only Batal */}
+            {postMode === 'select' && (
               <Button
                 variant="ghost"
-                className="h-9 text-xs text-slate-400 hover:text-white hover:bg-white/[0.04] gap-1"
-                onClick={() => setPostStep((postStep - 1) as 1|2|3)}
+                className="h-9 text-xs text-slate-400 hover:text-white hover:bg-white/[0.04]"
+                onClick={() => { setPostProductOpen(false); resetPostProductForm() }}
               >
-                <ArrowLeft className="h-3 w-3" />
-                Kembali
+                Batal
               </Button>
             )}
-            <div className="flex-1" />
-            <Button
-              variant="ghost"
-              className="h-9 text-xs text-slate-400 hover:text-white hover:bg-white/[0.04]"
-              onClick={() => { setPostProductOpen(false); resetPostProductForm() }}
-            >
-              Batal
-            </Button>
-            {postStep < 3 ? (
-              <Button
-                className="h-9 text-xs theme-bg theme-hover text-white gap-1"
-                onClick={() => {
-                  if (postStep === 1) {
-                    // Validate: at least 1 item has qty > 0
-                    const hasQty = selectedInvItems.some(i => (parseFloat(postCompQty[i.id]) || 0) > 0)
-                    if (!hasQty) { toast.error('Isi jumlah pemakaian minimal 1 item'); return }
-                  }
-                  if (postStep === 2) {
-                    if (!postProductName.trim()) { toast.error('Nama produk wajib diisi'); return }
-                    if (!postProductPrice) { toast.error('Harga jual wajib diisi'); return }
-                    if (postHasVariants) {
-                      const missing = postVariants.some(v => !v.name.trim())
-                      if (missing) { toast.error('Nama varian wajib diisi untuk semua varian'); return }
-                    }
-                  }
-                  setPostStep((postStep + 1) as 1|2|3)
-                }}
-                disabled={postStep === 1 && selectedInvItems.length === 0}
-              >
-                Lanjut
-                <ArrowRight className="h-3 w-3" />
-              </Button>
-            ) : (
-              <Button
-                className="h-9 text-xs theme-bg theme-hover text-white gap-1"
-                disabled={postProductSubmitting || !postProductName.trim() || !postProductPrice}
-                onClick={handlePostProductSubmit}
-              >
-                {postProductSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
-                Buat Produk
-              </Button>
+
+            {/* Retail mode footer */}
+            {postMode === 'retail' && (
+              <>
+                <Button
+                  variant="ghost"
+                  className="h-9 text-xs text-slate-400 hover:text-white hover:bg-white/[0.04] gap-1"
+                  onClick={() => setPostMode('select')}
+                >
+                  <ArrowLeft className="h-3 w-3" />
+                  Kembali
+                </Button>
+                <div className="flex-1" />
+                <Button
+                  variant="ghost"
+                  className="h-9 text-xs text-slate-400 hover:text-white hover:bg-white/[0.04]"
+                  onClick={() => { setPostProductOpen(false); resetPostProductForm() }}
+                >
+                  Batal
+                </Button>
+                <Button
+                  className="h-9 text-xs bg-violet-500/15 text-violet-400 hover:bg-violet-500/25 gap-1 disabled:opacity-50"
+                  disabled={retailSubmitting || (retailUseBulkPrice && !retailBulkPrice) || selectedInvItems.length === 0}
+                  onClick={handleRetailSubmit}
+                >
+                  {retailSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                  Buat {selectedInvItems.length} Produk
+                </Button>
+              </>
+            )}
+
+            {/* Composition mode footer */}
+            {postMode === 'composition' && (
+              <>
+                {postStep > 1 && (
+                  <Button
+                    variant="ghost"
+                    className="h-9 text-xs text-slate-400 hover:text-white hover:bg-white/[0.04] gap-1"
+                    onClick={() => setPostStep((postStep - 1) as 1|2|3)}
+                  >
+                    <ArrowLeft className="h-3 w-3" />
+                    Kembali
+                  </Button>
+                )}
+                <div className="flex-1" />
+                <Button
+                  variant="ghost"
+                  className="h-9 text-xs text-slate-400 hover:text-white hover:bg-white/[0.04]"
+                  onClick={() => { setPostProductOpen(false); resetPostProductForm() }}
+                >
+                  Batal
+                </Button>
+                {postStep < 3 ? (
+                  <Button
+                    className="h-9 text-xs theme-bg theme-hover text-white gap-1"
+                    onClick={() => {
+                      if (postStep === 1) {
+                        const hasQty = selectedInvItems.some(i => (parseFloat(postCompQty[i.id]) || 0) > 0)
+                        if (!hasQty) { toast.error('Isi jumlah pemakaian minimal 1 item'); return }
+                      }
+                      if (postStep === 2) {
+                        if (!postProductName.trim()) { toast.error('Nama produk wajib diisi'); return }
+                        if (!postProductPrice) { toast.error('Harga jual wajib diisi'); return }
+                        if (postHasVariants) {
+                          const missing = postVariants.some(v => !v.name.trim())
+                          if (missing) { toast.error('Nama varian wajib diisi untuk semua varian'); return }
+                        }
+                      }
+                      setPostStep((postStep + 1) as 1|2|3)
+                    }}
+                    disabled={postStep === 1 && selectedInvItems.length === 0}
+                  >
+                    Lanjut
+                    <ArrowRight className="h-3 w-3" />
+                  </Button>
+                ) : (
+                  <Button
+                    className="h-9 text-xs theme-bg theme-hover text-white gap-1"
+                    disabled={postProductSubmitting || !postProductName.trim() || !postProductPrice}
+                    onClick={handlePostProductSubmit}
+                  >
+                    {postProductSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                    Buat Produk
+                  </Button>
+                )}
+              </>
             )}
           </ResponsiveDialogFooter>
         </ResponsiveDialogContent>
@@ -3950,10 +4144,34 @@ export default function PurchasePage() {
       <ResponsiveDialog open={invDetailOpen} onOpenChange={setInvDetailOpen}>
         <ResponsiveDialogContent className="sm:max-w-xl">
           <ResponsiveDialogHeader>
-            <ResponsiveDialogTitle className="text-white text-base">Detail Item</ResponsiveDialogTitle>
-            <ResponsiveDialogDescription className="text-slate-400 text-xs">
-              {invDetailData?.name || '-'}
-            </ResponsiveDialogDescription>
+            <div className="flex items-center justify-between pr-8">
+              <div className="min-w-0">
+                <ResponsiveDialogTitle className="text-white text-base truncate">Detail Item</ResponsiveDialogTitle>
+                <ResponsiveDialogDescription className="text-slate-400 text-xs truncate">
+                  {invDetailData?.name || '-'}
+                </ResponsiveDialogDescription>
+              </div>
+              {invDetailData && (
+                <div className="flex items-center gap-1 shrink-0">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 px-2 text-slate-400 hover:text-white hover:bg-white/[0.04]"
+                    onClick={() => { openInvForm(invDetailData); setInvDetailOpen(false) }}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 px-2 text-slate-400 hover:text-red-400 hover:bg-red-500/[0.06]"
+                    onClick={() => { setDeleteInvId(invDetailData.id); setInvDetailOpen(false) }}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              )}
+            </div>
           </ResponsiveDialogHeader>
 
           {invDetailLoading ? (
