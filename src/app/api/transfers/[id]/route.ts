@@ -176,8 +176,8 @@ export async function PATCH(
       return safeJsonError('Hanya transfer IN_TRANSIT yang dapat diterima', 400)
     }
 
-    if (status === 'CANCELLED' && transfer.status !== 'DRAFT' && !(transfer.itemType === 'INVENTORY' && transfer.status === 'IN_TRANSIT')) {
-      return safeJsonError('Hanya transfer DRAFT yang dapat dibatalkan', 400)
+    if (status === 'CANCELLED' && transfer.status !== 'DRAFT' && transfer.status !== 'IN_TRANSIT') {
+      return safeJsonError('Hanya transfer DRAFT atau IN_TRANSIT yang dapat dibatalkan', 400)
     }
 
     // Only sender can mark as IN_TRANSIT or CANCELLED (CANCELLED from IN_TRANSIT also by sender)
@@ -198,6 +198,32 @@ export async function PATCH(
         403,
       )
     }
+
+    // ── Helper: Build detailed audit items with variant info ──
+    const buildAuditItems = (items: typeof transfer.items) =>
+      items.map((i) => {
+        const entry: Record<string, unknown> = {
+          productName: i.productName,
+          productSku: i.productSku,
+          productBarcode: i.productBarcode,
+          quantity: i.quantity,
+          hpp: i.hpp,
+          price: i.price,
+          subtotal: i.quantity * i.price,
+        }
+        if (i.productSnapshot) {
+          try {
+            const snap = JSON.parse(i.productSnapshot)
+            if (snap.hasVariants && Array.isArray(snap.variants) && snap.variants.length > 0) {
+              entry.hasVariants = true
+              entry.variants = snap.variants.map((v: { name: string; sku?: string; barcode?: string; hpp?: number; price: number; stock: number }) => ({
+                name: v.name, sku: v.sku || null, price: v.price, hpp: v.hpp || 0, stock: v.stock,
+              }))
+            }
+          } catch { /* ignore */ }
+        }
+        return entry
+      })
 
     // ── IN_TRANSIT: Deduct stock from source outlet ──
     if (status === 'IN_TRANSIT') {
@@ -241,8 +267,13 @@ export async function PATCH(
             })
           }
 
-          // Update transfer status
-          await tx.outletTransfer.update({ where: { id }, data: { status: 'IN_TRANSIT' } })
+          // Update transfer status (atomic: only succeeds if still DRAFT)
+          const statusAffected = await tx.$executeRaw`
+            UPDATE "OutletTransfer" SET status = 'IN_TRANSIT' WHERE id = ${id} AND status = 'DRAFT'
+          `
+          if (statusAffected === 0) {
+            throw new Error('Transfer sudah dikirim oleh pengguna lain')
+          }
 
           // Audit log at source outlet
           await tx.auditLog.create({
@@ -314,32 +345,6 @@ export async function PATCH(
       }
 
       // ── PRODUCT: Deduct stock from source outlet (with variant sync) ──
-      // Build detailed audit items with variant info
-      const buildAuditItems = (items: typeof transfer.items) =>
-        items.map((i) => {
-          const entry: Record<string, unknown> = {
-            productName: i.productName,
-            productSku: i.productSku,
-            productBarcode: i.productBarcode,
-            quantity: i.quantity,
-            hpp: i.hpp,
-            price: i.price,
-            subtotal: i.quantity * i.price,
-          }
-          if (i.productSnapshot) {
-            try {
-              const snap = JSON.parse(i.productSnapshot)
-              if (snap.hasVariants && Array.isArray(snap.variants) && snap.variants.length > 0) {
-                entry.hasVariants = true
-                entry.variants = snap.variants.map((v: { name: string; sku?: string; barcode?: string; hpp?: number; price: number; stock: number }) => ({
-                  name: v.name, sku: v.sku || null, price: v.price, hpp: v.hpp || 0, stock: v.stock,
-                }))
-              }
-            } catch { /* ignore */ }
-          }
-          return entry
-        })
-
       const auditItems = buildAuditItems(transfer.items)
       const totalQty = transfer.items.reduce((s, i) => s + i.quantity, 0)
       const totalValue = transfer.items.reduce((s, i) => s + i.quantity * i.price, 0)
@@ -469,8 +474,13 @@ export async function PATCH(
           }
         }
 
-        // Update transfer status
-        await tx.outletTransfer.update({ where: { id }, data: { status: 'IN_TRANSIT' } })
+        // Update transfer status (atomic: only succeeds if still DRAFT)
+        const statusAffected = await tx.$executeRaw`
+          UPDATE "OutletTransfer" SET status = 'IN_TRANSIT' WHERE id = ${id} AND status = 'DRAFT'
+        `
+        if (statusAffected === 0) {
+          throw new Error('Transfer sudah dikirim oleh pengguna lain')
+        }
 
         // Audit log at source outlet (detailed)
         await tx.auditLog.create({
@@ -1057,8 +1067,10 @@ export async function PATCH(
 
     // ── CANCELLED: Cancel transfer ──
     if (status === 'CANCELLED') {
-      // ── INVENTORY: CANCELLED from IN_TRANSIT — return stock to source ──
-      if (transfer.itemType === 'INVENTORY' && transfer.status === 'IN_TRANSIT') {
+      // ── IN_TRANSIT → CANCELLED: Return stock to source outlet ──
+      if (transfer.status === 'IN_TRANSIT') {
+        // ── INVENTORY: CANCELLED from IN_TRANSIT — return stock to source ──
+        if (transfer.itemType === 'INVENTORY') {
         const invItems = transfer.inventoryTransferItems
 
         await db.$transaction(async (tx) => {
@@ -1147,7 +1159,210 @@ export async function PATCH(
         })
       }
 
-      // ── DRAFT → CANCELLED (existing logic for both PRODUCT and INVENTORY) ──
+      // ── PRODUCT: CANCELLED from IN_TRANSIT — return stock to source outlet ──
+      if (transfer.itemType === 'PRODUCT') {
+        const cancelProductItems = transfer.items
+        const cancelAuditItems = buildAuditItems(cancelProductItems)
+        const cancelTotalQty = cancelProductItems.reduce((s, i) => s + i.quantity, 0)
+        const cancelTotalValue = cancelProductItems.reduce((s, i) => s + i.quantity * i.price, 0)
+
+        await db.$transaction(async (tx) => {
+          // Restore stock for each product at source outlet
+          const productStockChanges: Array<{
+            productId: string; productName: string; productSku: string | null
+            quantity: number; previousStock: number; newStock: number
+          }> = []
+          const variantStockChanges: Array<{
+            variantId: string; productId: string; productName: string; variantName: string
+            quantity: number; previousStock: number; newStock: number
+          }> = []
+
+          for (const item of cancelProductItems) {
+            // Find product at source outlet by SKU, barcode, or name
+            let product: { id: string; name: string; stock: number; hasVariants: boolean; price: number; hpp: number } | null = null
+            if (item.productSku) {
+              product = await tx.product.findFirst({
+                where: { outletId: transfer.fromOutletId, sku: item.productSku },
+                select: { id: true, name: true, stock: true, hasVariants: true, price: true, hpp: true },
+              })
+            }
+            if (!product && item.productBarcode) {
+              product = await tx.product.findFirst({
+                where: { outletId: transfer.fromOutletId, barcode: item.productBarcode },
+                select: { id: true, name: true, stock: true, hasVariants: true, price: true, hpp: true },
+              })
+            }
+            if (!product) {
+              product = await tx.product.findFirst({
+                where: { outletId: transfer.fromOutletId, name: item.productName },
+                select: { id: true, name: true, stock: true, hasVariants: true, price: true, hpp: true },
+              })
+            }
+
+            if (product) {
+              // Parse snapshot for variant info
+              let snapshot: Record<string, unknown> | null = null
+              try { snapshot = item.productSnapshot ? JSON.parse(item.productSnapshot) : null } catch { /* ignore */ }
+              const variants = (snapshot?.variants && Array.isArray(snapshot.variants)) ? snapshot.variants as Array<{ name: string; sku?: string; barcode?: string; hpp?: number; price: number; stock: number }> : []
+
+              if (product.hasVariants && variants.length > 0) {
+                // Restore per-variant stock
+                for (const variant of variants) {
+                  const existingVariant = await tx.productVariant.findFirst({
+                    where: { productId: product.id, name: variant.name, outletId: transfer.fromOutletId },
+                    select: { id: true, name: true, stock: true, price: true, hpp: true },
+                  })
+                  if (existingVariant) {
+                    const prevStock = existingVariant.stock
+                    const newVarStock = existingVariant.stock + variant.stock
+                    await tx.productVariant.update({
+                      where: { id: existingVariant.id },
+                      data: { stock: newVarStock },
+                    })
+                    variantStockChanges.push({
+                      variantId: existingVariant.id, productId: product.id,
+                      productName: product.name, variantName: existingVariant.name,
+                      quantity: variant.stock, previousStock: prevStock, newStock: newVarStock,
+                    })
+                  }
+                }
+                // Also restore parent product stock
+                const prevParentStock = product.stock
+                const newParentStock = product.stock + item.quantity
+                await tx.product.update({ where: { id: product.id }, data: { stock: newParentStock } })
+                productStockChanges.push({
+                  productId: product.id, productName: product.name, productSku: item.productSku || null,
+                  quantity: item.quantity, previousStock: prevParentStock, newStock: newParentStock,
+                })
+              } else {
+                // Non-variant: simple stock restore
+                const prevStock = product.stock
+                const newStock = product.stock + item.quantity
+                await tx.product.update({ where: { id: product.id }, data: { stock: newStock } })
+                productStockChanges.push({
+                  productId: product.id, productName: product.name, productSku: item.productSku || null,
+                  quantity: item.quantity, previousStock: prevStock, newStock,
+                })
+              }
+            }
+          }
+
+          // Update transfer status
+          await tx.outletTransfer.update({ where: { id }, data: { status: 'CANCELLED' } })
+
+          // Summary audit log at source outlet
+          await tx.auditLog.create({
+            data: {
+              action: 'ADJUSTMENT',
+              entityType: 'STOCK',
+              entityId: id,
+              details: JSON.stringify({
+                action: 'TRANSFER_CANCELLED',
+                itemType: 'PRODUCT',
+                transferNumber: transfer.transferNumber,
+                toOutlet: transfer.toOutlet.name,
+                previousStatus: 'IN_TRANSIT',
+                itemCount: cancelProductItems.length,
+                totalQty: cancelTotalQty,
+                totalValue: cancelTotalValue,
+                stockReverted: true,
+                items: cancelAuditItems,
+              }),
+              outletId: transfer.fromOutletId,
+              userId: user.id,
+            },
+          })
+
+          // Notification audit log at destination outlet
+          await tx.auditLog.create({
+            data: {
+              action: 'ADJUSTMENT',
+              entityType: 'STOCK',
+              entityId: id,
+              details: JSON.stringify({
+                action: 'TRANSFER_CANCELLED_INCOMING',
+                itemType: 'PRODUCT',
+                transferNumber: transfer.transferNumber,
+                fromOutlet: transfer.fromOutlet.name,
+                itemCount: cancelProductItems.length,
+                totalQty: cancelTotalQty,
+              }),
+              outletId: transfer.toOutletId,
+              userId: user.id,
+            },
+          })
+
+          // Per-product audit logs
+          for (const change of productStockChanges) {
+            await tx.auditLog.create({
+              data: {
+                action: 'RESTOCK',
+                entityType: 'STOCK',
+                entityId: change.productId,
+                details: JSON.stringify({
+                  action: 'TRANSFER_CANCEL_RESTOCK',
+                  productName: change.productName,
+                  productSku: change.productSku,
+                  transferNumber: transfer.transferNumber,
+                  toOutlet: transfer.toOutlet.name,
+                  quantity: change.quantity,
+                  previousStock: change.previousStock,
+                  newStock: change.newStock,
+                  reason: 'Pembatalan transfer dari IN_TRANSIT — stok dikembalikan',
+                }),
+                outletId: transfer.fromOutletId,
+                userId: user.id,
+              },
+            })
+          }
+
+          // Per-variant audit logs
+          for (const change of variantStockChanges) {
+            await tx.auditLog.create({
+              data: {
+                action: 'RESTOCK',
+                entityType: 'VARIANT',
+                entityId: change.variantId,
+                details: JSON.stringify({
+                  action: 'TRANSFER_CANCEL_RESTOCK',
+                  productName: change.productName,
+                  variantName: change.variantName,
+                  transferNumber: transfer.transferNumber,
+                  toOutlet: transfer.toOutlet.name,
+                  quantity: change.quantity,
+                  previousStock: change.previousStock,
+                  newStock: change.newStock,
+                  reason: 'Pembatalan transfer dari IN_TRANSIT — stok dikembalikan',
+                }),
+                outletId: transfer.fromOutletId,
+                userId: user.id,
+              },
+            })
+          }
+        })
+
+        const updated = await db.outletTransfer.findUnique({
+          where: { id },
+          include: {
+            fromOutlet: { select: { name: true } },
+            toOutlet: { select: { name: true } },
+            items: {
+              select: {
+                id: true, productName: true, productSku: true, productBarcode: true,
+                quantity: true, hpp: true, price: true, productSnapshot: true,
+              },
+            },
+          },
+        })
+
+        return safeJson({
+          ...updated,
+          message: `Transfer ${transfer.transferNumber} dibatalkan, stok produk dikembalikan`,
+        })
+      }
+      } // end IN_TRANSIT cancels (INVENTORY + PRODUCT)
+
+      // ── DRAFT → CANCELLED (both PRODUCT and INVENTORY) ──
       // Build detailed audit items with variant info
       const cancelAuditItems = transfer.items.map((i) => {
         const entry: Record<string, unknown> = {

@@ -220,43 +220,42 @@ export class InventoryConsumptionService {
       return { success: true, deductions: [], totalMaterialCost: 0 }
     }
 
-    // ── 4. VALIDASI STOK ──
+    // ── 4. ATOMIC STOK VALIDASI + DEDUCT ──
+    //    Race-condition-free: UPDATE SET stock = stock - qty WHERE stock >= qty
+    //    Jika affected = 0 → stok tidak cukup (mungkin transaksi lain ambil duluan)
     const invItemIds = [...deductions.keys()]
     const invItems = await tx.inventoryItem.findMany({
       where: { id: { in: invItemIds } },
       select: { id: true, name: true, stock: true, avgCost: true },
     })
-    const stockMap = new Map(invItems.map(i => [i.id, i.stock]))
+    const stockMap = new Map<string, number>(invItems.map(i => [i.id, i.stock]))
+    const costMap = new Map<string, number>(invItems.map(i => [i.id, Number(i.avgCost)]))
 
-    for (const [invItemId, deduction] of deductions) {
-      const currentStock = stockMap.get(invItemId) ?? 0
-      if (currentStock < deduction.totalDeducted) {
-        const sourceDesc = deduction.sources
-          .map(s => s.variantName ? `${s.productName} (${s.variantName})` : s.productName)
-          .join(', ')
-        throw new Error(
-          `Stok item "${deduction.itemName}" tidak cukup. ` +
-          `Tersedia: ${currentStock} ${deduction.baseUnit}, ` +
-          `Dibutuhkan: ${deduction.totalDeducted} ${deduction.baseUnit} ` +
-          `untuk: ${sourceDesc}`
-        )
-      }
-    }
-
-    // ── 5. DEDUCT STOK ──
     const resultDeductions: InventoryDeduction[] = []
     let totalMaterialCost = 0
 
     for (const [invItemId, deduction] of deductions) {
       const previousStock = stockMap.get(invItemId) ?? 0
-      const newStock = previousStock - deduction.totalDeducted
 
-      await tx.inventoryItem.update({
-        where: { id: invItemId },
-        data: { stock: newStock },
-      })
+      // Atomic: check + decrement in one SQL operation
+      const affected = (await tx.$executeRaw`
+        UPDATE "InventoryItem" SET stock = stock - ${deduction.totalDeducted}
+        WHERE id = ${invItemId} AND stock >= ${deduction.totalDeducted}
+      `) as number
+      if (affected === 0) {
+        const sourceDesc = deduction.sources
+          .map(s => s.variantName ? `${s.productName} (${s.variantName})` : s.productName)
+          .join(', ')
+        throw new Error(
+          `Stok item "${deduction.itemName}" tidak cukup. ` +
+          `Tersedia: ${previousStock} ${deduction.baseUnit}, ` +
+          `Dibutuhkan: ${deduction.totalDeducted} ${deduction.baseUnit} ` +
+          `untuk: ${sourceDesc}. Kemungkinan stok terakhir sudah diambil transaksi lain.`
+        )
+      }
 
-      const avgCost = invItems.find(i => i.id === invItemId)?.avgCost ?? 0
+      const newStock = (previousStock as number) - deduction.totalDeducted
+      const avgCost = costMap.get(invItemId) ?? 0
       totalMaterialCost += deduction.totalDeducted * avgCost
 
       resultDeductions.push({
@@ -441,7 +440,7 @@ export class InventoryConsumptionService {
       where: { id: { in: invItemIds } },
       select: { id: true, name: true, stock: true },
     })
-    const stockMap = new Map(invItems.map(i => [i.id, i.stock]))
+    const stockMap = new Map<string, number>(invItems.map(i => [i.id, i.stock]))
 
     const restoredEntries: Array<{
       inventoryItemId: string
@@ -598,7 +597,7 @@ export class InventoryConsumptionService {
       where: { id: { in: invItemIds } },
       select: { id: true, stock: true },
     })
-    const stockMap = new Map(invItems.map(i => [i.id, i.stock]))
+    const stockMap = new Map<string, number>(invItems.map(i => [i.id, i.stock]))
 
     for (const [invItemId, deduction] of deductions) {
       const currentStock = stockMap.get(invItemId) ?? 0
@@ -649,7 +648,7 @@ export class InventoryConsumptionService {
       where: { id: { in: invItemIds } },
       select: { id: true, name: true, stock: true },
     })
-    const stockMap = new Map(invItems.map(i => [i.id, i.stock]))
+    const stockMap = new Map<string, number>(invItems.map(i => [i.id, i.stock]))
 
     // Restore each snapshot
     for (const snapshot of snapshots) {

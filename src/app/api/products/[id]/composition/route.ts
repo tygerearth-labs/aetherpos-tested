@@ -312,51 +312,44 @@ export async function PUT(
         },
       })
 
+      // 4. Cap stock for non-variant products (within transaction)
+      if (!product.hasVariants && compositions && compositions.length > 0) {
+        const { maxStock } = await getMaxStockFromComposition(id, outletId)
+        if (maxStock !== Infinity) {
+          await tx.$executeRaw`
+            UPDATE "Product" SET stock = MIN(stock, ${maxStock}) WHERE id = ${id}
+          `
+        }
+      }
+
+      // 5. Cap stock for variant products (within transaction)
+      if (product.hasVariants && variantCompositions) {
+        const variants = await tx.productVariant.findMany({
+          where: { productId: id, outletId },
+          select: { id: true, name: true, stock: true },
+        })
+        for (const v of variants) {
+          const { maxStock } = await getMaxStockFromVariantComposition(v.id)
+          if (maxStock !== Infinity && v.stock > maxStock) {
+            await tx.productVariant.update({
+              where: { id: v.id },
+              data: { stock: maxStock },
+            })
+          }
+        }
+        // Recalculate parent product stock
+        const aggResult = await tx.productVariant.aggregate({
+          where: { productId: id, outletId },
+          _sum: { stock: true },
+        })
+        await tx.product.update({
+          where: { id },
+          data: { stock: aggResult._sum.stock ?? 0 },
+        })
+      }
+
       return { productAutoHpp }
     })
-
-    // 4. After transaction — cap stock for non-variant products
-    if (!product.hasVariants && compositions && compositions.length > 0) {
-      const { maxStock } = await getMaxStockFromComposition(id, outletId)
-      if (maxStock !== Infinity) {
-        const current = await db.product.findUnique({
-          where: { id },
-          select: { stock: true },
-        })
-        if (current && current.stock > maxStock) {
-          await db.product.update({
-            where: { id },
-            data: { stock: maxStock },
-          })
-        }
-      }
-    }
-
-    // 5. After transaction — cap stock for variant products
-    if (product.hasVariants && variantCompositions) {
-      const variants = await db.productVariant.findMany({
-        where: { productId: id, outletId },
-        select: { id: true, name: true, stock: true },
-      })
-      for (const v of variants) {
-        const { maxStock } = await getMaxStockFromVariantComposition(v.id)
-        if (maxStock !== Infinity && v.stock > maxStock) {
-          await db.productVariant.update({
-            where: { id: v.id },
-            data: { stock: maxStock },
-          })
-        }
-      }
-      // Recalculate parent product stock
-      const aggResult = await db.productVariant.aggregate({
-        where: { productId: id, outletId },
-        _sum: { stock: true },
-      })
-      await db.product.update({
-        where: { id },
-        data: { stock: aggResult._sum.stock ?? 0 },
-      })
-    }
 
     return safeJson({
       success: true,
