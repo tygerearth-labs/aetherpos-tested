@@ -269,6 +269,7 @@ export async function DELETE(
       where: { id, outletId },
       include: {
         variants: { select: { id: true, name: true } },
+        _count: { select: { compositions: true } },
       },
     })
     if (!existing) {
@@ -293,10 +294,15 @@ export async function DELETE(
       userId,
     })
 
-    // Delete product — variants auto-delete via onDelete: Cascade
-    await db.product.delete({
-      where: { id },
-    })
+    // Delete product — explicitly clean up compositions & variants to avoid orphan FK refs in SQLite
+    await db.$transaction(async (tx) => {
+      // 1. Explicitly delete all compositions referencing this product
+      if (existing._count.compositions > 0) {
+        await tx.productComposition.deleteMany({ where: { productId: id } })
+      }
+      // 2. Delete product (variants auto-delete via onDelete: Cascade)
+      await tx.product.delete({ where: { id } })
+    }, { timeout: 30000 })
 
     return safeJson({ success: true })
   } catch (error) {

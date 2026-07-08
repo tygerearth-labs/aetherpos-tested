@@ -113,9 +113,22 @@ export async function DELETE(
       userId,
     })
 
-    await db.customer.delete({
-      where: { id },
-    })
+    // Nullify transaction references + delete loyalty logs before deleting customer
+    await db.$transaction(async (tx) => {
+      // Set customerId to null on all transactions (preserve transaction history)
+      await tx.transaction.updateMany({
+        where: { customerId: id },
+        data: { customerId: null },
+      })
+
+      // Delete all loyalty logs for this customer
+      await tx.loyaltyLog.deleteMany({
+        where: { customerId: id },
+      })
+
+      // Delete the customer
+      await tx.customer.delete({ where: { id } })
+    }, { timeout: 30000 })
 
     return safeJson({ success: true })
   } catch (error) {

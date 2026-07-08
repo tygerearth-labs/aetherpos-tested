@@ -226,6 +226,11 @@ export async function PUT(
         const newItem = newItemMap.get(oldItem.inventoryItemId)
         const invItem = oldItem.inventoryItem
 
+        // Skip stock reversal if inventory item was already deleted (orphaned PO item)
+        if (!invItem) {
+          continue
+        }
+
         if (newItem) {
           // Item is modified: reverse the old qty (will re-apply new qty later)
           if (invItem.stock < oldItem.baseQty) {
@@ -505,6 +510,16 @@ export async function DELETE(
         const invItem = item.inventoryItem
         const baseQty = item.baseQty
 
+        // Skip stock reversal if inventory item was already deleted (orphaned PO item)
+        if (!invItem) {
+          // Clean up orphaned PO item reference
+          await tx.purchaseOrderItem.updateMany({
+            where: { id: item.id },
+            data: { inventoryItemId: '' },
+          })
+          continue
+        }
+
         // Prevent negative stock
         if (invItem.stock < baseQty) {
           throw new Error(
@@ -513,8 +528,6 @@ export async function DELETE(
         }
 
         // Reverse weighted average cost
-        // newStock = existingStock - baseQty
-        // newAvgCost = (existingStock * existingAvgCost - baseQty * item.unitCost) / newStock
         const existingStock = invItem.stock
         const existingAvgCost = invItem.avgCost
         const newStock = existingStock - baseQty

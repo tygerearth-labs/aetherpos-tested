@@ -1,5 +1,4 @@
 // ==================== AETHER POS SCHEMA ====================
-// PostgreSQL for Vercel + Neon DB
 
 generator client {
   provider = "prisma-client-js"
@@ -234,7 +233,7 @@ model TransactionConsumption {
   createdAt        DateTime @default(now())
 
   transaction    Transaction    @relation(fields: [transactionId], references: [id], onDelete: Cascade)
-  inventoryItem  InventoryItem  @relation(fields: [inventoryItemId], references: [id])
+  inventoryItem  InventoryItem  @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
 }
 
 // ==================== LOYALTY LOG ====================
@@ -544,7 +543,7 @@ model InventoryMovement {
   createdAt      DateTime @default(now())
 
   outlet          Outlet          @relation(fields: [outletId], references: [id])
-  inventoryItem   InventoryItem   @relation(fields: [inventoryItemId], references: [id])
+  inventoryItem   InventoryItem   @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
   user            User?           @relation("MovementUser", fields: [userId], references: [id])
 }
 
@@ -562,6 +561,6 @@ model InventoryTransferItem {
   createdAt        DateTime @default(now())
 
   transfer       OutletTransfer  @relation(fields: [transferId], references: [id], onDelete: Cascade)
-  inventoryItem  InventoryItem   @relation(fields: [inventoryItemId], references: [id])
+  inventoryItem  InventoryItem   @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
   outlet         Outlet          @relation(fields: [outletId], references: [id])
 }

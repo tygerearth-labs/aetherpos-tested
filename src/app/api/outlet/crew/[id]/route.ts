@@ -115,11 +115,44 @@ export async function DELETE(
       return safeJsonError('Crew tidak ditemukan', 404)
     }
 
-    // Delete crew permission and user atomically
-    await db.$transaction([
-      db.crewPermission.deleteMany({ where: { userId: id } }),
-      db.user.delete({ where: { id } }),
-    ])
+    // Delete crew — handle FK constraints (transactions, audit logs, purchase orders)
+    await db.$transaction(async (tx) => {
+      // 1. Delete crew permissions
+      await tx.crewPermission.deleteMany({ where: { userId: id } })
+
+      // 2. Delete inventory movements created by this crew
+      await tx.inventoryMovement.deleteMany({ where: { userId: id } })
+
+      // 3. Delete loyalty logs created for transactions by this crew
+      // (LoyaltyLog references Transaction, not User directly — so we find via transactions)
+      const crewTransactionIds = await tx.transaction.findMany({
+        where: { userId: id },
+        select: { id: true },
+      })
+      if (crewTransactionIds.length > 0) {
+        await tx.loyaltyLog.deleteMany({
+          where: { transactionId: { in: crewTransactionIds.map(t => t.id) } },
+        })
+      }
+
+      // 4. Delete the user (transactions cascade won't work — but we keep them for history)
+      //    Nullify userId on transactions, audit logs, and purchase orders before deleting user
+      await tx.transaction.updateMany({
+        where: { userId: id },
+        data: { userId: '' },
+      })
+      await tx.auditLog.updateMany({
+        where: { userId: id },
+        data: { userId: '' },
+      })
+      await tx.purchaseOrder.updateMany({
+        where: { userId: id },
+        data: { userId: '' },
+      })
+
+      // 5. Finally delete the user
+      await tx.user.delete({ where: { id } })
+    }, { timeout: 30000 })
 
     // Audit log
     await safeAuditLog({
