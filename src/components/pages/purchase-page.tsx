@@ -94,6 +94,8 @@ interface InventoryItemOption {
   baseUnit: string
   stock: number
   active: boolean
+  /** True if this is a pending item not yet saved to DB */
+  _isNew?: boolean
 }
 
 interface PurchaseOrderItem {
@@ -315,6 +317,7 @@ export default function PurchasePage() {
   const [quickItemSku, setQuickItemSku] = useState('')
   const [quickItemUnit, setQuickItemUnit] = useState('kg')
   const [quickItemCreating, setQuickItemCreating] = useState(false)
+  const pendingCounterRef = useRef(0)
 
   // Smart input (batch add by comma-separated names)
   const [smartInput, setSmartInput] = useState('')
@@ -571,6 +574,7 @@ export default function PurchasePage() {
   // Pre-load items when purchase dialog opens
   useEffect(() => {
     if (poCreateOpen) {
+      pendingCounterRef.current = 0
       fetchPoItemOptions()
       setShowItemPicker(false)
       setActiveItemSearchIdx(null)
@@ -783,7 +787,51 @@ export default function PurchasePage() {
         return
       }
     }
-    setPoCreateLoading(true)
+
+    // ── Step 1: Create any pending items in DB first ──
+    const pendingItems = validItems.filter(i => i.inventoryItemId.startsWith('__pending_'))
+    const idMap = new Map<string, string>() // tempId → realId
+
+    if (pendingItems.length > 0) {
+      setPoCreateLoading(true)
+      toast.loading(`Membuat ${pendingItems.length} item baru di inventory...`, { id: 'pending-create' })
+      for (const pItem of pendingItems) {
+        // Find the option to get full details (sku, baseUnit)
+        const opt = poItemOptions.find(o => o.id === pItem.inventoryItemId)
+        try {
+          const res = await fetch('/api/inventory/items', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name: pItem.inventoryItemName,
+              sku: opt?.sku || undefined,
+              baseUnit: pItem.baseUnit,
+              stock: 0,
+              avgCost: 0,
+            }),
+          })
+          if (res.ok) {
+            const data = await res.json()
+            idMap.set(pItem.inventoryItemId, data.id)
+          } else {
+            const err = await res.json()
+            toast.error(err.error || `Gagal membuat item "${pItem.inventoryItemName}"`)
+            toast.dismiss('pending-create')
+            setPoCreateLoading(false)
+            return
+          }
+        } catch {
+          toast.error(`Gagal membuat item "${pItem.inventoryItemName}"`)
+          toast.dismiss('pending-create')
+          setPoCreateLoading(false)
+          return
+        }
+      }
+      toast.dismiss('pending-create')
+    }
+
+    // ── Step 2: Submit purchase with real IDs ──
+    if (!pendingItems.length) setPoCreateLoading(true)
     try {
       const res = await fetch('/api/purchases', {
         method: 'POST',
@@ -798,7 +846,7 @@ export default function PurchasePage() {
             const totalBaseQty = purchaseQty * isiPerUnit
             const unitCost = totalBaseQty > 0 ? totalCost / totalBaseQty : 0
             return {
-              inventoryItemId: i.inventoryItemId,
+              inventoryItemId: idMap.get(i.inventoryItemId) || i.inventoryItemId,
               purchaseQty,
               purchaseUnit: i.unit || '',
               baseQty: totalBaseQty,
@@ -837,6 +885,7 @@ export default function PurchasePage() {
     smartInputScanDetectedRef.current = false
     smartInputCharCountRef.current = 0
     setScanModeActive(false)
+    pendingCounterRef.current = 0
   }
 
   const handleAddPoItem = () => {
@@ -877,38 +926,30 @@ export default function PurchasePage() {
     setItemPickerFilter('')
   }
 
-  // Quick add new inventory item from purchase dialog
-  const handleQuickAddItem = async (targetIdx: number) => {
+  // Quick add new inventory item from purchase dialog (PENDING — not saved to DB until Simpan)
+  const handleQuickAddItem = (targetIdx: number) => {
     if (!quickItemName.trim()) {
       toast.error('Nama item wajib diisi')
       return
     }
-    setQuickItemCreating(true)
-    try {
-      const res = await fetch('/api/inventory/items', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: quickItemName.trim(), sku: quickItemSku.trim() || undefined, baseUnit: quickItemUnit, stock: 0, avgCost: 0 }),
-      })
-      if (res.ok) {
-        const data = await res.json()
-        const newItem: InventoryItemOption = { id: data.id, name: data.name, sku: data.sku || null, baseUnit: data.baseUnit, stock: 0, active: true }
-        setPoItemOptions(prev => [newItem, ...prev])
-        handleSelectInvItem(targetIdx, newItem)
-        setShowQuickAddItem(false)
-        setQuickItemName('')
-        setQuickItemSku('')
-        setQuickItemUnit('kg')
-        toast.success('Item baru ditambahkan')
-      } else {
-        const err = await res.json()
-        toast.error(err.error || 'Gagal menambahkan item')
-      }
-    } catch {
-      toast.error('Gagal menambahkan item')
-    } finally {
-      setQuickItemCreating(false)
+    pendingCounterRef.current++
+    const tempId = `__pending_${pendingCounterRef.current}_${Date.now()}`
+    const newItem: InventoryItemOption = {
+      id: tempId,
+      name: quickItemName.trim(),
+      sku: quickItemSku.trim() || null,
+      baseUnit: quickItemUnit,
+      stock: 0,
+      active: true,
+      _isNew: true,
     }
+    setPoItemOptions(prev => [newItem, ...prev])
+    handleSelectInvItem(targetIdx, newItem)
+    setShowQuickAddItem(false)
+    setQuickItemName('')
+    setQuickItemSku('')
+    setQuickItemUnit('kg')
+    toast.success('Item baru ditambahkan (pending)')
   }
 
   // ── Smart Input: Scan detection (timing-based like POS) ──
@@ -952,8 +993,8 @@ export default function PurchasePage() {
     // Only auto-process if no comma/semicolon (pure scan, not multi-text)
     if (query.includes(',') || query.includes(';') || query.includes('\n')) return
 
-    // Try exact SKU match
-    const skuMatch = poItemOptions.find(i => i.sku && i.sku.toLowerCase() === query)
+    // Try exact SKU match (skip pending items — they have no real DB SKU)
+    const skuMatch = poItemOptions.find(i => !i._isNew && i.sku && i.sku.toLowerCase() === query)
     if (skuMatch) {
       // Check if already in items list → increment qty
       const existingIdx = poCreateItems.findIndex(i => i.inventoryItemId === skuMatch.id)
@@ -1046,32 +1087,19 @@ export default function PurchasePage() {
         return
       }
 
-      // Single item not found — auto-create as new inventory item
+      // Single item not found — create as pending item (not saved to DB yet)
       setSmartInput('')
-      try {
-        const res = await fetch('/api/inventory/items', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: names[0], baseUnit: 'kg', stock: 0, avgCost: 0 }),
-        })
-        if (res.ok) {
-          const data = await res.json()
-          const newItem: InventoryItemOption = { id: data.id, name: data.name, sku: data.sku || null, baseUnit: data.baseUnit, stock: 0, active: true }
-          setPoItemOptions(prev => [newItem, ...prev])
-          const emptyIdx = poCreateItems.findIndex(i => !i.inventoryItemId)
-          if (emptyIdx >= 0) {
-            handleSelectInvItem(emptyIdx, newItem)
-          } else {
-            setPoCreateItems(prev => [...prev, { inventoryItemId: newItem.id, inventoryItemName: newItem.name, inventoryItemSku: newItem.sku, baseUnit: newItem.baseUnit, qty: '1', unit: '', baseQty: '0', pricePerItem: '0' }])
-          }
-          toast.success(`"${names[0]}" dibuat otomatis & ditambahkan`)
-        } else {
-          const err = await res.json()
-          toast.error(err.error || `Gagal membuat item "${names[0]}"`)
-        }
-      } catch {
-        toast.error(`Gagal membuat item "${names[0]}"`)
+      pendingCounterRef.current++
+      const tempId = `__pending_${pendingCounterRef.current}_${Date.now()}`
+      const newItem: InventoryItemOption = { id: tempId, name: names[0], sku: null, baseUnit: 'kg', stock: 0, active: true, _isNew: true }
+      setPoItemOptions(prev => [newItem, ...prev])
+      const emptyIdx = poCreateItems.findIndex(i => !i.inventoryItemId)
+      if (emptyIdx >= 0) {
+        handleSelectInvItem(emptyIdx, newItem)
+      } else {
+        setPoCreateItems(prev => [...prev, { inventoryItemId: newItem.id, inventoryItemName: newItem.name, inventoryItemSku: newItem.sku, baseUnit: newItem.baseUnit, qty: '1', unit: '', baseQty: '0', pricePerItem: '0' }])
       }
+      toast.success(`"${names[0]}" ditambahkan (item baru, pending)`)
       return
     }
 
@@ -1095,29 +1123,15 @@ export default function PurchasePage() {
       }
     }
 
-    // Auto-create unmatched items
+    // Create pending items for unmatched (not saved to DB yet)
     const createdItems: PurchaseOrderItem[] = []
     if (unmatchedNames.length > 0) {
-      toast.loading(`Membuat ${unmatchedNames.length} item baru...`, { id: 'batch-create' })
       for (const name of unmatchedNames) {
-        try {
-          const res = await fetch('/api/inventory/items', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, baseUnit: 'kg', stock: 0, avgCost: 0 }),
-          })
-          if (res.ok) {
-            const data = await res.json()
-            const opt: InventoryItemOption = { id: data.id, name: data.name, sku: data.sku || null, baseUnit: data.baseUnit, stock: 0, active: true }
-            setPoItemOptions(prev => [opt, ...prev])
-            createdItems.push({ inventoryItemId: opt.id, inventoryItemName: opt.name, inventoryItemSku: opt.sku, baseUnit: opt.baseUnit, qty: '1', unit: '', baseQty: '0', pricePerItem: '0' })
-          } else {
-            const err = await res.json()
-            toast.error(err.error || `Gagal membuat "${name}"`)
-          }
-        } catch {
-          toast.error(`Gagal membuat "${name}"`)
-        }
+        pendingCounterRef.current++
+        const tempId = `__pending_${pendingCounterRef.current}_${Date.now()}`
+        const opt: InventoryItemOption = { id: tempId, name, sku: null, baseUnit: 'kg', stock: 0, active: true, _isNew: true }
+        setPoItemOptions(prev => [opt, ...prev])
+        createdItems.push({ inventoryItemId: opt.id, inventoryItemName: opt.name, inventoryItemSku: opt.sku, baseUnit: opt.baseUnit, qty: '1', unit: '', baseQty: '0', pricePerItem: '0' })
       }
     }
 
@@ -1141,16 +1155,15 @@ export default function PurchasePage() {
     }
 
     // Toast summary
-    toast.dismiss('batch-create')
     const total = allItems.length
     const existing = matchedItems.length
     const created = createdItems.length
     if (created === 0) {
       toast.success(`${existing} item cocok dan ditambahkan`)
     } else if (existing > 0) {
-      toast.success(`${existing} cocok, ${created} item baru dibuat otomatis — total ${total} item`)
+      toast.success(`${existing} cocok, ${created} item baru (pending) — total ${total} item`)
     } else {
-      toast.success(`${created} item baru dibuat otomatis dan ditambahkan`)
+      toast.success(`${created} item baru (pending) ditambahkan`)
     }
   }
 
@@ -2544,10 +2557,24 @@ export default function PurchasePage() {
                     {/* Item picker / selected display */}
                     <div className="relative" ref={(el) => { invItemSearchRefs.current[idx] = el }}>
                       {item.inventoryItemId ? (
-                        <div className="flex items-center gap-2 bg-emerald-500/[0.06] rounded-lg px-2.5 h-9 border border-emerald-500/10">
-                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                        <div className={cn(
+                          "flex items-center gap-2 rounded-lg px-2.5 h-9 border",
+                          item.inventoryItemId.startsWith('__pending_')
+                            ? "bg-amber-500/[0.06] border-amber-500/10"
+                            : "bg-emerald-500/[0.06] border-emerald-500/10"
+                        )}>
+                          <CheckCircle2 className={cn(
+                            "h-3.5 w-3.5 shrink-0",
+                            item.inventoryItemId.startsWith('__pending_') ? "text-amber-400" : "text-emerald-400"
+                          )} />
                           <div className="flex-1 min-w-0 flex items-center gap-1.5">
-                            <span className="text-xs text-emerald-300 truncate font-medium">{item.inventoryItemName}</span>
+                            <span className={cn(
+                              "text-xs truncate font-medium",
+                              item.inventoryItemId.startsWith('__pending_') ? "text-amber-300" : "text-emerald-300"
+                            )}>{item.inventoryItemName}</span>
+                            {item.inventoryItemId.startsWith('__pending_') && (
+                              <span className="text-[9px] bg-amber-500/15 text-amber-400 px-1.5 py-0.5 rounded font-medium shrink-0">Baru</span>
+                            )}
                             {item.inventoryItemSku && (
                               <span className="text-[10px] text-emerald-400/50 bg-emerald-500/10 px-1 py-0.5 rounded font-mono shrink-0">{item.inventoryItemSku}</span>
                             )}
@@ -2656,11 +2683,16 @@ export default function PurchasePage() {
                                       <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-1.5">
                                           <p className="text-xs text-slate-200 truncate">{r.name}</p>
+                                          {r._isNew && (
+                                            <span className="text-[9px] bg-amber-500/15 text-amber-400 px-1.5 py-0.5 rounded font-medium shrink-0">Baru</span>
+                                          )}
                                           {r.sku && (
                                             <span className="text-[10px] text-slate-500 font-mono shrink-0">{r.sku}</span>
                                           )}
                                         </div>
-                                        <p className="text-[10px] text-slate-500">Stok: {formatNumber(r.stock)} {r.baseUnit}</p>
+                                        <p className="text-[10px] text-slate-500">
+                                          {r._isNew ? 'Belum tersimpan' : `Stok: ${formatNumber(r.stock)} ${r.baseUnit}`}
+                                        </p>
                                       </div>
                                     </button>
                                   ))}
@@ -2690,7 +2722,7 @@ export default function PurchasePage() {
                                       <X className="h-3 w-3" />
                                     </button>
                                   </div>
-                                  <p className="text-[10px] text-slate-500">Item akan otomatis masuk ke inventory toko</p>
+                                  <p className="text-[10px] text-slate-500">Item akan dibuat di inventory saat pembelian disimpan</p>
                                   <div className="grid grid-cols-[1fr_auto] gap-2">
                                     <div className="space-y-1">
                                       <input
@@ -2723,9 +2755,9 @@ export default function PurchasePage() {
                                   <button
                                     className="w-full h-8 rounded-md bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
                                     onClick={() => handleQuickAddItem(idx)}
-                                    disabled={quickItemCreating || !quickItemName.trim()}
+                                    disabled={!quickItemName.trim()}
                                   >
-                                    {quickItemCreating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+                                    <Plus className="h-3 w-3" />
                                     Buat & Pilih Item
                                   </button>
                                 </div>
@@ -2839,7 +2871,7 @@ export default function PurchasePage() {
               </div>
               {poCreateItems.filter(i => i.inventoryItemId).length > 0 && (
                 <p className="text-[9px] text-slate-600 mt-1">
-                  {poCreateItems.filter(i => i.inventoryItemId).length} item • Stok akan otomatis bertambah setelah disimpan
+                  {poCreateItems.filter(i => i.inventoryItemId).length} item • Item baru akan dibuat & stok bertambah setelah disimpan
                 </p>
               )}
             </div>
@@ -2988,7 +3020,7 @@ export default function PurchasePage() {
                                 </div>
                               ) : !showQuickAddItem ? (
                                 <div className="max-h-[180px] overflow-y-auto">
-                                  {filteredItemOptions.map((r) => (
+                                  {filteredItemOptions.filter(r => !r._isNew).map((r) => (
                                     <button
                                       key={r.id}
                                       className={cn("w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-white/[0.04] transition-colors", !r.active && "opacity-50")}
