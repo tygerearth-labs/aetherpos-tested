@@ -277,6 +277,10 @@ export default function PurchasePage() {
   // ── Tab ──
   const [tab, setTab] = useState<string>('purchase')
 
+  // ── Guide panels ──
+  const [showPurchaseGuide, setShowPurchaseGuide] = useState(true)
+  const [showInventoryGuide, setShowInventoryGuide] = useState(true)
+
   // ══════════════════════════════════════════════════════════
   // TAB 1: PEMBELIAN (Purchase Orders)
   // ══════════════════════════════════════════════════════════
@@ -1810,18 +1814,103 @@ export default function PurchasePage() {
               </div>
             )}
 
-            {/* Panduan Alur */}
-            <div className="rounded-xl bg-white/[0.02] border border-white/[0.04] p-3">
-              <div className="flex items-start gap-2.5">
-                <Info className="h-3.5 w-3.5 text-slate-500 mt-0.5 shrink-0" />
-                <div className="text-[10px] text-slate-500 leading-relaxed space-y-0.5">
-                  <p className="text-slate-400 font-medium">Alur Pembelian:</p>
-                  <p><span className="text-slate-300">1.</span> Klik <span className="text-slate-300">"Buat Pembelian"</span> → ketik nama/scan barcode di input bar</p>
-                  <p><span className="text-slate-300">2.</span> Item <span className="text-emerald-400">sudah ada</span> otomatis dipilih • Item <span className="text-amber-400">baru</span> wajib isi <span className="text-white">SKU + Satuan</span></p>
-                  <p><span className="text-slate-300">3.</span> Isi <span className="text-slate-300">jumlah, satuan beli, isi/unit, harga</span> → klik <span className="text-slate-300">"Simpan Pembelian"</span></p>
-                  <p className="text-slate-600">Item baru otomatis dibuat di inventory saat disimpan. HPP dihitung otomatis dari harga beli ÷ isi per unit.</p>
+            {/* Panduan Alur Pembelian */}
+            <div className="rounded-xl bg-white/[0.02] border border-white/[0.04] overflow-hidden">
+              <button
+                className="w-full flex items-center justify-between gap-2 p-3 text-left hover:bg-white/[0.02] transition-colors"
+                onClick={() => setShowPurchaseGuide(prev => !prev)}
+              >
+                <div className="flex items-center gap-2">
+                  <Info className="h-3.5 w-3.5 text-slate-500 shrink-0" />
+                  <span className="text-[11px] text-slate-400 font-medium">Panduan Pembelian & Inventory</span>
                 </div>
-              </div>
+                <ChevronDown className={cn('h-3 w-3 text-slate-600 transition-transform duration-200', showPurchaseGuide && 'rotate-180')} />
+              </button>
+              {showPurchaseGuide && (
+                <div className="px-3 pb-3 space-y-3 border-t border-white/[0.04] pt-3">
+                  {/* Step 1 */}
+                  <div className="flex gap-2.5">
+                    <div className="w-4 h-4 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                      <span className="text-[9px] text-emerald-400 font-bold">1</span>
+                    </div>
+                    <div>
+                      <p className="text-[11px] text-slate-300 font-medium mb-0.5">Tambah Item ke Pembelian</p>
+                      <p className="text-[10px] text-slate-500 leading-relaxed">
+                        Klik <span className="text-white bg-white/[0.06] px-1 py-0.5 rounded text-[9px] font-mono">Buat Pembelian</span> lalu gunakan input bar untuk mencari item. Ketik nama item, scan barcode, atau pisahkan beberapa item dengan <span className="text-white bg-white/[0.06] px-1 py-0.5 rounded text-[9px] font-mono">koma</span>.
+                      </p>
+                    </div>
+                  </div>
+                  {/* Step 2 */}
+                  <div className="flex gap-2.5">
+                    <div className="w-4 h-4 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                      <span className="text-[9px] text-emerald-400 font-bold">2</span>
+                    </div>
+                    <div>
+                      <p className="text-[11px] text-slate-300 font-medium mb-0.5">Item Baru? Isi SKU &amp; Satuan</p>
+                      <p className="text-[10px] text-slate-500 leading-relaxed">
+                        Jika item <span className="text-amber-400">belum ada di inventory</span>, form akan muncul otomatis. Kamu <span className="text-white">wajib isi SKU</span> (kode unik) dan <span className="text-white">pilih satuan</span> (kg, gr, ml, liter, pcs, dll). Item ini berstatus <span className="text-amber-400">pending</span> — belum tersimpan sampai pembelian disimpan.
+                      </p>
+                    </div>
+                  </div>
+                  {/* Step 3 */}
+                  <div className="flex gap-2.5">
+                    <div className="w-4 h-4 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                      <span className="text-[9px] text-emerald-400 font-bold">3</span>
+                    </div>
+                    <div>
+                      <p className="text-[11px] text-slate-300 font-medium mb-0.5">Isi Detail Pembelian</p>
+                      <p className="text-[10px] text-slate-500 leading-relaxed">
+                        Untuk tiap item, isi:
+                      </p>
+                      <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+                        <div className="rounded-md bg-white/[0.03] border border-white/[0.04] px-2 py-1.5">
+                          <p className="text-[9px] text-slate-600 uppercase tracking-wider">Satuan Beli</p>
+                          <p className="text-[10px] text-slate-400">Cth: <span className="text-white">sak</span>, <span className="text-white">ekor</span>, <span className="text-white">karung</span></p>
+                        </div>
+                        <div className="rounded-md bg-white/[0.03] border border-white/[0.04] px-2 py-1.5">
+                          <p className="text-[9px] text-slate-600 uppercase tracking-wider">Jumlah</p>
+                          <p className="text-[10px] text-slate-400">Berapa <span className="text-white">satuan beli</span> yang dibeli</p>
+                        </div>
+                        <div className="rounded-md bg-white/[0.03] border border-white/[0.04] px-2 py-1.5">
+                          <p className="text-[9px] text-slate-600 uppercase tracking-wider">Isi / Unit</p>
+                          <p className="text-[10px] text-slate-400">Isi per 1 satuan beli (dalam <span className="text-white">base unit</span>)</p>
+                        </div>
+                        <div className="rounded-md bg-white/[0.03] border border-white/[0.04] px-2 py-1.5">
+                          <p className="text-[9px] text-slate-600 uppercase tracking-wider">Harga / Unit</p>
+                          <p className="text-[10px] text-slate-400">Harga per 1 <span className="text-white">satuan beli</span> (Rp)</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  {/* Step 4 */}
+                  <div className="flex gap-2.5">
+                    <div className="w-4 h-4 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                      <span className="text-[9px] text-emerald-400 font-bold">4</span>
+                    </div>
+                    <div>
+                      <p className="text-[11px] text-slate-300 font-medium mb-0.5">Simpan &amp; Stok Otomatis Masuk</p>
+                      <p className="text-[10px] text-slate-500 leading-relaxed">
+                        Klik <span className="text-white bg-white/[0.06] px-1 py-0.5 rounded text-[9px] font-mono">Simpan Pembelian</span>. Stok otomatis bertambah dan <span className="text-white">HPP dihitung otomatis</span>.
+                      </p>
+                      <div className="mt-1.5 rounded-md bg-amber-500/[0.04] border border-amber-500/10 px-2.5 py-2">
+                        <p className="text-[10px] text-amber-400/80 font-medium mb-0.5">📐 Rumus HPP</p>
+                        <p className="text-[10px] text-slate-500 font-mono">HPP = Harga per Satuan Beli ÷ Isi per Unit</p>
+                        <p className="text-[10px] text-slate-600 mt-1">Cth: Beli 1 sak @ Rp90.000, isi 25kg → HPP = Rp90.000 ÷ 25 = <span className="text-amber-400">Rp3.600/kg</span></p>
+                      </div>
+                    </div>
+                  </div>
+                  {/* Tips */}
+                  <div className="rounded-md bg-white/[0.02] border border-white/[0.04] px-2.5 py-2">
+                    <p className="text-[10px] text-slate-600 mb-1 font-medium uppercase tracking-wider">Tips</p>
+                    <ul className="text-[10px] text-slate-500 space-y-0.5">
+                      <li>• Scan barcode langsung dari input bar — tidak perlu tekan Enter</li>
+                      <li>• Ketik beberapa nama pisah <span className="text-white">koma</span> untuk tambah banyak item sekaligus</li>
+                      <li>• Item baru muncul dengan badge <span className="text-amber-400">Baru</span> — bisa di-ganti sebelum simpan</li>
+                      <li>• Pembelian yang sudah terkait produk tidak bisa dihapus</li>
+                    </ul>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Desktop Table */}
@@ -2071,18 +2160,89 @@ export default function PurchasePage() {
               </div>
             </div>
 
-            {/* Panduan Alur */}
-            <div className="rounded-xl bg-white/[0.02] border border-white/[0.04] p-3">
-              <div className="flex items-start gap-2.5">
-                <Info className="h-3.5 w-3.5 text-slate-500 mt-0.5 shrink-0" />
-                <div className="text-[10px] text-slate-500 leading-relaxed space-y-0.5">
-                  <p className="text-slate-400 font-medium">Alur Inventory:</p>
-                  <p><span className="text-slate-300">1.</span> <span className="text-slate-300">"Tambah Item"</span> untuk buat item baru (wajib SKU + satuan) atau via pembelian</p>
-                  <p><span className="text-slate-300">2.</span> Stok masuk otomatis saat <span className="text-emerald-400">pembelian disimpan</span> — HPP dihitung otomatis</p>
-                  <p><span className="text-slate-300">3.</span> Pilih item → <span className="text-emerald-400">"Post Produk"</span> untuk jadikan item sebagai produk jual (F&B komposisi atau ritel 1:1)</p>
-                  <p className="text-slate-600">Item yang sudah dipakai di komposisi produk tidak bisa dihapus.</p>
+            {/* Panduan Alur Inventory */}
+            <div className="rounded-xl bg-white/[0.02] border border-white/[0.04] overflow-hidden">
+              <button
+                className="w-full flex items-center justify-between gap-2 p-3 text-left hover:bg-white/[0.02] transition-colors"
+                onClick={() => setShowInventoryGuide(prev => !prev)}
+              >
+                <div className="flex items-center gap-2">
+                  <Info className="h-3.5 w-3.5 text-slate-500 shrink-0" />
+                  <span className="text-[11px] text-slate-400 font-medium">Panduan Inventory &amp; Produk</span>
                 </div>
-              </div>
+                <ChevronDown className={cn('h-3 w-3 text-slate-600 transition-transform duration-200', showInventoryGuide && 'rotate-180')} />
+              </button>
+              {showInventoryGuide && (
+                <div className="px-3 pb-3 space-y-3 border-t border-white/[0.04] pt-3">
+                  {/* Apa itu Inventory Item */}
+                  <div className="flex gap-2.5">
+                    <div className="w-4 h-4 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                      <Package className="h-2.5 w-2.5 text-emerald-400" />
+                    </div>
+                    <div>
+                      <p className="text-[11px] text-slate-300 font-medium mb-0.5">Apa itu Inventory Item?</p>
+                      <p className="text-[10px] text-slate-500 leading-relaxed">
+                        Inventory item adalah <span className="text-white">bahan baku atau stok toko</span> yang kamu beli dari supplier. Setiap item punya <span className="text-white">SKU</span> (kode unik), <span className="text-white">base unit</span> (satuan dasar: kg, gr, ml, pcs), <span className="text-white">stok</span>, dan <span className="text-white">HPP</span> (Harga Pokok Penjualan).
+                      </p>
+                    </div>
+                  </div>
+                  {/* Cara Stok Masuk */}
+                  <div className="flex gap-2.5">
+                    <div className="w-4 h-4 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                      <span className="text-[9px] text-emerald-400 font-bold">1</span>
+                    </div>
+                    <div>
+                      <p className="text-[11px] text-slate-300 font-medium mb-0.5">Cara Stok Masuk</p>
+                      <p className="text-[10px] text-slate-500 leading-relaxed">
+                        Stok bertambah otomatis saat kamu <span className="text-emerald-400">menyimpan pembelian</span> di tab Pembelian. HPP dihitung otomatis dari rata-rata harga beli. Kamu juga bisa set stok awal manual saat <span className="text-white">Tambah Item</span> (untuk stok existing saat pertama kali input).
+                      </p>
+                    </div>
+                  </div>
+                  {/* Post ke Produk */}
+                  <div className="flex gap-2.5">
+                    <div className="w-4 h-4 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                      <span className="text-[9px] text-emerald-400 font-bold">2</span>
+                    </div>
+                    <div>
+                      <p className="text-[11px] text-slate-300 font-medium mb-0.5">Post ke Produk Jual</p>
+                      <p className="text-[10px] text-slate-500 leading-relaxed mb-1.5">
+                        Inventory item bisa dijadikan <span className="text-white">produk jual</span> dengan memilih item → klik <span className="text-white bg-white/[0.06] px-1 py-0.5 rounded text-[9px] font-mono">Post Produk</span>. Ada 2 mode:
+                      </p>
+                      <div className="space-y-1.5">
+                        <div className="rounded-md bg-white/[0.03] border border-white/[0.04] px-2.5 py-1.5">
+                          <p className="text-[10px] text-white font-medium">🍳 Komposisi (F&amp;B)</p>
+                          <p className="text-[10px] text-slate-500">Beberapa item inventory → <span className="text-slate-300">1 produk</span>. Cth: Tepung 200gr + Gula 50gr + Telur 2pcs → Kue Bolu</p>
+                        </div>
+                        <div className="rounded-md bg-white/[0.03] border border-white/[0.04] px-2.5 py-1.5">
+                          <p className="text-[10px] text-white font-medium">🛒 Satu-satu (Ritel)</p>
+                          <p className="text-[10px] text-slate-500">1 item inventory → <span className="text-slate-300">1 produk</span> langsung. Cth: Susu UHT 1L → produk Susu UHT 1L dengan harga jual sendiri</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  {/* Kategori */}
+                  <div className="flex gap-2.5">
+                    <div className="w-4 h-4 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                      <span className="text-[9px] text-emerald-400 font-bold">3</span>
+                    </div>
+                    <div>
+                      <p className="text-[11px] text-slate-300 font-medium mb-0.5">Kategori &amp; Low Stock Alert</p>
+                      <p className="text-[10px] text-slate-500 leading-relaxed">
+                        Gunakan <span className="text-white">Kategori</span> untuk mengelompokkan item (Bahan Pokok, Minuman, Bumbu, dll). Set <span className="text-white">Low Stock Alert</span> agar item yang stoknya menipis ditandai <span className="text-red-400">merah</span> di tabel.
+                      </p>
+                    </div>
+                  </div>
+                  {/* Catatan */}
+                  <div className="rounded-md bg-white/[0.02] border border-white/[0.04] px-2.5 py-2">
+                    <p className="text-[10px] text-slate-600 mb-1 font-medium uppercase tracking-wider">Catatan Penting</p>
+                    <ul className="text-[10px] text-slate-500 space-y-0.5">
+                      <li>• Kolom <span className="text-white">Digunakan</span> menunjukkan berapa komposisi produk yang memakai item ini</li>
+                      <li>• Item yang sudah dipakai di komposisi <span className="text-amber-400">tidak bisa dihapus</span> (harus hapus komposisi dulu)</li>
+                      <li>• HPP selalu dihitung otomatis dari pembelian — tidak bisa di-edit manual</li>
+                    </ul>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Selection action bar */}
@@ -2542,6 +2702,108 @@ export default function PurchasePage() {
                 />
               </div>
 
+              {/* ── Quick Add Inline Form (for new items from smart input) ── */}
+              {showQuickAddItem && (
+                <div className="rounded-lg bg-amber-500/[0.04] border border-amber-500/10 p-3 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <PackageOpen className="h-3.5 w-3.5 text-emerald-400" />
+                      <span className="text-[11px] text-slate-300 font-medium">Buat Item Baru</span>
+                    </div>
+                    <button
+                      className="w-5 h-5 rounded hover:bg-white/[0.08] flex items-center justify-center text-slate-400 hover:text-white"
+                      onClick={() => { setShowQuickAddItem(false); setQuickAddQueue([]); setQuickItemName(''); setQuickItemSku(''); setQuickItemUnit('') }}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-slate-500">Item akan dibuat di inventory saat pembelian disimpan</p>
+                  {/* Queue indicator */}
+                  {quickAddQueue.length > 1 && (
+                    <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-md bg-amber-500/[0.06] border border-amber-500/10">
+                      <Activity className="h-3 w-3 text-amber-400 shrink-0" />
+                      <span className="text-[10px] text-amber-300 font-medium">
+                        {quickAddQueue.length - quickAddQueue.indexOf(quickItemName)} dari {quickAddQueue.length} item baru
+                      </span>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    {/* Nama item */}
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-slate-400 font-medium">Nama Item *</label>
+                      <input
+                        autoFocus
+                        value={quickItemName}
+                        onChange={(e) => setQuickItemName(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleQuickAddItem(quickAddTargetIdx) }}
+                        placeholder="cth: Susu UHT Full Cream"
+                        className="w-full bg-white/[0.04] border border-white/[0.08] text-white text-xs h-8 rounded-md px-2.5 outline-none focus:border-emerald-500/40 placeholder:text-slate-500"
+                      />
+                    </div>
+                    {/* SKU */}
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-slate-400 font-medium">SKU *</label>
+                      <input
+                        value={quickItemSku}
+                        onChange={(e) => setQuickItemSku(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleQuickAddItem(quickAddTargetIdx) }}
+                        placeholder="cth: SKU-001"
+                        className="w-full bg-white/[0.04] border border-white/[0.08] text-white text-xs h-8 rounded-md px-2.5 outline-none focus:border-emerald-500/40 placeholder:text-slate-500 font-mono"
+                      />
+                    </div>
+                    {/* Satuan (Base Unit) */}
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-slate-400 font-medium">Satuan *</label>
+                      <Select value={quickItemUnit} onValueChange={setQuickItemUnit}>
+                        <SelectTrigger className="h-8 text-xs bg-white/[0.04] border-white/[0.08] text-white rounded-md px-2">
+                          <SelectValue placeholder="Pilih satuan..." />
+                        </SelectTrigger>
+                        <SelectContent className="bg-nebula border-white/[0.06]">
+                          {BASE_UNIT_OPTIONS.map((u) => (
+                            <SelectItem key={u} value={u} className="text-slate-200 text-xs">{u}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <button
+                    className="w-full h-8 rounded-md bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
+                    onClick={() => handleQuickAddItem(quickAddTargetIdx)}
+                    disabled={!quickItemName.trim() || !quickItemSku.trim() || !quickItemUnit}
+                  >
+                    <Plus className="h-3 w-3" />
+                    {quickAddQueue.length > 1 ? 'Buat & Lanjutkan' : 'Buat & Pilih Item'}
+                  </button>
+                  {/* Skip button for queue */}
+                  {quickAddQueue.length > 1 && (
+                    <button
+                      className="w-full h-7 rounded-md text-[11px] text-slate-500 hover:text-slate-300 hover:bg-white/[0.04] transition-colors"
+                      onClick={() => {
+                        const remaining = quickAddQueue.slice(1)
+                        if (remaining.length > 0) {
+                          setQuickAddQueue(remaining)
+                          setQuickItemName(remaining[0])
+                          setQuickItemSku('')
+                          setQuickItemUnit('')
+                          const nextEmpty = poCreateItems.findIndex(i => !i.inventoryItemId)
+                          if (nextEmpty >= 0) {
+                            setQuickAddTargetIdx(nextEmpty)
+                          } else {
+                            setPoCreateItems(prev => [...prev, { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0' }])
+                            setQuickAddTargetIdx(poCreateItems.length)
+                          }
+                        } else {
+                          setShowQuickAddItem(false)
+                          setQuickAddQueue([])
+                        }
+                      }}
+                    >
+                      Lewati item ini
+                    </button>
+                  )}
+                </div>
+              )}
+
               {/* ── Item Count Badge ── */}
               {poCreateItems.length > 1 && (
                 <div className="flex items-center gap-2">
@@ -2608,213 +2870,12 @@ export default function PurchasePage() {
                           </button>
                         </div>
                       ) : (
-                        <>
-                          {/* Clickable trigger to open picker */}
-                          <button
-                            className="w-full flex items-center gap-2.5 bg-white/[0.04] rounded-lg px-3 h-10 text-left hover:bg-white/[0.06] transition-colors border border-dashed border-white/[0.08]"
-                            onClick={() => { setActiveItemSearchIdx(idx); setShowItemPicker(true); setItemPickerFilter(''); setShowQuickAddItem(false) }}
-                          >
-                            <Package className="h-4 w-4 text-slate-500 shrink-0" />
-                            <div className="flex-1">
-                              <span className="text-xs text-slate-400">Tap untuk pilih item...</span>
-                            </div>
-                            <ArrowRight className="h-3 w-3 text-slate-600" />
-                          </button>
-
-                          {/* Picker dropdown */}
-                          {activeItemSearchIdx === idx && showItemPicker && (
-                            <div className="absolute top-full left-0 right-0 mt-1 bg-nebula border border-white/[0.06] rounded-lg shadow-xl z-50 max-h-[70vh] flex flex-col">
-                              {/* Filter search */}
-                              <div className="p-2 border-b border-white/[0.06] space-y-2">
-                                <div className="relative">
-                                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-500" />
-                                  <input
-                                    autoFocus
-                                    value={itemPickerFilter}
-                                    onChange={(e) => { setItemPickerFilter(e.target.value); setShowQuickAddItem(false) }}
-                                    placeholder="Ketik nama / SKU untuk filter..."
-                                    className="w-full bg-white/[0.04] border-white/[0.04] text-white text-xs h-8 rounded-md pl-8 pr-2 outline-none placeholder:text-slate-500"
-                                  />
-                                </div>
-                                {/* Tampilkan Nonaktif toggle inside picker */}
-                                <div className="flex items-center justify-between px-0.5">
-                                  <span className="text-[10px] text-slate-500">Tampilkan Nonaktif</span>
-                                  <Switch
-                                    checked={showInactiveItems}
-                                    onCheckedChange={setShowInactiveItems}
-                                    className="scale-[0.65]"
-                                  />
-                                </div>
-                              </div>
-
-                              {/* Loading */}
-                              {poItemOptionsLoading ? (
-                                <div className="flex items-center justify-center gap-2 py-4 text-slate-500">
-                                  <Loader2 className="h-3 w-3 animate-spin" />
-                                  <span className="text-[10px]">Memuat daftar item...</span>
-                                </div>
-                              ) : /* No results + not in quick-add mode */
-                              filteredItemOptions.length === 0 && !showQuickAddItem ? (
-                                <div className="py-6 text-center px-3">
-                                  <Package className="h-6 w-6 text-slate-600 mx-auto mb-2" />
-                                  {poItemOptions.length === 0 ? (
-                                    <>
-                                      <p className="text-[11px] text-slate-400 mb-1">Belum ada item di inventory</p>
-                                      <p className="text-[10px] text-slate-600 mb-3">Buat item baru langsung dari sini</p>
-                                    </>
-                                  ) : (
-                                    <p className="text-[11px] text-slate-400 mb-3">Tidak ada item yang cocok</p>
-                                  )}
-                                  <button
-                                    className="inline-flex items-center gap-1.5 text-[11px] text-emerald-400 hover:text-emerald-300 font-medium"
-                                    onClick={() => { setQuickAddTargetIdx(idx); setQuickAddQueue([]); setQuickItemName(''); setQuickItemSku(''); setQuickItemUnit(''); setShowQuickAddItem(true) }}
-                                  >
-                                    <PackageOpen className="h-3 w-3" />
-                                    Buat Item Baru
-                                  </button>
-                                </div>
-                              ) : /* Normal list */
-                              !showQuickAddItem ? (
-                                <div className="max-h-[180px] overflow-y-auto flex-1 min-h-0">
-                                  {filteredItemOptions.map((r) => (
-                                    <button
-                                      key={r.id}
-                                      className={cn(
-                                        'w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-white/[0.04] transition-colors',
-                                        !r.active && 'opacity-50'
-                                      )}
-                                      onClick={() => handleSelectInvItem(idx, r)}
-                                    >
-                                      <Package className="h-3.5 w-3.5 text-slate-500 shrink-0" />
-                                      <div className="flex-1 min-w-0">
-                                        <div className="flex items-center gap-1.5">
-                                          <p className="text-xs text-slate-200 truncate">{r.name}</p>
-                                          {r._isNew && (
-                                            <span className="text-[9px] bg-amber-500/15 text-amber-400 px-1.5 py-0.5 rounded font-medium shrink-0">Baru</span>
-                                          )}
-                                          {r.sku && (
-                                            <span className="text-[10px] text-slate-500 font-mono shrink-0">{r.sku}</span>
-                                          )}
-                                        </div>
-                                        <p className="text-[10px] text-slate-500">
-                                          {r._isNew ? 'Belum tersimpan' : `Stok: ${formatNumber(r.stock)} ${r.baseUnit}`}
-                                        </p>
-                                      </div>
-                                    </button>
-                                  ))}
-                                  {/* Add new item option at bottom */}
-                                  <button
-                                    className="w-full flex items-center justify-center gap-1.5 px-3 py-2.5 text-left border-t border-white/[0.06] text-emerald-400 hover:bg-emerald-500/[0.06] transition-colors"
-                                    onClick={() => { setQuickAddTargetIdx(idx); setQuickAddQueue([]); setQuickItemName(''); setQuickItemSku(''); setQuickItemUnit(''); setShowQuickAddItem(true) }}
-                                  >
-                                    <PackageOpen className="h-3 w-3" />
-                                    <span className="text-[11px] font-medium">Buat Item Baru</span>
-                                  </button>
-                                </div>
-                              ) : null}
-
-                              {/* Quick add inline form */}
-                              {showQuickAddItem && (
-                                <div className="p-3 border-t border-white/[0.06] space-y-2 overflow-y-auto flex-1 min-h-0">
-                                  <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-1.5">
-                                      <PackageOpen className="h-3.5 w-3.5 text-emerald-400" />
-                                      <span className="text-[11px] text-slate-300 font-medium">Buat Item Baru</span>
-                                    </div>
-                                    <button
-                                      className="w-5 h-5 rounded hover:bg-white/[0.08] flex items-center justify-center text-slate-400 hover:text-white"
-                                      onClick={() => setShowQuickAddItem(false)}
-                                    >
-                                      <X className="h-3 w-3" />
-                                    </button>
-                                  </div>
-                                  <p className="text-[10px] text-slate-500">Item akan dibuat di inventory saat pembelian disimpan</p>
-                                  {/* Queue indicator */}
-                                  {quickAddQueue.length > 1 && (
-                                    <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-md bg-amber-500/[0.06] border border-amber-500/10">
-                                      <Activity className="h-3 w-3 text-amber-400 shrink-0" />
-                                      <span className="text-[10px] text-amber-300 font-medium">
-                                        {quickAddQueue.length - quickAddQueue.indexOf(quickItemName)} dari {quickAddQueue.length} item baru
-                                      </span>
-                                    </div>
-                                  )}
-                                  {/* Nama item */}
-                                  <div className="space-y-1">
-                                    <label className="text-[10px] text-slate-400 font-medium">Nama Item *</label>
-                                    <input
-                                      autoFocus
-                                      value={quickItemName}
-                                      onChange={(e) => setQuickItemName(e.target.value)}
-                                      onKeyDown={(e) => { if (e.key === 'Enter') handleQuickAddItem(quickAddTargetIdx) }}
-                                      placeholder="cth: Susu UHT Full Cream"
-                                      className="w-full bg-white/[0.04] border border-white/[0.08] text-white text-xs h-8 rounded-md px-2.5 outline-none focus:border-emerald-500/40 placeholder:text-slate-500"
-                                    />
-                                  </div>
-                                  {/* SKU */}
-                                  <div className="space-y-1">
-                                    <label className="text-[10px] text-slate-400 font-medium">SKU *</label>
-                                    <input
-                                      value={quickItemSku}
-                                      onChange={(e) => setQuickItemSku(e.target.value)}
-                                      onKeyDown={(e) => { if (e.key === 'Enter') handleQuickAddItem(quickAddTargetIdx) }}
-                                      placeholder="cth: SKU-001"
-                                      className="w-full bg-white/[0.04] border border-white/[0.08] text-white text-xs h-8 rounded-md px-2.5 outline-none focus:border-emerald-500/40 placeholder:text-slate-500 font-mono"
-                                    />
-                                  </div>
-                                  {/* Satuan (Base Unit) */}
-                                  <div className="space-y-1">
-                                    <label className="text-[10px] text-slate-400 font-medium">Satuan (Base Unit) *</label>
-                                    <Select value={quickItemUnit} onValueChange={setQuickItemUnit}>
-                                      <SelectTrigger className="h-8 text-xs bg-white/[0.04] border-white/[0.08] text-white rounded-md px-2">
-                                        <SelectValue placeholder="Pilih satuan..." />
-                                      </SelectTrigger>
-                                      <SelectContent className="bg-nebula border-white/[0.06]">
-                                        {BASE_UNIT_OPTIONS.map((u) => (
-                                          <SelectItem key={u} value={u} className="text-slate-200 text-xs">{u}</SelectItem>
-                                        ))}
-                                      </SelectContent>
-                                    </Select>
-                                  </div>
-                                  <button
-                                    className="w-full h-8 rounded-md bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
-                                    onClick={() => handleQuickAddItem(quickAddTargetIdx)}
-                                    disabled={!quickItemName.trim() || !quickItemSku.trim() || !quickItemUnit}
-                                  >
-                                    <Plus className="h-3 w-3" />
-                                    {quickAddQueue.length > 1 ? 'Buat & Lanjutkan' : 'Buat & Pilih Item'}
-                                  </button>
-                                  {/* Skip button for queue */}
-                                  {quickAddQueue.length > 1 && (
-                                    <button
-                                      className="w-full h-7 rounded-md text-[11px] text-slate-500 hover:text-slate-300 hover:bg-white/[0.04] transition-colors"
-                                      onClick={() => {
-                                        const remaining = quickAddQueue.slice(1)
-                                        if (remaining.length > 0) {
-                                          setQuickAddQueue(remaining)
-                                          setQuickItemName(remaining[0])
-                                          setQuickItemSku('')
-                                          setQuickItemUnit('')
-                                          const nextEmpty = poCreateItems.findIndex(i => !i.inventoryItemId)
-                                          if (nextEmpty >= 0) {
-                                            setQuickAddTargetIdx(nextEmpty)
-                                          } else {
-                                            setPoCreateItems(prev => [...prev, { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0' }])
-                                            setQuickAddTargetIdx(poCreateItems.length)
-                                          }
-                                        } else {
-                                          setShowQuickAddItem(false)
-                                          setQuickAddQueue([])
-                                        }
-                                      }}
-                                    >
-                                      Lewati item ini
-                                    </button>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </>
+                        <div
+                          className="w-full flex items-center gap-2 rounded-lg px-3 h-9 border border-dashed border-white/[0.06] text-slate-600"
+                        >
+                          <ScanBarcode className="h-3 w-3 shrink-0" />
+                          <span className="text-[11px]">Gunakan input di atas untuk cari / scan item</span>
+                        </div>
                       )}
                     </div>
 
