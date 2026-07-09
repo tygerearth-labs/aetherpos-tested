@@ -57,9 +57,6 @@ export async function getAuditLogs(
         user: {
           select: { name: true },
         },
-        product: {
-          select: { name: true },
-        },
       },
     }),
     db.auditLog.count({ where }),
@@ -73,7 +70,7 @@ export async function getAuditLogs(
     details: log.details,
     createdAt: log.createdAt,
     userName: log.user.name,
-    productName: log.product?.name ?? null,
+    productName: null,
   }));
 
   return {

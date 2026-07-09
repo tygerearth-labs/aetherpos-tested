@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
+import { safeAuditLog } from '@/lib/safe-audit'
 
 // PUT /api/inventory/categories/[id] — update inventory category
 export async function PUT(
@@ -66,6 +67,16 @@ export async function DELETE(
     if (!existing) {
       return safeJsonError('Category not found', 404)
     }
+
+    // Create audit log before deleting (non-blocking)
+    await safeAuditLog({
+      action: 'DELETE',
+      entityType: 'INVENTORY_CATEGORY',
+      entityId: id,
+      details: JSON.stringify({ categoryName: existing.name, color: existing.color }),
+      outletId: user.outletId,
+      userId: user.id,
+    })
 
     // Set items' categoryId to null, then delete category — atomic transaction
     await db.$transaction([

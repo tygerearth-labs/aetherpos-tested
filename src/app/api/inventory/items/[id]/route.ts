@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
+import { safeAuditLog } from '@/lib/safe-audit'
 
 // GET /api/inventory/items/[id] — get single inventory item with linked products & movements
 export async function GET(
@@ -30,49 +31,60 @@ export async function GET(
     }
 
     // Fetch linked products (products that use this inventory item in composition)
-    const compositions = await db.productComposition.findMany({
-      where: { inventoryItemId: id },
-      include: {
-        product: {
-          select: { id: true, name: true, sku: true, price: true, stock: true, hasVariants: true, image: true },
-        },
-        variant: {
-          select: { id: true, name: true, price: true, stock: true },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-    })
+    let linkedProducts: Array<{
+      id: string; productId: string; productName: string; productSku: string | null;
+      productImage: string | null; productPrice: number; productStock: number;
+      variantId: string | null; variantName: string | null; variantPrice: number | null;
+      qty: number; yieldPerBatch: number; baseUnit: string;
+    }> = []
 
-    // Clean up orphaned compositions (product was deleted but composition remained)
-    const orphanIds = compositions.filter((c) => !c.product).map((c) => c.id)
-    if (orphanIds.length > 0) {
-      await db.productComposition.deleteMany({ where: { id: { in: orphanIds } } })
-      // Re-fetch with fresh count
-      const freshItem = await db.inventoryItem.findFirst({
-        where: { id, outletId: user.outletId },
-        include: { _count: { select: { compositions: true } } },
+    try {
+      const compositions = await db.productComposition.findMany({
+        where: { inventoryItemId: id },
+        include: {
+          product: {
+            select: { id: true, name: true, sku: true, price: true, stock: true, hasVariants: true, image: true },
+          },
+          variant: {
+            select: { id: true, name: true, price: true, stock: true },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
       })
-      if (freshItem) item._count.compositions = freshItem._count.compositions
-    }
 
-    // Filter out orphaned compositions and map to linked products
-    const linkedProducts = compositions
-      .filter((c) => c.product)
-      .map((c) => ({
-        id: c.id,
-        productId: c.product.id,
-        productName: c.product.name,
-        productSku: c.product.sku,
-        productImage: c.product.image,
-        productPrice: c.product.price,
-        productStock: c.product.stock,
-        variantId: c.variant?.id || null,
-        variantName: c.variant?.name || null,
-        variantPrice: c.variant?.price || null,
-        qty: c.qty,
-        yieldPerBatch: c.yieldPerBatch,
-        baseUnit: c.baseUnit,
-      }))
+      // Clean up orphaned compositions (product was deleted but composition remained)
+      const orphanIds = compositions.filter((c) => !c.product).map((c) => c.id)
+      if (orphanIds.length > 0) {
+        await db.productComposition.deleteMany({ where: { id: { in: orphanIds } } })
+        // Re-fetch with fresh count
+        const freshItem = await db.inventoryItem.findFirst({
+          where: { id, outletId: user.outletId },
+          include: { _count: { select: { compositions: true } } },
+        })
+        if (freshItem) item._count.compositions = freshItem._count.compositions
+      }
+
+      // Filter out orphaned compositions and map to linked products
+      linkedProducts = compositions
+        .filter((c) => c.product)
+        .map((c) => ({
+          id: c.id,
+          productId: c.product.id,
+          productName: c.product.name,
+          productSku: c.product.sku,
+          productImage: c.product.image,
+          productPrice: c.product.price,
+          productStock: c.product.stock,
+          variantId: c.variant?.id || null,
+          variantName: c.variant?.name || null,
+          variantPrice: c.variant?.price || null,
+          qty: c.qty,
+          yieldPerBatch: c.yieldPerBatch,
+          baseUnit: c.baseUnit,
+        }))
+    } catch (compError) {
+      console.warn('[InventoryItem GET] Failed to fetch compositions, returning item without linked products:', compError)
+    }
 
     // Fetch recent movements
     const [movements, totalMovements] = await Promise.all([
@@ -115,7 +127,8 @@ export async function GET(
     })
   } catch (error) {
     console.error('Inventory item GET error:', error)
-    return safeJsonError('Failed to load inventory item')
+    const msg = error instanceof Error ? error.message : 'Unknown error'
+    return safeJsonError(`Failed to load inventory item: ${msg}`)
   }
 }
 
@@ -358,12 +371,55 @@ export async function DELETE(
           })),
         })
 
-        // 6. Finally delete the inventory item
+        // 6. Audit log for inventory item deletion itself
+        await tx.auditLog.create({
+          data: {
+            action: 'DELETE',
+            entityType: 'INVENTORY_ITEM',
+            entityId: id,
+            details: JSON.stringify({
+              itemName: existing.name,
+              sku: existing.sku,
+              stock: existing.stock,
+              avgCost: existing.avgCost,
+              baseUnit: existing.baseUnit,
+              compositionCount: existing._count.compositions,
+              purchaseItemCount: existing._count.purchaseItems,
+              forceDelete: true,
+              affectedProducts: affectedProductIds.length,
+            }),
+            outletId,
+            userId,
+          },
+        })
+
+        // 7. Finally delete the inventory item
         await tx.inventoryItem.delete({ where: { id } })
       }, { timeout: 30000 })
     } else if (existing._count.purchaseItems > 0) {
       // Force delete with purchase items but no compositions: nullify references first
       await db.$transaction(async (tx) => {
+        // Audit log for inventory item deletion
+        await tx.auditLog.create({
+          data: {
+            action: 'DELETE',
+            entityType: 'INVENTORY_ITEM',
+            entityId: id,
+            details: JSON.stringify({
+              itemName: existing.name,
+              sku: existing.sku,
+              stock: existing.stock,
+              avgCost: existing.avgCost,
+              baseUnit: existing.baseUnit,
+              purchaseItemCount: existing._count.purchaseItems,
+              forceDelete: true,
+              reason: 'HAS_PURCHASE_HISTORY',
+            }),
+            outletId,
+            userId,
+          },
+        })
+
         // Nullify purchase order item references (keep purchase history, just unlink)
         await tx.purchaseOrderItem.updateMany({
           where: { inventoryItemId: id },
@@ -386,6 +442,25 @@ export async function DELETE(
       // Simple delete (no compositions, no purchase items)
       // Clean up any remaining child records (movements, transfer items, consumption snapshots)
       await db.$transaction(async (tx) => {
+        // Audit log for inventory item deletion
+        await tx.auditLog.create({
+          data: {
+            action: 'DELETE',
+            entityType: 'INVENTORY_ITEM',
+            entityId: id,
+            details: JSON.stringify({
+              itemName: existing.name,
+              sku: existing.sku,
+              stock: existing.stock,
+              avgCost: existing.avgCost,
+              baseUnit: existing.baseUnit,
+              reason: 'SIMPLE_DELETE',
+            }),
+            outletId,
+            userId,
+          },
+        })
+
         await tx.inventoryMovement.deleteMany({ where: { inventoryItemId: id } })
         await tx.inventoryTransferItem.deleteMany({ where: { inventoryItemId: id } })
         await tx.transactionConsumption.deleteMany({ where: { inventoryItemId: id } })

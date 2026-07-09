@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
+import { safeAuditLog } from '@/lib/safe-audit'
 
 // GET /api/suppliers/[id] — get single supplier
 export async function GET(
@@ -85,6 +86,20 @@ export async function DELETE(
     if (!existing) {
       return safeJsonError('Supplier not found', 404)
     }
+
+    // Create audit log before deleting (non-blocking)
+    await safeAuditLog({
+      action: 'DELETE',
+      entityType: 'SUPPLIER',
+      entityId: id,
+      details: JSON.stringify({
+        supplierName: existing.name,
+        phone: existing.phone,
+        address: existing.address,
+      }),
+      outletId: user.outletId,
+      userId: user.id,
+    })
 
     // Supplier has purchases — set supplierId to null on those POs, then delete
     await db.$transaction([

@@ -495,6 +495,7 @@ export async function DELETE(
             },
           },
         },
+        supplier: { select: { id: true, name: true } },
       },
     })
 
@@ -567,6 +568,25 @@ export async function DELETE(
 
         affectedInventoryItemIds.push(item.inventoryItemId)
       }
+
+      // Audit log for purchase order deletion itself
+      await tx.auditLog.create({
+        data: {
+          action: 'DELETE',
+          entityType: 'PURCHASE_ORDER',
+          entityId: id,
+          details: JSON.stringify({
+            orderNumber: order.orderNumber,
+            totalCost: order.totalCost,
+            itemCount: order.items.length,
+            itemNames: order.items.map((i) => i.name),
+            supplierName: order.supplier?.name || null,
+            createdAt: order.createdAt.toISOString(),
+          }),
+          outletId,
+          userId,
+        },
+      })
 
       // Delete purchase order (items cascade delete)
       await tx.purchaseOrder.delete({
