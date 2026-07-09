@@ -285,6 +285,7 @@ export async function DELETE(
       } else {
         return safeJson({
           blocked: true,
+          blockType: 'compositions',
           message: 'Item ini digunakan dalam komposisi produk',
           compositionCount: realCompCount,
           linkedProducts,

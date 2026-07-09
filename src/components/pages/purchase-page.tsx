@@ -349,6 +349,8 @@ export default function PurchasePage() {
   // Excel import
   const [showImportPreview, setShowImportPreview] = useState(false)
   const [importLoading, setImportLoading] = useState(false)
+  const [importPosting, setImportPosting] = useState(false)
+  const [importSupplierId, setImportSupplierId] = useState('')
   const [importPreviewData, setImportPreviewData] = useState<Array<{
     row: number; name: string; sku: string | null; purchaseUnit: string;
     qty: number; baseQty: number; baseUnit: string; pricePerUnit: number;
@@ -909,9 +911,22 @@ export default function PurchasePage() {
       } else {
         const data = await res.json()
         toast.error(data.error || 'Gagal membuat pembelian')
+        // Cleanup: delete orphaned pending items if PO creation failed
+        if (idMap.size > 0) {
+          for (const [, realId] of idMap) {
+            try { await fetch(`/api/inventory/items/${realId}`, { method: 'DELETE' }) } catch { /* ignore cleanup errors */ }
+          }
+          toast.info(`${idMap.size} item baru dibatalkan karena pembelian gagal`)
+        }
       }
     } catch {
       toast.error('Gagal membuat pembelian')
+      // Cleanup: delete orphaned pending items on network error
+      if (idMap.size > 0) {
+        for (const [, realId] of idMap) {
+          try { await fetch(`/api/inventory/items/${realId}`, { method: 'DELETE' }) } catch { /* ignore cleanup errors */ }
+        }
+      }
     } finally {
       setPoCreateLoading(false)
     }
@@ -959,6 +974,8 @@ export default function PurchasePage() {
     if (!file) return
     setImportLoading(true)
     setShowImportPreview(true)
+    setImportSupplierId('')
+    void fetchSuppliers() // Pre-fetch suppliers for preview dialog
     try {
       const formData = new FormData()
       formData.append('file', file)
@@ -991,9 +1008,10 @@ export default function PurchasePage() {
   const handleApplyImport = () => {
     if (!importPreviewData) return
     const newItems: PurchaseOrderItem[] = []
-    for (const item of importPreviewData) {
-      if (item.error) continue
-      const itemId = item.matchedItemId || `__pending_${item.name}_${item.sku || ''}_${Date.now()}`
+    const newOptions: InventoryItemOption[] = []
+    importPreviewData.forEach((item, idx) => {
+      if (item.error) return
+      const itemId = item.matchedItemId || `__pending_${item.name}_${item.sku || ''}_${idx}_${Date.now()}`
       newItems.push({
         inventoryItemId: itemId,
         inventoryItemName: item.name,
@@ -1001,15 +1019,141 @@ export default function PurchasePage() {
         baseUnit: item.baseUnit || item.matchedItemUnit || '',
         qty: String(item.qty || 1),
         unit: item.purchaseUnit || '',
-        baseQty: String(item.baseQty || 0),
+        baseQty: String(item.baseQty || 1),
         pricePerItem: String(item.pricePerUnit || 0),
       })
-    }
+      // Add new items to poItemOptions so pending creation works
+      if (item.isNew && !item.matchedItemId) {
+        newOptions.push({
+          id: itemId,
+          name: item.name,
+          sku: item.sku || null,
+          baseUnit: item.baseUnit || item.matchedItemUnit || 'pcs',
+          stock: 0,
+          active: true,
+          _isNew: true,
+        })
+      }
+    })
     if (newItems.length > 0) {
+      if (newOptions.length > 0) {
+        setPoItemOptions(prev => [...newOptions, ...prev])
+      }
       setPoCreateItems(newItems)
       setShowImportPreview(false)
       setImportPreviewData(null)
+      setPoCreateOpen(true)
+      void fetchSuppliers()
       toast.success(`${newItems.length} item berhasil ditambahkan ke pembelian`)
+    }
+  }
+
+  // Direct posting from import preview (creates new items + PO in one shot)
+  const handleImportPost = async () => {
+    if (!importPreviewData) return
+    const validItems = importPreviewData.filter(i => !i.error)
+    if (validItems.length === 0) return
+
+    setImportPosting(true)
+    const idMap = new Map<string, string>() // tempKey → real inventory item ID
+
+    try {
+      // Step 1: Create new inventory items for unmatched items
+      const newItems = validItems.filter(i => i.isNew && !i.matchedItemId)
+      if (newItems.length > 0) {
+        toast.loading(`Membuat ${newItems.length} item baru di inventory...`, { id: 'import-pending-create' })
+        for (const item of newItems) {
+          try {
+            const res = await fetch('/api/inventory/items', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                name: item.name,
+                sku: item.sku || undefined,
+                baseUnit: item.baseUnit || item.matchedItemUnit || 'pcs',
+                stock: 0,
+                avgCost: 0,
+              }),
+            })
+            if (res.ok) {
+              const data = await res.json()
+              idMap.set(`import_row_${item.row}`, data.id)
+            } else {
+              const err = await res.json()
+              toast.error(err.error || `Gagal membuat item "${item.name}"`)
+              toast.dismiss('import-pending-create')
+              setImportPosting(false)
+              return
+            }
+          } catch {
+            toast.error(`Gagal membuat item "${item.name}"`)
+            toast.dismiss('import-pending-create')
+            setImportPosting(false)
+            return
+          }
+        }
+        toast.dismiss('import-pending-create')
+      }
+
+      // Step 2: Build purchase items and create PO
+      const purchaseItems = validItems.map(item => {
+        let itemId = item.matchedItemId || idMap.get(`import_row_${item.row}`) || ''
+        const baseQtyVal = item.baseQty || 1
+        const qtyVal = item.qty || 0
+        const pricePerUnit = item.pricePerUnit || 0
+        const totalCost = pricePerUnit * qtyVal
+        const totalBaseQty = qtyVal * baseQtyVal
+        const unitCost = totalBaseQty > 0 ? totalCost / totalBaseQty : 0
+
+        return {
+          inventoryItemId: itemId,
+          purchaseQty: qtyVal,
+          purchaseUnit: item.purchaseUnit || '',
+          baseQty: totalBaseQty,
+          baseUnit: item.baseUnit || item.matchedItemUnit || '',
+          unitCost,
+          totalCost,
+        }
+      })
+
+      const res = await fetch('/api/purchases', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          supplierId: importSupplierId || undefined,
+          items: purchaseItems,
+        }),
+      })
+
+      if (res.ok) {
+        const data = await res.json()
+        toast.success(`Pembelian berhasil dibuat! ${data.orderNumber} (${validItems.length} item, ${formatCurrency(data.totalCost)})`)
+        setShowImportPreview(false)
+        setImportPreviewData(null)
+        setImportSupplierId('')
+        void fetchPurchaseOrders()
+        void fetchInventoryItems()
+        void fetchPurchaseSummary()
+      } else {
+        const data = await res.json()
+        toast.error(data.error || 'Gagal membuat pembelian')
+        // Cleanup: delete orphaned new inventory items
+        if (idMap.size > 0) {
+          for (const [, realId] of idMap) {
+            try { await fetch(`/api/inventory/items/${realId}`, { method: 'DELETE' }) } catch { /* ignore */ }
+          }
+          toast.info(`${idMap.size} item baru dibatalkan karena pembelian gagal`)
+        }
+      }
+    } catch {
+      toast.error('Gagal membuat pembelian')
+      if (idMap.size > 0) {
+        for (const [, realId] of idMap) {
+          try { await fetch(`/api/inventory/items/${realId}`, { method: 'DELETE' }) } catch { /* ignore */ }
+        }
+      }
+    } finally {
+      setImportPosting(false)
     }
   }
 
@@ -1439,9 +1583,11 @@ export default function PurchasePage() {
       if (res.ok) {
         const data = await res.json().catch(() => ({}))
         if (data.blocked) {
-          // Show linked products dialog
+          // Show linked products dialog or purchase history warning
           setInvDeleteBlocked({
+            blockType: data.blockType || 'compositions',
             compositionCount: data.compositionCount,
+            purchaseItemCount: data.purchaseItemCount,
             linkedProducts: data.linkedProducts || [],
           })
         } else {
@@ -3373,64 +3519,155 @@ export default function PurchasePage() {
               <div>
                 <span>Preview Import Excel</span>
                 <p className="text-[11px] text-slate-500 font-normal mt-0.5">
-                  {importPreviewData ? `${importPreviewData.filter(i => !i.error).length} item ditemukan, ${importPreviewData.filter(i => i.isNew).length} barang baru` : 'Membaca file...'}
+                  {importPreviewData
+                    ? `${importPreviewData.filter(i => !i.error).length} item ditemukan, ${importPreviewData.filter(i => i.isNew).length} barang baru`
+                    : 'Membaca file...'}
                 </p>
               </div>
             </ResponsiveDialogTitle>
+            <ResponsiveDialogDescription className="text-slate-400 text-xs sr-only">
+              Preview item dari file Excel sebelum membuat pembelian
+            </ResponsiveDialogDescription>
           </ResponsiveDialogHeader>
 
-          <div className="flex-1 overflow-y-auto space-y-2 mt-1">
-            {importPreviewData && importPreviewData.map((item) => (
-              <div
-                key={item.row}
-                className={cn(
-                  'rounded-lg border p-2.5 text-xs',
-                  item.error
-                    ? 'border-red-500/20 bg-red-500/[0.04]'
-                    : item.isNew
-                      ? 'border-amber-500/20 bg-amber-500/[0.04]'
-                      : 'border-white/[0.04] bg-white/[0.02]'
-                )}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-[10px] text-slate-600 shrink-0">#{item.row}</span>
-                    <span className="text-xs text-slate-200 font-medium truncate">{item.name}</span>
-                    {item.sku && <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 border-white/[0.1] text-slate-500 shrink-0">{item.sku}</Badge>}
-                    {item.isNew ? (
-                      <Badge className="text-[9px] px-1.5 py-0 h-4 bg-amber-500/10 text-amber-400 border-amber-500/20 shrink-0">Baru</Badge>
-                    ) : item.matchedItemName ? (
-                      <Badge className="text-[9px] px-1.5 py-0 h-4 bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shrink-0">Match: {item.matchedItemName}</Badge>
-                    ) : null}
-                  </div>
-                  <span className="text-slate-400 font-mono text-[11px] shrink-0 ml-2">
-                    {item.qty > 0 ? `${item.qty} ${item.purchaseUnit || 'unit'}` : ''}
-                    {item.pricePerUnit > 0 ? ` × ${formatCurrency(item.pricePerUnit)}` : ''}
-                  </span>
-                </div>
-                {item.error && (
-                  <p className="text-[10px] text-red-400/80 mt-1">{item.error}</p>
-                )}
+          {/* Summary bar */}
+          {importPreviewData && (
+            <div className="flex items-center gap-3 px-1 mt-1">
+              {(() => {
+                const valid = importPreviewData.filter(i => !i.error)
+                const totalCost = valid.reduce((sum, i) => sum + ((i.qty || 0) * (i.pricePerUnit || 0)), 0)
+                const errorCount = importPreviewData.filter(i => i.error).length
+                return (
+                  <>
+                    <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
+                      <Package className="h-3 w-3" />
+                      <span>{valid.length} item</span>
+                    </div>
+                    {totalCost > 0 && (
+                      <div className="flex items-center gap-1.5 text-[11px] text-emerald-400">
+                        <Banknote className="h-3 w-3" />
+                        <span className="font-mono">{formatCurrency(totalCost)}</span>
+                      </div>
+                    )}
+                    {errorCount > 0 && (
+                      <div className="flex items-center gap-1.5 text-[11px] text-red-400">
+                        <AlertTriangle className="h-3 w-3" />
+                        <span>{errorCount} error</span>
+                      </div>
+                    )}
+                  </>
+                )
+              })()}
+            </div>
+          )}
+
+          {/* Supplier selector */}
+          {importPreviewData && importPreviewData.filter(i => !i.error).length > 0 && (
+            <div className="mt-2">
+              <Label className="text-[11px] text-slate-400 mb-1.5 block">Supplier (opsional)</Label>
+              <Select value={importSupplierId} onValueChange={setImportSupplierId}>
+                <SelectTrigger className="h-9 text-xs bg-white/[0.03] border-white/[0.08]">
+                  <SelectValue placeholder="Pilih supplier..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {supplierOptions.map(s => (
+                    <SelectItem key={s.id} value={s.id} className="text-xs">{s.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {/* Items list */}
+          <div className="flex-1 overflow-y-auto space-y-1.5 mt-2">
+            {importLoading && !importPreviewData && (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-5 w-5 text-emerald-400 animate-spin" />
+                <span className="text-xs text-slate-400 ml-2">Membaca file Excel...</span>
               </div>
-            ))}
+            )}
+            {importPreviewData && importPreviewData.map((item) => {
+              const itemTotal = (item.qty || 0) * (item.pricePerUnit || 0)
+              return (
+                <div
+                  key={item.row}
+                  className={cn(
+                    'rounded-lg border p-2.5 text-xs',
+                    item.error
+                      ? 'border-red-500/20 bg-red-500/[0.04]'
+                      : item.isNew
+                        ? 'border-amber-500/20 bg-amber-500/[0.04]'
+                        : 'border-white/[0.04] bg-white/[0.02]'
+                  )}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <span className="text-[10px] text-slate-600 shrink-0">#{item.row}</span>
+                      <span className="text-xs text-slate-200 font-medium truncate">{item.name}</span>
+                      {item.sku && <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 border-white/[0.1] text-slate-500 shrink-0">{item.sku}</Badge>}
+                      {item.isNew ? (
+                        <Badge className="text-[9px] px-1.5 py-0 h-4 bg-amber-500/10 text-amber-400 border-amber-500/20 shrink-0">Baru</Badge>
+                      ) : item.matchedItemName ? (
+                        <Badge className="text-[9px] px-1.5 py-0 h-4 bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shrink-0">Match</Badge>
+                      ) : null}
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0 ml-2">
+                      {item.qty > 0 && (
+                        <span className="text-[11px] text-slate-300">
+                          {item.qty}{item.purchaseUnit ? ` ${item.purchaseUnit}` : ''}
+                          {item.baseQty > 0 && item.baseQty !== 1 && item.baseUnit ? (
+                            <span className="text-slate-500"> → {item.qty * item.baseQty} {item.baseUnit}</span>
+                          ) : null}
+                        </span>
+                      )}
+                      {item.pricePerUnit > 0 && (
+                        <span className="text-[11px] text-slate-400 font-mono">{formatCurrency(item.pricePerUnit)}</span>
+                      )}
+                      {itemTotal > 0 && (
+                        <span className="text-[11px] text-emerald-400 font-mono font-medium">{formatCurrency(itemTotal)}</span>
+                      )}
+                    </div>
+                  </div>
+                  {item.error && (
+                    <p className="text-[10px] text-red-400/80 mt-1">{item.error}</p>
+                  )}
+                </div>
+              )
+            })}
           </div>
 
-          <div className="pt-3 mt-auto border-t border-white/[0.06]">
+          {/* Footer buttons */}
+          <div className="pt-3 mt-auto border-t border-white/[0.06] space-y-2">
+            <Button
+              className="w-full h-10 text-xs theme-bg theme-hover text-white font-medium"
+              disabled={!importPreviewData || importPreviewData.filter(i => !i.error).length === 0 || importPosting}
+              onClick={handleImportPost}
+            >
+              {importPosting ? (
+                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+              ) : (
+                <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
+              )}
+              {importPosting
+                ? 'Memproses...'
+                : `Posting ${importPreviewData ? importPreviewData.filter(i => !i.error).length : 0} Item`}
+            </Button>
             <div className="flex gap-2">
               <Button
                 variant="ghost"
-                className="flex-1 h-10 text-xs text-slate-400 hover:text-white"
+                className="flex-1 h-9 text-[11px] text-slate-400 hover:text-white"
                 onClick={() => { setShowImportPreview(false); setImportPreviewData(null) }}
               >
                 Batal
               </Button>
               <Button
-                className="flex-1 h-10 text-xs theme-bg theme-hover text-white font-medium"
-                disabled={!importPreviewData || importPreviewData.filter(i => !i.error).length === 0}
+                variant="ghost"
+                className="flex-1 h-9 text-[11px] text-slate-400 hover:text-white"
+                disabled={!importPreviewData || importPreviewData.filter(i => !i.error).length === 0 || importPosting}
                 onClick={handleApplyImport}
               >
-                <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
-                Terapkan {importPreviewData ? importPreviewData.filter(i => !i.error).length : 0} Item
+                <ClipboardPaste className="h-3 w-3 mr-1" />
+                Terapkan ke Form
               </Button>
             </div>
           </div>
