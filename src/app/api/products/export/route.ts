@@ -208,6 +208,11 @@ export async function GET(request: NextRequest) {
       ['Harga Jual', 'Harga jual varian', 'Tidak'],
       ['Stok', 'Stok varian', 'Tidak'],
       [''],
+      ['CONTOH KATEGORI PRODUK:'],
+      ['F&B:', 'Makanan, Minuman, Snack, Dessert, Kopi, Jus'],
+      ['Ritel/Minimarket:', 'Sembako, Rokok, Pulsa & Voucher, Perawatan Tubuh, Obat-obatan, Elektronik, Kebutuhan Rumah'],
+      ['Lainnya:', 'Jasa, Token Listrik, Souvenir, Aksesoris'],
+      [''],
       ['CATATAN:'],
       ['• Hanya kolom yang diisi (tidak kosong) yang akan diperbarui'],
       ['• Kolom ID wajib dan tidak boleh diubah'],
@@ -215,6 +220,7 @@ export async function GET(request: NextRequest) {
       ['• Kategori baru akan otomatis dibuat jika belum ada'],
       ['• Harga harus dalam format angka tanpa titik/koma (contoh: 25000)'],
       ['• Jika terjadi error pada suatu baris, baris tersebut akan dilewati'],
+      ['• Untuk produk virtual (pulsa, voucher, token) isi stok 999'],
     ]
 
     const wsGuide = XLSX.utils.aoa_to_sheet(guideData)
