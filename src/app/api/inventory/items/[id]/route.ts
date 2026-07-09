@@ -211,43 +211,67 @@ export async function DELETE(
 
     // If item is used in compositions and NOT force-deleting, return linked products
     if (existing._count.compositions > 0 && !forceDelete) {
-      // Fetch which products use this inventory item
-      const linkedCompositions = await db.productComposition.findMany({
+      // Clean up orphaned compositions first (product was deleted but row remained)
+      // Use a raw query-safe approach: check which compositions have valid products
+      const allComps = await db.productComposition.findMany({
         where: { inventoryItemId: id },
-        include: {
-          product: {
-            select: {
-              id: true,
-              name: true,
-              hasVariants: true,
-            },
-          },
-          variant: {
-            select: {
-              id: true,
-              name: true,
-            },
-          },
-        },
+        select: { id: true, productId: true, variantId: true, qty: true, baseUnit: true },
       })
 
-      const linkedProducts = linkedCompositions
-        .filter((c) => c.product)
-        .map((c) => ({
-          productId: c.product.id,
-          productName: c.product.name,
-          variantName: c.variant?.name || null,
-          variantId: c.variantId || null,
-          qty: c.qty,
-          baseUnit: c.baseUnit,
-        }))
-
-      return safeJson({
-        blocked: true,
-        message: 'Item ini digunakan dalam komposisi produk',
-        compositionCount: existing._count.compositions,
-        linkedProducts,
+      // Find products that still exist
+      const productIds = [...new Set(allComps.map((c) => c.productId))]
+      const existingProducts = await db.product.findMany({
+        where: { id: { in: productIds } },
+        select: { id: true, name: true, hasVariants: true },
       })
+      const productMap = new Map(existingProducts.map((p) => [p.id, p]))
+
+      // Find variants that still exist
+      const variantIds = [...new Set(allComps.filter((c) => c.variantId).map((c) => c.variantId!))]
+      const existingVariants = variantIds.length > 0
+        ? await db.productVariant.findMany({
+            where: { id: { in: variantIds } },
+            select: { id: true, name: true },
+          })
+        : []
+      const variantMap = new Map(existingVariants.map((v) => [v.id, v]))
+
+      // Delete truly orphaned compositions (product gone)
+      const orphanIds = allComps.filter((c) => !productMap.has(c.productId)).map((c) => c.id)
+      if (orphanIds.length > 0) {
+        await db.productComposition.deleteMany({ where: { id: { in: orphanIds } } })
+      }
+
+      // Build linked products list from valid compositions only
+      const linkedProducts = allComps
+        .filter((c) => productMap.has(c.productId))
+        .map((c) => {
+          const prod = productMap.get(c.productId)!
+          return {
+            productId: prod.id,
+            productName: prod.name,
+            variantName: c.variantId ? (variantMap.get(c.variantId)?.name || null) : null,
+            variantId: c.variantId || null,
+            qty: c.qty,
+            baseUnit: c.baseUnit,
+          }
+        })
+
+      // Update composition count after cleanup
+      const realCompCount = allComps.length - orphanIds.length
+
+      if (realCompCount === 0) {
+        // All compositions were orphans — item is actually safe to delete, skip to delete logic
+        // Update existing to reflect cleaned count
+        existing._count.compositions = 0
+      } else {
+        return safeJson({
+          blocked: true,
+          message: 'Item ini digunakan dalam komposisi produk',
+          compositionCount: realCompCount,
+          linkedProducts,
+        })
+      }
     }
 
     // If item has purchase order items referencing it — warn the user
@@ -277,22 +301,28 @@ export async function DELETE(
         await tx.inventoryTransferItem.deleteMany({ where: { inventoryItemId: id } })
         await tx.transactionConsumption.deleteMany({ where: { inventoryItemId: id } })
 
-        // 2. Find all affected products before deleting compositions
+        // 2. Find all compositions referencing this inventory item (select-only, no include to avoid null relation crash)
         const compositions = await tx.productComposition.findMany({
           where: { inventoryItemId: id },
-          include: {
-            product: { select: { id: true, hasVariants: true, hasComposition: true } },
-            variant: { select: { id: true } },
-          },
+          select: { id: true, productId: true, variantId: true, qty: true, yieldPerBatch: true },
         })
+
+        // 2b. Find which products/variants actually still exist
+        const compProductIds = [...new Set(compositions.map((c) => c.productId))]
+        const compVariantIds = [...new Set(compositions.filter((c) => c.variantId).map((c) => c.variantId!))]
+        const existingProducts = await tx.product.findMany({
+          where: { id: { in: compProductIds } },
+          select: { id: true, hasVariants: true, hasComposition: true },
+        })
+        const productExistsMap = new Map(existingProducts.map((p) => [p.id, p]))
 
         // 3. Delete all compositions referencing this inventory item
         await tx.productComposition.deleteMany({
           where: { inventoryItemId: id },
         })
 
-        // 4. For each affected product, check remaining compositions and update
-        const affectedProductIds = [...new Set(compositions.map((c) => c.productId))]
+        // 4. For each affected product that still exists, check remaining compositions and update
+        const affectedProductIds = compProductIds.filter((pid) => productExistsMap.has(pid))
 
         // Helper: yield-aware HPP calculation (matches composition PUT logic)
         const calcHpp = (comps: Array<{ qty: number; yieldPerBatch: number; inventoryItem: { avgCost: number } }>) => {
@@ -303,7 +333,7 @@ export async function DELETE(
         }
 
         for (const productId of affectedProductIds) {
-          const product = compositions.find((c) => c.productId === productId)!.product
+          const product = productExistsMap.get(productId)!
           const remainingComps = await tx.productComposition.count({
             where: { productId },
           })
