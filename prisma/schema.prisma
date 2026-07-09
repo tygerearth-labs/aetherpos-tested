@@ -233,7 +233,7 @@ model TransactionConsumption {
   createdAt        DateTime @default(now())
 
   transaction    Transaction    @relation(fields: [transactionId], references: [id], onDelete: Cascade)
-  inventoryItem  InventoryItem  @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  inventoryItem  InventoryItem  @relation(fields: [inventoryItemId], references: [id])
 }
 
 // ==================== LOYALTY LOG ====================
@@ -546,7 +546,7 @@ model InventoryMovement {
   createdAt      DateTime @default(now())
 
   outlet          Outlet          @relation(fields: [outletId], references: [id])
-  inventoryItem   InventoryItem   @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  inventoryItem   InventoryItem   @relation(fields: [inventoryItemId], references: [id])
   user            User?           @relation("MovementUser", fields: [userId], references: [id])
 }
 
@@ -564,6 +564,6 @@ model InventoryTransferItem {
   createdAt        DateTime @default(now())
 
   transfer       OutletTransfer  @relation(fields: [transferId], references: [id], onDelete: Cascade)
-  inventoryItem  InventoryItem   @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  inventoryItem  InventoryItem   @relation(fields: [inventoryItemId], references: [id])
   outlet         Outlet          @relation(fields: [outletId], references: [id])
 }

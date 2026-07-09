@@ -42,6 +42,7 @@ export async function GET(
               baseUnit: true,
               avgCost: true,
               stock: true,
+              status: true,
             },
           },
         },
@@ -54,6 +55,7 @@ export async function GET(
         inventoryItemId: string
         inventoryItemName: string
         inventoryItemSku: string | null
+        inventoryItemStatus: string
         qty: number
         baseUnit: string
         avgCost: number
@@ -70,6 +72,7 @@ export async function GET(
           inventoryItemId: c.inventoryItemId,
           inventoryItemName: c.inventoryItem.name,
           inventoryItemSku: c.inventoryItem.sku,
+          inventoryItemStatus: c.inventoryItem.status,
           qty: c.qty,
           baseUnit: c.baseUnit,
           avgCost: c.inventoryItem.avgCost,
@@ -112,6 +115,7 @@ export async function GET(
               baseUnit: true,
               avgCost: true,
               stock: true,
+              status: true,
             },
           },
         },
@@ -127,6 +131,7 @@ export async function GET(
           inventoryItemId: c.inventoryItemId,
           inventoryItemName: c.inventoryItem.name,
           inventoryItemSku: c.inventoryItem.sku,
+          inventoryItemStatus: c.inventoryItem.status,
           qty: c.qty,
           baseUnit: c.baseUnit,
           avgCost: c.inventoryItem.avgCost,
@@ -204,14 +209,22 @@ export async function PUT(
         }
       }
 
-      // Verify all inventory items belong to this outlet
+      // Verify all inventory items belong to this outlet and are ACTIVE
       const invItemIds = [...new Set(allCompItems.map((c) => c.inventoryItemId))]
       const invItems = await db.inventoryItem.findMany({
         where: { id: { in: invItemIds }, outletId },
-        select: { id: true, name: true, avgCost: true },
+        select: { id: true, name: true, avgCost: true, status: true },
       })
       if (invItems.length !== invItemIds.length) {
         return safeJsonError('One or more inventory items not found', 400)
+      }
+      // Reject archived items in composition
+      const archivedInvItems = invItems.filter(i => i.status === 'ARCHIVED')
+      if (archivedInvItems.length > 0) {
+        return safeJsonError(
+          `Item ${archivedInvItems.map(i => `"${i.name}"`).join(', ')} sudah Nonaktif. Aktifkan kembali item tersebut sebelum digunakan dalam komposisi.`,
+          400
+        )
       }
     }
 

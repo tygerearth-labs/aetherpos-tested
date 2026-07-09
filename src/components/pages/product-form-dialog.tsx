@@ -64,6 +64,7 @@ interface Category {
 interface CompositionItem {
   inventoryItemId: string
   inventoryItemName: string
+  inventoryItemStatus?: string
   qty: string
   baseUnit: string
   avgCost: number
@@ -250,6 +251,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
             setCompositions(data.items.map((item: any) => ({
               inventoryItemId: item.inventoryItemId,
               inventoryItemName: item.inventoryItemName,
+              inventoryItemStatus: item.inventoryItemStatus,
               qty: String(item.qty),
               baseUnit: item.baseUnit,
               avgCost: item.avgCost || 0,
@@ -273,6 +275,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                 vcMap[vIdx] = vc.compositions.map((item: any) => ({
                   inventoryItemId: item.inventoryItemId,
                   inventoryItemName: item.inventoryItemName,
+                  inventoryItemStatus: item.inventoryItemStatus,
                   qty: String(item.qty),
                   baseUnit: item.baseUnit,
                   avgCost: item.avgCost || 0,
@@ -1270,7 +1273,12 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                                 {(variantCompositions[index] || []).map((comp, cIdx) => (
                                   <div key={comp.inventoryItemId} className="bg-white/[0.03] border border-white/[0.04] rounded-lg p-2 space-y-1.5">
                                     <div className="flex items-center justify-between">
-                                      <span className="text-[10px] text-slate-300 truncate">{comp.inventoryItemName}</span>
+                                      <div className="flex items-center gap-1.5 min-w-0">
+                                        <span className="text-[10px] text-slate-300 truncate">{comp.inventoryItemName}</span>
+                                        {comp.inventoryItemStatus === 'ARCHIVED' && (
+                                          <Badge variant="secondary" className="text-[8px] px-1 py-0 bg-amber-500/15 text-amber-400 border-amber-500/20 shrink-0">Nonaktif</Badge>
+                                        )}
+                                      </div>
                                       <button type="button" onClick={() => removeVariantComposition(index, cIdx)} className="text-slate-600 hover:text-red-400">
                                         <X className="h-3 w-3" />
                                       </button>
@@ -1434,6 +1442,9 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                             <Beaker className="h-3 w-3 text-emerald-400" />
                           </div>
                           <span className="text-xs font-medium text-slate-200 truncate">{comp.inventoryItemName}</span>
+                          {comp.inventoryItemStatus === 'ARCHIVED' && (
+                            <Badge variant="secondary" className="text-[8px] px-1.5 py-0 bg-amber-500/15 text-amber-400 border-amber-500/20 shrink-0">Nonaktif</Badge>
+                          )}
                         </div>
                         <Button
                           type="button"

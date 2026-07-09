@@ -211,6 +211,7 @@ interface InventoryItemDetail {
   stock: number
   avgCost: number
   lowStockAlert: number
+  status: string
   category: { id: string; name: string; color: string } | null
   _count: { compositions: number; purchaseItems: number; movements: number }
   linkedProducts: LinkedProduct[]
@@ -359,7 +360,9 @@ export default function PurchasePage() {
     qty: number; baseQty: number; baseUnit: string; pricePerUnit: number;
     matchedItemId: string | null; matchedItemName: string | null;
     matchedItemSku: string | null; matchedItemUnit: string | null;
-    isNew: boolean; error?: string;
+    isNew: boolean; isArchived: boolean;
+    archivedItemId: string | null; archivedItemName: string | null;
+    error?: string;
   }> | null>(null)
   const importFileRef = useRef<HTMLInputElement | null>(null)
 
@@ -602,8 +605,8 @@ export default function PurchasePage() {
   const fetchPoItemOptions = useCallback(async () => {
     setPoItemOptionsLoading(true)
     try {
-      const activeParam = showInactiveItems ? 'false' : 'true'
-      const res = await fetch(`/api/inventory/items?limit=200&activeOnly=${activeParam}`)
+      // PO item picker: ALWAYS only show active items — archived items cannot be used in new purchases
+      const res = await fetch('/api/inventory/items?limit=200&activeOnly=true')
       if (res.ok) {
         const data = await res.json()
         setPoItemOptions((data.items || []).map((i: { id: string; name: string; sku: string | null; baseUnit: string; stock: number; active?: boolean }) => ({
@@ -620,7 +623,7 @@ export default function PurchasePage() {
     } finally {
       setPoItemOptionsLoading(false)
     }
-  }, [showInactiveItems])
+  }, [])
 
   // Pre-load items when purchase dialog opens
   useEffect(() => {
@@ -1018,7 +1021,7 @@ export default function PurchasePage() {
     const newOptions: InventoryItemOption[] = []
     importPreviewData.forEach((item, idx) => {
       if (item.error) return
-      const itemId = item.matchedItemId || `__pending_${item.name}_${item.sku || ''}_${idx}_${Date.now()}`
+      const itemId = item.matchedItemId || item.archivedItemId || `__pending_${item.name}_${item.sku || ''}_${idx}_${Date.now()}`
       newItems.push({
         inventoryItemId: itemId,
         inventoryItemName: item.name,
@@ -1030,7 +1033,7 @@ export default function PurchasePage() {
         pricePerItem: String(item.pricePerUnit || 0),
       })
       // Add new items to poItemOptions so pending creation works
-      if (item.isNew && !item.matchedItemId) {
+      if (item.isNew && !item.matchedItemId && !item.isArchived) {
         newOptions.push({
           id: itemId,
           name: item.name,
@@ -1065,8 +1068,39 @@ export default function PurchasePage() {
     const idMap = new Map<string, string>() // tempKey → real inventory item ID
 
     try {
-      // Step 1: Create new inventory items for unmatched items
-      const newItems = validItems.filter(i => i.isNew && !i.matchedItemId)
+      // Step 1: Restore archived items
+      const archivedItems = validItems.filter(i => i.isArchived && i.archivedItemId)
+      if (archivedItems.length > 0) {
+        toast.loading(`Mengaktifkan kembali ${archivedItems.length} item nonaktif...`, { id: 'import-pending-restore' })
+        for (const item of archivedItems) {
+          try {
+            const res = await fetch(`/api/inventory/items/${item.archivedItemId}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'restore' }),
+            })
+            if (res.ok) {
+              idMap.set(`import_row_${item.row}`, item.archivedItemId!)
+            } else {
+              const err = await res.json()
+              toast.error(err.error || `Gagal mengaktifkan item "${item.name}"`)
+              toast.dismiss('import-pending-restore')
+              setImportPosting(false)
+              return
+            }
+          } catch {
+            toast.error(`Gagal mengaktifkan item "${item.name}"`)
+            toast.dismiss('import-pending-restore')
+            setImportPosting(false)
+            return
+          }
+        }
+        toast.dismiss('import-pending-restore')
+        toast.success(`${archivedItems.length} item nonaktif berhasil diaktifkan kembali`)
+      }
+
+      // Step 2: Create new inventory items for unmatched items
+      const newItems = validItems.filter(i => i.isNew && !i.matchedItemId && !i.isArchived)
       if (newItems.length > 0) {
         toast.loading(`Membuat ${newItems.length} item baru di inventory...`, { id: 'import-pending-create' })
         for (const item of newItems) {
@@ -3625,7 +3659,16 @@ export default function PurchasePage() {
                 <span>Preview Import Excel</span>
                 <p className="text-[11px] text-slate-500 font-normal mt-0.5">
                   {importPreviewData
-                    ? `${importPreviewData.filter(i => !i.error).length} item ditemukan, ${importPreviewData.filter(i => i.isNew).length} barang baru`
+                    ? (() => {
+                        const valid = importPreviewData.filter(i => !i.error)
+                        const newCount = valid.filter(i => i.isNew).length
+                        const archCount = valid.filter(i => i.isArchived).length
+                        const parts: string[] = []
+                        parts.push(`${valid.length} item ditemukan`)
+                        if (newCount > 0) parts.push(`${newCount} barang baru`)
+                        if (archCount > 0) parts.push(`${archCount} item nonaktif`)
+                        return parts.join(', ')
+                      })()
                     : 'Membaca file...'}
                 </p>
               </div>
@@ -3700,9 +3743,11 @@ export default function PurchasePage() {
                     'rounded-lg border p-2.5 text-xs',
                     item.error
                       ? 'border-red-500/20 bg-red-500/[0.04]'
-                      : item.isNew
+                      : item.isArchived
                         ? 'border-amber-500/20 bg-amber-500/[0.04]'
-                        : 'border-white/[0.04] bg-white/[0.02]'
+                        : item.isNew
+                          ? 'border-amber-500/20 bg-amber-500/[0.04]'
+                          : 'border-white/[0.04] bg-white/[0.02]'
                   )}
                 >
                   <div className="flex items-center justify-between">
@@ -3710,7 +3755,9 @@ export default function PurchasePage() {
                       <span className="text-[10px] text-slate-600 shrink-0">#{item.row}</span>
                       <span className="text-xs text-slate-200 font-medium truncate">{item.name}</span>
                       {item.sku && <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 border-white/[0.1] text-slate-500 shrink-0">{item.sku}</Badge>}
-                      {item.isNew ? (
+                      {item.isArchived ? (
+                        <Badge variant="secondary" className="text-[9px] px-1.5 py-0 h-4 bg-amber-500/15 text-amber-400 border-amber-500/20 shrink-0">⚠️ Nonaktif</Badge>
+                      ) : item.isNew ? (
                         <Badge className="text-[9px] px-1.5 py-0 h-4 bg-amber-500/10 text-amber-400 border-amber-500/20 shrink-0">Baru</Badge>
                       ) : item.matchedItemName ? (
                         <Badge className="text-[9px] px-1.5 py-0 h-4 bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shrink-0">Match</Badge>
@@ -3735,6 +3782,11 @@ export default function PurchasePage() {
                   </div>
                   {item.error && (
                     <p className="text-[10px] text-red-400/80 mt-1">{item.error}</p>
+                  )}
+                  {item.isArchived && (
+                    <p className="text-[10px] text-amber-400/80 mt-1">
+                      Item ini sudah pernah ada dan saat ini berstatus <strong>Nonaktif</strong>. Saat import, item akan otomatis diaktifkan kembali.
+                    </p>
                   )}
                 </div>
               )
@@ -5075,28 +5127,44 @@ export default function PurchasePage() {
             <div className="flex items-center justify-between pr-8">
               <div className="min-w-0">
                 <ResponsiveDialogTitle className="text-white text-base truncate">Detail Item</ResponsiveDialogTitle>
-                <ResponsiveDialogDescription className="text-slate-400 text-xs truncate">
+                <ResponsiveDialogDescription className="text-slate-400 text-xs truncate flex items-center gap-1.5">
                   {invDetailData?.name || '-'}
+                  {invDetailData?.status === 'ARCHIVED' && (
+                    <Badge variant="secondary" className="text-[9px] px-1.5 py-0 bg-amber-500/15 text-amber-400 border-amber-500/20 shrink-0">Nonaktif</Badge>
+                  )}
                 </ResponsiveDialogDescription>
               </div>
               {invDetailData && (
                 <div className="flex items-center gap-1 shrink-0">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 px-2 text-slate-400 hover:text-white hover:bg-white/[0.04]"
-                    onClick={() => { openInvForm(invDetailData); setInvDetailOpen(false) }}
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 px-2 text-slate-400 hover:text-red-400 hover:bg-red-500/[0.06]"
-                    onClick={() => { setDeleteInvId(invDetailData.id); setInvDetailOpen(false) }}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
+                  {invDetailData.status === 'ARCHIVED' ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 px-2 text-slate-400 hover:text-amber-400 hover:bg-amber-500/[0.06]"
+                      onClick={() => { handleRestoreInv(invDetailData.id); setInvDetailOpen(false) }}
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                    </Button>
+                  ) : (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 px-2 text-slate-400 hover:text-white hover:bg-white/[0.04]"
+                        onClick={() => { openInvForm(invDetailData); setInvDetailOpen(false) }}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 px-2 text-slate-400 hover:text-red-400 hover:bg-red-500/[0.06]"
+                        onClick={() => { setDeleteInvId(invDetailData.id); setInvDetailOpen(false) }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </>
+                  )}
                 </div>
               )}
             </div>

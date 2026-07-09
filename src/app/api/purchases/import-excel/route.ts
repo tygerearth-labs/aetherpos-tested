@@ -117,9 +117,15 @@ export async function POST(request: NextRequest) {
 
     console.log(`[Purchase Import] Headers: ${Object.keys(rows[0]).join(', ')}`)
 
-    // Load existing inventory items for auto-matching
+    // Load existing inventory items for auto-matching (active only)
     const existingItems = await db.inventoryItem.findMany({
-      where: { outletId },
+      where: { outletId, status: 'ACTIVE' },
+      select: { id: true, name: true, sku: true, baseUnit: true, stock: true, avgCost: true },
+    })
+
+    // Also load archived items for reactivation prompt
+    const archivedItems = await db.inventoryItem.findMany({
+      where: { outletId, status: 'ARCHIVED' },
       select: { id: true, name: true, sku: true, baseUnit: true, stock: true, avgCost: true },
     })
 
@@ -130,6 +136,14 @@ export async function POST(request: NextRequest) {
       const nameLower = item.name.toLowerCase()
       if (!nameMap.has(nameLower)) nameMap.set(nameLower, item)
       if (item.sku) skuMap.set(item.sku.toLowerCase(), item)
+    }
+    // Archived lookup maps
+    const archivedNameMap = new Map<string, typeof archivedItems[number]>()
+    const archivedSkuMap = new Map<string, typeof archivedItems[number]>()
+    for (const item of archivedItems) {
+      const nameLower = item.name.toLowerCase()
+      if (!archivedNameMap.has(nameLower)) archivedNameMap.set(nameLower, item)
+      if (item.sku) archivedSkuMap.set(item.sku.toLowerCase(), item)
     }
 
     // Parse rows
@@ -147,6 +161,9 @@ export async function POST(request: NextRequest) {
       matchedItemSku: string | null
       matchedItemUnit: string | null
       isNew: boolean
+      isArchived: boolean
+      archivedItemId: string | null
+      archivedItemName: string | null
       error?: string
     }> = []
 
@@ -214,16 +231,26 @@ export async function POST(request: NextRequest) {
 
       // Try to match to existing inventory item (case-insensitive)
       let matchedItem: typeof existingItems[number] | null = null
+      let archivedMatch: typeof archivedItems[number] | null = null
       if (name && !sku) {
         matchedItem = nameMap.get(name.toLowerCase()) || null
+        archivedMatch = !matchedItem ? (archivedNameMap.get(name.toLowerCase()) || null) : null
       } else if (sku) {
         matchedItem = skuMap.get(sku.toLowerCase()) || null
         if (!matchedItem && name) {
           matchedItem = nameMap.get(name.toLowerCase()) || null
         }
+        // Check archived by SKU, then by name
+        if (!matchedItem) {
+          archivedMatch = sku ? (archivedSkuMap.get(sku.toLowerCase()) || null) : null
+          if (!archivedMatch && name) {
+            archivedMatch = archivedNameMap.get(name.toLowerCase()) || null
+          }
+        }
       }
 
-      const isNew = !matchedItem
+      const isNew = !matchedItem && !archivedMatch
+      const isArchived = !matchedItem && !!archivedMatch
 
       // Auto-fill from matched item if available
       const finalBaseUnit = baseUnit || matchedItem?.baseUnit || ''
@@ -263,15 +290,20 @@ export async function POST(request: NextRequest) {
         matchedItemSku: matchedItem?.sku || null,
         matchedItemUnit: matchedItem?.baseUnit || null,
         isNew,
+        isArchived,
+        archivedItemId: archivedMatch?.id || null,
+        archivedItemName: archivedMatch?.name || null,
       })
     }
 
+    const archivedCount = parsedItems.filter(i => i.isArchived).length
     return safeJson({
       fileName: file.name,
       totalRows: rows.length,
       headers: Object.keys(rows[0]),
       items: parsedItems,
       existingItemCount: existingItems.length,
+      archivedCount,
     })
   } catch (error) {
     console.error('[Purchase Import] Error:', error)
