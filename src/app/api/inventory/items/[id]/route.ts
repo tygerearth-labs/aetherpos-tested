@@ -31,6 +31,8 @@ export async function GET(
     }
 
     // Fetch linked products (products that use this inventory item in composition)
+    // Use select-only approach to avoid Prisma crash on orphaned compositions
+    // (product deleted but composition row remains due to SQLite cascade issues)
     let linkedProducts: Array<{
       id: string; productId: string; productName: string; productSku: string | null;
       productImage: string | null; productPrice: number; productStock: number;
@@ -39,24 +41,36 @@ export async function GET(
     }> = []
 
     try {
-      const compositions = await db.productComposition.findMany({
+      const allComps = await db.productComposition.findMany({
         where: { inventoryItemId: id },
-        include: {
-          product: {
-            select: { id: true, name: true, sku: true, price: true, stock: true, hasVariants: true, image: true },
-          },
-          variant: {
-            select: { id: true, name: true, price: true, stock: true },
-          },
-        },
+        select: { id: true, productId: true, variantId: true, qty: true, yieldPerBatch: true, baseUnit: true },
         orderBy: { createdAt: 'desc' },
       })
 
-      // Clean up orphaned compositions (product was deleted but composition remained)
-      const orphanIds = compositions.filter((c) => !c.product).map((c) => c.id)
+      // Clean up orphaned compositions (product was deleted but row remained)
+      const productIds = [...new Set(allComps.map((c) => c.productId))]
+      const variantIds = [...new Set(allComps.filter((c) => c.variantId).map((c) => c.variantId!))]
+
+      const [existingProducts, existingVariants] = await Promise.all([
+        db.product.findMany({
+          where: { id: { in: productIds } },
+          select: { id: true, name: true, sku: true, price: true, stock: true, hasVariants: true, image: true },
+        }),
+        variantIds.length > 0
+          ? db.productVariant.findMany({
+              where: { id: { in: variantIds } },
+              select: { id: true, name: true, price: true, stock: true },
+            })
+          : Promise.resolve([]),
+      ])
+
+      const productMap = new Map(existingProducts.map((p) => [p.id, p]))
+      const variantMap = new Map(existingVariants.map((v) => [v.id, v]))
+
+      // Delete orphaned composition rows (product gone)
+      const orphanIds = allComps.filter((c) => !productMap.has(c.productId)).map((c) => c.id)
       if (orphanIds.length > 0) {
         await db.productComposition.deleteMany({ where: { id: { in: orphanIds } } })
-        // Re-fetch with fresh count
         const freshItem = await db.inventoryItem.findFirst({
           where: { id, outletId: user.outletId },
           include: { _count: { select: { compositions: true } } },
@@ -64,26 +78,30 @@ export async function GET(
         if (freshItem) item._count.compositions = freshItem._count.compositions
       }
 
-      // Filter out orphaned compositions and map to linked products
-      linkedProducts = compositions
-        .filter((c) => c.product)
-        .map((c) => ({
-          id: c.id,
-          productId: c.product.id,
-          productName: c.product.name,
-          productSku: c.product.sku,
-          productImage: c.product.image,
-          productPrice: c.product.price,
-          productStock: c.product.stock,
-          variantId: c.variant?.id || null,
-          variantName: c.variant?.name || null,
-          variantPrice: c.variant?.price || null,
-          qty: c.qty,
-          yieldPerBatch: c.yieldPerBatch,
-          baseUnit: c.baseUnit,
-        }))
+      // Map valid compositions to linked products
+      linkedProducts = allComps
+        .filter((c) => productMap.has(c.productId))
+        .map((c) => {
+          const prod = productMap.get(c.productId)!
+          const variant = c.variantId ? variantMap.get(c.variantId) : undefined
+          return {
+            id: c.id,
+            productId: prod.id,
+            productName: prod.name,
+            productSku: prod.sku,
+            productImage: prod.image,
+            productPrice: prod.price,
+            productStock: prod.stock,
+            variantId: variant?.id || null,
+            variantName: variant?.name || null,
+            variantPrice: variant?.price || null,
+            qty: c.qty,
+            yieldPerBatch: c.yieldPerBatch,
+            baseUnit: c.baseUnit,
+          }
+        })
     } catch (compError) {
-      console.warn('[InventoryItem GET] Failed to fetch compositions, returning item without linked products:', compError)
+      console.warn('[InventoryItem GET] Failed to fetch compositions:', compError)
     }
 
     // Fetch recent movements
