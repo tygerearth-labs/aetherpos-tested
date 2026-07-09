@@ -85,6 +85,8 @@ import {
   FileSpreadsheet,
   ClipboardPaste,
   Download,
+  RotateCcw,
+  Archive,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -162,7 +164,8 @@ interface InventoryItem {
   stock: number
   avgCost: number
   lowStockAlert: number
-  _count?: { compositions: number }
+  status?: string // ACTIVE, ARCHIVED
+  _count?: { compositions: number; purchaseItems: number }
 }
 
 interface InventoryStats {
@@ -411,13 +414,16 @@ export default function PurchasePage() {
   const [invDetailTab, setInvDetailTab] = useState('products')
   const [invDetailMovementPage, setInvDetailMovementPage] = useState(1)
 
-  // Inventory delete
+  // Inventory delete / archive
   const [deleteInvId, setDeleteInvId] = useState<string | null>(null)
-  const [deletingInv, setDeletingInv] = useState(false)
+  const [archivingInv, setArchivingInv] = useState(false)
   const [invDeleteBlocked, setInvDeleteBlocked] = useState<{
+    blockType?: 'hasHistory' | 'compositions' | 'purchaseItems'
+    message?: string
+    blockers?: string[]
+    suggestion?: string
     compositionCount?: number
     purchaseItemCount?: number
-    blockType?: 'compositions' | 'purchaseItems'
     linkedProducts: Array<{ productId: string; productName: string; variantName: string | null; qty: number; baseUnit: string }>
   } | null>(null)
 
@@ -504,6 +510,7 @@ export default function PurchasePage() {
       const params = new URLSearchParams({
         search: invDebouncedSearch,
         categoryId: invCategoryFilter === 'all' ? '' : invCategoryFilter,
+        activeOnly: String(!showInactiveItems),
       })
       const res = await fetch(`/api/inventory/items?${params}`)
       if (res.ok) {
@@ -526,7 +533,7 @@ export default function PurchasePage() {
     } finally {
       setInvLoading(false)
     }
-  }, [invPage, invDebouncedSearch, invCategoryFilter])
+  }, [invPage, invDebouncedSearch, invCategoryFilter, showInactiveItems])
 
   useEffect(() => {
     if (tab === 'inventory') void fetchInventoryItems()
@@ -1572,22 +1579,19 @@ export default function PurchasePage() {
     }
   }
 
-  const handleDeleteInv = async (force = false) => {
+  const handleDeleteInv = async () => {
     if (!deleteInvId) return
-    setDeletingInv(true)
+    setArchivingInv(true)
     try {
-      const url = force
-        ? `/api/inventory/items/${deleteInvId}?force=true`
-        : `/api/inventory/items/${deleteInvId}`
-      const res = await fetch(url, { method: 'DELETE' })
+      const res = await fetch(`/api/inventory/items/${deleteInvId}`, { method: 'DELETE' })
       if (res.ok) {
         const data = await res.json().catch(() => ({}))
         if (data.blocked) {
-          // Show linked products dialog or purchase history warning
           setInvDeleteBlocked({
-            blockType: data.blockType || 'compositions',
-            compositionCount: data.compositionCount,
-            purchaseItemCount: data.purchaseItemCount,
+            blockType: data.blockType || 'hasHistory',
+            message: data.message,
+            blockers: data.blockers || [],
+            suggestion: data.suggestion,
             linkedProducts: data.linkedProducts || [],
           })
         } else {
@@ -1603,7 +1607,53 @@ export default function PurchasePage() {
     } catch {
       toast.error('Gagal menghapus item')
     } finally {
-      setDeletingInv(false)
+      setArchivingInv(false)
+    }
+  }
+
+  const handleArchiveInv = async (id: string) => {
+    setArchivingInv(true)
+    try {
+      const res = await fetch(`/api/inventory/items/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'archive' }),
+      })
+      if (res.ok) {
+        toast.success('Item dinonaktifkan')
+        setDeleteInvId(null)
+        setInvDeleteBlocked(null)
+        void fetchInventoryItems()
+      } else {
+        const data = await res.json().catch(() => ({}))
+        toast.error(data.error || 'Gagal menonaktifkan item')
+      }
+    } catch {
+      toast.error('Gagal menonaktifkan item')
+    } finally {
+      setArchivingInv(false)
+    }
+  }
+
+  const handleRestoreInv = async (id: string) => {
+    setArchivingInv(true)
+    try {
+      const res = await fetch(`/api/inventory/items/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'restore' }),
+      })
+      if (res.ok) {
+        toast.success('Item diaktifkan kembali')
+        void fetchInventoryItems()
+      } else {
+        const data = await res.json().catch(() => ({}))
+        toast.error(data.error || 'Gagal mengaktifkan item')
+      }
+    } catch {
+      toast.error('Gagal mengaktifkan item')
+    } finally {
+      setArchivingInv(false)
     }
   }
 
@@ -2371,6 +2421,20 @@ export default function PurchasePage() {
                     ))}
                   </SelectContent>
                 </Select>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    'h-8 text-[10px] gap-1 border shrink-0',
+                    showInactiveItems
+                      ? 'text-amber-400 hover:text-amber-300 bg-amber-500/[0.06] border-amber-500/20'
+                      : 'text-slate-500 hover:text-slate-300 hover:bg-white/[0.04] border-white/[0.06]',
+                  )}
+                  onClick={() => { setShowInactiveItems(!showInactiveItems); setInvPage(1) }}
+                >
+                  <Archive className="h-3 w-3" />
+                  <span className="hidden sm:inline">{showInactiveItems ? 'Sembunyikan Nonaktif' : 'Tampilkan Nonaktif'}</span>
+                </Button>
                 {selectedInvIds.size > 0 && (
                   <Button
                     size="sm"
@@ -2570,7 +2634,11 @@ export default function PurchasePage() {
                         const isSelected = selectedInvIds.has(item.id)
                         const colorClasses = item.category ? getCategoryColorClasses(item.category.color) : null
                         return (
-                          <TableRow key={item.id} className={cn('border-white/[0.04] hover:bg-transparent', isSelected && 'bg-emerald-500/[0.04]')}>
+                          <TableRow key={item.id} className={cn(
+                            'border-white/[0.04] hover:bg-transparent',
+                            isSelected && 'bg-emerald-500/[0.04]',
+                            item.status === 'ARCHIVED' && 'opacity-50',
+                          )}>
                             <TableCell>
                               <Checkbox
                                 checked={isSelected}
@@ -2578,7 +2646,14 @@ export default function PurchasePage() {
                                 className="h-4 w-4"
                               />
                             </TableCell>
-                            <TableCell className="text-xs text-slate-200 font-medium">{item.name}</TableCell>
+                            <TableCell className="text-xs text-slate-200 font-medium">
+                              <div className="flex items-center gap-1.5">
+                                {item.name}
+                                {item.status === 'ARCHIVED' && (
+                                  <Badge variant="secondary" className="text-[9px] px-1.5 py-0 bg-amber-500/15 text-amber-400 border-amber-500/20">Nonaktif</Badge>
+                                )}
+                              </div>
+                            </TableCell>
                             <TableCell>
                               {item.category && colorClasses ? (
                                 <Badge variant="outline" className={cn('text-[10px] px-1.5 py-0 leading-none border font-medium', colorClasses.bg, colorClasses.text, colorClasses.border)}>
@@ -2618,10 +2693,25 @@ export default function PurchasePage() {
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  className="h-7 px-2 text-slate-400 hover:text-red-400 hover:bg-red-500/[0.06]"
-                                  onClick={() => setDeleteInvId(item.id)}
+                                  className={cn(
+                                    'h-7 px-2',
+                                    item.status === 'ARCHIVED'
+                                      ? 'text-amber-400 hover:text-amber-300 hover:bg-amber-500/[0.06]'
+                                      : 'text-slate-400 hover:text-red-400 hover:bg-red-500/[0.06]',
+                                  )}
+                                  onClick={() => {
+                                    if (item.status === 'ARCHIVED') {
+                                      handleRestoreInv(item.id)
+                                    } else {
+                                      setDeleteInvId(item.id)
+                                    }
+                                  }}
                                 >
-                                  <Trash2 className="h-3.5 w-3.5" />
+                                  {item.status === 'ARCHIVED' ? (
+                                    <RotateCcw className="h-3.5 w-3.5" />
+                                  ) : (
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  )}
                                 </Button>
                               </div>
                             </TableCell>
@@ -2720,10 +2810,25 @@ export default function PurchasePage() {
                               </Button>
                               <Button
                                 size="sm"
-                                className="h-7 px-2 text-slate-400 hover:text-red-400 hover:bg-red-500/[0.06]"
-                                onClick={() => setDeleteInvId(item.id)}
+                                className={cn(
+                                  'h-7 px-2',
+                                  item.status === 'ARCHIVED'
+                                    ? 'text-amber-400 hover:text-amber-300 hover:bg-amber-500/[0.06]'
+                                    : 'text-slate-400 hover:text-red-400 hover:bg-red-500/[0.06]',
+                                )}
+                                onClick={() => {
+                                  if (item.status === 'ARCHIVED') {
+                                    handleRestoreInv(item.id)
+                                  } else {
+                                    setDeleteInvId(item.id)
+                                  }
+                                }}
                               >
-                                <Trash2 className="h-3 w-3" />
+                                {item.status === 'ARCHIVED' ? (
+                                  <RotateCcw className="h-3 w-3" />
+                                ) : (
+                                  <Trash2 className="h-3 w-3" />
+                                )}
                               </Button>
                             </div>
                           </CardContent>
@@ -4095,11 +4200,13 @@ export default function PurchasePage() {
         </ResponsiveDialogContent>
       </ResponsiveDialog>
 
-      {/* Delete Inventory Item Alert */}
+      {/* Delete / Archive Inventory Item Alert */}
       <AlertDialog open={!!deleteInvId} onOpenChange={(open) => { if (!open) { setDeleteInvId(null); setInvDeleteBlocked(null) } }}>
         <AlertDialogContent className="bg-nebula border-white/[0.06]">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-white">Hapus Item?</AlertDialogTitle>
+            <AlertDialogTitle className="text-white">
+              {invDeleteBlocked?.blockType === 'hasHistory' ? '🚫 Item Tidak Dapat Dihapus' : 'Hapus Item?'}
+            </AlertDialogTitle>
             {!invDeleteBlocked ? (
               <AlertDialogDescription className="text-slate-400">
                 Item yang dihapus tidak dapat dikembalikan.
@@ -4107,44 +4214,22 @@ export default function PurchasePage() {
             ) : null}
           </AlertDialogHeader>
 
-          {invDeleteBlocked && invDeleteBlocked.blockType === 'purchaseItems' && (
+          {/* Blocked: has business history → suggest archive */}
+          {invDeleteBlocked && invDeleteBlocked.blockType === 'hasHistory' && (
             <div className="space-y-3 my-2">
               <div className="flex items-start gap-2 rounded-lg bg-amber-500/10 border border-amber-500/20 p-3">
                 <AlertTriangle className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
                 <div className="text-sm">
-                  <p className="text-amber-300 font-medium">
-                    Item ini memiliki {invDeleteBlocked.purchaseItemCount} riwayat pembelian
-                  </p>
-                  <p className="text-slate-400 text-xs mt-1.5 leading-relaxed">
-                    Riwayat pembelian akan tetap tersimpan, tapi referensi ke item ini akan dilepas. Lanjutkan hapus?
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {invDeleteBlocked && invDeleteBlocked.blockType === 'compositions' && (
-            <div className="space-y-3 my-2">
-              <div className="flex items-start gap-2 rounded-lg bg-amber-500/10 border border-amber-500/20 p-3">
-                <AlertTriangle className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
-                <div className="text-sm">
-                  <p className="text-amber-300 font-medium">Item ini digunakan dalam {invDeleteBlocked.compositionCount} komposisi produk:</p>
+                  <p className="text-amber-300 font-medium">{invDeleteBlocked.message}</p>
                   <div className="mt-2 space-y-1">
-                    {invDeleteBlocked.linkedProducts.map((lp, i) => (
-                      <div key={i} className="flex items-center gap-2 text-slate-300">
-                        <Package className="h-3 w-3 text-slate-500" />
-                        <span>{lp.productName}</span>
-                        {lp.variantName && (
-                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0 bg-white/[0.06] text-slate-400">
-                            {lp.variantName}
-                          </Badge>
-                        )}
-                        <span className="text-slate-500 text-xs">→ {lp.qty} {lp.baseUnit}</span>
+                    {invDeleteBlocked.blockers?.map((b, i) => (
+                      <div key={i} className="flex items-center gap-2 text-slate-400 text-xs">
+                        <span className="text-slate-600">•</span> {b}
                       </div>
                     ))}
                   </div>
-                  <p className="text-amber-400/70 text-xs mt-2">
-                    Menghapus akan melepas komposisi dari semua produk di atas. <span className="text-red-400 font-medium">Stok semua produk terkait akan direset ke 0</span> dan produk tidak akan muncul di POS sampai komposisi disesuaikan ulang.
+                  <p className="text-slate-400 text-xs mt-2.5 leading-relaxed italic">
+                    {invDeleteBlocked.suggestion}
                   </p>
                 </div>
               </div>
@@ -4153,25 +4238,21 @@ export default function PurchasePage() {
 
           <AlertDialogFooter className="gap-2">
             <AlertDialogCancel className="text-slate-400 hover:text-white hover:bg-white/[0.04]">Batal</AlertDialogCancel>
-            {invDeleteBlocked ? (
+            {invDeleteBlocked?.blockType === 'hasHistory' ? (
               <AlertDialogAction
-                className="bg-red-500/15 text-red-400 hover:bg-red-500/25 border border-red-500/20"
-                onClick={() => handleDeleteInv(true)}
-                disabled={deletingInv}
+                className="bg-amber-500/15 text-amber-400 hover:bg-amber-500/25 border border-amber-500/20"
+                onClick={() => { if (deleteInvId) handleArchiveInv(deleteInvId) }}
+                disabled={archivingInv}
               >
-                {deletingInv ? <Loader2 className="h-4 w-4 animate-spin" /> : (
-                  invDeleteBlocked.blockType === 'compositions'
-                    ? 'Ya, Hapus & Reset Stok Produk'
-                    : 'Ya, Hapus Item'
-                )}
+                {archivingInv ? <Loader2 className="h-4 w-4 animate-spin" /> : '🚫 Nonaktifkan'}
               </AlertDialogAction>
             ) : (
               <AlertDialogAction
                 className="bg-red-500/15 text-red-400 hover:bg-red-500/25 border border-red-500/20"
-                onClick={() => handleDeleteInv(false)}
-                disabled={deletingInv}
+                onClick={() => handleDeleteInv()}
+                disabled={archivingInv}
               >
-                {deletingInv ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Hapus'}
+                {archivingInv ? <Loader2 className="h-4 w-4 animate-spin" /> : '🗑 Hapus'}
               </AlertDialogAction>
             )}
           </AlertDialogFooter>

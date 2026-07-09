@@ -455,10 +455,13 @@ model InventoryItem {
   stock         Float    @default(0)          // Current stock in base units (Float for precision)
   avgCost       Float    @default(0)          // Weighted average cost per base unit
   lowStockAlert Float    @default(0)
+  status        String   @default("ACTIVE")   // ACTIVE, ARCHIVED — lifecycle: CREATE → ACTIVE → ARCHIVED
   outletId      String
   categoryId    String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+
+  @@unique([name, outletId])
 
   outlet         Outlet              @relation(fields: [outletId], references: [id], onDelete: Cascade)
   category       InventoryCategory?  @relation(fields: [categoryId], references: [id])

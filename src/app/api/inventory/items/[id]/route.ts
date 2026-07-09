@@ -202,8 +202,78 @@ export async function PUT(
   }
 }
 
-// DELETE /api/inventory/items/[id] — delete inventory item
-// Supports ?force=true to unlink compositions and delete
+// PATCH /api/inventory/items/[id] — archive or restore inventory item
+// Body: { action: 'archive' | 'restore' }
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const user = await getAuthUser(request)
+    if (!user) return unauthorized()
+    const userId = user.id
+    const outletId = user.outletId
+    const { id } = await params
+
+    const body = await request.json()
+    const { action } = body as { action: 'archive' | 'restore' }
+
+    if (action !== 'archive' && action !== 'restore') {
+      return safeJsonError('Action harus archive atau restore', 400)
+    }
+
+    const existing = await db.inventoryItem.findFirst({
+      where: { id, outletId },
+    })
+    if (!existing) {
+      return safeJsonError('Inventory item not found', 404)
+    }
+
+    if (action === 'archive' && existing.status === 'ARCHIVED') {
+      return safeJsonError('Item sudah tidak aktif', 400)
+    }
+    if (action === 'restore' && existing.status === 'ACTIVE') {
+      return safeJsonError('Item sudah aktif', 400)
+    }
+
+    const newStatus = action === 'archive' ? 'ARCHIVED' : 'ACTIVE'
+
+    await db.inventoryItem.update({
+      where: { id },
+      data: { status: newStatus },
+    })
+
+    // Audit log
+    await safeAuditLog({
+      action: action === 'archive' ? 'ARCHIVE' : 'RESTORE',
+      entityType: 'INVENTORY_ITEM',
+      entityId: id,
+      details: JSON.stringify({
+        itemName: existing.name,
+        sku: existing.sku,
+        previousStatus: existing.status,
+        newStatus,
+      }),
+      outletId,
+      userId,
+    })
+
+    return safeJson({ success: true, status: newStatus })
+  } catch (error) {
+    console.error('Inventory item PATCH error:', error)
+    const msg = error instanceof Error ? error.message : 'Failed to update inventory item'
+    return safeJsonError(msg, 500)
+  }
+}
+
+// DELETE /api/inventory/items/[id] — hard delete inventory item
+// BUSINESS POLICY: Only allowed if item has ZERO business history:
+//   - No TransactionConsumption (penjualan)
+//   - No InventoryMovement (stok masuk/keluar)
+//   - No PurchaseOrderItem (pembelian)
+//   - No InventoryTransferItem (transfer)
+//   - No ProductComposition (komposisi)
+// Items with history should be ARCHIVED instead (PATCH action=archive)
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -215,307 +285,72 @@ export async function DELETE(
     const outletId = user.outletId
     const { id } = await params
 
-    const forceDelete = request.nextUrl.searchParams.get('force') === 'true'
-
     const existing = await db.inventoryItem.findFirst({
       where: { id, outletId },
       include: {
-        _count: { select: { compositions: true, purchaseItems: true } },
+        _count: {
+          select: {
+            compositions: true,
+            purchaseItems: true,
+            movements: true,
+            inventoryTransferItems: true,
+            consumptionSnapshots: true,
+          },
+        },
       },
     })
     if (!existing) {
       return safeJsonError('Inventory item not found', 404)
     }
 
-    // If item is used in compositions and NOT force-deleting, return linked products
-    if (existing._count.compositions > 0 && !forceDelete) {
-      // Clean up orphaned compositions first (product was deleted but row remained)
-      // Use a raw query-safe approach: check which compositions have valid products
-      const allComps = await db.productComposition.findMany({
-        where: { inventoryItemId: id },
-        select: { id: true, productId: true, variantId: true, qty: true, baseUnit: true },
-      })
+    const counts = existing._count
+    const totalHistory = counts.compositions + counts.purchaseItems + counts.movements
+      + counts.inventoryTransferItems + counts.consumptionSnapshots
 
-      // Find products that still exist
-      const productIds = [...new Set(allComps.map((c) => c.productId))]
-      const existingProducts = await db.product.findMany({
-        where: { id: { in: productIds } },
-        select: { id: true, name: true, hasVariants: true },
-      })
-      const productMap = new Map(existingProducts.map((p) => [p.id, p]))
+    // Business policy: reject delete if any business history exists
+    if (totalHistory > 0) {
+      // Build detailed list of what's blocking
+      const blockers: string[] = []
+      if (counts.compositions > 0) blockers.push(`${counts.compositions} komposisi produk`)
+      if (counts.purchaseItems > 0) blockers.push(`${counts.purchaseItems} riwayat pembelian`)
+      if (counts.movements > 0) blockers.push(`${counts.movements} riwayat stok`)
+      if (counts.inventoryTransferItems > 0) blockers.push(`${counts.inventoryTransferItems} riwayat transfer`)
+      if (counts.consumptionSnapshots > 0) blockers.push(`${counts.consumptionSnapshots} riwayat konsumsi`)
 
-      // Find variants that still exist
-      const variantIds = [...new Set(allComps.filter((c) => c.variantId).map((c) => c.variantId!))]
-      const existingVariants = variantIds.length > 0
-        ? await db.productVariant.findMany({
-            where: { id: { in: variantIds } },
-            select: { id: true, name: true },
-          })
-        : []
-      const variantMap = new Map(existingVariants.map((v) => [v.id, v]))
-
-      // Delete truly orphaned compositions (product gone)
-      const orphanIds = allComps.filter((c) => !productMap.has(c.productId)).map((c) => c.id)
-      if (orphanIds.length > 0) {
-        await db.productComposition.deleteMany({ where: { id: { in: orphanIds } } })
-      }
-
-      // Build linked products list from valid compositions only
-      const linkedProducts = allComps
-        .filter((c) => productMap.has(c.productId))
-        .map((c) => {
-          const prod = productMap.get(c.productId)!
-          return {
-            productId: prod.id,
-            productName: prod.name,
-            variantName: c.variantId ? (variantMap.get(c.variantId)?.name || null) : null,
-            variantId: c.variantId || null,
-            qty: c.qty,
-            baseUnit: c.baseUnit,
-          }
-        })
-
-      // Update composition count after cleanup
-      const realCompCount = allComps.length - orphanIds.length
-
-      if (realCompCount === 0) {
-        // All compositions were orphans — item is actually safe to delete, skip to delete logic
-        // Update existing to reflect cleaned count
-        existing._count.compositions = 0
-      } else {
-        return safeJson({
-          blocked: true,
-          blockType: 'compositions',
-          message: 'Item ini digunakan dalam komposisi produk',
-          compositionCount: realCompCount,
-          linkedProducts,
-        })
-      }
-    }
-
-    // If item has purchase order items referencing it — warn the user
-    // With force=true, we nullify the FK reference instead of blocking
-    if (existing._count.purchaseItems > 0 && !forceDelete) {
       return safeJson({
         blocked: true,
-        blockType: 'purchaseItems',
-        message: 'Item ini memiliki riwayat pembelian',
-        purchaseItemCount: existing._count.purchaseItems,
-        linkedProducts: [],
+        blockType: 'hasHistory',
+        message: 'Item ini memiliki histori bisnis dan tidak dapat dihapus',
+        blockers,
+        totalHistory,
+        counts,
+        suggestion: 'Gunakan "Nonaktifkan" untuk menyembunyikan item tanpa menghapus data.',
       })
     }
 
-    // Execute force delete: unlink compositions, set product stock=0, recalculate HPP, then delete
-    if (forceDelete && existing._count.compositions > 0) {
-      await db.$transaction(async (tx) => {
-        // 1. Nullify purchase order item references to this inventory item (keep purchase history)
-        if (existing._count.purchaseItems > 0) {
-          await tx.purchaseOrderItem.updateMany({
-            where: { inventoryItemId: id },
-            data: { inventoryItemId: '' },
-          })
-        }
+    // Safe to delete — no business history whatsoever
+    await db.$transaction(async (tx) => {
+      // Audit log
+      await tx.auditLog.create({
+        data: {
+          action: 'DELETE',
+          entityType: 'INVENTORY_ITEM',
+          entityId: id,
+          details: JSON.stringify({
+            itemName: existing.name,
+            sku: existing.sku,
+            stock: existing.stock,
+            avgCost: existing.avgCost,
+            baseUnit: existing.baseUnit,
+            reason: 'NO_HISTORY',
+          }),
+          outletId,
+          userId,
+        },
+      })
 
-        // 1b. Clean up inventory transfer items and consumption snapshots
-        await tx.inventoryTransferItem.deleteMany({ where: { inventoryItemId: id } })
-        await tx.transactionConsumption.deleteMany({ where: { inventoryItemId: id } })
-
-        // 2. Find all compositions referencing this inventory item (select-only, no include to avoid null relation crash)
-        const compositions = await tx.productComposition.findMany({
-          where: { inventoryItemId: id },
-          select: { id: true, productId: true, variantId: true, qty: true, yieldPerBatch: true },
-        })
-
-        // 2b. Find which products/variants actually still exist
-        const compProductIds = [...new Set(compositions.map((c) => c.productId))]
-        const compVariantIds = [...new Set(compositions.filter((c) => c.variantId).map((c) => c.variantId!))]
-        const existingProducts = await tx.product.findMany({
-          where: { id: { in: compProductIds } },
-          select: { id: true, hasVariants: true, hasComposition: true },
-        })
-        const productExistsMap = new Map(existingProducts.map((p) => [p.id, p]))
-
-        // 3. Delete all compositions referencing this inventory item
-        await tx.productComposition.deleteMany({
-          where: { inventoryItemId: id },
-        })
-
-        // 4. For each affected product that still exists, check remaining compositions and update
-        const affectedProductIds = compProductIds.filter((pid) => productExistsMap.has(pid))
-
-        // Helper: yield-aware HPP calculation (matches composition PUT logic)
-        const calcHpp = (comps: Array<{ qty: number; yieldPerBatch: number; inventoryItem: { avgCost: number } }>) => {
-          if (comps.length === 0) return 0
-          const batchCost = comps.reduce((sum, c) => sum + c.qty * c.inventoryItem.avgCost, 0)
-          const representativeYield = comps[0]?.yieldPerBatch || 1
-          return representativeYield > 1 ? batchCost / representativeYield : batchCost
-        }
-
-        for (const productId of affectedProductIds) {
-          const product = productExistsMap.get(productId)!
-          const remainingComps = await tx.productComposition.count({
-            where: { productId },
-          })
-
-          if (remainingComps === 0) {
-            // No more compositions → recipe broken → reset everything
-            await tx.product.update({
-              where: { id: productId },
-              data: { hasComposition: false, hpp: 0, stock: 0 },
-            })
-            if (product.hasVariants) {
-              // Zero out ALL variant stock + HPP
-              await tx.productVariant.updateMany({
-                where: { productId },
-                data: { hpp: 0, stock: 0 },
-              })
-            }
-          } else {
-            // Still has compositions → recalculate HPP (yield-aware)
-            if (product.hasVariants) {
-              // Recalculate HPP per variant that was affected
-              const affectedVariantIds = [...new Set(
-                compositions
-                  .filter((c) => c.productId === productId && c.variantId)
-                  .map((c) => c.variantId!)
-              )]
-              for (const variantId of affectedVariantIds) {
-                const variantComps = await tx.productComposition.findMany({
-                  where: { variantId },
-                  include: { inventoryItem: { select: { avgCost: true } } },
-                })
-                await tx.productVariant.update({
-                  where: { id: variantId },
-                  data: { hpp: calcHpp(variantComps) },
-                })
-              }
-            } else {
-              // Non-variant product: recalculate product-level HPP
-              const remainingCompsWithCost = await tx.productComposition.findMany({
-                where: { productId },
-                include: { inventoryItem: { select: { avgCost: true } } },
-              })
-              await tx.product.update({
-                where: { id: productId },
-                data: { hpp: calcHpp(remainingCompsWithCost) },
-              })
-            }
-          }
-        }
-
-        // 5. Create audit logs for affected products
-        await tx.auditLog.createMany({
-          data: affectedProductIds.map((productId) => ({
-            action: 'UPDATE',
-            entityType: 'PRODUCT',
-            entityId: productId,
-            details: JSON.stringify({
-              reason: 'INVENTORY_ITEM_DELETED',
-              inventoryItemId: id,
-              inventoryItemName: existing.name,
-              message: `Item "${existing.name}" dihapus dari inventory. Stok produk direset ke 0. Sesuaikan komposisi secara manual.`,
-            }),
-            outletId,
-            userId,
-          })),
-        })
-
-        // 6. Audit log for inventory item deletion itself
-        await tx.auditLog.create({
-          data: {
-            action: 'DELETE',
-            entityType: 'INVENTORY_ITEM',
-            entityId: id,
-            details: JSON.stringify({
-              itemName: existing.name,
-              sku: existing.sku,
-              stock: existing.stock,
-              avgCost: existing.avgCost,
-              baseUnit: existing.baseUnit,
-              compositionCount: existing._count.compositions,
-              purchaseItemCount: existing._count.purchaseItems,
-              forceDelete: true,
-              affectedProducts: affectedProductIds.length,
-            }),
-            outletId,
-            userId,
-          },
-        })
-
-        // 7. Finally delete the inventory item
-        await tx.inventoryItem.delete({ where: { id } })
-      }, { timeout: 30000 })
-    } else if (existing._count.purchaseItems > 0) {
-      // Force delete with purchase items but no compositions: nullify references first
-      await db.$transaction(async (tx) => {
-        // Audit log for inventory item deletion
-        await tx.auditLog.create({
-          data: {
-            action: 'DELETE',
-            entityType: 'INVENTORY_ITEM',
-            entityId: id,
-            details: JSON.stringify({
-              itemName: existing.name,
-              sku: existing.sku,
-              stock: existing.stock,
-              avgCost: existing.avgCost,
-              baseUnit: existing.baseUnit,
-              purchaseItemCount: existing._count.purchaseItems,
-              forceDelete: true,
-              reason: 'HAS_PURCHASE_HISTORY',
-            }),
-            outletId,
-            userId,
-          },
-        })
-
-        // Nullify purchase order item references (keep purchase history, just unlink)
-        await tx.purchaseOrderItem.updateMany({
-          where: { inventoryItemId: id },
-          data: { inventoryItemId: '' },
-        })
-
-        // Delete movements referencing this item
-        await tx.inventoryMovement.deleteMany({
-          where: { inventoryItemId: id },
-        })
-
-        // Delete inventory transfer items and consumption snapshots
-        await tx.inventoryTransferItem.deleteMany({ where: { inventoryItemId: id } })
-        await tx.transactionConsumption.deleteMany({ where: { inventoryItemId: id } })
-
-        // Delete the inventory item
-        await tx.inventoryItem.delete({ where: { id } })
-      }, { timeout: 30000 })
-    } else {
-      // Simple delete (no compositions, no purchase items)
-      // Clean up any remaining child records (movements, transfer items, consumption snapshots)
-      await db.$transaction(async (tx) => {
-        // Audit log for inventory item deletion
-        await tx.auditLog.create({
-          data: {
-            action: 'DELETE',
-            entityType: 'INVENTORY_ITEM',
-            entityId: id,
-            details: JSON.stringify({
-              itemName: existing.name,
-              sku: existing.sku,
-              stock: existing.stock,
-              avgCost: existing.avgCost,
-              baseUnit: existing.baseUnit,
-              reason: 'SIMPLE_DELETE',
-            }),
-            outletId,
-            userId,
-          },
-        })
-
-        await tx.inventoryMovement.deleteMany({ where: { inventoryItemId: id } })
-        await tx.inventoryTransferItem.deleteMany({ where: { inventoryItemId: id } })
-        await tx.transactionConsumption.deleteMany({ where: { inventoryItemId: id } })
-        await tx.inventoryItem.delete({ where: { id } })
-      }, { timeout: 30000 })
-    }
+      await tx.inventoryItem.delete({ where: { id } })
+    }, { timeout: 10000 })
 
     return safeJson({ success: true })
   } catch (error) {
