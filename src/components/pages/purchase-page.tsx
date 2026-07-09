@@ -81,6 +81,10 @@ import {
   ArrowUpDown,
   Link2,
   ScanBarcode,
+  Upload,
+  FileSpreadsheet,
+  ClipboardPaste,
+  Download,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -279,6 +283,7 @@ export default function PurchasePage() {
 
   // ── Guide panels ──
   const [showPurchaseGuide, setShowPurchaseGuide] = useState(true)
+  const [showPurchaseDialogGuide, setShowPurchaseDialogGuide] = useState(true)
   const [showInventoryGuide, setShowInventoryGuide] = useState(true)
 
   // ══════════════════════════════════════════════════════════
@@ -336,6 +341,23 @@ export default function PurchasePage() {
   const smartInputCharCountRef = useRef(0)
   const smartInputScanDetectedRef = useRef(false)
   const [scanModeActive, setScanModeActive] = useState(false) // visual indicator
+
+  // Supplier selector for purchase dialog
+  const [supplierOptions, setSupplierOptions] = useState<Array<{ id: string; name: string }>>([])
+  const [poCreateSupplierId, setPoCreateSupplierId] = useState('')
+
+  // Excel import
+  const [showImportPreview, setShowImportPreview] = useState(false)
+  const [importLoading, setImportLoading] = useState(false)
+  const [importPreviewData, setImportPreviewData] = useState<Array<{
+    row: number; name: string; sku: string | null; purchaseUnit: string;
+    qty: number; baseQty: number; baseUnit: string; pricePerUnit: number;
+    matchedItemId: string | null; matchedItemName: string | null;
+    matchedItemSku: string | null; matchedItemUnit: string | null;
+    isNew: boolean; error?: string;
+  }> | null>(null)
+  const importFileRef = useRef<HTMLInputElement | null>(null)
+
   const smartInputRef = useRef<HTMLInputElement>(null)
 
 
@@ -391,7 +413,9 @@ export default function PurchasePage() {
   const [deleteInvId, setDeleteInvId] = useState<string | null>(null)
   const [deletingInv, setDeletingInv] = useState(false)
   const [invDeleteBlocked, setInvDeleteBlocked] = useState<{
-    compositionCount: number
+    compositionCount?: number
+    purchaseItemCount?: number
+    blockType?: 'compositions' | 'purchaseItems'
     linkedProducts: Array<{ productId: string; productName: string; variantName: string | null; qty: number; baseUnit: string }>
   } | null>(null)
 
@@ -855,6 +879,7 @@ export default function PurchasePage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          supplierId: poCreateSupplierId || undefined,
           notes: poCreateNotes || undefined,
           items: validItems.map(i => {
             const purchaseQty = parseFloat(i.qty) || 0
@@ -894,6 +919,7 @@ export default function PurchasePage() {
 
   const resetPoCreateForm = () => {
     setPoCreateNotes('')
+    setPoCreateSupplierId('')
     setPoCreateItems([{ inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0' }])
     setShowItemPicker(false)
     setActiveItemSearchIdx(null)
@@ -906,6 +932,85 @@ export default function PurchasePage() {
     pendingCounterRef.current = 0
     setQuickAddQueue([])
     setQuickAddTargetIdx(0)
+    setShowImportPreview(false)
+    setImportPreviewData(null)
+  }
+
+  // Fetch suppliers for purchase dialog dropdown
+  const fetchSuppliers = async () => {
+    try {
+      const res = await fetch('/api/suppliers')
+      if (res.ok) {
+        const data = await res.json()
+        setSupplierOptions(data.suppliers || [])
+      }
+    } catch { /* silent */ }
+  }
+
+  // Open purchase create dialog with supplier fetch
+  const openPoCreate = () => {
+    setPoCreateOpen(true)
+    void fetchSuppliers()
+  }
+
+  // Handle Excel file import
+  const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImportLoading(true)
+    setShowImportPreview(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await fetch('/api/purchases/import-excel', {
+        method: 'POST',
+        body: formData,
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setImportPreviewData(data.items || [])
+        if (data.items.length === 0) {
+          toast.error('Tidak ada data yang bisa diproses dari file')
+        }
+      } else {
+        const data = await res.json()
+        toast.error(data.error || 'Gagal membaca file')
+        setShowImportPreview(false)
+      }
+    } catch {
+      toast.error('Gagal mengupload file')
+      setShowImportPreview(false)
+    } finally {
+      setImportLoading(false)
+      // Reset file input
+      if (importFileRef.current) importFileRef.current.value = ''
+    }
+  }
+
+  // Apply import preview items to purchase form
+  const handleApplyImport = () => {
+    if (!importPreviewData) return
+    const newItems: PurchaseOrderItem[] = []
+    for (const item of importPreviewData) {
+      if (item.error) continue
+      const itemId = item.matchedItemId || `__pending_${item.name}_${item.sku || ''}_${Date.now()}`
+      newItems.push({
+        inventoryItemId: itemId,
+        inventoryItemName: item.name,
+        inventoryItemSku: item.matchedItemSku || item.sku,
+        baseUnit: item.baseUnit || item.matchedItemUnit || '',
+        qty: String(item.qty || 1),
+        unit: item.purchaseUnit || '',
+        baseQty: String(item.baseQty || 0),
+        pricePerItem: String(item.pricePerUnit || 0),
+      })
+    }
+    if (newItems.length > 0) {
+      setPoCreateItems(newItems)
+      setShowImportPreview(false)
+      setImportPreviewData(null)
+      toast.success(`${newItems.length} item berhasil ditambahkan ke pembelian`)
+    }
   }
 
   const handleAddPoItem = () => {
@@ -1780,7 +1885,7 @@ export default function PurchasePage() {
               </div>
               <Button
                 size="sm"
-                onClick={() => { resetPoCreateForm(); setPoCreateOpen(true) }}
+                onClick={() => { resetPoCreateForm(); openPoCreate() }}
                 className="theme-bg theme-hover text-white text-xs font-medium h-8 px-3 rounded-lg gap-1.5 shrink-0 w-full sm:w-auto"
               >
                 <Plus className="h-3.5 w-3.5" />
@@ -1939,7 +2044,7 @@ export default function PurchasePage() {
                             <p className="text-xs text-slate-600 mb-4">Catat pembelian pertama untuk mulai melacak stok</p>
                             <Button
                               size="sm"
-                              onClick={() => { resetPoCreateForm(); setPoCreateOpen(true) }}
+                              onClick={() => { resetPoCreateForm(); openPoCreate() }}
                               className="theme-bg theme-hover text-white text-xs h-8 px-4 rounded-lg gap-1.5"
                             >
                               <Plus className="h-3.5 w-3.5" />
@@ -2008,7 +2113,7 @@ export default function PurchasePage() {
                       <p className="text-xs text-slate-600 mb-4">Catat pembelian pertama untuk mulai melacak stok</p>
                       <Button
                         size="sm"
-                        onClick={() => { resetPoCreateForm(); setPoCreateOpen(true) }}
+                        onClick={() => { resetPoCreateForm(); openPoCreate() }}
                         className="theme-bg theme-hover text-white text-xs h-8 px-4 rounded-lg gap-1.5"
                       >
                         <Plus className="h-3.5 w-3.5" />
@@ -2099,15 +2204,6 @@ export default function PurchasePage() {
               </div>
               <div className="flex items-center gap-2 w-full sm:w-auto">
                 <Button
-                  size="sm"
-                  onClick={() => openInvForm(null)}
-                  className="theme-bg theme-hover text-white text-xs font-medium h-8 px-3 rounded-lg gap-1.5 shrink-0"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">Tambah Item</span>
-                  <span className="sm:hidden">Tambah</span>
-                </Button>
-                <Button
                   variant="ghost"
                   size="sm"
                   className="h-8 text-[10px] gap-1 text-slate-400 hover:text-white hover:bg-white/[0.04] border border-white/[0.06] shrink-0"
@@ -2194,7 +2290,7 @@ export default function PurchasePage() {
                     <div>
                       <p className="text-[11px] text-slate-300 font-medium mb-0.5">Cara Stok Masuk</p>
                       <p className="text-[10px] text-slate-500 leading-relaxed">
-                        Stok bertambah otomatis saat kamu <span className="text-emerald-400">menyimpan pembelian</span> di tab Pembelian. HPP dihitung otomatis dari rata-rata harga beli. Kamu juga bisa set stok awal manual saat <span className="text-white">Tambah Item</span> (untuk stok existing saat pertama kali input).
+                        Stok bertambah otomatis saat kamu <span className="text-emerald-400">menyimpan pembelian</span> di tab Pembelian. HPP dihitung otomatis dari rata-rata harga beli. Semua item baru akan otomatis tercatat di inventory saat pembelian disimpan.
                       </p>
                     </div>
                   </div>
@@ -2308,15 +2404,15 @@ export default function PurchasePage() {
                               <PackagePlus className="h-6 w-6 text-slate-600" />
                             </div>
                             <p className="text-sm text-slate-400 mb-1">Belum ada item inventory</p>
-                            <p className="text-xs text-slate-600 mb-4">Tambahkan item baru atau buat pembelian</p>
+                            <p className="text-xs text-slate-600 mb-4">Buat pembelian pertama untuk menambah item ke inventory</p>
                             <div className="flex gap-2">
                               <Button
                                 size="sm"
-                                onClick={() => openInvForm(null)}
+                                onClick={() => { resetPoCreateForm(); openPoCreate() }}
                                 className="theme-bg theme-hover text-white text-xs h-8 px-4 rounded-lg gap-1.5"
                               >
-                                <Plus className="h-3.5 w-3.5" />
-                                Tambah Item
+                                <ShoppingCart className="h-3.5 w-3.5" />
+                                Buat Pembelian
                               </Button>
                             </div>
                           </div>
@@ -2402,14 +2498,14 @@ export default function PurchasePage() {
                         <PackagePlus className="h-6 w-6 text-slate-600" />
                       </div>
                       <p className="text-sm text-slate-400 mb-1">Belum ada item inventory</p>
-                      <p className="text-xs text-slate-600 mb-4">Tambahkan item baru atau buat pembelian</p>
+                      <p className="text-xs text-slate-600 mb-4">Buat pembelian pertama untuk menambah item ke inventory</p>
                       <Button
                         size="sm"
-                        onClick={() => openInvForm(null)}
+                        onClick={() => { resetPoCreateForm(); openPoCreate() }}
                         className="theme-bg theme-hover text-white text-xs h-8 px-4 rounded-lg gap-1.5"
                       >
-                        <Plus className="h-3.5 w-3.5" />
-                        Tambah Item
+                        <ShoppingCart className="h-3.5 w-3.5" />
+                        Buat Pembelian
                       </Button>
                     </div>
                   </CardContent>
@@ -2650,7 +2746,7 @@ export default function PurchasePage() {
         </ResponsiveDialogContent>
       </ResponsiveDialog>
 
-      {/* ── Create Purchase Order Dialog ── */}
+      {/* ── Create Purchase Order Dialog (Redesigned) ── */}
       <ResponsiveDialog
         open={poCreateOpen}
         onOpenChange={(open) => {
@@ -2659,36 +2755,200 @@ export default function PurchasePage() {
         }}
       >
         <ResponsiveDialogContent className="sm:max-w-2xl flex flex-col max-h-[90vh]">
+          {/* ── Rich Header with Purpose ── */}
           <ResponsiveDialogHeader>
             <ResponsiveDialogTitle className="text-white text-base flex items-center gap-2">
-              <ShoppingCart className="h-4 w-4 text-emerald-400" />
-              Pembelian Baru
+              <div className="w-8 h-8 rounded-xl theme-bg-ultra-light flex items-center justify-center">
+                <ShoppingCart className="h-4 w-4 text-emerald-400" />
+              </div>
+              <div>
+                <span>Catat Pembelian Stok</span>
+                <p className="text-[11px] text-slate-500 font-normal mt-0.5 leading-snug">
+                  Catat barang yang kamu beli dari supplier. Stok &amp; HPP otomatis terupdate di inventory.
+                </p>
+              </div>
             </ResponsiveDialogTitle>
-            <ResponsiveDialogDescription className="text-slate-400 text-xs">
-              Catat pembelian item untuk stok toko
-            </ResponsiveDialogDescription>
           </ResponsiveDialogHeader>
 
-          <div className="space-y-4 mt-2 flex-1 overflow-y-auto">
-            {/* Catatan */}
+          <div className="space-y-4 mt-1 flex-1 overflow-y-auto">
+
+            {/* ══════════════════════════════════════════════════════ */}
+            {/* STEP-BY-STEP GUIDE (collapsible)                      */}
+            {/* ══════════════════════════════════════════════════════ */}
+            <div className="rounded-xl bg-white/[0.02] border border-white/[0.04] overflow-hidden">
+              <button
+                type="button"
+                className="w-full flex items-center justify-between gap-2 px-3.5 py-2.5 text-left hover:bg-white/[0.02] transition-colors"
+                onClick={() => setShowPurchaseDialogGuide(prev => !prev)}
+              >
+                <div className="flex items-center gap-2">
+                  <div className="w-5 h-5 rounded-md bg-emerald-500/10 flex items-center justify-center shrink-0">
+                    <Info className="h-3 w-3 text-emerald-400" />
+                  </div>
+                  <span className="text-[11px] text-slate-400 font-medium">Panduan 3 Langkah</span>
+                </div>
+                <ChevronDown className={cn('h-3.5 w-3.5 text-slate-600 transition-transform duration-200', showPurchaseDialogGuide && 'rotate-180')} />
+              </button>
+
+              {showPurchaseDialogGuide && (
+                <div className="px-3.5 pb-3.5 space-y-2.5 border-t border-white/[0.04] pt-3">
+                  {/* Step 1 */}
+                  <div className="flex gap-2.5">
+                    <div className="w-5 h-5 rounded-md bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                      <span className="text-[9px] text-emerald-400 font-bold">1</span>
+                    </div>
+                    <div>
+                      <p className="text-[11px] text-slate-300 font-medium">Cari atau ketik nama barang</p>
+                      <p className="text-[10px] text-slate-500 leading-relaxed">
+                        Ketik nama item di kolom pencarian. Jika barang <span className="text-amber-400">belum ada</span>, sistem akan otomatis meminta SKU dan satuan — item baru langsung tercatat saat pembelian disimpan.
+                      </p>
+                    </div>
+                  </div>
+                  {/* Step 2 */}
+                  <div className="flex gap-2.5">
+                    <div className="w-5 h-5 rounded-md bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                      <span className="text-[9px] text-emerald-400 font-bold">2</span>
+                    </div>
+                    <div>
+                      <p className="text-[11px] text-slate-300 font-medium">Isi detail pembelian tiap item</p>
+                      <div className="text-[10px] text-slate-500 leading-relaxed mt-0.5 space-y-1">
+                        <div className="flex items-start gap-1.5">
+                          <span className="text-emerald-400/60 shrink-0">•</span>
+                          <span><span className="text-white font-medium">Satuan Beli</span> — Cara supplier menjual (cth: sak, karung, dus, ekor)</span>
+                        </div>
+                        <div className="flex items-start gap-1.5">
+                          <span className="text-emerald-400/60 shrink-0">•</span>
+                          <span><span className="text-white font-medium">Jumlah</span> — Berapa satuan beli yang dipesan (cth: 5 sak)</span>
+                        </div>
+                        <div className="flex items-start gap-1.5">
+                          <span className="text-emerald-400/60 shrink-0">•</span>
+                          <span><span className="text-white font-medium">Isi per Satuan</span> — Isi dalam satuan dasar (cth: 1 sak = 25 kg)</span>
+                        </div>
+                        <div className="flex items-start gap-1.5">
+                          <span className="text-emerald-400/60 shrink-0">•</span>
+                          <span><span className="text-white font-medium">Harga per Satuan Beli</span> — Harga dari supplier per satuan beli (cth: Rp320.000/sak)</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  {/* Step 3 */}
+                  <div className="flex gap-2.5">
+                    <div className="w-5 h-5 rounded-md bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                      <span className="text-[9px] text-emerald-400 font-bold">3</span>
+                    </div>
+                    <div>
+                      <p className="text-[11px] text-slate-300 font-medium">Klik "Simpan Pembelian"</p>
+                      <p className="text-[10px] text-slate-500 leading-relaxed">
+                        Stok otomatis bertambah di inventory. HPP (Harga Pokok) dihitung rata-rata dari semua pembelian. Item baru otomatis tercatat.
+                      </p>
+                    </div>
+                  </div>
+                  {/* Quick example */}
+                  <div className="rounded-lg bg-white/[0.03] border border-white/[0.04] px-3 py-2.5">
+                    <p className="text-[10px] text-slate-500 font-medium mb-1.5">💡 Contoh: Beli Tepung Segitiga</p>
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px]">
+                      <div className="flex items-center justify-between text-slate-500">
+                        <span>Satuan Beli</span>
+                        <span className="text-white font-mono">sak</span>
+                      </div>
+                      <div className="flex items-center justify-between text-slate-500">
+                        <span>Jumlah</span>
+                        <span className="text-white font-mono">10</span>
+                      </div>
+                      <div className="flex items-center justify-between text-slate-500">
+                        <span>Isi per sak</span>
+                        <span className="text-white font-mono">25 kg</span>
+                      </div>
+                      <div className="flex items-center justify-between text-slate-500">
+                        <span>Harga/sak</span>
+                        <span className="text-white font-mono">Rp320.000</span>
+                      </div>
+                    </div>
+                    <div className="mt-1.5 pt-1.5 border-t border-white/[0.04] text-[10px] text-slate-500 space-y-0.5">
+                      <div className="flex justify-between">
+                        <span>Subtotal</span>
+                        <span className="text-slate-300 font-medium">Rp3.200.000</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Stok masuk</span>
+                        <span className="text-emerald-400 font-medium">250 kg</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>HPP otomatis</span>
+                        <span className="text-amber-400 font-medium">Rp12.800/kg</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* ══════════════════════════════════════════════════════ */}
+            {/* CATATAN                                                  */}
+            {/* ══════════════════════════════════════════════════════ */}
             <div className="space-y-1.5">
               <div className="flex items-center gap-1.5">
                 <FileText className="h-3 w-3 text-slate-500" />
-                <label className="text-[11px] text-slate-300 font-medium">Catatan</label>
+                <label className="text-[11px] text-slate-300 font-medium">Catatan Pembelian</label>
                 <span className="text-[10px] text-slate-600">(opsional)</span>
               </div>
               <Textarea
                 value={poCreateNotes}
                 onChange={(e) => setPoCreateNotes(e.target.value)}
-                placeholder="Cth: Bayar tempo 7 hari, PO dari PT Indomaret..."
+                placeholder="Cth: Bayar tempo 7 hari, dari PT Bogasari, invoice #INV-001..."
                 className="bg-white/[0.04] border-white/[0.04] text-white text-xs min-h-[40px] rounded-lg resize-none placeholder:text-slate-500"
               />
             </div>
 
+            {/* ══════════════════════════════════════════════════════ */}
+            {/* SUPPLIER                                                 */}
+            {/* ══════════════════════════════════════════════════════ */}
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-1.5">
+                <Package className="h-3 w-3 text-slate-500" />
+                <label className="text-[11px] text-slate-300 font-medium">Supplier</label>
+                <span className="text-[10px] text-slate-600">(opsional)</span>
+              </div>
+              <div className="flex gap-2">
+                <Select
+                  value={poCreateSupplierId}
+                  onValueChange={setPoCreateSupplierId}
+                >
+                  <SelectTrigger className="flex-1 bg-white/[0.04] border-white/[0.04] text-white text-xs h-9">
+                    <SelectValue placeholder="Pilih supplier..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {supplierOptions.map((s) => (
+                      <SelectItem key={s.id} value={s.id} className="text-xs">
+                        {s.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {poCreateSupplierId && (
+                  <button
+                    className="w-9 h-9 rounded-lg bg-white/[0.04] border border-white/[0.04] flex items-center justify-center text-slate-500 hover:text-white hover:bg-white/[0.08] transition-colors shrink-0"
+                    onClick={() => setPoCreateSupplierId('')}
+                    title="Hapus supplier"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+
             <Separator className="bg-white/[0.06]" />
 
-            {/* Items */}
+            {/* ══════════════════════════════════════════════════════ */}
+            {/* DAFTAR ITEM                                              */}
+            {/* ══════════════════════════════════════════════════════ */}
             <div className="space-y-3">
+              {/* ── Section Label ── */}
+              <div className="flex items-center gap-2">
+                <Package className="h-3.5 w-3.5 text-slate-400" />
+                <span className="text-[11px] text-slate-400 font-medium">Daftar Barang yang Dibeli</span>
+              </div>
+
               {/* ── Smart Input Bar ── */}
               <div className="relative">
                 <ScanBarcode className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500 pointer-events-none" />
@@ -2697,65 +2957,134 @@ export default function PurchasePage() {
                   value={smartInput}
                   onChange={(e) => handleSmartInputChange(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') handleSmartInputSubmit() }}
-                  placeholder="Ketik nama item / scan barcode / koma utk multi: Air, Kopi, Susu"
+                  placeholder="Ketik nama barang / scan barcode — pisahkan dengan koma: Gula, Tepung, Minyak"
                   className={cn(inputClass, 'pl-8 pr-2 h-9')}
                 />
               </div>
 
+              {/* ── Import / Paste Actions ── */}
+              <div className="flex gap-2">
+                <input
+                  ref={(el) => { importFileRef.current = el }}
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  className="hidden"
+                  onChange={handleImportExcel}
+                />
+                <button
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-white/[0.04] border border-white/[0.04] text-slate-500 hover:text-slate-300 hover:bg-white/[0.06] transition-colors text-[11px]"
+                  onClick={() => importFileRef.current?.click()}
+                  disabled={importLoading}
+                >
+                  {importLoading ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <FileSpreadsheet className="h-3.5 w-3.5" />
+                  )}
+                  {importLoading ? 'Membaca...' : 'Import Excel / CSV'}
+                </button>
+                <button
+                  className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.04] text-slate-500 hover:text-slate-300 hover:bg-white/[0.06] transition-colors text-[11px]"
+                  onClick={() => {
+                    const a = document.createElement('a')
+                    a.href = '/api/purchases/import-excel/template'
+                    a.download = 'template-pembelian-aether-pos.xlsx'
+                    document.body.appendChild(a)
+                    a.click()
+                    document.body.removeChild(a)
+                  }}
+                  title="Download template Excel untuk import pembelian"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.04] text-slate-500 hover:text-slate-300 hover:bg-white/[0.06] transition-colors text-[11px]"
+                  onClick={async () => {
+                    try {
+                      const text = await navigator.clipboard.readText()
+                      if (text && text.includes('\t')) {
+                        // Tab-separated = likely Excel paste
+                        const lines = text.trim().split('\n').filter(l => l.trim())
+                        const items = lines.map(line => {
+                          const cols = line.split('\t').map(c => c.trim())
+                          return cols.join(', ')
+                        }).filter(Boolean).join(', ')
+                        if (items) {
+                          setSmartInput(items)
+                          toast.info(`${lines.length} baris dari clipboard — tekan Enter untuk proses`)
+                        }
+                      } else if (text) {
+                        setSmartInput(text)
+                        toast.info('Data dari clipboard — tekan Enter untuk proses')
+                      }
+                    } catch {
+                      toast.error('Gagal membaca clipboard')
+                    }
+                  }}
+                  title="Tempel dari Excel / spreadsheet"
+                >
+                  <ClipboardPaste className="h-3.5 w-3.5" />
+                </button>
+              </div>
+
               {/* ── Quick Add Inline Form (for new items from smart input) ── */}
               {showQuickAddItem && (
-                <div className="rounded-lg bg-amber-500/[0.04] border border-amber-500/10 p-3 space-y-2.5">
+                <div className="rounded-xl bg-amber-500/[0.04] border border-amber-500/10 p-3.5 space-y-3">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5">
-                      <PackageOpen className="h-3.5 w-3.5 text-emerald-400" />
-                      <span className="text-[11px] text-slate-300 font-medium">Buat Item Baru</span>
+                    <div className="flex items-center gap-2">
+                      <div className="w-5 h-5 rounded-md bg-amber-500/10 flex items-center justify-center">
+                        <PackageOpen className="h-3 w-3 text-amber-400" />
+                      </div>
+                      <div>
+                        <span className="text-[11px] text-slate-300 font-medium">Registrasi Barang Baru</span>
+                        <p className="text-[10px] text-slate-500 mt-0.5">Barang belum ada di inventory — isi data untuk membuat baru</p>
+                      </div>
                     </div>
                     <button
-                      className="w-5 h-5 rounded hover:bg-white/[0.08] flex items-center justify-center text-slate-400 hover:text-white"
+                      className="w-6 h-6 rounded-md hover:bg-white/[0.08] flex items-center justify-center text-slate-400 hover:text-white transition-colors"
                       onClick={() => { setShowQuickAddItem(false); setQuickAddQueue([]); setQuickItemName(''); setQuickItemSku(''); setQuickItemUnit('') }}
                     >
                       <X className="h-3 w-3" />
                     </button>
                   </div>
-                  <p className="text-[10px] text-slate-500">Item akan dibuat di inventory saat pembelian disimpan</p>
                   {/* Queue indicator */}
                   {quickAddQueue.length > 1 && (
-                    <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-md bg-amber-500/[0.06] border border-amber-500/10">
+                    <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-amber-500/[0.06] border border-amber-500/10">
                       <Activity className="h-3 w-3 text-amber-400 shrink-0" />
                       <span className="text-[10px] text-amber-300 font-medium">
-                        {quickAddQueue.length - quickAddQueue.indexOf(quickItemName)} dari {quickAddQueue.length} item baru
+                        Item {quickAddQueue.indexOf(quickItemName) + 1} dari {quickAddQueue.length} yang perlu didaftarkan
                       </span>
                     </div>
                   )}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                     {/* Nama item */}
                     <div className="space-y-1">
-                      <label className="text-[10px] text-slate-400 font-medium">Nama Item *</label>
+                      <label className="text-[10px] text-slate-400 font-medium">Nama Barang <span className="text-amber-400">*</span></label>
                       <input
                         autoFocus
                         value={quickItemName}
                         onChange={(e) => setQuickItemName(e.target.value)}
                         onKeyDown={(e) => { if (e.key === 'Enter') handleQuickAddItem(quickAddTargetIdx) }}
-                        placeholder="cth: Susu UHT Full Cream"
-                        className="w-full bg-white/[0.04] border border-white/[0.08] text-white text-xs h-8 rounded-md px-2.5 outline-none focus:border-emerald-500/40 placeholder:text-slate-500"
+                        placeholder="cth: Tepung Segitiga Biru"
+                        className="w-full bg-white/[0.04] border border-white/[0.08] text-white text-xs h-8 rounded-lg px-2.5 outline-none focus:border-emerald-500/40 placeholder:text-slate-500"
                       />
                     </div>
                     {/* SKU */}
                     <div className="space-y-1">
-                      <label className="text-[10px] text-slate-400 font-medium">SKU *</label>
+                      <label className="text-[10px] text-slate-400 font-medium">SKU (Kode Unik) <span className="text-amber-400">*</span></label>
                       <input
                         value={quickItemSku}
                         onChange={(e) => setQuickItemSku(e.target.value)}
                         onKeyDown={(e) => { if (e.key === 'Enter') handleQuickAddItem(quickAddTargetIdx) }}
-                        placeholder="cth: SKU-001"
-                        className="w-full bg-white/[0.04] border border-white/[0.08] text-white text-xs h-8 rounded-md px-2.5 outline-none focus:border-emerald-500/40 placeholder:text-slate-500 font-mono"
+                        placeholder="cth: TP-SGB-001"
+                        className="w-full bg-white/[0.04] border border-white/[0.08] text-white text-xs h-8 rounded-lg px-2.5 outline-none focus:border-emerald-500/40 placeholder:text-slate-500 font-mono"
                       />
                     </div>
                     {/* Satuan (Base Unit) */}
                     <div className="space-y-1">
-                      <label className="text-[10px] text-slate-400 font-medium">Satuan *</label>
+                      <label className="text-[10px] text-slate-400 font-medium">Satuan Dasar <span className="text-amber-400">*</span></label>
                       <Select value={quickItemUnit} onValueChange={setQuickItemUnit}>
-                        <SelectTrigger className="h-8 text-xs bg-white/[0.04] border-white/[0.08] text-white rounded-md px-2">
+                        <SelectTrigger className="h-8 text-xs bg-white/[0.04] border-white/[0.08] text-white rounded-lg px-2.5">
                           <SelectValue placeholder="Pilih satuan..." />
                         </SelectTrigger>
                         <SelectContent className="bg-nebula border-white/[0.06]">
@@ -2767,17 +3096,17 @@ export default function PurchasePage() {
                     </div>
                   </div>
                   <button
-                    className="w-full h-8 rounded-md bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
+                    className="w-full h-8 rounded-lg bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
                     onClick={() => handleQuickAddItem(quickAddTargetIdx)}
                     disabled={!quickItemName.trim() || !quickItemSku.trim() || !quickItemUnit}
                   >
-                    <Plus className="h-3 w-3" />
-                    {quickAddQueue.length > 1 ? 'Buat & Lanjutkan' : 'Buat & Pilih Item'}
+                    <CheckCircle2 className="h-3 w-3" />
+                    {quickAddQueue.length > 1 ? 'Daftarkan & Lanjut ke Berikutnya' : 'Daftarkan & Tambahkan ke Pembelian'}
                   </button>
                   {/* Skip button for queue */}
                   {quickAddQueue.length > 1 && (
                     <button
-                      className="w-full h-7 rounded-md text-[11px] text-slate-500 hover:text-slate-300 hover:bg-white/[0.04] transition-colors"
+                      className="w-full h-7 rounded-lg text-[11px] text-slate-500 hover:text-slate-300 hover:bg-white/[0.04] transition-colors"
                       onClick={() => {
                         const remaining = quickAddQueue.slice(1)
                         if (remaining.length > 0) {
@@ -2809,18 +3138,18 @@ export default function PurchasePage() {
                 <div className="flex items-center gap-2">
                   <Package className="h-3 w-3 text-slate-500" />
                   <span className="text-[11px] text-slate-400 font-medium">
-                    <span className="text-emerald-400">{poCreateItems.filter(i => i.inventoryItemId).length}</span> dari {poCreateItems.length} item dipilih
+                    <span className="text-emerald-400">{poCreateItems.filter(i => i.inventoryItemId).length}</span> dari {poCreateItems.length} item sudah dipilih
                   </span>
                 </div>
               )}
 
               {/* ── Item Rows ── */}
-              <div className="space-y-2">
+              <div className="space-y-2.5">
                 {poCreateItems.map((item, idx) => (
                   <div
                     key={idx}
                     id={`po-item-${idx}`}
-                    className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.04] space-y-2.5"
+                    className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.04] space-y-2.5"
                   >
                     {/* Item picker / selected display */}
                     <div className="relative" ref={(el) => { invItemSearchRefs.current[idx] = el }}>
@@ -2874,28 +3203,34 @@ export default function PurchasePage() {
                           className="w-full flex items-center gap-2 rounded-lg px-3 h-9 border border-dashed border-white/[0.06] text-slate-600"
                         >
                           <ScanBarcode className="h-3 w-3 shrink-0" />
-                          <span className="text-[11px]">Gunakan input di atas untuk cari / scan item</span>
+                          <span className="text-[11px]">Gunakan kolom pencarian di atas untuk cari / scan barang</span>
                         </div>
                       )}
                     </div>
 
-                    {/* Compact fields: 2-column layout */}
+                    {/* Compact fields: 2-column layout with better labels */}
                     {item.inventoryItemId && (
                       <div className="space-y-2 pl-0.5">
                         <div className="grid grid-cols-2 gap-2">
                           {/* Satuan Beli */}
                           <div className="space-y-1">
-                            <label className="text-[10px] text-slate-400 font-medium">Satuan Beli</label>
+                            <label className="text-[10px] text-slate-400 font-medium">
+                              Satuan Beli
+                              <span className="text-slate-600 font-normal ml-1">(cth: sak, karung, dus)</span>
+                            </label>
                             <Input
                               value={item.unit}
                               onChange={(e) => handleUpdatePoItem(idx, 'unit', e.target.value)}
                               className={inputClass}
-                              placeholder="Cth: sak, ekor"
+                              placeholder="cth: sak"
                             />
                           </div>
                           {/* Jumlah */}
                           <div className="space-y-1">
-                            <label className="text-[10px] text-slate-400 font-medium">Jumlah</label>
+                            <label className="text-[10px] text-slate-400 font-medium">
+                              Jumlah Beli
+                              <span className="text-slate-600 font-normal ml-1">(berapa {item.unit || 'satuan'})</span>
+                            </label>
                             <Input
                               type="number"
                               min="0"
@@ -2908,7 +3243,10 @@ export default function PurchasePage() {
                           </div>
                           {/* Isi per 1 Satuan Beli */}
                           <div className="space-y-1">
-                            <label className="text-[10px] text-slate-400 font-medium">Isi per 1 {item.unit || 'unit'}</label>
+                            <label className="text-[10px] text-slate-400 font-medium">
+                              Isi dalam 1 {item.unit || 'satuan beli'}
+                              <span className="text-slate-600 font-normal ml-1">(dalam {item.baseUnit || 'satuan dasar'})</span>
+                            </label>
                             <div className="relative">
                               <Input
                                 type="number"
@@ -2924,28 +3262,33 @@ export default function PurchasePage() {
                           </div>
                           {/* Harga per Satuan Beli */}
                           <div className="space-y-1">
-                            <label className="text-[10px] text-slate-400 font-medium">Harga per {item.unit || 'unit'} (Rp)</label>
+                            <label className="text-[10px] text-slate-400 font-medium">
+                              Harga per {item.unit || 'satuan'}
+                              <span className="text-slate-600 font-normal ml-1">(Rp dari supplier)</span>
+                            </label>
                             <Input
                               type="number"
                               min="0"
                               value={item.pricePerItem}
                               onChange={(e) => handleUpdatePoItem(idx, 'pricePerItem', e.target.value)}
                               className={inputClass}
-                              placeholder="72000"
+                              placeholder="cth: 320000"
                             />
                           </div>
                         </div>
 
-                        {/* Consolidated summary line */}
+                        {/* Consolidated summary line — enriched */}
                         {(parseFloat(item.qty) > 0 && parseFloat(item.pricePerItem) > 0 && parseFloat(item.baseQty) > 0) ? (
-                          <div className="bg-white/[0.03] rounded-md px-2.5 py-2 text-[10px] text-slate-400 space-y-0.5 border border-white/[0.03]">
+                          <div className="bg-emerald-500/[0.04] rounded-lg px-3 py-2.5 text-[10px] text-slate-400 space-y-1 border border-emerald-500/[0.06]">
                             <div className="flex items-center justify-between">
                               <span>{item.qty} {item.unit} × {formatCurrency(parseFloat(item.pricePerItem))}</span>
-                              <span className="text-white font-medium">{formatCurrency((parseFloat(item.pricePerItem) || 0) * (parseFloat(item.qty) || 0))}</span>
+                              <span className="text-white font-semibold">{formatCurrency((parseFloat(item.pricePerItem) || 0) * (parseFloat(item.qty) || 0))}</span>
                             </div>
-                            <div className="flex items-center justify-between">
-                              <span>Stok masuk: <span className="text-slate-300">{formatNumber(parseFloat(item.qty) * parseFloat(item.baseQty))} {item.baseUnit}</span></span>
-                              <span>HPP: <span className="text-amber-400/80 font-medium">Rp{formatNumber(Math.round((parseFloat(item.pricePerItem) || 0) / (parseFloat(item.baseQty) || 0)))}/{item.baseUnit}</span></span>
+                            <div className="flex items-center justify-between pt-0.5 border-t border-emerald-500/[0.06]">
+                              <div className="flex items-center gap-3">
+                                <span>📦 Stok masuk: <span className="text-emerald-400 font-medium">{formatNumber(parseFloat(item.qty) * parseFloat(item.baseQty))} {item.baseUnit}</span></span>
+                              </div>
+                              <span>📊 HPP: <span className="text-amber-400 font-medium">Rp{formatNumber(Math.round((parseFloat(item.pricePerItem) || 0) / (parseFloat(item.baseQty) || 0)))}/{item.baseUnit}</span></span>
                             </div>
                           </div>
                         ) : (parseFloat(item.qty) > 0 && parseFloat(item.pricePerItem) > 0) ? (
@@ -2958,13 +3301,13 @@ export default function PurchasePage() {
                   </div>
                 ))}
 
-                {/* ── Tambah Item button ── */}
+                {/* ── Tambah Item Lain button ── */}
                 <button
                   className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-lg border border-dashed border-white/[0.08] text-slate-500 hover:text-slate-300 hover:border-white/[0.15] transition-colors text-xs"
                   onClick={handleAddPoItem}
                 >
                   <Plus className="h-3.5 w-3.5" />
-                  Tambah Item Lain
+                  Tambah Barang Lain
                 </button>
               </div>
             </div>
@@ -2972,30 +3315,38 @@ export default function PurchasePage() {
 
           {/* ── Sticky Total Biaya + Footer ── */}
           <div className="pt-3 mt-auto border-t border-white/[0.06]">
-            <div className="bg-emerald-500/[0.06] rounded-lg p-3 border border-emerald-500/[0.1] mb-3">
+            <div className="bg-emerald-500/[0.06] rounded-xl p-3.5 border border-emerald-500/[0.1] mb-3">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <Banknote className="h-3.5 w-3.5 text-emerald-400" />
+                <div className="flex items-center gap-2">
+                  <Banknote className="h-4 w-4 text-emerald-400" />
                   <span className="text-xs text-slate-400">Total Pembelian</span>
                 </div>
                 <span className="text-lg font-bold text-emerald-400">{formatCurrency(poTotalCost)}</span>
               </div>
               {poCreateItems.filter(i => i.inventoryItemId).length > 0 && (
-                <p className="text-[9px] text-slate-600 mt-1">
-                  {poCreateItems.filter(i => i.inventoryItemId).length} item • Item baru akan dibuat & stok bertambah setelah disimpan
-                </p>
+                <div className="mt-2 space-y-1">
+                  <p className="text-[10px] text-slate-500">
+                    {poCreateItems.filter(i => i.inventoryItemId).length} barang akan dicatat
+                  </p>
+                  {poCreateItems.some(i => i.inventoryItemId.startsWith('__pending_')) && (
+                    <p className="text-[10px] text-amber-400/70 flex items-center gap-1">
+                      <PackageOpen className="h-3 w-3" />
+                      Barang baru otomatis terdaftar di inventory saat disimpan
+                    </p>
+                  )}
+                </div>
               )}
             </div>
             <div className="flex gap-2">
               <Button
                 variant="ghost"
-                className="flex-1 h-9 text-xs text-slate-400 hover:text-white hover:bg-white/[0.04]"
+                className="flex-1 h-10 text-xs text-slate-400 hover:text-white hover:bg-white/[0.04]"
                 onClick={() => setPoCreateOpen(false)}
               >
                 Batal
               </Button>
               <Button
-                className="flex-1 h-9 text-xs theme-bg theme-hover text-white"
+                className="flex-1 h-10 text-xs theme-bg theme-hover text-white font-medium"
                 disabled={poCreateLoading || poCreateItems.filter(i => i.inventoryItemId).length === 0}
                 onClick={handlePoCreateSubmit}
               >
@@ -3005,6 +3356,81 @@ export default function PurchasePage() {
                   <CheckCircle2 className="h-3.5 w-3.5" />
                 )}
                 Simpan Pembelian
+              </Button>
+            </div>
+          </div>
+        </ResponsiveDialogContent>
+      </ResponsiveDialog>
+
+      {/* ── Import Excel Preview Dialog ── */}
+      <ResponsiveDialog open={showImportPreview} onOpenChange={(open) => { if (!open) { setShowImportPreview(false); setImportPreviewData(null) } }}>
+        <ResponsiveDialogContent className="sm:max-w-2xl flex flex-col max-h-[85vh]">
+          <ResponsiveDialogHeader>
+            <ResponsiveDialogTitle className="text-white text-base flex items-center gap-2">
+              <div className="w-8 h-8 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+                <FileSpreadsheet className="h-4 w-4 text-emerald-400" />
+              </div>
+              <div>
+                <span>Preview Import Excel</span>
+                <p className="text-[11px] text-slate-500 font-normal mt-0.5">
+                  {importPreviewData ? `${importPreviewData.filter(i => !i.error).length} item ditemukan, ${importPreviewData.filter(i => i.isNew).length} barang baru` : 'Membaca file...'}
+                </p>
+              </div>
+            </ResponsiveDialogTitle>
+          </ResponsiveDialogHeader>
+
+          <div className="flex-1 overflow-y-auto space-y-2 mt-1">
+            {importPreviewData && importPreviewData.map((item) => (
+              <div
+                key={item.row}
+                className={cn(
+                  'rounded-lg border p-2.5 text-xs',
+                  item.error
+                    ? 'border-red-500/20 bg-red-500/[0.04]'
+                    : item.isNew
+                      ? 'border-amber-500/20 bg-amber-500/[0.04]'
+                      : 'border-white/[0.04] bg-white/[0.02]'
+                )}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-[10px] text-slate-600 shrink-0">#{item.row}</span>
+                    <span className="text-xs text-slate-200 font-medium truncate">{item.name}</span>
+                    {item.sku && <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 border-white/[0.1] text-slate-500 shrink-0">{item.sku}</Badge>}
+                    {item.isNew ? (
+                      <Badge className="text-[9px] px-1.5 py-0 h-4 bg-amber-500/10 text-amber-400 border-amber-500/20 shrink-0">Baru</Badge>
+                    ) : item.matchedItemName ? (
+                      <Badge className="text-[9px] px-1.5 py-0 h-4 bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shrink-0">Match: {item.matchedItemName}</Badge>
+                    ) : null}
+                  </div>
+                  <span className="text-slate-400 font-mono text-[11px] shrink-0 ml-2">
+                    {item.qty > 0 ? `${item.qty} ${item.purchaseUnit || 'unit'}` : ''}
+                    {item.pricePerUnit > 0 ? ` × ${formatCurrency(item.pricePerUnit)}` : ''}
+                  </span>
+                </div>
+                {item.error && (
+                  <p className="text-[10px] text-red-400/80 mt-1">{item.error}</p>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <div className="pt-3 mt-auto border-t border-white/[0.06]">
+            <div className="flex gap-2">
+              <Button
+                variant="ghost"
+                className="flex-1 h-10 text-xs text-slate-400 hover:text-white"
+                onClick={() => { setShowImportPreview(false); setImportPreviewData(null) }}
+              >
+                Batal
+              </Button>
+              <Button
+                className="flex-1 h-10 text-xs theme-bg theme-hover text-white font-medium"
+                disabled={!importPreviewData || importPreviewData.filter(i => !i.error).length === 0}
+                onClick={handleApplyImport}
+              >
+                <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
+                Terapkan {importPreviewData ? importPreviewData.filter(i => !i.error).length : 0} Item
               </Button>
             </div>
           </div>
@@ -3444,7 +3870,23 @@ export default function PurchasePage() {
             ) : null}
           </AlertDialogHeader>
 
-          {invDeleteBlocked && (
+          {invDeleteBlocked && invDeleteBlocked.blockType === 'purchaseItems' && (
+            <div className="space-y-3 my-2">
+              <div className="flex items-start gap-2 rounded-lg bg-amber-500/10 border border-amber-500/20 p-3">
+                <AlertTriangle className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
+                <div className="text-sm">
+                  <p className="text-amber-300 font-medium">
+                    Item ini memiliki {invDeleteBlocked.purchaseItemCount} riwayat pembelian
+                  </p>
+                  <p className="text-slate-400 text-xs mt-1.5 leading-relaxed">
+                    Riwayat pembelian akan tetap tersimpan, tapi referensi ke item ini akan dilepas. Lanjutkan hapus?
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {invDeleteBlocked && invDeleteBlocked.blockType === 'compositions' && (
             <div className="space-y-3 my-2">
               <div className="flex items-start gap-2 rounded-lg bg-amber-500/10 border border-amber-500/20 p-3">
                 <AlertTriangle className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
@@ -3480,7 +3922,11 @@ export default function PurchasePage() {
                 onClick={() => handleDeleteInv(true)}
                 disabled={deletingInv}
               >
-                {deletingInv ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Ya, Hapus & Reset Stok Produk'}
+                {deletingInv ? <Loader2 className="h-4 w-4 animate-spin" /> : (
+                  invDeleteBlocked.blockType === 'compositions'
+                    ? 'Ya, Hapus & Reset Stok Produk'
+                    : 'Ya, Hapus Item'
+                )}
               </AlertDialogAction>
             ) : (
               <AlertDialogAction
