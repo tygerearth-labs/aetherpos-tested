@@ -30,9 +30,16 @@ function sanitizeNumber(val: unknown): number {
   const str = String(val).trim()
   if (!str) return 0
 
-  // Remove currency symbols & whitespace
-  let cleaned = str.replace(/[Rp\s$€¥£.,\-]/g, (match) => {
-    // Keep dots and commas for number reconstruction, remove the rest
+  // Detect leading negative sign before stripping
+  let isNegative = false
+  let trimmed = str
+  if (trimmed.startsWith('-') || trimmed.startsWith('−')) { // also handle unicode minus
+    isNegative = true
+    trimmed = trimmed.slice(1)
+  }
+
+  // Remove currency symbols & whitespace (keep dots, commas, digits)
+  let cleaned = trimmed.replace(/[Rp\s$€¥£.,]/g, (match) => {
     if (match === '.' || match === ',') return match
     return ''
   }).trim()
@@ -70,7 +77,7 @@ function sanitizeNumber(val: unknown): number {
   }
 
   const num = Number(cleaned)
-  return isNaN(num) ? 0 : num
+  return isNaN(num) ? 0 : (isNegative ? -Math.abs(num) : num)
 }
 
 /** Normalize header key for flexible matching */
@@ -211,7 +218,13 @@ export async function POST(request: NextRequest) {
         continue
       }
 
-      if (!price || price <= 0) {
+      if (!price || price < 0) {
+        errors.push(`Baris ${rowNum}: Harga Jual tidak boleh negatif (Nama: ${name})`)
+        continue
+      }
+
+      // Variant parent products must have price > 0 (price=0 only allowed for products WITH variants)
+      if (price <= 0 && !hasVariants) {
         errors.push(`Baris ${rowNum}: Harga Jual harus lebih dari 0 (Nama: ${name})`)
         continue
       }
@@ -352,6 +365,15 @@ export async function POST(request: NextRequest) {
           // Auto-generate variant barcode from SKU if not provided
           const finalVariantBarcode = variantBarcode || finalVariantSku
 
+          // Skip duplicate variants (by name + productId) — allows safe re-upload
+          const existingVariant = await db.productVariant.findFirst({
+            where: { name: variantName, productId: parentProduct.id },
+          })
+          if (existingVariant) {
+            variantsSkipped++
+            continue
+          }
+
           // Create variant
           await db.productVariant.create({
             data: {
@@ -469,6 +491,15 @@ export async function POST(request: NextRequest) {
               continue
             }
             variantId = foundVariant.id
+          }
+
+          // Skip duplicate compositions (productId + variantId + inventoryItemId) — allows safe re-upload
+          const existingComp = await db.productComposition.findFirst({
+            where: { productId, variantId: variantId || null, inventoryItemId: invItem.id },
+          })
+          if (existingComp) {
+            compSkipped++
+            continue
           }
 
           await db.productComposition.create({

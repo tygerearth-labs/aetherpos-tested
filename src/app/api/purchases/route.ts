@@ -182,16 +182,19 @@ export async function POST(request: NextRequest) {
       return safeJsonError('Purchase order must have at least 1 item', 400)
     }
 
+    // Normalize items: baseQty 0 means direct (no conversion) → treat as 1
+    const normalizedItems = items.map(item => ({
+      ...item,
+      baseQty: item.baseQty || 1,
+    }))
+
     // Validate each item has required fields
-    for (const item of items) {
+    for (const item of normalizedItems) {
       if (!item.inventoryItemId) {
         return safeJsonError('Setiap item harus memiliki inventoryItemId', 400)
       }
       if (!item.purchaseQty || item.purchaseQty <= 0) {
         return safeJsonError('Jumlah pembelian harus lebih dari 0', 400)
-      }
-      if (!item.baseQty || item.baseQty <= 0) {
-        return safeJsonError('Isi per unit harus lebih dari 0 (cek konversi satuan)', 400)
       }
       if (item.unitCost === undefined || item.unitCost < 0) {
         return safeJsonError('Harga satuan tidak boleh negatif', 400)
@@ -212,7 +215,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate all inventory items belong to this outlet
-    const itemIds = items.map((i) => i.inventoryItemId)
+    const itemIds = normalizedItems.map((i) => i.inventoryItemId)
     const inventoryItems = await db.inventoryItem.findMany({
       where: { id: { in: itemIds }, outletId },
     })
@@ -235,7 +238,7 @@ export async function POST(request: NextRequest) {
     const orderNumber = `PO-${yyyy}${mm}${dd}-${String(count + 1).padStart(4, '0')}`
 
     // Calculate total cost
-    const totalCost = items.reduce((sum, item) => sum + (item.totalCost || 0), 0)
+    const totalCost = normalizedItems.reduce((sum, item) => sum + (item.totalCost || 0), 0)
 
     // Execute everything in a single transaction (30s timeout for HPP recalc)
     const result = await db.$transaction(async (tx) => {
@@ -249,7 +252,7 @@ export async function POST(request: NextRequest) {
           outletId,
           userId,
           items: {
-            create: items.map((item) => {
+            create: normalizedItems.map((item) => {
               const invItem = inventoryItems.find((ii) => ii.id === item.inventoryItemId)!
               return {
                 inventoryItemId: item.inventoryItemId,
@@ -274,7 +277,7 @@ export async function POST(request: NextRequest) {
 
       // Update inventory items: weighted average cost and stock
       const affectedInventoryItemIds: string[] = []
-      for (const item of items) {
+      for (const item of normalizedItems) {
         const invItem = inventoryItems.find((ii) => ii.id === item.inventoryItemId)!
         const existingStock = invItem.stock
         const existingAvgCost = invItem.avgCost
