@@ -51,6 +51,7 @@ export async function GET(request: NextRequest) {
           transaction: { outletId, createdAt: { gte: startDate }, ...voidExclude },
         },
         _sum: { qty: true, subtotal: true },
+        _count: true,
         orderBy: { _sum: { qty: 'desc' } },
         take: 5,
       }),
@@ -98,6 +99,7 @@ export async function GET(request: NextRequest) {
       name: item.productName,
       qty: item._sum.qty ?? 0,
       revenue: item._sum.subtotal ?? 0,
+      txCount: item._count ?? 0,
     }))
 
     return safeJson(

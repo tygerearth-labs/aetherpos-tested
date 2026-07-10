@@ -162,7 +162,7 @@ export function useForecast(enabled: boolean) {
 // ── Sales Summary (filtered by period) ──
 export interface SalesSummaryData {
   period: string
-  topSelling: { name: string; qty: number; revenue: number }[]
+  topSelling: { name: string; qty: number; revenue: number; txCount: number }[]
   topCustomers: { id: string; name: string; whatsapp: string; totalSpend: number; points: number; txCount: number }[]
   revenue: number
   transactions: number

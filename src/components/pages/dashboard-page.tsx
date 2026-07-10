@@ -201,6 +201,7 @@ export default function DashboardPage() {
           lowStockList={stats.lowStockList}
           lowStockVariantList={stats.lowStockVariantList}
           lowStockVariants={stats.lowStockVariants}
+          fallbackCustomers={stats.topCustomers}
         />
       </motion.div>
 

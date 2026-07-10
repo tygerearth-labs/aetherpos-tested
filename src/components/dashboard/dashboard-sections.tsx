@@ -54,18 +54,23 @@ export function SalesProductsCard({
   lowStockList,
   lowStockVariantList,
   lowStockVariants,
+  fallbackCustomers,
   enabled = true,
 }: {
   lowStockList: { id: string; name: string; stock: number; lowStockAlert: number }[]
   lowStockVariantList?: { id: string; name: string; stock: number; productName: string }[]
   lowStockVariants?: number
+  fallbackCustomers?: { id: string; name: string; whatsapp: string; totalSpend: number; points: number }[]
   enabled?: boolean
 }) {
   const [period, setPeriod] = useState<Period>('today')
   const { data: summary, isLoading } = useSalesSummary(period, enabled)
 
   const products = summary?.topSelling ?? []
-  const customers = summary?.topCustomers ?? []
+  // Use period-filtered customers from summary, fallback to all-time topCustomers from main dashboard
+  const customers = (summary?.topCustomers && summary.topCustomers.length > 0)
+    ? summary.topCustomers
+    : (fallbackCustomers ?? []).map(c => ({ ...c, txCount: 0 }))
   const revenue = summary?.revenue ?? 0
   const transactions = summary?.transactions ?? 0
   const hasProducts = products.length > 0
@@ -188,7 +193,11 @@ export function SalesProductsCard({
                                     transition={{ duration: 0.6, delay: i * 0.08, ease: 'easeOut' }}
                                   />
                                 </div>
-                                <span className="text-[10px] text-slate-500 shrink-0 w-10 text-right">{formatNumber(p.qty)}u</span>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <span className="text-[10px] text-slate-500">{formatNumber(p.qty)}u</span>
+                                  <span className="text-[10px] text-slate-600">·</span>
+                                  <span className="text-[10px] text-slate-500">{p.txCount}x trx</span>
+                                </div>
                               </div>
                             </div>
                           </div>
