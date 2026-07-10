@@ -17,6 +17,7 @@ import { formatCurrency, formatNumber } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { usePageStore } from '@/hooks/use-page-store'
 import type { DashboardStats, InsightEngineData, InsightItem } from '@/hooks/use-dashboard'
+import { useSalesSummary } from '@/hooks/use-dashboard'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { HealthRing } from './dashboard-charts'
 
@@ -39,20 +40,37 @@ function getPriorityBg(priority: InsightItem['priority']): string {
   }
 }
 
-// ── Sales & Products Unified Card ──
+// ── Sales & Products Unified Card (self-contained with period filter) ──
+
+type Period = 'today' | 'week' | 'month'
+
+const PERIOD_TABS: { key: Period; label: string }[] = [
+  { key: 'today', label: 'Hari Ini' },
+  { key: 'week', label: 'Minggu Ini' },
+  { key: 'month', label: 'Bulan Ini' },
+]
+
 export function SalesProductsCard({
-  products,
-  customers,
-  totalRevenue,
-  totalTransactions,
+  lowStockList,
+  lowStockVariantList,
+  lowStockVariants,
+  enabled = true,
 }: {
-  products: { name: string; qty: number; revenue: number }[]
-  customers: { id: string; name: string; whatsapp: string; totalSpend: number; points: number }[] | null
-  totalRevenue: number
-  totalTransactions: number
+  lowStockList: { id: string; name: string; stock: number; lowStockAlert: number }[]
+  lowStockVariantList?: { id: string; name: string; stock: number; productName: string }[]
+  lowStockVariants?: number
+  enabled?: boolean
 }) {
+  const [period, setPeriod] = useState<Period>('today')
+  const { data: summary, isLoading } = useSalesSummary(period, enabled)
+
+  const products = summary?.topSelling ?? []
+  const customers = summary?.topCustomers ?? []
+  const revenue = summary?.revenue ?? 0
+  const transactions = summary?.transactions ?? 0
   const hasProducts = products.length > 0
-  const hasCustomers = customers && customers.length > 0
+  const hasCustomers = customers.length > 0
+  const hasLowStock = lowStockList.length > 0 || (lowStockVariantList && lowStockVariantList.length > 0)
   const topProduct = products[0]
 
   return (
@@ -60,14 +78,14 @@ export function SalesProductsCard({
       <Card className="aether-card rounded-2xl overflow-hidden">
         <CardContent className="p-4 sm:p-5">
           {/* Header */}
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-violet-500/15 to-fuchsia-500/15 border border-violet-500/15 flex items-center justify-center shrink-0">
                 <Package className="h-4 w-4 text-violet-400" />
               </div>
               <div>
                 <h2 className="text-sm font-semibold text-slate-200">Penjualan & Produk</h2>
-                <p className="text-[10px] text-slate-500 mt-0.5">Produk terlaris & pelanggan setia hari ini</p>
+                <p className="text-[10px] text-slate-500 mt-0.5">Produk terlaris, pelanggan & stok</p>
               </div>
             </div>
             {hasProducts && topProduct && (
@@ -78,15 +96,34 @@ export function SalesProductsCard({
             )}
           </div>
 
+          {/* Period filter tabs */}
+          <div className="flex items-center gap-1 p-1 rounded-lg bg-white/[0.03] border border-white/[0.04] mb-4">
+            {PERIOD_TABS.map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setPeriod(tab.key)}
+                className={cn(
+                  'flex-1 text-center text-[11px] font-medium py-1.5 rounded-md transition-all duration-200 cursor-pointer',
+                  period === tab.key
+                    ? 'bg-white/[0.08] text-white shadow-sm'
+                    : 'text-slate-500 hover:text-slate-300 hover:bg-white/[0.03]',
+                )}
+              >
+                {tab.label}
+              </button>
+            ))}
+            {isLoading && <RefreshCw className="h-3.5 w-3.5 animate-spin text-slate-500 ml-auto" />}
+          </div>
+
           {/* Summary pills */}
           <div className="flex items-center gap-2 mb-4 flex-wrap">
             <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.04]">
               <span className="text-[10px] text-slate-500">Revenue</span>
-              <span className="text-xs font-semibold theme-text">{formatCurrency(totalRevenue)}</span>
+              <span className="text-xs font-semibold theme-text">{formatCurrency(revenue)}</span>
             </div>
             <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.04]">
               <span className="text-[10px] text-slate-500">Transaksi</span>
-              <span className="text-xs font-semibold text-slate-200">{formatNumber(totalTransactions)}</span>
+              <span className="text-xs font-semibold text-slate-200">{formatNumber(transactions)}</span>
             </div>
             {hasProducts && (
               <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.04]">
@@ -100,23 +137,30 @@ export function SalesProductsCard({
                 <span className="text-xs font-semibold text-sky-400">{customers.length}</span>
               </div>
             )}
+            {hasLowStock && (
+              <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-500/[0.06] border border-red-500/15">
+                <AlertTriangle className="h-3 w-3 text-red-400" />
+                <span className="text-[10px] text-red-400">Stok Rendah</span>
+                <span className="text-xs font-semibold text-red-400">{lowStockList.length + (lowStockVariantList?.length ?? 0)}</span>
+              </div>
+            )}
           </div>
 
-          {/* Two columns: Products | Customers */}
-          {!hasProducts && !hasCustomers ? (
+          {/* Three sections: Products | Customers | Low Stock */}
+          {!hasProducts && !hasCustomers && !hasLowStock ? (
             <div className="flex flex-col items-center justify-center py-8 text-center">
               <Package className="h-7 w-7 text-slate-700 mb-1.5" />
               <p className="text-xs text-slate-500">Belum ada data hari ini</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {/* ── Top Products Column ── */}
               <div>
                 <div className="flex items-center gap-1.5 mb-2.5">
                   <Package className="h-3.5 w-3.5 theme-text" />
                   <h3 className="text-xs font-semibold text-slate-300">Produk Terlaris</h3>
                   {hasProducts && (
-                    <span className="text-[10px] text-slate-600 ml-auto">{products.length} produk</span>
+                    <span className="text-[10px] text-slate-600 ml-auto">{products.length}</span>
                   )}
                 </div>
                 {hasProducts ? (
@@ -125,7 +169,7 @@ export function SalesProductsCard({
                       const maxRev = products[0]?.revenue ?? 1
                       const pct = Math.round((p.revenue / maxRev) * 100)
                       return (
-                        <div key={i} className="group/p rounded-lg bg-white/[0.02] border border-white/[0.03] p-2.5 hover:bg-white/[0.04] transition-colors">
+                        <div key={i} className="rounded-lg bg-white/[0.02] border border-white/[0.03] p-2.5 hover:bg-white/[0.04] transition-colors">
                           <div className="flex items-center gap-2.5">
                             <span className={`text-[11px] font-bold w-4 text-center shrink-0 ${i === 0 ? 'text-amber-400' : 'text-slate-600'}`}>
                               {i + 1}
@@ -135,7 +179,6 @@ export function SalesProductsCard({
                                 <p className="text-xs font-medium text-slate-300 truncate">{p.name}</p>
                                 <p className="text-xs font-semibold theme-text shrink-0 ml-2">{formatCurrency(p.revenue)}</p>
                               </div>
-                              {/* Revenue bar */}
                               <div className="flex items-center gap-2">
                                 <div className="flex-1 h-1 rounded-full bg-white/[0.04] overflow-hidden">
                                   <motion.div
@@ -145,7 +188,7 @@ export function SalesProductsCard({
                                     transition={{ duration: 0.6, delay: i * 0.08, ease: 'easeOut' }}
                                   />
                                 </div>
-                                <span className="text-[10px] text-slate-500 shrink-0 w-12 text-right">{formatNumber(p.qty)} unit</span>
+                                <span className="text-[10px] text-slate-500 shrink-0 w-10 text-right">{formatNumber(p.qty)}u</span>
                               </div>
                             </div>
                           </div>
@@ -159,16 +202,18 @@ export function SalesProductsCard({
               </div>
 
               {/* ── Top Customers Column ── */}
-              {hasCustomers && (
-                <div>
-                  <div className="flex items-center gap-1.5 mb-2.5">
-                    <Users className="h-3.5 w-3.5 text-sky-400" />
-                    <h3 className="text-xs font-semibold text-slate-300">Top Customer</h3>
-                    <span className="text-[10px] text-slate-600 ml-auto">{customers.length} pelanggan</span>
-                  </div>
+              <div>
+                <div className="flex items-center gap-1.5 mb-2.5">
+                  <Users className="h-3.5 w-3.5 text-sky-400" />
+                  <h3 className="text-xs font-semibold text-slate-300">Top Customer</h3>
+                  {hasCustomers && (
+                    <span className="text-[10px] text-slate-600 ml-auto">{customers.length}</span>
+                  )}
+                </div>
+                {hasCustomers ? (
                   <div className="space-y-1.5">
                     {customers.slice(0, 5).map((c, i) => (
-                      <div key={c.id} className="group/c rounded-lg bg-white/[0.02] border border-white/[0.03] p-2.5 hover:bg-white/[0.04] transition-colors">
+                      <div key={c.id} className="rounded-lg bg-white/[0.02] border border-white/[0.03] p-2.5 hover:bg-white/[0.04] transition-colors">
                         <div className="flex items-center gap-2.5">
                           <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 text-[11px] font-bold ${i === 0 ? 'bg-amber-500/15 text-amber-400 border border-amber-500/20' : 'bg-white/[0.04] text-slate-500 border border-white/[0.06]'}`}>
                             {i + 1}
@@ -177,7 +222,7 @@ export function SalesProductsCard({
                             <p className="text-xs font-medium text-slate-300 truncate">{c.name}</p>
                             <div className="flex items-center gap-2 mt-0.5">
                               <span className="text-[10px] text-slate-500">{c.points} poin</span>
-                              {i === 0 && <span className="text-[9px] text-amber-400/70">⭐ Most Loyal</span>}
+                              {i === 0 && <span className="text-[9px] text-amber-400/70">⭐ Loyal</span>}
                             </div>
                           </div>
                           <p className="text-xs font-semibold text-sky-400 shrink-0">{formatCurrency(c.totalSpend)}</p>
@@ -185,8 +230,72 @@ export function SalesProductsCard({
                       </div>
                     ))}
                   </div>
+                ) : (
+                  <p className="text-[11px] text-slate-600 py-4 text-center">Belum ada data</p>
+                )}
+              </div>
+
+              {/* ── Low Stock Column ── */}
+              <div>
+                <div className="flex items-center gap-1.5 mb-2.5">
+                  <AlertTriangle className="h-3.5 w-3.5 text-red-400" />
+                  <h3 className="text-xs font-semibold text-slate-300">Stok Menipis</h3>
+                  {(lowStockVariants ?? 0) > 0 && (
+                    <Badge className="bg-violet-500/10 border-violet-500/20 text-violet-400 text-[9px] h-4 px-1 gap-0.5 ml-auto">
+                      <Layers className="h-2.5 w-2.5" />{lowStockVariants}
+                    </Badge>
+                  )}
                 </div>
-              )}
+                {hasLowStock ? (
+                  <div className="space-y-1.5">
+                    {lowStockList.slice(0, 4).map((p) => {
+                      const isCritical = p.stock === 0
+                      const isWarning = p.stock > 0 && p.stock <= p.lowStockAlert / 2
+                      return (
+                        <div key={p.id} className="rounded-lg bg-white/[0.02] border border-white/[0.03] p-2.5 hover:bg-white/[0.04] transition-colors">
+                          <div className="flex items-center justify-between">
+                            <div className="flex-1 min-w-0 mr-2">
+                              <p className="text-xs font-medium text-slate-300 truncate">{p.name}</p>
+                              <p className="text-[10px] text-slate-500">Alert: {p.lowStockAlert}</p>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <span className={`text-xs font-bold ${isCritical ? 'text-red-400' : isWarning ? 'text-amber-400' : 'text-yellow-300'}`}>
+                                {p.stock}
+                              </span>
+                              <Badge className={`text-[9px] h-4 px-1 ${isCritical ? 'bg-red-500/10 border-red-500/20 text-red-400' : isWarning ? 'bg-amber-500/10 border-amber-500/20 text-amber-400' : 'bg-yellow-500/10 border-yellow-500/20 text-yellow-400'}`}>
+                                {isCritical ? 'Habis' : isWarning ? 'Kritis' : 'Rendah'}
+                              </Badge>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                    {lowStockVariantList && lowStockVariantList.length > 0 && (
+                      lowStockVariantList.slice(0, 2).map((v) => (
+                        <div key={v.id} className="rounded-lg bg-violet-500/[0.03] border border-violet-500/10 p-2.5">
+                          <div className="flex items-center justify-between">
+                            <div className="flex-1 min-w-0 mr-2">
+                              <p className="text-xs font-medium text-slate-300 truncate">{v.name}</p>
+                              <p className="text-[10px] text-slate-500 truncate">{v.productName}</p>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <span className={`text-xs font-bold ${v.stock === 0 ? 'text-red-400' : 'text-violet-400'}`}>{v.stock}</span>
+                              <Badge className={`text-[9px] h-4 px-1 ${v.stock === 0 ? 'bg-red-500/10 border-red-500/20 text-red-400' : 'bg-violet-500/10 border-violet-500/20 text-violet-400'}`}>
+                                {v.stock === 0 ? 'Habis' : 'Rendah'}
+                              </Badge>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-4 text-center">
+                    <ShieldAlert className="h-5 w-5 text-emerald-700 mb-1" />
+                    <p className="text-[11px] text-slate-600">Semua stok aman</p>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </CardContent>

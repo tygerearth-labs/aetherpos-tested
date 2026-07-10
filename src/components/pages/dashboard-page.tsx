@@ -13,7 +13,7 @@ import { HealthRing } from '@/components/dashboard/dashboard-charts'
 import { StatCards } from '@/components/dashboard/stat-cards'
 import { QuickActions } from '@/components/dashboard/quick-actions'
 import { AnalyticsTabs } from '@/components/dashboard/analytics-tabs'
-import { SalesProductsCard, LowStockSection, InsightsSection, InventoryAlertsSection, ScoreExplanationDialog } from '@/components/dashboard/dashboard-sections'
+import { SalesProductsCard, InsightsSection, InventoryAlertsSection, ScoreExplanationDialog } from '@/components/dashboard/dashboard-sections'
 import { EnterpriseBubbleChart, PendingTransfersSection, InventoryPredictionSection } from '@/components/dashboard/enterprise-sections'
 
 // ── Animation variants ──
@@ -198,30 +198,18 @@ export default function DashboardPage() {
           ═══════════════════════════════════════════════════ */}
       <motion.div variants={itemVariants}>
         <SalesProductsCard
-          products={topSelling}
-          customers={isOwner ? stats.topCustomers : null}
-          totalRevenue={stats.totalRevenue}
-          totalTransactions={stats.totalTransactions}
+          lowStockList={stats.lowStockList}
+          lowStockVariantList={stats.lowStockVariantList}
+          lowStockVariants={stats.lowStockVariants}
         />
       </motion.div>
 
       {/* ═══════════════════════════════════════════════════
-          GROUP E — Inventory & Alerts
+          GROUP E — Inventory Alerts
           ═══════════════════════════════════════════════════ */}
-      {stats.inventoryAlerts?.some(a => a.status !== 'ok') && (
-        <motion.div variants={itemVariants}>
-          <SectionLabel>Inventori & Stok</SectionLabel>
-        </motion.div>
-      )}
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        <motion.div variants={itemVariants}>
-          <InventoryAlertsSection stats={stats} />
-        </motion.div>
-        <motion.div variants={itemVariants}>
-          <LowStockSection stats={stats} />
-        </motion.div>
-      </div>
+      <motion.div variants={itemVariants}>
+        <InventoryAlertsSection stats={stats} />
+      </motion.div>
 
       {/* Score Explanation Dialog */}
       {isOwner && insightData && (
