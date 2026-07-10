@@ -9,8 +9,10 @@ import { motion } from 'framer-motion'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
-import { Package, Users, AlertTriangle, Layers, Sparkles, RefreshCw, FlaskConical, ShieldAlert, ChevronRight, Zap, ArrowRight } from 'lucide-react'
+import { Package, Users, AlertTriangle, Layers, Sparkles, RefreshCw, FlaskConical, ShieldAlert, Zap, ArrowRight, Brain } from 'lucide-react'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
+import { Sheet, SheetTrigger, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { formatCurrency, formatNumber } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { usePageStore } from '@/hooks/use-page-store'
@@ -489,7 +491,7 @@ function PriorityLabel({ priority }: { priority: InsightItem['priority'] }) {
   )
 }
 
-// ── AI Insights Section (Compact Card) ──
+// ── AI Insights Floating Brain Button ──
 export function InsightsSection({
   insightData, isLoading, onRefresh,
 }: {
@@ -497,145 +499,214 @@ export function InsightsSection({
   isLoading: boolean
   onRefresh: () => void
 }) {
-  const [selectedInsight, setSelectedInsight] = useState<InsightItem | null>(null)
-  const topInsight = selectedInsight || insightData?.topInsight || null
-  const otherInsights = insightData?.insights.filter((i) => i.id !== insightData?.topInsight?.id) ?? []
+  const [open, setOpen] = useState(false)
+  const insights = insightData?.insights ?? []
+  const hasInsights = insights.length > 0
+  const hasCritical = insights.some(i => i.priority === 'critical')
+  const hasHigh = insights.some(i => i.priority === 'high')
 
+  // Don't render anything while loading (floating button appears when data is ready)
   if (!insightData && !isLoading) return null
 
-  if (isLoading && !insightData) {
-    return (
-      <motion.div variants={itemVariants}>
-        <Card className="aether-card overflow-hidden">
-          <CardContent className="p-4 space-y-2.5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Skeleton className="h-5 w-5 rounded bg-white/[0.04]" />
-                <Skeleton className="h-4 w-24 bg-white/[0.04]" />
-              </div>
-              <div className="flex items-center gap-2">
-                <Skeleton className="h-5 w-5 rounded-full bg-white/[0.04]" />
-                <Skeleton className="h-5 w-5 rounded bg-white/[0.04]" />
-              </div>
-            </div>
-            <Skeleton className="h-3.5 w-full bg-white/[0.04]" />
-            <Skeleton className="h-3 w-64 bg-white/[0.04]" />
-          </CardContent>
-        </Card>
-      </motion.div>
-    )
-  }
-
-  // All good
-  if (insightData && !topInsight) {
-    return (
-      <motion.div variants={itemVariants}>
-        <Card className="aether-card overflow-hidden border-emerald-500/15">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0">
-                <Sparkles className="h-4 w-4 text-emerald-400" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-emerald-400">Semua metrik sehat</p>
-                <p className="text-[10px] text-slate-500">Tidak ada insight yang perlu perhatian saat ini.</p>
-              </div>
-              <HealthRing score={insightData.healthScore} size="sm" />
-              <Button variant="ghost" size="sm" onClick={onRefresh} disabled={isLoading} className="h-7 w-7 p-0 text-slate-500 hover:text-slate-300 hover:bg-white/[0.04]">
-                <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </motion.div>
-    )
-  }
-
   return (
-    <motion.div variants={itemVariants}>
-      <Popover>
-        <PopoverTrigger asChild>
-          <Card className={cn(
-            'aether-card overflow-hidden cursor-pointer group transition-all duration-200 hover:border-white/[0.12]',
-            insightData!.healthScore >= 75
-              ? 'border-violet-500/20'
-              : insightData!.healthScore >= 50
-                ? 'border-amber-500/20'
-                : 'border-red-500/20'
-          )}>
-            {/* Gradient top accent line */}
-            <div className={cn(
-              'h-0.5 w-full',
-              insightData!.healthScore >= 75
-                ? 'bg-gradient-to-r from-violet-500 via-pink-500 to-cyan-500'
-                : insightData!.healthScore >= 50
-                  ? 'bg-gradient-to-r from-amber-500 to-orange-500'
-                  : 'bg-gradient-to-r from-red-500 to-orange-500'
-            )} />
-            <CardContent className="p-4">
-              {/* Row 1: Header */}
-              <div className="flex items-center justify-between mb-2.5">
-                <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-lg aether-gradient-subtle flex items-center justify-center">
-                    <Sparkles className="h-3.5 w-3.5 text-violet-400" />
-                  </div>
-                  <span className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">AI Insight</span>
-                  {topInsight && <PriorityLabel priority={topInsight.priority} />}
-                </div>
-                <div className="flex items-center gap-2">
-                  <HealthRing score={insightData!.healthScore} size="sm" />
-                  <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); onRefresh() }} disabled={isLoading} className="h-7 w-7 p-0 text-slate-500 hover:text-slate-300 hover:bg-white/[0.04]">
-                    <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-                  </Button>
-                </div>
-              </div>
-
-              {/* Row 2: Main insight preview */}
-              {topInsight && (
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <PriorityDot priority={topInsight.priority} />
-                    <h3 className="text-xs font-semibold text-white truncate flex-1">{topInsight.emoji} {topInsight.title}</h3>
-                    <ChevronRight className="h-3.5 w-3.5 text-slate-600 group-hover:text-slate-400 transition-colors shrink-0" />
-                  </div>
-                  <p className="text-[11px] text-slate-400 leading-relaxed line-clamp-2 pl-5">{topInsight.why}</p>
-                </div>
-              )}
-
-              {/* Row 3: Other insights pills */}
-              {otherInsights.length > 0 && (
-                <div className="flex items-center gap-1.5 mt-2.5 pt-2.5 border-t border-white/[0.04]">
-                  {otherInsights.slice(0, 4).map((insight) => (
-                    <span
-                      key={insight.id}
-                      className={cn(
-                        'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border',
-                        getPriorityBg(insight.priority)
-                      )}
-                    >
-                      <PriorityDot priority={insight.priority} />
-                      <span className="max-w-[100px] truncate text-slate-400">{insight.emoji} {insight.title}</span>
-                    </span>
-                  ))}
-                  {otherInsights.length > 4 && (
-                    <span className="text-[10px] text-slate-500 font-medium">
-                      +{otherInsights.length - 4} lainnya
-                    </span>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </PopoverTrigger>
-        <PopoverContent
-          side="bottom"
-          sideOffset={8}
-          align="center"
-          className="w-auto bg-nebula border-white/[0.08] p-4 shadow-2xl shadow-black/50"
+    <Sheet open={open} onOpenChange={setOpen}>
+      <SheetTrigger asChild>
+        <motion.button
+          className={cn(
+            'fixed bottom-6 right-6 z-40 w-14 h-14 rounded-full',
+            'flex items-center justify-center shadow-2xl',
+            'border border-white/[0.1] cursor-pointer',
+            'transition-all duration-300 hover:scale-110 active:scale-95',
+            hasCritical
+              ? 'bg-gradient-to-br from-red-500 via-rose-500 to-pink-500 shadow-red-500/30'
+              : hasHigh
+                ? 'bg-gradient-to-br from-amber-500 via-orange-500 to-rose-500 shadow-orange-500/30'
+                : hasInsights
+                  ? 'bg-gradient-to-br from-violet-500 via-purple-500 to-fuchsia-500 shadow-violet-500/30'
+                  : 'bg-gradient-to-br from-emerald-500 via-teal-500 to-cyan-500 shadow-emerald-500/30'
+          )}
+          initial={{ scale: 0, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ type: 'spring', stiffness: 260, damping: 20, delay: 0.5 }}
+          onClick={() => setOpen(true)}
+          aria-label="AI Insights"
         >
-          {topInsight && <InsightDetailPopover insight={topInsight} />}
-        </PopoverContent>
-      </Popover>
-    </motion.div>
+          {/* Pulse ring */}
+          {hasInsights && (
+            <motion.span
+              className="absolute inset-0 rounded-full"
+              animate={{ scale: [1, 1.4, 1], opacity: [0.4, 0, 0.4] }}
+              transition={{ duration: 2.5, repeat: Infinity, ease: 'easeInOut' }}
+              style={{
+                background: hasCritical
+                  ? 'radial-gradient(circle, rgba(239,68,68,0.3), transparent 70%)'
+                  : hasHigh
+                    ? 'radial-gradient(circle, rgba(245,158,11,0.3), transparent 70%)'
+                    : 'radial-gradient(circle, rgba(139,92,246,0.3), transparent 70%)',
+              }}
+            />
+          )}
+
+          <Brain className="h-6 w-6 text-white relative z-10" />
+
+          {/* Red badge — always red when there are insights */}
+          {hasInsights && (
+            <motion.span
+              className={cn(
+                'absolute -top-1.5 -right-1.5 z-10 min-w-[22px] h-[22px] px-1.5',
+                'flex items-center justify-center',
+                'rounded-full text-[11px] font-bold text-white',
+                'bg-red-500 shadow-lg shadow-red-500/50',
+              )}
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 15, delay: 0.8 }}
+            >
+              {insights.length}
+            </motion.span>
+          )}
+        </motion.button>
+      </SheetTrigger>
+
+      <SheetContent
+        side="right"
+        className="bg-nebula border-l border-white/[0.06] sm:max-w-md w-full p-0"
+      >
+        {/* Header */}
+        <SheetHeader className="p-5 pb-3 border-b border-white/[0.06]">
+          <div className="flex items-center gap-3">
+            <motion.div
+              className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 border border-violet-500/20 flex items-center justify-center shrink-0"
+              animate={{ scale: [1, 1.08, 1] }}
+              transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+            >
+              <Brain className="h-5 w-5 text-violet-400" />
+            </motion.div>
+            <div className="flex-1">
+              <SheetTitle className="text-white text-base">AI Insights</SheetTitle>
+              <SheetDescription className="text-slate-500 text-xs mt-0.5">
+                Analisis otomatis untuk bisnis kamu
+              </SheetDescription>
+            </div>
+            {insightData && (
+              <HealthRing score={insightData.healthScore} size="sm" />
+            )}
+          </div>
+
+          {/* Action bar */}
+          <div className="flex items-center gap-2 mt-3">
+            <Badge variant="outline" className="text-[10px] bg-white/[0.03] border-white/[0.06] text-slate-400">
+              {hasInsights ? `${insights.length} insight` : 'Semua sehat'}
+            </Badge>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => { onRefresh(); }}
+              disabled={isLoading}
+              className="h-7 w-7 p-0 ml-auto text-slate-500 hover:text-slate-300 hover:bg-white/[0.04]"
+            >
+              <RefreshCw className={cn('h-3.5 w-3.5', isLoading && 'animate-spin')} />
+            </Button>
+          </div>
+        </SheetHeader>
+
+        {/* Insight list */}
+        <div className="flex-1 overflow-hidden">
+          <ScrollArea className="h-[calc(100vh-220px)]">
+            <div className="p-4 space-y-2.5">
+              {isLoading && !insightData ? (
+                <div className="space-y-3">
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <div key={i} className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                      <Skeleton className="h-4 w-3/4 bg-white/[0.04] mb-2" />
+                      <Skeleton className="h-3 w-full bg-white/[0.03] mb-1" />
+                      <Skeleton className="h-3 w-1/2 bg-white/[0.03]" />
+                    </div>
+                  ))}
+                </div>
+              ) : !hasInsights ? (
+                <div className="flex flex-col items-center justify-center py-16 text-center">
+                  <motion.div
+                    className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/15 flex items-center justify-center mb-4"
+                    animate={{ scale: [1, 1.06, 1] }}
+                    transition={{ duration: 2.5, repeat: Infinity, ease: 'easeInOut' }}
+                  >
+                    <Sparkles className="h-7 w-7 text-emerald-400" />
+                  </motion.div>
+                  <p className="text-sm font-semibold text-emerald-400">Semua metrik sehat</p>
+                  <p className="text-xs text-slate-500 mt-1.5 max-w-xs">
+                    Tidak ada insight yang perlu perhatian saat ini. Bisnis kamu berjalan dengan baik!
+                  </p>
+                </div>
+              ) : (
+                insights.map((insight, idx) => (
+                  <motion.div
+                    key={insight.id}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: idx * 0.06, duration: 0.25 }}
+                    className={cn(
+                      'rounded-xl border p-4 space-y-3',
+                      getPriorityBg(insight.priority),
+                    )}
+                  >
+                    {/* Insight header */}
+                    <div className="flex items-start gap-2.5">
+                      <PriorityDot priority={insight.priority} />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3 className="text-sm font-semibold text-white">{insight.emoji} {insight.title}</h3>
+                          <PriorityLabel priority={insight.priority} />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Why */}
+                    <p className="text-xs text-slate-400 leading-relaxed pl-6">{insight.why}</p>
+
+                    {/* Actions */}
+                    {insight.actions.length > 0 && (
+                      <ul className="space-y-1.5 pl-6">
+                        {insight.actions.map((action, i) => (
+                          <li key={i} className="flex items-start gap-2 text-xs text-slate-400">
+                            <Zap className="h-3 w-3 text-violet-400 mt-0.5 shrink-0" />
+                            <span>{action}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+
+                    {/* CTAs */}
+                    {insight.cta.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 pl-6 pt-1">
+                        {insight.cta.map((cta, i) => (
+                          <InsightCtaButton key={i} cta={cta} />
+                        ))}
+                      </div>
+                    )}
+                  </motion.div>
+                ))
+              )}
+            </div>
+          </ScrollArea>
+        </div>
+      </SheetContent>
+    </Sheet>
+  )
+}
+
+/** Small CTA button used inside floating insight sheet */
+function InsightCtaButton({ cta }: { cta: InsightItem['cta'][number] }) {
+  const { setCurrentPage } = usePageStore()
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      className="h-7 text-[10px] font-medium bg-white/[0.04] border-white/[0.06] hover:bg-white/[0.06] hover:border-white/[0.1] text-slate-300 rounded-lg gap-1"
+      onClick={() => setCurrentPage(cta.page as Parameters<typeof setCurrentPage>[0])}
+    >
+      {cta.label}
+      <ArrowRight className="h-2.5 w-2.5" />
+    </Button>
   )
 }
