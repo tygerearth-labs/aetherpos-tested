@@ -56,29 +56,20 @@ export async function GET(request: NextRequest) {
     const limit = Math.min(50, Math.max(1, parseInt(searchParams.get('limit') || '20', 10) || 20))
     const search = searchParams.get('search') || ''
 
-    const now = new Date()
+    const serverTz = new Date().getTimezoneOffset()
+    const effectiveTz = tzOffset ?? serverTz
     let dateFilter: Record<string, Date>
 
     if (dateFromParam || dateToParam) {
-      dateFilter = tzOffset !== null
-        ? buildDateFilterTz(dateFromParam || null, dateToParam || null, tzOffset)
-        : (() => {
-            const filter: Record<string, Date> = {}
-            if (dateFromParam) { const d = new Date(dateFromParam); if (!isNaN(d.getTime())) { d.setHours(0,0,0,0); filter.gte = d } }
-            if (dateToParam) { const d = new Date(dateToParam); if (!isNaN(d.getTime())) { d.setHours(23,59,59,999); filter.lte = d } }
-            return filter
-          })()
+      dateFilter = buildDateFilterTz(dateFromParam || null, dateToParam || null, effectiveTz)
     } else if (period === '7days' || period === '7d') {
-      const start = new Date(now); start.setDate(start.getDate() - 6); start.setHours(0,0,0,0)
-      dateFilter = { gte: start, lte: new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23,59,59,999) }
+      const { todayStart } = getTodayRangeTz(effectiveTz)
+      dateFilter = { gte: new Date(todayStart.getTime() - 6 * 86_400_000), lt: new Date(todayStart.getTime() + 86_400_000) }
     } else if (period === '30days' || period === '30d') {
-      const start = new Date(now); start.setDate(start.getDate() - 29); start.setHours(0,0,0,0)
-      dateFilter = { gte: start, lte: new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23,59,59,999) }
-    } else if (tzOffset !== null) {
-      const { todayStart } = getTodayRangeTz(tzOffset)
-      dateFilter = { gte: todayStart, lt: new Date(todayStart.getTime() + 86_400_000) }
+      const { todayStart } = getTodayRangeTz(effectiveTz)
+      dateFilter = { gte: new Date(todayStart.getTime() - 29 * 86_400_000), lt: new Date(todayStart.getTime() + 86_400_000) }
     } else {
-      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+      const { todayStart } = getTodayRangeTz(effectiveTz)
       dateFilter = { gte: todayStart, lt: new Date(todayStart.getTime() + 86_400_000) }
     }
 

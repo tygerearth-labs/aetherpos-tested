@@ -19,15 +19,11 @@ export async function GET(request: NextRequest) {
     const outletId = user.outletId
     const isOwner = user.role === 'OWNER'
 
-    // Timezone-aware date ranges from client device
+    // Timezone-aware date ranges from client device (fallback to server tz if offset not provided)
     const tzOffset = parseTzOffset(request.nextUrl.searchParams)
     const { todayStart, yesterdayStart } = tzOffset !== null
       ? getTodayRangeTz(tzOffset)
-      : (() => {
-          const now = new Date()
-          const ts = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-          return { todayStart: ts, yesterdayStart: new Date(ts.getTime() - 86_400_000) }
-        })()
+      : getTodayRangeTz(new Date().getTimezoneOffset())
 
     // ── Get voided transaction IDs (needed for all calculations) ──
     const voidedTxIds = await getVoidedTxIds(db, outletId)

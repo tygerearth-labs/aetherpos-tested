@@ -19,17 +19,11 @@ export async function GET(request: NextRequest) {
     const { searchParams } = request.nextUrl
     const period = searchParams.get('period') || 'today' // today | week | month
 
-    // Timezone-aware date ranges
+    // Timezone-aware date ranges (fallback to server tz if offset not provided)
     const tzOffset = parseTzOffset(searchParams)
     const { todayStart, weekStart, monthStart } = tzOffset !== null
       ? getTodayRangeTz(tzOffset)
-      : (() => {
-          const now = new Date()
-          const ts = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-          const weekStart = new Date(ts.getTime() - ts.getDay() * 86_400_000)
-          const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
-          return { todayStart: ts, weekStart, monthStart }
-        })()
+      : getTodayRangeTz(new Date().getTimezoneOffset())
 
     const startDate = period === 'month'
       ? monthStart

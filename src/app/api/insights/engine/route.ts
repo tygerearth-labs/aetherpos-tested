@@ -22,19 +22,11 @@ export async function GET(request: NextRequest) {
 
     const outletId = user.outletId
 
-    // Timezone-aware date ranges from client device
+    // Timezone-aware date ranges from client device (fallback to server tz if offset not provided)
     const tzOffset = parseTzOffset(request.nextUrl.searchParams)
     const { todayStart, yesterdayStart, weekAgo } = tzOffset !== null
       ? getTodayRangeTz(tzOffset)
-      : (() => {
-          const now = new Date()
-          const ts = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-          return {
-            todayStart: ts,
-            yesterdayStart: new Date(ts.getTime() - 86_400_000),
-            weekAgo: new Date(ts.getTime() - 7 * 86_400_000),
-          }
-        })()
+      : getTodayRangeTz(new Date().getTimezoneOffset())
 
     // Void exclusion
     const voidedTxIds = await getVoidedTxIds(db, outletId)

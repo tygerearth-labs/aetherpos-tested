@@ -28,10 +28,7 @@ export async function GET(request: NextRequest) {
     const tzOffset = parseTzOffset(request.nextUrl.searchParams)
     const { todayStart } = tzOffset !== null
       ? getTodayRangeTz(tzOffset)
-      : (() => {
-          const now = new Date()
-          return { todayStart: new Date(now.getFullYear(), now.getMonth(), now.getDate()) }
-        })()
+      : getTodayRangeTz(new Date().getTimezoneOffset())
 
     const outletId = user.outletId
 

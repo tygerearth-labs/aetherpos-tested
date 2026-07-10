@@ -47,20 +47,7 @@ interface InsightData {
 async function aggregateData(outletId: string, tzOffset: number | null): Promise<InsightData> {
   const { todayStart, yesterdayStart, dayOfWeek, weekStart, monthStart, weekAgo } = tzOffset !== null
     ? getTodayRangeTz(tzOffset)
-    : (() => {
-        const now = new Date()
-        const ts = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-        const dow = now.getDay()
-        const mondayOff = dow === 0 ? 6 : dow - 1
-        return {
-          todayStart: ts,
-          yesterdayStart: new Date(ts.getTime() - 86_400_000),
-          dayOfWeek: dow,
-          weekStart: new Date(ts.getTime() - mondayOff * 86_400_000),
-          monthStart: new Date(now.getFullYear(), now.getMonth(), 1),
-          weekAgo: new Date(ts.getTime() - 7 * 86_400_000),
-        }
-      })()
+    : getTodayRangeTz(new Date().getTimezoneOffset())
 
   const voidedTxIds = await getVoidedTxIds(db, outletId)
   const voidedIdArray = Array.from(voidedTxIds).filter(Boolean) as string[]

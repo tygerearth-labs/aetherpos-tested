@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
+import { getTodayRangeTz } from '@/lib/api/api-helpers'
 import { safeJson, safeJsonError, CACHE } from '@/lib/api/safe-response'
 
 // GET /api/purchases/summary — purchase ratio vs revenue summary
@@ -36,9 +37,8 @@ export async function GET(request: NextRequest) {
     const totalRevenue = salesAgg._sum.total || 0
     const totalTxCount = salesAgg._count
 
-    // This month's purchase
-    const now = new Date()
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+    // This month's purchase (timezone-aware)
+    const { monthStart } = getTodayRangeTz(new Date().getTimezoneOffset())
     const monthPurchaseAgg = await db.purchaseOrder.aggregate({
       where: { outletId, createdAt: { gte: monthStart } },
       _sum: { totalCost: true },
