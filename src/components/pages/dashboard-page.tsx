@@ -229,15 +229,6 @@ export default function DashboardPage() {
         </motion.div>
       </div>
 
-      {/* ═══════════════════════════════════════════════════
-          GROUP F — AI Insights (compact strip)
-          ═══════════════════════════════════════════════════ */}
-      {isOwner && hasAiInsights && (
-        <motion.div variants={itemVariants}>
-          <InsightsSection insightData={insightData ?? null} isLoading={insightLoading} onRefresh={() => refetchInsights()} />
-        </motion.div>
-      )}
-
       {/* Score Explanation Dialog */}
       {isOwner && insightData && (
         <ScoreExplanationDialog
@@ -246,6 +237,13 @@ export default function DashboardPage() {
           score={insightData.healthScore}
           insights={insightData.insights}
         />
+      )}
+
+      {/* ═══════════════════════════════════════════════════
+          FLOATING — AI Brain Button
+          ═══════════════════════════════════════════════════ */}
+      {isOwner && hasAiInsights && (
+        <InsightsSection insightData={insightData ?? null} isLoading={insightLoading} onRefresh={() => refetchInsights()} />
       )}
     </motion.div>
   )
