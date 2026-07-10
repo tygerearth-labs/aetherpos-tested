@@ -366,11 +366,11 @@ export function ScoreExplanationDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md bg-nebula border-white/[0.06]">
+      <DialogContent className="sm:max-w-md bg-nebula border-white/[0.06] p-4 sm:p-6">
         <DialogHeader>
           <DialogTitle className="text-white text-base">Cara Kerja Health Score</DialogTitle>
         </DialogHeader>
-        <div className="space-y-3">
+        <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1 -mr-1">
           <p className="text-xs text-slate-400">
             Health Score mengukur kesehatan outlet berdasarkan analisis real-time dari penjualan, stok, dan aktivitas bisnis.
           </p>
@@ -513,7 +513,7 @@ export function InsightsSection({
       <SheetTrigger asChild>
         <motion.button
           className={cn(
-            'fixed bottom-6 right-6 z-40 w-14 h-14 rounded-full',
+            'fixed bottom-20 right-6 z-40 w-14 h-14 rounded-full',
             'flex items-center justify-center shadow-2xl',
             'border border-white/[0.1] cursor-pointer',
             'transition-all duration-300 hover:scale-110 active:scale-95',
@@ -549,14 +549,18 @@ export function InsightsSection({
 
           <Brain className="h-6 w-6 text-white relative z-10" />
 
-          {/* Red badge — always red when there are insights */}
+          {/* Priority badge — color matches severity */}
           {hasInsights && (
             <motion.span
               className={cn(
                 'absolute -top-1.5 -right-1.5 z-10 min-w-[22px] h-[22px] px-1.5',
                 'flex items-center justify-center',
                 'rounded-full text-[11px] font-bold text-white',
-                'bg-red-500 shadow-lg shadow-red-500/50',
+                hasCritical
+                  ? 'bg-red-500 shadow-lg shadow-red-500/50'
+                  : hasHigh
+                    ? 'bg-orange-500 shadow-lg shadow-orange-500/50'
+                    : 'bg-violet-500 shadow-lg shadow-violet-500/50',
               )}
               initial={{ scale: 0 }}
               animate={{ scale: 1 }}
