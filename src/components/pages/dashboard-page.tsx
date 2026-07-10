@@ -13,7 +13,7 @@ import { HealthRing } from '@/components/dashboard/dashboard-charts'
 import { StatCards } from '@/components/dashboard/stat-cards'
 import { QuickActions } from '@/components/dashboard/quick-actions'
 import { AnalyticsTabs } from '@/components/dashboard/analytics-tabs'
-import { TopProducts, TopCustomers, LowStockSection, InsightsSection, InventoryAlertsSection, ScoreExplanationDialog } from '@/components/dashboard/dashboard-sections'
+import { SalesProductsCard, LowStockSection, InsightsSection, InventoryAlertsSection, ScoreExplanationDialog } from '@/components/dashboard/dashboard-sections'
 import { EnterpriseBubbleChart, PendingTransfersSection, InventoryPredictionSection } from '@/components/dashboard/enterprise-sections'
 
 // ── Animation variants ──
@@ -197,19 +197,13 @@ export default function DashboardPage() {
           GROUP D — Sales & Products
           ═══════════════════════════════════════════════════ */}
       <motion.div variants={itemVariants}>
-        <SectionLabel>Penjualan & Produk</SectionLabel>
+        <SalesProductsCard
+          products={topSelling}
+          customers={isOwner ? stats.topCustomers : null}
+          totalRevenue={stats.totalRevenue}
+          totalTransactions={stats.totalTransactions}
+        />
       </motion.div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        <motion.div variants={itemVariants}>
-          <TopProducts products={topSelling} />
-        </motion.div>
-        {isOwner && (
-          <motion.div variants={itemVariants}>
-            <TopCustomers customers={stats.topCustomers} />
-          </motion.div>
-        )}
-      </div>
 
       {/* ═══════════════════════════════════════════════════
           GROUP E — Inventory & Alerts
