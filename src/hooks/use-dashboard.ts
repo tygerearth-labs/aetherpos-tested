@@ -158,3 +158,29 @@ export function useForecast(enabled: boolean) {
     refetchInterval: 60_000,
   })
 }
+
+// ── Sales Summary (filtered by period) ──
+export interface SalesSummaryData {
+  period: string
+  topSelling: { name: string; qty: number; revenue: number }[]
+  topCustomers: { id: string; name: string; whatsapp: string; totalSpend: number; points: number; txCount: number }[]
+  revenue: number
+  transactions: number
+}
+
+export function useSalesSummary(period: 'today' | 'week' | 'month', enabled: boolean) {
+  const { tzOffset } = useTimezone()
+
+  return useQuery<SalesSummaryData>({
+    queryKey: ['sales-summary', period, tzOffset],
+    queryFn: async () => {
+      const params = new URLSearchParams({ period })
+      if (tzOffset !== null) params.set('tzOffset', String(tzOffset))
+      const res = await fetch(`/api/dashboard/summary?${params}`)
+      if (!res.ok) throw new Error('Failed to load summary')
+      return res.json()
+    },
+    enabled,
+    staleTime: 30_000,
+  })
+}
