@@ -32,7 +32,7 @@ function RevenuePopover({ stats }: { stats: DashboardStats }) {
     : '0'
 
   return (
-    <div className="w-80 space-y-3.5">
+    <div className="w-72 sm:w-80 max-w-[calc(100vw-2.5rem)] space-y-3.5">
       {/* Header */}
       <div>
         <div className="flex items-center gap-2 mb-1">
@@ -132,7 +132,7 @@ function TransactionPopover({ stats }: { stats: DashboardStats }) {
   const avgPerHour = (stats.todayTransactions / hoursOpen).toFixed(1)
 
   return (
-    <div className="w-80 space-y-3.5">
+    <div className="w-72 sm:w-80 max-w-[calc(100vw-2.5rem)] space-y-3.5">
       {/* Header */}
       <div>
         <div className="flex items-center gap-2 mb-1">
@@ -223,7 +223,7 @@ function ProfitPopover({ stats }: { stats: DashboardStats }) {
     : '0'
 
   return (
-    <div className="w-80 space-y-3.5">
+    <div className="w-72 sm:w-80 max-w-[calc(100vw-2.5rem)] space-y-3.5">
       {/* Header */}
       <div>
         <div className="flex items-center gap-2 mb-1">
@@ -284,7 +284,7 @@ function LowStockPopover({ stats }: { stats: DashboardStats }) {
   const lowInventory = stats.lowInventoryList ?? []
 
   return (
-    <div className="w-80 space-y-3.5">
+    <div className="w-72 sm:w-80 max-w-[calc(100vw-2.5rem)] space-y-3.5">
       {/* Header */}
       <div>
         <div className="flex items-center gap-2 mb-1">
@@ -427,7 +427,8 @@ export function StatCards({ stats, isOwner }: { stats: DashboardStats; isOwner: 
           <PopoverContent
             side="bottom"
             sideOffset={8}
-            align="center"
+            align="start"
+            collisionPadding={16}
             className="w-auto bg-nebula border-white/[0.08] p-4 shadow-2xl shadow-black/50"
           >
             <RevenuePopover stats={stats} />
@@ -463,7 +464,8 @@ export function StatCards({ stats, isOwner }: { stats: DashboardStats; isOwner: 
           <PopoverContent
             side="bottom"
             sideOffset={8}
-            align="center"
+            align="start"
+            collisionPadding={16}
             className="w-auto bg-nebula border-white/[0.08] p-4 shadow-2xl shadow-black/50"
           >
             <TransactionPopover stats={stats} />
@@ -501,7 +503,8 @@ export function StatCards({ stats, isOwner }: { stats: DashboardStats; isOwner: 
             <PopoverContent
               side="bottom"
               sideOffset={8}
-              align="center"
+              align="start"
+              collisionPadding={16}
               className="w-auto bg-nebula border-white/[0.08] p-4 shadow-2xl shadow-black/50"
             >
               <ProfitPopover stats={stats} />
@@ -572,7 +575,8 @@ export function StatCards({ stats, isOwner }: { stats: DashboardStats; isOwner: 
           <PopoverContent
             side="bottom"
             sideOffset={8}
-            align="center"
+            align="start"
+            collisionPadding={16}
             className="w-auto bg-nebula border-white/[0.08] p-4 shadow-2xl shadow-black/50"
           >
             <LowStockPopover stats={stats} />

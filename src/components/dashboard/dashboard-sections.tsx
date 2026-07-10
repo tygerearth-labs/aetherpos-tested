@@ -485,69 +485,6 @@ export function ScoreExplanationDialog({
 }
 
 // ── AI Insights Section ──
-// ── Insight Detail Popover ──
-function InsightDetailPopover({ insight }: { insight: InsightItem }) {
-  const { setCurrentPage } = usePageStore()
-  return (
-    <div className="w-80 space-y-3">
-      {/* Header */}
-      <div className="flex items-start gap-2">
-        <PriorityDot priority={insight.priority} />
-        <div className="flex-1 min-w-0">
-          <h4 className="text-sm font-bold text-white">{insight.emoji} {insight.title}</h4>
-          <Badge className={cn(
-            'mt-1 text-[9px] h-4 px-1.5',
-            insight.priority === 'critical' ? 'bg-red-500/10 border-red-500/20 text-red-400'
-            : insight.priority === 'high' ? 'bg-orange-500/10 border-orange-500/20 text-orange-400'
-            : insight.priority === 'medium' ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
-            : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
-          )}>
-            {insight.priority === 'critical' ? 'Kritis' : insight.priority === 'high' ? 'Tinggi' : insight.priority === 'medium' ? 'Sedang' : 'Rendah'}
-          </Badge>
-        </div>
-      </div>
-
-      {/* Why */}
-      <div className="rounded-lg bg-white/[0.03] border border-white/[0.06] p-3">
-        <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium mb-1.5">Analisis</p>
-        <p className="text-xs text-slate-300 leading-relaxed">{insight.why}</p>
-      </div>
-
-      {/* Actions */}
-      {insight.actions.length > 0 && (
-        <div className="space-y-1.5">
-          <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">Rekomendasi</p>
-          <ul className="space-y-1">{insight.actions.map((action, i) => (
-            <li key={i} className="flex items-start gap-2 text-xs text-slate-400">
-              <Zap className="h-3 w-3 text-violet-400 mt-0.5 shrink-0" />
-              <span>{action}</span>
-            </li>
-          ))}</ul>
-        </div>
-      )}
-
-      {/* CTAs */}
-      {insight.cta.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 pt-1">
-          {insight.cta.map((cta, i) => (
-            <Button
-              key={i}
-              size="sm"
-              variant="outline"
-              className="h-7 text-[10px] font-medium bg-white/[0.04] border-white/[0.06] hover:bg-white/[0.06] hover:border-white/[0.1] text-slate-300 rounded-lg gap-1"
-              onClick={() => setCurrentPage(cta.page as Parameters<typeof setCurrentPage>[0])}
-            >
-              {cta.label}
-              <ArrowRight className="h-2.5 w-2.5" />
-            </Button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ── Priority label helper ──
 function PriorityLabel({ priority }: { priority: InsightItem['priority'] }) {
   return (
     <Badge className={cn(

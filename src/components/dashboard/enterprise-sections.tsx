@@ -206,7 +206,7 @@ function OutletPopoverContent({ outlet, rank, totalRevenue, totalTransactions }:
   const txShare = totalTransactions > 0 ? ((outlet.transactions / totalTransactions) * 100).toFixed(1) : '0'
 
   return (
-    <div className="w-80 space-y-4">
+    <div className="w-72 sm:w-80 max-w-[calc(100vw-2.5rem)] space-y-4">
       {/* Header */}
       <div className="flex items-start gap-3">
         <RankBadge rank={rank} />
@@ -524,6 +524,7 @@ export function EnterpriseBubbleChart() {
                       side="right"
                       sideOffset={8}
                       align="start"
+                      collisionPadding={16}
                       className="w-auto bg-nebula border-white/[0.08] p-4 shadow-2xl shadow-black/50"
                     >
                       <OutletPopoverContent
