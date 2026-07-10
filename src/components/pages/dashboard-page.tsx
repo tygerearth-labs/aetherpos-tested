@@ -230,17 +230,12 @@ export default function DashboardPage() {
       </div>
 
       {/* ═══════════════════════════════════════════════════
-          GROUP F — AI Insights
+          GROUP F — AI Insights (compact strip)
           ═══════════════════════════════════════════════════ */}
       {isOwner && hasAiInsights && (
-        <>
-          <motion.div variants={itemVariants}>
-            <SectionLabel>AI Insights</SectionLabel>
-          </motion.div>
-          <motion.div variants={itemVariants}>
-            <InsightsSection insightData={insightData ?? null} isLoading={insightLoading} onRefresh={() => refetchInsights()} />
-          </motion.div>
-        </>
+        <motion.div variants={itemVariants}>
+          <InsightsSection insightData={insightData ?? null} isLoading={insightLoading} onRefresh={() => refetchInsights()} />
+        </motion.div>
       )}
 
       {/* Score Explanation Dialog */}
