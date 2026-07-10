@@ -12,13 +12,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { motion } from 'framer-motion'
 import {
-  ScatterChart, Scatter, XAxis, YAxis, ZAxis, Tooltip, ResponsiveContainer, Cell,
-} from 'recharts'
+  Popover, PopoverTrigger, PopoverContent,
+} from '@/components/ui/popover'
 import {
   Building2, ArrowDownToLine, ArrowUpFromLine, ChevronDown, ChevronRight,
   Package, AlertTriangle, ShieldAlert, Activity, TrendingDown,
-  CircleDot, Zap,
+  Zap, Trophy, Crown, Medal, TrendingUp, BarChart3,
+  Info, PieChart,
 } from 'lucide-react'
 import { formatCurrency, formatNumber } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -115,8 +117,208 @@ interface InventoryPredictionData {
 }
 
 // ════════════════════════════════════════════════════════════
-// 1. ENTERPRISE BUBBLE CHART
+// 1. OUTLET PERFORMANCE LEADERBOARD (replaces bubble chart)
 // ════════════════════════════════════════════════════════════
+
+function RevenueRing({ outlets }: { outlets: BubbleChartOutlet[] }) {
+  const total = outlets.reduce((s, o) => s + o.revenue, 0) || 1
+  const mainOutlet = outlets.find(o => o.isMain)
+  const mainPct = mainOutlet ? (mainOutlet.revenue / total) * 100 : 0
+  const branchPct = 100 - mainPct
+  const radius = 36
+  const circumference = 2 * Math.PI * radius
+  const mainArc = (mainPct / 100) * circumference
+  const gap = 4
+
+  return (
+    <div className="relative w-[88px] h-[88px] shrink-0">
+      <svg viewBox="0 0 88 88" className="w-full h-full -rotate-90">
+        <circle cx="44" cy="44" r={radius} fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth={6} />
+        {mainOutlet && (
+          <motion.circle
+            cx="44" cy="44" r={radius} fill="none"
+            stroke="url(#mainGrad)" strokeWidth={6}
+            strokeLinecap="round"
+            strokeDasharray={`${Math.max(mainArc - gap, 0)} ${circumference}`}
+            initial={{ strokeDasharray: `0 ${circumference}` }}
+            animate={{ strokeDasharray: `${Math.max(mainArc - gap, 0)} ${circumference}` }}
+            transition={{ duration: 0.8, ease: 'easeOut' }}
+          />
+        )}
+        {outlets.filter(o => !o.isMain).length > 0 && (
+          <motion.circle
+            cx="44" cy="44" r={radius} fill="none"
+            stroke="url(#branchGrad)" strokeWidth={6}
+            strokeLinecap="round"
+            strokeDasharray={`${Math.max((branchPct / 100) * circumference - gap, 0)} ${circumference}`}
+            strokeDashoffset={-(mainArc)}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.4, duration: 0.4 }}
+          />
+        )}
+        <defs>
+          <linearGradient id="mainGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#EC4899" />
+            <stop offset="100%" stopColor="#F472B6" />
+          </linearGradient>
+          <linearGradient id="branchGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#06B6D4" />
+            <stop offset="100%" stopColor="#22D3EE" />
+          </linearGradient>
+        </defs>
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="text-[10px] font-bold text-white">{outlets.length}</span>
+        <span className="text-[8px] text-slate-500">Outlet</span>
+      </div>
+    </div>
+  )
+}
+
+function RankBadge({ rank }: { rank: number }) {
+  if (rank === 1) return (
+    <div className="w-6 h-6 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center shadow-lg shadow-amber-500/20">
+      <Crown className="h-3 w-3 text-white" />
+    </div>
+  )
+  if (rank === 2) return (
+    <div className="w-6 h-6 rounded-full bg-gradient-to-br from-slate-300 to-slate-500 flex items-center justify-center">
+      <Medal className="h-3 w-3 text-white" />
+    </div>
+  )
+  if (rank === 3) return (
+    <div className="w-6 h-6 rounded-full bg-gradient-to-br from-amber-700 to-amber-900 flex items-center justify-center">
+      <Trophy className="h-3 w-3 text-amber-200" />
+    </div>
+  )
+  return (
+    <div className="w-6 h-6 rounded-full bg-white/[0.04] border border-white/[0.08] flex items-center justify-center">
+      <span className="text-[10px] font-bold text-slate-500">{rank}</span>
+    </div>
+  )
+}
+
+function OutletPopoverContent({ outlet, rank, totalRevenue, totalTransactions }: {
+  outlet: BubbleChartOutlet; rank: number; totalRevenue: number; totalTransactions: number
+}) {
+  const revShare = totalRevenue > 0 ? ((outlet.revenue / totalRevenue) * 100).toFixed(1) : '0'
+  const txShare = totalTransactions > 0 ? ((outlet.transactions / totalTransactions) * 100).toFixed(1) : '0'
+
+  return (
+    <div className="w-80 space-y-4">
+      {/* Header */}
+      <div className="flex items-start gap-3">
+        <RankBadge rank={rank} />
+        <div className="flex-1 min-w-0">
+          <h4 className="text-sm font-bold text-white truncate">{outlet.name}</h4>
+          <div className="flex items-center gap-1.5 mt-0.5">
+            <Badge className={cn(
+              'text-[9px] h-4 px-1.5 gap-0.5',
+              outlet.isMain
+                ? 'bg-pink-500/10 border-pink-500/20 text-pink-400'
+                : 'bg-cyan-500/10 border-cyan-500/20 text-cyan-400'
+            )}>
+              {outlet.isMain ? 'Outlet Utama' : 'Cabang'}
+            </Badge>
+          </div>
+        </div>
+      </div>
+
+      {/* Revenue Section */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">Revenue Bulan Ini</span>
+          <span className="text-sm font-bold text-white">{formatCurrency(outlet.revenue)}</span>
+        </div>
+        <div className="h-1.5 w-full rounded-full bg-white/[0.04] overflow-hidden">
+          <motion.div
+            className={cn(
+              'h-full rounded-full',
+              outlet.isMain ? 'bg-gradient-to-r from-pink-500 to-pink-400' : 'bg-gradient-to-r from-cyan-500 to-cyan-400'
+            )}
+            initial={{ width: 0 }}
+            animate={{ width: `${Math.min((outlet.revenue / (totalRevenue || 1)) * 100, 100)}%` }}
+            transition={{ duration: 0.6, ease: 'easeOut' }}
+          />
+        </div>
+        <p className="text-[10px] text-slate-500">
+          <span className="text-slate-300 font-medium">{revShare}%</span> dari total revenue semua outlet
+        </p>
+      </div>
+
+      {/* Metrics Grid */}
+      <div className="grid grid-cols-2 gap-2">
+        <div className="rounded-lg bg-white/[0.03] border border-white/[0.06] p-2.5">
+          <div className="flex items-center gap-1.5 mb-1">
+            <Receipt className="h-3 w-3 text-slate-500" />
+            <span className="text-[9px] text-slate-500 uppercase tracking-wider">Transaksi</span>
+          </div>
+          <p className="text-sm font-bold text-white">{formatNumber(outlet.transactions)}</p>
+          <p className="text-[9px] text-slate-500 mt-0.5">{txShare}% share</p>
+        </div>
+        <div className="rounded-lg bg-white/[0.03] border border-white/[0.06] p-2.5">
+          <div className="flex items-center gap-1.5 mb-1">
+            <BarChart3 className="h-3 w-3 text-slate-500" />
+            <span className="text-[9px] text-slate-500 uppercase tracking-wider">AOV</span>
+          </div>
+          <p className="text-sm font-bold text-white">{formatCurrency(outlet.aov)}</p>
+          <p className="text-[9px] text-slate-500 mt-0.5">Rata-rata per transaksi</p>
+        </div>
+        <div className="rounded-lg bg-white/[0.03] border border-white/[0.06] p-2.5">
+          <div className="flex items-center gap-1.5 mb-1">
+            <TrendingUp className="h-3 w-3 text-emerald-400" />
+            <span className="text-[9px] text-slate-500 uppercase tracking-wider">Profit</span>
+          </div>
+          <p className="text-sm font-bold text-emerald-400">{formatCurrency(outlet.profit)}</p>
+          <p className="text-[9px] text-slate-500 mt-0.5">Laba bulan ini</p>
+        </div>
+        <div className="rounded-lg bg-white/[0.03] border border-white/[0.06] p-2.5">
+          <div className="flex items-center gap-1.5 mb-1">
+            <PieChart className="h-3 w-3 text-violet-400" />
+            <span className="text-[9px] text-slate-500 uppercase tracking-wider">Margin</span>
+          </div>
+          <p className={cn(
+            'text-sm font-bold',
+            outlet.profitMargin >= 30 ? 'text-emerald-400' : outlet.profitMargin >= 15 ? 'text-amber-400' : 'text-red-400'
+          )}>
+            {outlet.profitMargin.toFixed(1)}%
+          </p>
+          <p className="text-[9px] text-slate-500 mt-0.5">
+            {outlet.profitMargin >= 30 ? 'Sangat baik' : outlet.profitMargin >= 15 ? 'Cukup baik' : 'Perlu perhatian'}
+          </p>
+        </div>
+      </div>
+
+      {/* Insight */}
+      <div className="rounded-lg bg-violet-500/[0.06] border border-violet-500/15 p-2.5">
+        <div className="flex items-center gap-1.5 mb-1">
+          <Zap className="h-3 w-3 text-violet-400" />
+          <span className="text-[9px] text-violet-400 uppercase tracking-wider font-semibold">Insight</span>
+        </div>
+        <p className="text-[10px] text-slate-300 leading-relaxed">
+          {outlet.isMain
+            ? `Sebagai outlet utama, ${outlet.name} menyumbang ${revShare}% total revenue grup. ${
+                outlet.profitMargin >= 25 ? 'Margin profit sehat di atas 25%.' : 'Pertimbangkan strategi untuk meningkatkan margin.'
+              }`
+            : `${outlet.name} berkontribusi ${revShare}% dari total revenue. ${
+                outlet.aov > 0 ? `AOV ${formatCurrency(outlet.aov)} menunjukkan daya beli pelanggan.` : ''
+              }`}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function Receipt({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z" />
+      <path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8" />
+      <path d="M12 17.5v-11" />
+    </svg>
+  )
+}
 
 export function EnterpriseBubbleChart() {
   const now = new Date()
@@ -129,26 +331,20 @@ export function EnterpriseBubbleChart() {
     queryFn: async () => {
       const [year, month] = selectedMonth.split('-').map(Number)
       const res = await fetch(`/api/enterprise/bubble-chart?month=${month}&year=${year}`)
-      if (!res.ok) throw new Error('Failed to load bubble chart')
+      if (!res.ok) throw new Error('Failed to load outlet data')
       return res.json()
     },
     staleTime: 60_000,
     refetchInterval: 60_000,
   })
 
-  const chartData = useMemo(() => {
+  const ranked = useMemo(() => {
     if (!data?.outlets) return []
-    const maxRevenue = Math.max(...data.outlets.map((o) => o.revenue), 1)
-    return data.outlets.map((o) => ({
-      x: o.transactions,
-      y: o.aov,
-      z: Math.max(o.revenue / maxRevenue * 700, 50),
-      revenue: o.revenue,
-      name: o.name,
-      isMain: o.isMain,
-      profitMargin: o.profitMargin,
-      _revenue: o.revenue,
-    }))
+    return [...data.outlets].sort((a, b) => b.revenue - a.revenue)
+  }, [data])
+
+  const maxRevenue = useMemo(() => {
+    return Math.max(...(data?.outlets?.map(o => o.revenue) ?? [0]), 1)
   }, [data])
 
   return (
@@ -157,25 +353,23 @@ export function EnterpriseBubbleChart() {
       <div className="px-4 pt-4 pb-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2 shrink-0">
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 rounded-lg aether-gradient-subtle flex items-center justify-center">
-            <Building2 className="h-3.5 w-3.5 text-pink-400" />
+            <BarChart3 className="h-3.5 w-3.5 text-pink-400" />
           </div>
           <div>
-            <h3 className="text-xs font-semibold text-white">Outlet Revenue Map</h3>
-            <p className="text-[10px] text-slate-500">Bubble size = Revenue</p>
+            <h3 className="text-xs font-semibold text-white">Outlet Leaderboard</h3>
+            <p className="text-[10px] text-slate-500">Performa outlet per bulan</p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          {data && (
-            <div className="hidden lg:flex items-center gap-3 mr-2 text-[10px] text-slate-500">
-              <span className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-pink-500/60" /> Utama
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-cyan-500/60" /> Cabang
-              </span>
-            </div>
-          )}
+          <div className="hidden lg:flex items-center gap-3 mr-2 text-[10px] text-slate-500">
+            <span className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-pink-500/60" /> Utama
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-cyan-500/60" /> Cabang
+            </span>
+          </div>
           {data?.availableMonths && data.availableMonths.length > 0 && (
             <Select value={selectedMonth} onValueChange={setSelectedMonth}>
               <SelectTrigger className="h-7 w-[160px] bg-nebula border-white/[0.06] text-xs text-slate-300">
@@ -197,138 +391,152 @@ export function EnterpriseBubbleChart() {
         </div>
       </div>
 
-      {/* Chart body — flex-1 to fill available height */}
       <CardContent className="px-4 pb-4 flex-1 flex flex-col min-h-0">
         {isLoading ? (
           <Skeleton className="flex-1 min-h-[260px] bg-white/[0.03] rounded-xl w-full" />
-        ) : chartData.length === 0 ? (
+        ) : ranked.length === 0 ? (
           <div className="flex-1 min-h-[260px] flex flex-col items-center justify-center gap-2 text-slate-500">
             <Building2 className="h-8 w-8 opacity-30" />
             <p className="text-xs">Belum ada data transaksi</p>
           </div>
         ) : (
           <div className="flex flex-col flex-1 min-h-0">
-            {/* Chart */}
-            <div className="flex-1 min-h-[220px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <ScatterChart margin={{ top: 8, right: 16, bottom: 28, left: 8 }}>
-                  <XAxis
-                    type="number"
-                    dataKey="x"
-                    name="Transaksi"
-                    tick={{ fontSize: 10, fill: '#64748b' }}
-                    tickLine={false}
-                    axisLine={{ stroke: 'rgba(255,255,255,0.06)' }}
-                    label={{
-                      value: 'Jumlah Transaksi',
-                      position: 'bottom',
-                      offset: 8,
-                      style: { fontSize: 10, fill: '#475569' },
-                    }}
-                  />
-                  <YAxis
-                    type="number"
-                    dataKey="y"
-                    name="AOV"
-                    tick={{ fontSize: 10, fill: '#64748b' }}
-                    tickLine={false}
-                    axisLine={{ stroke: 'rgba(255,255,255,0.06)' }}
-                    tickFormatter={(v) => `${(v / 1000).toFixed(0)}K`}
-                    label={{
-                      value: 'AOV',
-                      angle: -90,
-                      position: 'insideLeft',
-                      offset: 5,
-                      style: { fontSize: 10, fill: '#475569' },
-                    }}
-                  />
-                  <ZAxis type="number" dataKey="z" range={[30, 200]} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: '#1e293b',
-                      border: '1px solid rgba(255,255,255,0.08)',
-                      borderRadius: 10,
-                      fontSize: 11,
-                      color: '#e2e8f0',
-                      boxShadow: '0 4px 24px -4px rgba(0,0,0,0.5)',
-                    }}
-                    formatter={(value: number, name: string) => {
-                      if (name === 'Transaksi') return [formatNumber(value), 'Transaksi']
-                      if (name === 'AOV') return [formatCurrency(value), 'AOV']
-                      return [value, name]
-                    }}
-                    labelFormatter={(_, payload) => {
-                      if (payload?.[0]?.payload?.name) return payload[0].payload.name
-                      return ''
-                    }}
-                  />
-                  <Scatter data={chartData} animationDuration={800}>
-                    {chartData.map((entry, index) => (
-                      <Cell
-                        key={index}
-                        fill={entry.isMain ? 'rgba(236, 72, 153, 0.55)' : 'rgba(6, 182, 212, 0.45)'}
-                        stroke={entry.isMain ? 'rgba(236, 72, 153, 0.8)' : 'rgba(6, 182, 212, 0.7)'}
-                        strokeWidth={1.5}
-                      />
-                    ))}
-                  </Scatter>
-                </ScatterChart>
-              </ResponsiveContainer>
-            </div>
-
-            {/* Mobile legend */}
-            <div className="lg:hidden flex items-center justify-center gap-4 text-[10px] text-slate-500 mb-2">
-              <span className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-pink-500/60" /> Utama
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-cyan-500/60" /> Cabang
-              </span>
-            </div>
-
-            {/* Outlet summary row */}
-            {data?.outlets && (
-              <>
-                <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 mt-1">
-                  {data.outlets.map((o) => (
-                    <div
-                      key={o.id}
-                      className={cn(
-                        'rounded-lg px-2.5 py-2 border',
-                        o.isMain
-                          ? 'bg-pink-500/[0.04] border-pink-500/15'
-                          : 'bg-white/[0.02] border-white/[0.06]'
-                      )}
-                    >
-                      <div className="flex items-center gap-1 mb-0.5">
-                        <CircleDot className={cn('h-2.5 w-2.5', o.isMain ? 'text-pink-400' : 'text-cyan-400')} />
-                        <span className="text-[10px] font-medium text-slate-300 truncate">{o.name}</span>
-                      </div>
-                      <p className="text-[11px] font-bold text-white leading-tight">{formatCurrency(o.revenue)}</p>
-                      <p className="text-[9px] text-slate-500">{formatNumber(o.transactions)} tx</p>
-                    </div>
-                  ))}
+            {/* Top Section: Revenue Ring + Summary */}
+            <div className="flex items-center gap-4 mb-3 p-3 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+              <RevenueRing outlets={ranked} />
+              <div className="flex-1 min-w-0 space-y-2">
+                <div>
+                  <p className="text-[10px] text-slate-500">Total Revenue</p>
+                  <p className="text-base font-bold theme-text">{formatCurrency(data!.totalRevenue)}</p>
                 </div>
-
-                {/* Total bar */}
-                <div className="flex items-center justify-between px-3 py-2 mt-2 rounded-lg bg-white/[0.02] border border-white/[0.04]">
-                  <div className="flex items-center gap-4">
-                    <div>
-                      <p className="text-[10px] text-slate-500">Total Revenue</p>
-                      <p className="text-xs font-bold theme-text">{formatCurrency(data.totalRevenue)}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] text-slate-500">Total Transaksi</p>
-                      <p className="text-xs font-bold text-white">{formatNumber(data.totalTransactions)}</p>
-                    </div>
+                <div className="flex items-center gap-4">
+                  <div>
+                    <p className="text-[10px] text-slate-500">Transaksi</p>
+                    <p className="text-xs font-bold text-white">{formatNumber(data!.totalTransactions)}</p>
                   </div>
-                  <div className="text-right">
+                  <div>
                     <p className="text-[10px] text-slate-500">Outlet</p>
-                    <p className="text-xs font-bold text-white">{data.outlets.length}</p>
+                    <p className="text-xs font-bold text-white">{ranked.length}</p>
                   </div>
                 </div>
-              </>
-            )}
+                {/* Mobile legend */}
+                <div className="lg:hidden flex items-center gap-3 text-[10px] text-slate-500">
+                  <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-pink-500/60" /> Utama
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-cyan-500/60" /> Cabang
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Ranked Outlet List */}
+            <div className="flex-1 space-y-1.5 overflow-y-auto max-h-[340px] pr-1 theme-scrollbar">
+              {ranked.map((outlet, idx) => {
+                const rank = idx + 1
+                const revPct = (outlet.revenue / maxRevenue) * 100
+                const revShare = data!.totalRevenue > 0 ? ((outlet.revenue / data!.totalRevenue) * 100).toFixed(1) : '0'
+                const avgProfitMargin = ranked.reduce((s, o) => s + o.profitMargin, 0) / ranked.length
+
+                return (
+                  <Popover key={outlet.id}>
+                    <PopoverTrigger asChild>
+                      <motion.div
+                        className={cn(
+                          'group relative rounded-xl px-3 py-2.5 border cursor-pointer transition-all duration-200 hover:border-white/[0.12]',
+                          outlet.isMain
+                            ? 'bg-pink-500/[0.04] border-pink-500/15 hover:bg-pink-500/[0.07]'
+                            : 'bg-white/[0.015] border-white/[0.06] hover:bg-white/[0.03]'
+                        )}
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: idx * 0.06, duration: 0.3 }}
+                      >
+                        {/* Info hint */}
+                        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Info className="h-3 w-3 text-slate-500" />
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          {/* Rank */}
+                          <RankBadge rank={rank} />
+
+                          {/* Outlet Info */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-[11px] font-semibold text-white truncate">{outlet.name}</span>
+                              {outlet.isMain && (
+                                <Badge className="bg-pink-500/10 border-pink-500/20 text-pink-400 text-[8px] h-4 px-1.5 shrink-0">
+                                  Utama
+                                </Badge>
+                              )}
+                            </div>
+
+                            {/* Revenue Bar */}
+                            <div className="flex items-center gap-2 mb-1.5">
+                              <div className="flex-1 h-2 rounded-full bg-white/[0.04] overflow-hidden">
+                                <motion.div
+                                  className={cn(
+                                    'h-full rounded-full',
+                                    outlet.isMain
+                                      ? 'bg-gradient-to-r from-pink-500 to-pink-400'
+                                      : rank <= 3
+                                        ? 'bg-gradient-to-r from-cyan-500 to-cyan-400'
+                                        : 'bg-gradient-to-r from-slate-500 to-slate-400'
+                                  )}
+                                  initial={{ width: 0 }}
+                                  animate={{ width: `${revPct}%` }}
+                                  transition={{ duration: 0.7, delay: idx * 0.06, ease: 'easeOut' }}
+                                />
+                              </div>
+                              <span className="text-[10px] font-bold text-white shrink-0 w-20 text-right">
+                                {formatCurrency(outlet.revenue)}
+                              </span>
+                            </div>
+
+                            {/* Mini Metrics */}
+                            <div className="flex items-center gap-3 text-[9px]">
+                              <span className="text-slate-500">
+                                <span className="text-slate-300 font-medium">{formatNumber(outlet.transactions)}</span> tx
+                              </span>
+                              <span className="text-slate-500">
+                                AOV <span className="text-slate-300 font-medium">{formatCurrency(outlet.aov)}</span>
+                              </span>
+                              <span className="text-slate-500">
+                                Margin{' '}
+                                <span className={cn(
+                                  'font-medium',
+                                  outlet.profitMargin >= avgProfitMargin ? 'text-emerald-400' : 'text-amber-400'
+                                )}>
+                                  {outlet.profitMargin.toFixed(1)}%
+                                </span>
+                              </span>
+                              <span className="text-slate-600">
+                                {revShare}% share
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </motion.div>
+                    </PopoverTrigger>
+                    <PopoverContent
+                      side="right"
+                      sideOffset={8}
+                      align="start"
+                      className="w-auto bg-nebula border-white/[0.08] p-4 shadow-2xl shadow-black/50"
+                    >
+                      <OutletPopoverContent
+                        outlet={outlet}
+                        rank={rank}
+                        totalRevenue={data!.totalRevenue}
+                        totalTransactions={data!.totalTransactions}
+                      />
+                    </PopoverContent>
+                  </Popover>
+                )
+              })}
+            </div>
           </div>
         )}
       </CardContent>
