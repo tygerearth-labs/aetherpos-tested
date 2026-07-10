@@ -9,8 +9,10 @@ import { motion } from 'framer-motion'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
-import { Package, Users, AlertTriangle, Layers, Sparkles, RefreshCw, FlaskConical, ShieldAlert } from 'lucide-react'
+import { Package, Users, AlertTriangle, Layers, Sparkles, RefreshCw, FlaskConical, ShieldAlert, ChevronRight, Zap, ArrowRight } from 'lucide-react'
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
 import { formatCurrency, formatNumber } from '@/lib/format'
+import { cn } from '@/lib/utils'
 import { usePageStore } from '@/hooks/use-page-store'
 import type { DashboardStats, InsightEngineData, InsightItem } from '@/hooks/use-dashboard'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -410,6 +412,84 @@ export function ScoreExplanationDialog({
 }
 
 // ── AI Insights Section ──
+// ── Insight Detail Popover ──
+function InsightDetailPopover({ insight }: { insight: InsightItem }) {
+  const { setCurrentPage } = usePageStore()
+  return (
+    <div className="w-80 space-y-3">
+      {/* Header */}
+      <div className="flex items-start gap-2">
+        <PriorityDot priority={insight.priority} />
+        <div className="flex-1 min-w-0">
+          <h4 className="text-sm font-bold text-white">{insight.emoji} {insight.title}</h4>
+          <Badge className={cn(
+            'mt-1 text-[9px] h-4 px-1.5',
+            insight.priority === 'critical' ? 'bg-red-500/10 border-red-500/20 text-red-400'
+            : insight.priority === 'high' ? 'bg-orange-500/10 border-orange-500/20 text-orange-400'
+            : insight.priority === 'medium' ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+            : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+          )}>
+            {insight.priority === 'critical' ? 'Kritis' : insight.priority === 'high' ? 'Tinggi' : insight.priority === 'medium' ? 'Sedang' : 'Rendah'}
+          </Badge>
+        </div>
+      </div>
+
+      {/* Why */}
+      <div className="rounded-lg bg-white/[0.03] border border-white/[0.06] p-3">
+        <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium mb-1.5">Analisis</p>
+        <p className="text-xs text-slate-300 leading-relaxed">{insight.why}</p>
+      </div>
+
+      {/* Actions */}
+      {insight.actions.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">Rekomendasi</p>
+          <ul className="space-y-1">{insight.actions.map((action, i) => (
+            <li key={i} className="flex items-start gap-2 text-xs text-slate-400">
+              <Zap className="h-3 w-3 text-violet-400 mt-0.5 shrink-0" />
+              <span>{action}</span>
+            </li>
+          ))}</ul>
+        </div>
+      )}
+
+      {/* CTAs */}
+      {insight.cta.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 pt-1">
+          {insight.cta.map((cta, i) => (
+            <Button
+              key={i}
+              size="sm"
+              variant="outline"
+              className="h-7 text-[10px] font-medium bg-white/[0.04] border-white/[0.06] hover:bg-white/[0.06] hover:border-white/[0.1] text-slate-300 rounded-lg gap-1"
+              onClick={() => setCurrentPage(cta.page as Parameters<typeof setCurrentPage>[0])}
+            >
+              {cta.label}
+              <ArrowRight className="h-2.5 w-2.5" />
+            </Button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Priority label helper ──
+function PriorityLabel({ priority }: { priority: InsightItem['priority'] }) {
+  return (
+    <Badge className={cn(
+      'text-[9px] h-5 px-1.5 gap-0.5 shrink-0',
+      priority === 'critical' ? 'bg-red-500/10 border-red-500/20 text-red-400'
+      : priority === 'high' ? 'bg-orange-500/10 border-orange-500/20 text-orange-400'
+      : priority === 'medium' ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+      : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+    )}>
+      {priority === 'critical' ? 'Kritis' : priority === 'high' ? 'Tinggi' : priority === 'medium' ? 'Sedang' : 'Rendah'}
+    </Badge>
+  )
+}
+
+// ── AI Insights Section (Compact Card) ──
 export function InsightsSection({
   insightData, isLoading, onRefresh,
 }: {
@@ -417,7 +497,6 @@ export function InsightsSection({
   isLoading: boolean
   onRefresh: () => void
 }) {
-  const { setCurrentPage } = usePageStore()
   const [selectedInsight, setSelectedInsight] = useState<InsightItem | null>(null)
   const topInsight = selectedInsight || insightData?.topInsight || null
   const otherInsights = insightData?.insights.filter((i) => i.id !== insightData?.topInsight?.id) ?? []
@@ -427,66 +506,136 @@ export function InsightsSection({
   if (isLoading && !insightData) {
     return (
       <motion.div variants={itemVariants}>
-        <Card className="aether-card rounded-2xl"><CardContent className="p-5 space-y-3">
-          <div className="flex items-center gap-2"><Skeleton className="h-4 w-4 rounded bg-white/[0.04]" /><Skeleton className="h-4 w-32 bg-white/[0.04]" /></div>
-          <Skeleton className="h-4 w-72 bg-white/[0.04]" /><Skeleton className="h-3 w-full bg-white/[0.04]" />
-        </CardContent></Card>
+        <Card className="aether-card overflow-hidden">
+          <CardContent className="p-4 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Skeleton className="h-5 w-5 rounded bg-white/[0.04]" />
+                <Skeleton className="h-4 w-24 bg-white/[0.04]" />
+              </div>
+              <div className="flex items-center gap-2">
+                <Skeleton className="h-5 w-5 rounded-full bg-white/[0.04]" />
+                <Skeleton className="h-5 w-5 rounded bg-white/[0.04]" />
+              </div>
+            </div>
+            <Skeleton className="h-3.5 w-full bg-white/[0.04]" />
+            <Skeleton className="h-3 w-64 bg-white/[0.04]" />
+          </CardContent>
+        </Card>
+      </motion.div>
+    )
+  }
+
+  // All good
+  if (insightData && !topInsight) {
+    return (
+      <motion.div variants={itemVariants}>
+        <Card className="aether-card overflow-hidden border-emerald-500/15">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0">
+                <Sparkles className="h-4 w-4 text-emerald-400" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-emerald-400">Semua metrik sehat</p>
+                <p className="text-[10px] text-slate-500">Tidak ada insight yang perlu perhatian saat ini.</p>
+              </div>
+              <HealthRing score={insightData.healthScore} size="sm" />
+              <Button variant="ghost" size="sm" onClick={onRefresh} disabled={isLoading} className="h-7 w-7 p-0 text-slate-500 hover:text-slate-300 hover:bg-white/[0.04]">
+                <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       </motion.div>
     )
   }
 
   return (
     <motion.div variants={itemVariants}>
-      <Card className={`bg-nebula border rounded-2xl overflow-hidden relative ${insightData!.healthScore >= 75 ? 'theme-border-light' : insightData!.healthScore >= 50 ? 'border-amber-500/15' : 'border-red-500/15'}`}>
-        <div className={`absolute inset-0 pointer-events-none ${insightData!.healthScore >= 75 ? 'bg-gradient-to-br theme-gradient-subtle' : insightData!.healthScore >= 50 ? 'bg-gradient-to-br from-amber-500/[0.03] to-transparent' : 'bg-gradient-to-br from-red-500/[0.03] to-transparent'}`} />
-        <CardContent className="p-5 relative">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-violet-400" />
-              <h2 className="text-sm font-semibold text-slate-200">AI Insight Hari Ini</h2>
-            </div>
-            <div className="flex items-center gap-2">
-              <HealthRing score={insightData!.healthScore} size="sm" />
-              <Button variant="ghost" size="sm" onClick={onRefresh} disabled={isLoading} className="h-7 text-[11px] text-slate-500 hover:text-slate-300 hover:bg-white/[0.04] gap-1">
-                <RefreshCw className={`h-3 w-3 ${isLoading ? 'animate-spin' : ''}`} />
-              </Button>
-            </div>
-          </div>
-          {topInsight ? (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <PriorityDot priority={topInsight.priority} />
-                <h3 className="text-sm font-semibold text-white">{topInsight.emoji} {topInsight.title}</h3>
-              </div>
-              <p className="text-sm text-slate-400 leading-relaxed">{topInsight.why}</p>
-              {topInsight.actions.length > 0 && (
-                <ul className="space-y-1">{topInsight.actions.map((action, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm text-slate-400"><span className="text-violet-400 mt-0.5 shrink-0">•</span>{action}</li>
-                ))}</ul>
-              )}
-              {topInsight.cta.length > 0 && (
-                <div className="flex flex-wrap gap-2 pt-2">{topInsight.cta.map((cta, i) => (
-                  <Button key={i} size="sm" variant="outline" className="h-8 text-xs font-medium bg-white/[0.04] border-white/[0.03] hover:bg-white/[0.04] hover:border-white/[0.06] text-slate-300 rounded-lg gap-1.5" onClick={() => setCurrentPage(cta.page as Parameters<typeof setCurrentPage>[0])}>
-                    {cta.label}
+      <Popover>
+        <PopoverTrigger asChild>
+          <Card className={cn(
+            'aether-card overflow-hidden cursor-pointer group transition-all duration-200 hover:border-white/[0.12]',
+            insightData!.healthScore >= 75
+              ? 'border-violet-500/20'
+              : insightData!.healthScore >= 50
+                ? 'border-amber-500/20'
+                : 'border-red-500/20'
+          )}>
+            {/* Gradient top accent line */}
+            <div className={cn(
+              'h-0.5 w-full',
+              insightData!.healthScore >= 75
+                ? 'bg-gradient-to-r from-violet-500 via-pink-500 to-cyan-500'
+                : insightData!.healthScore >= 50
+                  ? 'bg-gradient-to-r from-amber-500 to-orange-500'
+                  : 'bg-gradient-to-r from-red-500 to-orange-500'
+            )} />
+            <CardContent className="p-4">
+              {/* Row 1: Header */}
+              <div className="flex items-center justify-between mb-2.5">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg aether-gradient-subtle flex items-center justify-center">
+                    <Sparkles className="h-3.5 w-3.5 text-violet-400" />
+                  </div>
+                  <span className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">AI Insight</span>
+                  {topInsight && <PriorityLabel priority={topInsight.priority} />}
+                </div>
+                <div className="flex items-center gap-2">
+                  <HealthRing score={insightData!.healthScore} size="sm" />
+                  <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); onRefresh() }} disabled={isLoading} className="h-7 w-7 p-0 text-slate-500 hover:text-slate-300 hover:bg-white/[0.04]">
+                    <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`} />
                   </Button>
-                ))}</div>
+                </div>
+              </div>
+
+              {/* Row 2: Main insight preview */}
+              {topInsight && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <PriorityDot priority={topInsight.priority} />
+                    <h3 className="text-xs font-semibold text-white truncate flex-1">{topInsight.emoji} {topInsight.title}</h3>
+                    <ChevronRight className="h-3.5 w-3.5 text-slate-600 group-hover:text-slate-400 transition-colors shrink-0" />
+                  </div>
+                  <p className="text-[11px] text-slate-400 leading-relaxed line-clamp-2 pl-5">{topInsight.why}</p>
+                </div>
               )}
-            </div>
-          ) : (
-            <p className="text-sm text-slate-500 py-2">Semua berjalan baik! Tidak ada insight penting saat ini.</p>
-          )}
-          {otherInsights.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mt-4 pt-3 border-t border-white/[0.06]">
-              {otherInsights.slice(0, 5).map((insight) => (
-                <button key={insight.id} onClick={() => setSelectedInsight(insight)} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border cursor-pointer transition-colors hover:bg-white/[0.04] ${getPriorityBg(insight.priority)}`}>
-                  <PriorityDot priority={insight.priority} />
-                  <span className="max-w-[140px] truncate text-slate-400">{insight.emoji} {insight.title}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+
+              {/* Row 3: Other insights pills */}
+              {otherInsights.length > 0 && (
+                <div className="flex items-center gap-1.5 mt-2.5 pt-2.5 border-t border-white/[0.04]">
+                  {otherInsights.slice(0, 4).map((insight) => (
+                    <span
+                      key={insight.id}
+                      className={cn(
+                        'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border',
+                        getPriorityBg(insight.priority)
+                      )}
+                    >
+                      <PriorityDot priority={insight.priority} />
+                      <span className="max-w-[100px] truncate text-slate-400">{insight.emoji} {insight.title}</span>
+                    </span>
+                  ))}
+                  {otherInsights.length > 4 && (
+                    <span className="text-[10px] text-slate-500 font-medium">
+                      +{otherInsights.length - 4} lainnya
+                    </span>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </PopoverTrigger>
+        <PopoverContent
+          side="bottom"
+          sideOffset={8}
+          align="center"
+          className="w-auto bg-nebula border-white/[0.08] p-4 shadow-2xl shadow-black/50"
+        >
+          {topInsight && <InsightDetailPopover insight={topInsight} />}
+        </PopoverContent>
+      </Popover>
     </motion.div>
   )
 }
