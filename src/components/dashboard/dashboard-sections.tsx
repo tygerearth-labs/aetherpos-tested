@@ -1,15 +1,15 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
-import { Package, Users, AlertTriangle, Layers, Sparkles, RefreshCw, FlaskConical, ShieldAlert, Zap, ArrowRight, Brain } from 'lucide-react'
+import { Package, Users, AlertTriangle, Layers, Sparkles, RefreshCw, FlaskConical, ShieldAlert, Zap, ArrowRight, Brain, ChevronDown, Eye, TrendingDown } from 'lucide-react'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
 import { Sheet, SheetTrigger, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -720,5 +720,639 @@ function InsightCtaButton({ cta }: { cta: InsightItem['cta'][number] }) {
       {cta.label}
       <ArrowRight className="h-2.5 w-2.5" />
     </Button>
+  )
+}
+
+// ════════════════════════════════════════════════════════════
+// Inventory Freshness Score Widget
+// ════════════════════════════════════════════════════════════
+
+interface FreshnessData {
+  score: number
+  grade: string
+  totalBatchCount: number
+  safeCount: number
+  warningCount: number
+  expiredCount: number
+  noExpiryCount: number
+  totalValue: number
+  expiredValue: number
+  warningValue: number
+}
+
+function FreshnessRing({ score, grade }: { score: number; grade: string }) {
+  const radius = 36
+  const svgSize = 88
+  const sw = 5
+  const circumference = 2 * Math.PI * radius
+  const offset = circumference - (score / 100) * circumference
+  const colorMap: Record<string, string> = {
+    A: 'text-emerald-400', B: 'text-amber-400', C: 'text-rose-400', D: 'text-red-400',
+  }
+  const ringMap: Record<string, string> = {
+    A: 'stroke-emerald-400', B: 'stroke-amber-400', C: 'stroke-rose-400', D: 'stroke-red-400',
+  }
+  const borderMap: Record<string, string> = {
+    A: 'border-emerald-500/20', B: 'border-amber-500/20', C: 'border-rose-500/20', D: 'border-red-500/20',
+  }
+  const bgMap: Record<string, string> = {
+    A: 'bg-emerald-500/5', B: 'bg-amber-500/5', C: 'bg-rose-500/5', D: 'bg-red-500/5',
+  }
+  const g = grade || 'D'
+  return (
+    <div className={cn('relative w-22 h-22 border rounded-full flex items-center justify-center', borderMap[g], bgMap[g])}>
+      <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox={`0 0 ${svgSize} ${svgSize}`}>
+        <circle cx={svgSize / 2} cy={svgSize / 2} r={radius} fill="none" stroke="currentColor" className="text-slate-700" strokeWidth={sw} />
+        <circle cx={svgSize / 2} cy={svgSize / 2} r={radius} fill="none" className={ringMap[g]} strokeWidth={sw} strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={offset} style={{ transition: 'stroke-dashoffset 1s ease-out' }} />
+      </svg>
+      <div className="flex flex-col items-center z-10">
+        <span className={cn('text-lg font-bold leading-none', colorMap[g])}>{score}</span>
+        <span className={cn('text-[10px] font-semibold mt-0.5', colorMap[g])}>{g}</span>
+      </div>
+    </div>
+  )
+}
+
+function GradeStars({ grade }: { grade: string }) {
+  const stars: Record<string, number> = { A: 4, B: 3, C: 2, D: 1 }
+  const colorMap: Record<string, string> = { A: 'text-emerald-400', B: 'text-amber-400', C: 'text-rose-400', D: 'text-red-400' }
+  const count = stars[grade] || 1
+  return (
+    <div className="flex gap-0.5">
+      {Array.from({ length: 4 }).map((_, i) => (
+        <svg key={i} className={cn('w-3 h-3', i < count ? colorMap[grade] : 'text-slate-700')} fill="currentColor" viewBox="0 0 20 20">
+          <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+        </svg>
+      ))}
+    </div>
+  )
+}
+
+export function InventoryFreshnessWidget() {
+  const [data, setData] = useState<FreshnessData | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [expanded, setExpanded] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/inventory/batches?type=freshness-score')
+      .then(r => r.ok ? r.json() : null)
+      .then((json) => { if (!cancelled && json?.data) setData(json.data) })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [])
+
+  const g = data?.grade || 'D'
+  const colorMap: Record<string, string> = { A: 'text-emerald-400', B: 'text-amber-400', C: 'text-rose-400', D: 'text-red-400' }
+  const safePct = data ? Math.round((data.safeCount / Math.max(data.totalBatchCount, 1)) * 100) : 0
+  const warnPct = data ? Math.round((data.warningCount / Math.max(data.totalBatchCount, 1)) * 100) : 0
+  const expPct = data ? Math.round((data.expiredCount / Math.max(data.totalBatchCount, 1)) * 100) : 0
+
+  if (loading) {
+    return (
+      <Card className="aether-card">
+        <CardContent className="p-4">
+          <div className="flex items-center gap-4">
+            <Skeleton className="w-[88px] h-[88px] rounded-full bg-white/[0.04]" />
+            <div className="flex-1 space-y-2">
+              <Skeleton className="h-4 w-32 bg-white/[0.04]" />
+              <Skeleton className="h-3 w-24 bg-white/[0.03]" />
+              <Skeleton className="h-3 w-48 bg-white/[0.03]" />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (!data) return null
+
+  return (
+    <motion.div variants={itemVariants}>
+      <Card className="aether-card cursor-pointer" onClick={() => setExpanded(!expanded)}>
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
+              <div className="w-6 h-6 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+                <Sparkles className="h-3.5 w-3.5 text-emerald-400" />
+              </div>
+              Freshness Score™
+            </h2>
+            <Badge variant="outline" className={cn('text-[10px] px-1.5 py-0 border', colorMap[g])}>
+              Grade {g}
+            </Badge>
+          </div>
+
+          <div className="flex items-center gap-4">
+            <FreshnessRing score={data.score} grade={g} />
+            <div className="flex-1 min-w-0 space-y-2">
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <GradeStars grade={g} />
+                  <span className={cn('text-xs font-semibold', colorMap[g])}>
+                    {g === 'A' ? 'Sangat Segar' : g === 'B' ? 'Cukup Segar' : g === 'C' ? 'Perlu Perhatian' : 'Kritis'}
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-500 mt-0.5">{data.totalBatchCount} batch total</p>
+              </div>
+
+              {/* Breakdown bar */}
+              <div className="space-y-1">
+                <div className="flex gap-0.5 h-1.5 rounded-full overflow-hidden bg-white/[0.04]">
+                  {safePct > 0 && <div className="bg-emerald-400 h-full rounded-l-full" style={{ width: `${safePct}%` }} />}
+                  {warnPct > 0 && <div className="bg-amber-400 h-full" style={{ width: `${warnPct}%` }} />}
+                  {expPct > 0 && <div className="bg-red-400 h-full rounded-r-full" style={{ width: `${expPct}%` }} />}
+                </div>
+                <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px]">
+                  <span className="text-slate-400">✅ {safePct}% Aman</span>
+                  <span className="text-slate-400">⚠️ {warnPct}% &lt;30 hari</span>
+                  <span className="text-slate-400">🔴 {expPct}% Expired</span>
+                </div>
+              </div>
+            </div>
+            <ChevronDown className={cn('h-4 w-4 text-slate-600 shrink-0 transition-transform', expanded && 'rotate-180')} />
+          </div>
+
+          {/* Expanded details */}
+          {expanded && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              className="mt-4 pt-3 border-t border-white/[0.04] space-y-2.5"
+            >
+              <div className="grid grid-cols-2 gap-2">
+                <div className="bg-white/[0.02] rounded-lg p-2.5 border border-white/[0.04]">
+                  <p className="text-[10px] text-slate-500">Total Nilai Stok</p>
+                  <p className="text-xs font-semibold text-white mt-0.5">{formatCurrency(data.totalValue)}</p>
+                </div>
+                <div className="bg-white/[0.02] rounded-lg p-2.5 border border-white/[0.04]">
+                  <p className="text-[10px] text-slate-500">Nilai Expired</p>
+                  <p className="text-xs font-semibold text-red-400 mt-0.5">{formatCurrency(data.expiredValue)}</p>
+                </div>
+                <div className="bg-white/[0.02] rounded-lg p-2.5 border border-white/[0.04]">
+                  <p className="text-[10px] text-slate-500">Nilai Hampir Expired</p>
+                  <p className="text-xs font-semibold text-amber-400 mt-0.5">{formatCurrency(data.warningValue)}</p>
+                </div>
+                <div className="bg-white/[0.02] rounded-lg p-2.5 border border-white/[0.04]">
+                  <p className="text-[10px] text-slate-500">Tanpa Tanggal Expired</p>
+                  <p className="text-xs font-semibold text-slate-300 mt-0.5">{data.noExpiryCount} batch</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="bg-emerald-500/5 rounded-lg p-2 border border-emerald-500/10 text-center">
+                  <p className="text-lg font-bold text-emerald-400">{data.safeCount}</p>
+                  <p className="text-[10px] text-slate-500">Aman</p>
+                </div>
+                <div className="bg-amber-500/5 rounded-lg p-2 border border-amber-500/10 text-center">
+                  <p className="text-lg font-bold text-amber-400">{data.warningCount}</p>
+                  <p className="text-[10px] text-slate-500">Peringatan</p>
+                </div>
+                <div className="bg-red-500/5 rounded-lg p-2 border border-red-500/10 text-center">
+                  <p className="text-lg font-bold text-red-400">{data.expiredCount}</p>
+                  <p className="text-[10px] text-slate-500">Expired</p>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </CardContent>
+      </Card>
+    </motion.div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════
+// Expiry Heatmap Widget
+// ════════════════════════════════════════════════════════════
+
+interface HeatmapData {
+  expired: Array<{ id: string; batchNumber: string; inventoryItemName: string; remainingQty: number; baseUnit: string; expiredDate: string; totalLoss: number }>
+  critical7d: Array<{ id: string; batchNumber: string; inventoryItemName: string; remainingQty: number; baseUnit: string; expiredDate: string; daysUntilExpiry: number }>
+  warning30d: Array<{ id: string; batchNumber: string; inventoryItemName: string; remainingQty: number; baseUnit: string; expiredDate: string; daysUntilExpiry: number }>
+  safeCount: number
+}
+
+export function ExpiryHeatmapWidget() {
+  const [data, setData] = useState<HeatmapData | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [expanded, setExpanded] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/inventory/batches?type=heatmap')
+      .then(r => r.ok ? r.json() : null)
+      .then((json) => { if (!cancelled && json?.data) setData(json.data) })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [])
+
+  const totalExpiredLoss = data ? data.expired.reduce((s, e) => s + (e.totalLoss || 0), 0) : 0
+
+  if (loading) {
+    return (
+      <Card className="aether-card">
+        <CardContent className="p-4">
+          <Skeleton className="h-4 w-36 bg-white/[0.04] mb-3" />
+          <div className="grid grid-cols-2 gap-2">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-16 bg-white/[0.03] rounded-lg" />
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (!data) return null
+
+  return (
+    <motion.div variants={itemVariants}>
+      <Card className="aether-card cursor-pointer" onClick={() => setExpanded(!expanded)}>
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
+              <div className="w-6 h-6 rounded-lg bg-red-500/10 flex items-center justify-center">
+                <AlertTriangle className="h-3.5 w-3.5 text-red-400" />
+              </div>
+              Peta Kadaluarsa
+            </h2>
+            <ChevronDown className={cn('h-4 w-4 text-slate-600 shrink-0 transition-transform', expanded && 'rotate-180')} />
+          </div>
+
+          {/* Compact 4-grid */}
+          <div className="grid grid-cols-2 gap-2">
+            {/* Expired */}
+            <div className="bg-red-500/5 rounded-lg p-2.5 border border-red-500/10">
+              <div className="flex items-center gap-1.5 mb-1">
+                <span className="text-sm">🔴</span>
+                <span className="text-[10px] text-red-400 font-medium">Expired</span>
+              </div>
+              <p className="text-base font-bold text-red-400">{data.expired.length}</p>
+              {totalExpiredLoss > 0 && (
+                <p className="text-[10px] text-slate-500">Kerugian {formatCurrency(totalExpiredLoss)}</p>
+              )}
+            </div>
+            {/* <7 days */}
+            <div className="bg-orange-500/5 rounded-lg p-2.5 border border-orange-500/10">
+              <div className="flex items-center gap-1.5 mb-1">
+                <span className="text-sm">🔥</span>
+                <span className="text-[10px] text-orange-400 font-medium">&lt;7 hari</span>
+              </div>
+              <p className="text-base font-bold text-orange-400">{data.critical7d.length}</p>
+            </div>
+            {/* <30 days */}
+            <div className="bg-amber-500/5 rounded-lg p-2.5 border border-amber-500/10">
+              <div className="flex items-center gap-1.5 mb-1">
+                <span className="text-sm">🟠</span>
+                <span className="text-[10px] text-amber-400 font-medium">&lt;30 hari</span>
+              </div>
+              <p className="text-base font-bold text-amber-400">{data.warning30d.length}</p>
+            </div>
+            {/* Safe */}
+            <div className="bg-emerald-500/5 rounded-lg p-2.5 border border-emerald-500/10">
+              <div className="flex items-center gap-1.5 mb-1">
+                <span className="text-sm">🟢</span>
+                <span className="text-[10px] text-emerald-400 font-medium">Aman</span>
+              </div>
+              <p className="text-base font-bold text-emerald-400">{data.safeCount}</p>
+            </div>
+          </div>
+
+          {/* Expanded: critical list */}
+          {expanded && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              className="mt-3 pt-3 border-t border-white/[0.04] space-y-3"
+            >
+              {/* Expired items list */}
+              {data.expired.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-[10px] text-red-400 font-medium uppercase tracking-wider">Expired Items</p>
+                  <div className="space-y-1 max-h-40 overflow-y-auto">
+                    {data.expired.map((e) => (
+                      <div key={e.id} className="flex items-center justify-between gap-2 bg-red-500/[0.03] rounded-lg px-2.5 py-2 border border-red-500/[0.06]">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[11px] text-slate-200 font-medium truncate">{e.inventoryItemName}</p>
+                          <p className="text-[10px] text-slate-500">{e.batchNumber} • {formatNumber(e.remainingQty)} {e.baseUnit}</p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-[11px] text-red-400 font-semibold">-{formatCurrency(e.totalLoss)}</p>
+                          <p className="text-[9px] text-slate-600">expired</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Critical 7d list */}
+              {data.critical7d.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-[10px] text-orange-400 font-medium uppercase tracking-wider">Kritis &lt;7 Hari</p>
+                  <div className="space-y-1 max-h-40 overflow-y-auto">
+                    {data.critical7d.map((e) => (
+                      <div key={e.id} className="flex items-center justify-between gap-2 bg-orange-500/[0.03] rounded-lg px-2.5 py-2 border border-orange-500/[0.06]">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[11px] text-slate-200 font-medium truncate">{e.inventoryItemName}</p>
+                          <p className="text-[10px] text-slate-500">{e.batchNumber} • {formatNumber(e.remainingQty)} {e.baseUnit}</p>
+                        </div>
+                        <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-orange-500/20 text-orange-400 bg-orange-500/[0.06] shrink-0">
+                          {e.daysUntilExpiry} hari lagi
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {data.expired.length === 0 && data.critical7d.length === 0 && (
+                <div className="py-4 text-center">
+                  <p className="text-xs text-emerald-400">✅ Semua batch dalam kondisi aman!</p>
+                </div>
+              )}
+            </motion.div>
+          )}
+        </CardContent>
+      </Card>
+    </motion.div>
+  )
+}
+
+// ============================================================
+// Expiry Alert Banner — compact dashboard alert for expiring batches
+// ============================================================
+
+interface ExpiryCheckData {
+  newlyExpired: number
+  criticalCount: number
+  warningCount: number
+  totalLoss: number
+}
+
+interface ExpiryAlertBannerProps {
+  /** Callback to scroll to / focus the ExpiryHeatmapWidget */
+  onShowDetail?: () => void
+}
+
+export function ExpiryAlertBanner({ onShowDetail }: ExpiryAlertBannerProps) {
+  const [data, setData] = useState<ExpiryCheckData | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/inventory/batches/expiry-check', { method: 'POST' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => {
+        if (!cancelled && json?.data) {
+          setData(json.data)
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Only show if there are expired or critical items
+  const show = data && (data.newlyExpired > 0 || data.criticalCount > 0)
+
+  return (
+    <AnimatePresence>
+      {show && (
+        <motion.div
+          initial={{ opacity: 0, y: -8, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: -8, scale: 0.98 }}
+          transition={{ duration: 0.3, ease: [0.25, 0.46, 0.45, 0.94] }}
+        >
+          <div className="bg-rose-500/10 border border-rose-500/20 rounded-xl px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+            {/* Alert text */}
+            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+              <div className="w-8 h-8 rounded-lg bg-rose-500/15 flex items-center justify-center shrink-0">
+                <AlertTriangle className="h-4 w-4 text-rose-400" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-rose-300">
+                  ⚠️{' '}
+                  {data.newlyExpired > 0 && `${data.newlyExpired} batch expired`}
+                  {data.newlyExpired > 0 && data.criticalCount > 0 && ', '}
+                  {data.criticalCount > 0 &&
+                    `${data.criticalCount} batch exp < 7 hari`}
+                </p>
+                {data.totalLoss > 0 && (
+                  <p className="text-[11px] text-rose-400/70 mt-0.5">
+                    Potensi kerugian: {formatCurrency(data.totalLoss)}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Action button */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation()
+                onShowDetail?.()
+              }}
+              className="shrink-0 h-7 px-3 text-xs font-medium gap-1.5 border-rose-500/25 text-rose-300 bg-rose-500/[0.06] hover:bg-rose-500/15 hover:text-rose-200 rounded-lg"
+            >
+              <Eye className="h-3 w-3" />
+              Lihat Detail
+            </Button>
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  )
+}
+
+// ════════════════════════════════════════════════════════════
+// Promo Recommendation Widget
+// ════════════════════════════════════════════════════════════
+
+interface PromoRecommendation {
+  inventoryItemId: string
+  inventoryItemName: string
+  baseUnit: string
+  remainingQty: number
+  expiredDate: string | null
+  daysUntilExpiry: number | null
+  urgency: 'critical' | 'warning'
+  potentialLoss: number
+  suggestedProducts: Array<{
+    productId: string
+    productName: string
+    productPrice: number
+    categoryId: string | null
+  }>
+  suggestedPromo: {
+    type: 'PERCENTAGE'
+    value: number
+    reason: string
+  }
+}
+
+export function PromoRecommendationWidget() {
+  const [data, setData] = useState<PromoRecommendation[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/inventory/promo-recommendations')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => {
+        if (!cancelled && json?.data) setData(json.data)
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const top3 = data.slice(0, 3)
+
+  if (loading) {
+    return (
+      <Card className="aether-card">
+        <CardContent className="p-4">
+          <Skeleton className="h-4 w-32 bg-white/[0.04] mb-3" />
+          <div className="space-y-2">
+            {Array.from({ length: 2 }).map((_, i) => (
+              <Skeleton key={i} className="h-20 bg-white/[0.03] rounded-lg" />
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  return (
+    <motion.div variants={itemVariants}>
+      <Card className="aether-card">
+        <CardContent className="p-4">
+          {/* Header */}
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-6 h-6 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+              <Zap className="h-3.5 w-3.5 text-emerald-400" />
+            </div>
+            <h2 className="text-sm font-semibold text-slate-200">Saran Promo</h2>
+            {top3.length > 0 && (
+              <Badge
+                variant="outline"
+                className={cn(
+                  'text-[9px] px-1.5 py-0 shrink-0',
+                  top3.some((r) => r.urgency === 'critical')
+                    ? 'border-rose-500/20 text-rose-400 bg-rose-500/[0.06]'
+                    : 'border-amber-500/20 text-amber-400 bg-amber-500/[0.06]'
+                )}
+              >
+                {top3.length} saran
+              </Badge>
+            )}
+          </div>
+
+          {/* Content */}
+          <AnimatePresence mode="wait">
+            {top3.length === 0 ? (
+              <motion.div
+                key="empty"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="py-6 text-center"
+              >
+                <p className="text-xs text-emerald-400">✅ Semua stok aman</p>
+              </motion.div>
+            ) : (
+              <motion.div
+                key="list"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="space-y-2"
+              >
+                {top3.map((rec, idx) => {
+                  const promoProduct = rec.suggestedProducts[0]
+                  const promoName = promoProduct?.productName ?? rec.inventoryItemName
+                  const isCritical = rec.urgency === 'critical'
+
+                  return (
+                    <motion.div
+                      key={rec.inventoryItemId + idx}
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: idx * 0.08, duration: 0.3 }}
+                      className="bg-white/[0.02] border border-white/[0.04] rounded-xl p-3 space-y-1.5"
+                    >
+                      {/* Product name + promo badge */}
+                      <div className="flex items-center gap-2">
+                        <p className="text-[11px] text-slate-200 font-medium truncate min-w-0 flex-1">
+                          {promoName}
+                        </p>
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            'text-[10px] px-1.5 py-0 shrink-0 font-semibold',
+                            isCritical
+                              ? 'border-rose-500/20 text-rose-400 bg-rose-500/[0.06]'
+                              : 'border-amber-500/20 text-amber-400 bg-amber-500/[0.06]'
+                          )}
+                        >
+                          {isCritical ? '⚡' : '⚠️'} {rec.suggestedPromo.value}%
+                        </Badge>
+                      </div>
+
+                      {/* Promo action line */}
+                      <p className="text-[11px] text-emerald-400 font-medium">
+                        Buat promo {promoName} {rec.suggestedPromo.value}%
+                      </p>
+
+                      {/* Reason */}
+                      <p className="text-[10px] text-slate-400 leading-relaxed line-clamp-2">
+                        {rec.suggestedPromo.reason}
+                      </p>
+
+                      {/* Meta row */}
+                      <div className="flex items-center justify-between gap-2 pt-0.5">
+                        <div className="flex items-center gap-3 text-[10px] text-slate-500">
+                          <span className="flex items-center gap-1">
+                            <Package className="h-3 w-3" />
+                            {formatNumber(rec.remainingQty)} {rec.baseUnit}
+                          </span>
+                          {rec.daysUntilExpiry !== null && (
+                            <span
+                              className={cn(
+                                'flex items-center gap-1',
+                                rec.daysUntilExpiry <= 3 ? 'text-rose-400' : rec.daysUntilExpiry <= 7 ? 'text-amber-400' : 'text-slate-500'
+                              )}
+                            >
+                              <AlertTriangle className="h-3 w-3" />
+                              {rec.daysUntilExpiry > 0 ? `${rec.daysUntilExpiry} hari lagi` : 'Hari ini'}
+                            </span>
+                          )}
+                        </div>
+                        <span className="flex items-center gap-1 text-[10px] text-rose-400 font-medium shrink-0">
+                          <TrendingDown className="h-3 w-3" />
+                          {formatCurrency(rec.potentialLoss)}
+                        </span>
+                      </div>
+                    </motion.div>
+                  )
+                })}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </CardContent>
+      </Card>
+    </motion.div>
   )
 }

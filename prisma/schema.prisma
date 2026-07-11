@@ -56,6 +56,7 @@ model Outlet {
   purchaseOrderItems PurchaseOrderItem[]
   inventoryMovements    InventoryMovement[]
   inventoryTransferItems InventoryTransferItem[]
+  inventoryBatches    InventoryBatch[]
 }
 
 // ==================== USER ====================
@@ -192,6 +193,7 @@ model Transaction {
   items            TransactionItem[]
   loyaltyLogs      LoyaltyLog[]
   consumptionSnapshots TransactionConsumption[]
+  batchConsumptionLogs  BatchConsumptionLog[]
 }
 
 // ==================== TRANSACTION ITEM ====================
@@ -233,7 +235,7 @@ model TransactionConsumption {
   createdAt        DateTime @default(now())
 
   transaction    Transaction    @relation(fields: [transactionId], references: [id], onDelete: Cascade)
-  inventoryItem  InventoryItem  @relation(fields: [inventoryItemId], references: [id])
+  inventoryItem  InventoryItem  @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
 }
 
 // ==================== LOYALTY LOG ====================
@@ -470,6 +472,7 @@ model InventoryItem {
   movements      InventoryMovement[]
   inventoryTransferItems InventoryTransferItem[]
   consumptionSnapshots    TransactionConsumption[]
+  batches        InventoryBatch[]
 }
 
 // ==================== PURCHASE ORDER ====================
@@ -488,6 +491,7 @@ model PurchaseOrder {
   createdBy  User               @relation(fields: [userId], references: [id])
   supplier  Supplier?          @relation(fields: [supplierId], references: [id])
   items     PurchaseOrderItem[]
+  batches    InventoryBatch[]
 }
 
 // ==================== PURCHASE ORDER ITEM ====================
@@ -502,6 +506,8 @@ model PurchaseOrderItem {
   baseUnit        String                       // Base unit (e.g. "kg", "ml")
   unitCost        Float                        // Cost per base unit
   totalCost       Float                        // baseQty * unitCost
+  batch           String?                      // Batch / lot number (e.g. "B2025-001")
+  expiredDate     DateTime?                    // Expiry date for this batch
   outletId        String                       // For audit trail
 
   purchaseOrder  PurchaseOrder  @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
@@ -546,8 +552,68 @@ model InventoryMovement {
   createdAt      DateTime @default(now())
 
   outlet          Outlet          @relation(fields: [outletId], references: [id])
-  inventoryItem   InventoryItem   @relation(fields: [inventoryItemId], references: [id])
+  inventoryItem   InventoryItem   @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
   user            User?           @relation("MovementUser", fields: [userId], references: [id])
+}
+
+// ==================== INVENTORY BATCH (Per-Batch Stock Tracking) ====================
+// Core model for Inventory Intelligence: tracks each purchase batch separately
+// so FEFO (First Expired, First Out) can automatically pick the closest-to-expiry batch.
+//
+// Flow:
+//   Purchase → InventoryBatch created (AVAILABLE)
+//   Checkout → FEFO picks batch → BatchConsumptionLog created → remainingQty decremented
+//   Void → BatchConsumptionLog read → remainingQty restored
+//   Expired → Status changed to EXPIRED (via cron or on-access check)
+//
+// InventoryItem.stock is a DENORMALIZED total = sum(all AVAILABLE batches remainingQty).
+// All batch mutations must also update InventoryItem.stock in the same transaction.
+model InventoryBatch {
+  id                String   @id @default(cuid())
+  batchNumber       String                       // Batch/lot number (e.g., "FM24001", "B2025-001")
+  inventoryItemId   String                       // Which inventory item
+  initialQty        Float                        // Original qty received (in base unit)
+  remainingQty      Float                        // Current remaining qty (in base unit)
+  unitCost          Float                        // Cost per base unit (snapshotted at purchase)
+  expiredDate       DateTime?                    // Expiry date
+  purchaseOrderId   String                       // Source PO
+  purchaseOrderItemId String?                     // Source PO item row
+  supplierId        String?                      // Supplier snapshot (nullable for adjustments)
+  supplierName      String?                      // Supplier name snapshot
+  status            String   @default("AVAILABLE") // AVAILABLE, EXPIRED, CONSUMED, DISCARDED
+  outletId          String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  inventoryItem      InventoryItem          @relation(fields: [inventoryItemId], references: [id])
+  outlet             Outlet                 @relation(fields: [outletId], references: [id])
+  purchaseOrder      PurchaseOrder          @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  consumptionLogs    BatchConsumptionLog[]
+
+  @@unique([batchNumber, outletId])
+}
+
+// ==================== BATCH CONSUMPTION LOG ====================
+// Records which specific batch was consumed in each transaction.
+// Used for:
+//   1. FEFO audit trail (which batch was used for which sale)
+//   2. Accurate void reversal (restore to exact batch, not recalc)
+//   3. Batch Search / traceability (find all sales using a specific batch)
+model BatchConsumptionLog {
+  id                String   @id @default(cuid())
+  transactionId     String                       // Which transaction consumed this
+  inventoryBatchId  String                       // Which batch was consumed
+  inventoryItemId   String                       // Denormalized for quick queries
+  quantityConsumed  Float                        // How much was consumed (in base unit)
+  batchNumber       String                       // Snapshot of batch number
+  expiredDate       DateTime?                    // Snapshot of expiry date
+  invoiceNumber     String                       // Snapshot of invoice number
+  sourceDetails     String                       // JSON: [{productName, variantName?, productQty}]
+  outletId          String
+  createdAt         DateTime @default(now())
+
+  transaction       Transaction     @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  inventoryBatch    InventoryBatch  @relation(fields: [inventoryBatchId], references: [id])
 }
 
 // ==================== INVENTORY TRANSFER ITEM (Bahan Baku Transfer) ====================
@@ -564,6 +630,6 @@ model InventoryTransferItem {
   createdAt        DateTime @default(now())
 
   transfer       OutletTransfer  @relation(fields: [transferId], references: [id], onDelete: Cascade)
-  inventoryItem  InventoryItem   @relation(fields: [inventoryItemId], references: [id])
+  inventoryItem  InventoryItem   @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
   outlet         Outlet          @relation(fields: [outletId], references: [id])
 }

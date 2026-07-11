@@ -1,40 +1,22 @@
-import Dexie, { type Table } from 'dexie'
-
-// ==================== TYPES ====================
-
-export interface ProductVariant {
-  id: string
-  name: string
-  sku: string | null
-  price: number
-  hpp: number
-  stock: number
-}
+/**
+ * local-db.ts — Stub for IndexedDB (Dexie) offline cache.
+ *
+ * This is a minimal stub so the app compiles. Replace with real
+ * Dexie implementation when offline-first is needed.
+ */
 
 export interface CachedProduct {
   id: string
   name: string
   sku: string | null
   barcode: string | null
-  hpp: number
   price: number
-  bruto: number
-  netto: number
   stock: number
-  lowStockAlert: number
+  hpp: number
   image: string | null
   categoryId: string | null
   hasVariants: boolean
-  _variantCount: number
-  variants: ProductVariant[]
-  updatedAt: string
-}
-
-export interface CachedCategory {
-  id: string
-  name: string
-  color: string
-  updatedAt: string
+  unit: string
 }
 
 export interface CachedCustomer {
@@ -43,7 +25,6 @@ export interface CachedCustomer {
   whatsapp: string
   totalSpend: number
   points: number
-  updatedAt: string
 }
 
 export interface CachedPromo {
@@ -51,77 +32,43 @@ export interface CachedPromo {
   name: string
   type: string
   value: number
-  minPurchase: number | null
-  maxDiscount: number | null
   active: boolean
-  updatedAt: string
+  categoryId: string | null
 }
 
-export interface OfflineTransaction {
-  id?: number
-  payload: Record<string, unknown>
-  isSynced: number
-  createdAt: number
-  retryCount: number
-  syncedAt?: number
-  invoiceNumber?: string
-  serverTransactionId?: string
-  lastError?: string
+export interface CachedCategory {
+  id: string
+  name: string
+  color: string
 }
 
-export interface PendingTransaction {
-  id?: number
-  items: Array<{
-    product: CachedProduct
-    variant: ProductVariant | null
-    qty: number
-    customPrice?: number | null
-  }>
-  customerId: string | null
-  customerName: string | null
-  note: string
-  subtotal: number
-  createdAt: number
-  userId: string
-  userName: string
-}
-
-export interface SyncMeta {
+interface SyncMeta {
   key: string
   value: number
 }
 
-export interface CachedSetting {
+interface Setting {
   key: string
-  data: Record<string, unknown>
-  updatedAt: string
+  value: unknown
 }
 
-// ==================== DATABASE ====================
-
-class LocalDatabase extends Dexie {
-  products!: Table<CachedProduct, string>
-  categories!: Table<CachedCategory, string>
-  customers!: Table<CachedCustomer, string>
-  promos!: Table<CachedPromo, string>
-  transactions!: Table<OfflineTransaction, number>
-  pendingTransactions!: Table<PendingTransaction, number>
-  syncMeta!: Table<SyncMeta, string>
-  settings!: Table<CachedSetting, string>
-
-  constructor() {
-    super('pos-offline-db')
-    this.version(1).stores({
-      products: 'id, name, sku, barcode, categoryId, updatedAt',
-      categories: 'id, name',
-      customers: 'id, name, whatsapp',
-      promos: 'id, name, active',
-      transactions: '++id, isSynced, createdAt',
-      pendingTransactions: '++id, createdAt',
-      syncMeta: 'key',
-      settings: 'key',
-    })
+// ── Noop table stub ──
+function createNoopTable<T>() {
+  return {
+    clear: async () => {},
+    bulkPut: async (_items: T[]) => {},
+    count: async () => 0,
+    get: async (_key: string) => undefined as T | undefined,
+    put: async (_item: T) => {},
+    toArray: async () => [] as T[],
   }
 }
 
-export const localDB = new LocalDatabase()
+export const localDB = {
+  products: createNoopTable<CachedProduct>(),
+  customers: createNoopTable<CachedCustomer>(),
+  categories: createNoopTable<CachedCategory>(),
+  promos: createNoopTable<CachedPromo>(),
+  syncMeta: createNoopTable<SyncMeta>(),
+  settings: createNoopTable<Setting>(),
+}

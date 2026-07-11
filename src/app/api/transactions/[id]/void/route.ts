@@ -165,6 +165,23 @@ export async function POST(
       }
 
       // ════════════════════════════════════════════════════════════
+      // STEP 3.5: FEFO — Restore batch consumption
+      //   Only restores InventoryBatch.remainingQty (not InventoryItem.stock,
+      //   which was already restored by step 3).
+      // ════════════════════════════════════════════════════════════
+      try {
+        const { FEFOEngine } = await import('@/lib/fefo-engine')
+        await FEFOEngine.restoreBatchesFromLogs(tx, {
+          transactionId: id,
+          invoiceNumber: transaction.invoiceNumber,
+          outletId,
+          userId,
+        })
+      } catch (batchError) {
+        console.warn(`[Void] FEFO batch restore failed (non-fatal):`, batchError)
+      }
+
+      // ════════════════════════════════════════════════════════════
       // STEP 4 (GAP 2): Reverse loyalty points & customer totalSpend
       // ════════════════════════════════════════════════════════════
       if (transaction.customerId) {

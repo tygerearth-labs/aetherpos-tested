@@ -410,6 +410,10 @@ export default function PosPage() {
   const [cart, setCart] = useState<CartItem[]>([])
   const [pointsToUse, setPointsToUse] = useState(0)
 
+  // Batch info for cart items (FEFO preview)
+  const [batchInfo, setBatchInfo] = useState<Record<string, { batchNumber: string | null; expiredDate: string | null; daysUntilExpiry: number | null }>>({})
+  const batchFetchedRef = useRef<Set<string>>(new Set())
+
   // Variant picker
   const [variantPicker, setVariantPicker] = useState<VariantPickerState>({
     product: null as unknown as Product,
@@ -494,6 +498,52 @@ export default function PosPage() {
     }
     const timer = setTimeout(calculatePromo, 500)
     return () => clearTimeout(timer)
+  }, [cart])
+
+  // Fetch batch info for new cart items
+  useEffect(() => {
+    if (cart.length === 0) {
+      setBatchInfo({})
+      batchFetchedRef.current.clear()
+      return
+    }
+    const toFetch: string[] = []
+    for (const item of cart) {
+      const key = `${item.product.id}::${item.variant?.id || 'base'}`
+      if (!batchFetchedRef.current.has(key)) {
+        toFetch.push(key)
+        batchFetchedRef.current.add(key)
+      }
+    }
+    if (toFetch.length === 0) return
+    toFetch.forEach(key => {
+      const [pid, vid] = key.split('::')
+      const variantId = vid === 'base' ? undefined : vid
+      const params = new URLSearchParams({ productId })
+      if (variantId) params.set('variantId', variantId)
+      fetch(`/api/inventory/batches/pos-preview?${params}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (!data || !data.hasBatches || data.items.length === 0) return
+          // Show the most urgent batch (smallest daysUntilExpiry, or first item)
+          const sorted = [...data.items].sort((a, b) => {
+            if (a.daysUntilExpiry == null && b.daysUntilExpiry == null) return 0
+            if (a.daysUntilExpiry == null) return 1
+            if (b.daysUntilExpiry == null) return -1
+            return a.daysUntilExpiry - b.daysUntilExpiry
+          })
+          const mostUrgent = sorted[0]
+          setBatchInfo(prev => ({
+            ...prev,
+            [key]: {
+              batchNumber: mostUrgent.batchNumber,
+              expiredDate: mostUrgent.expiredDate,
+              daysUntilExpiry: mostUrgent.daysUntilExpiry,
+            },
+          }))
+        })
+        .catch(() => { /* silent */ })
+    })
   }, [cart])
 
   // Checkout / Dialog state — NEW FLOW
@@ -1763,6 +1813,16 @@ export default function PosPage() {
                       <span className="text-[10px] font-medium text-violet-400">{item.variant.name}</span>
                     </span>
                   )}
+                  {(() => {
+                    const bKey = `${item.product.id}::${item.variant?.id || 'base'}`
+                    const bInfo = batchInfo[bKey]
+                    if (!bInfo || !bInfo.batchNumber) return null
+                    const d = bInfo.daysUntilExpiry
+                    if (d == null) return null
+                    if (d <= 7) return <span className="text-[10px] text-rose-400 leading-tight">🔴 Exp {d} hari</span>
+                    if (d <= 30) return <span className="text-[10px] text-amber-400 leading-tight">🟠 Exp {d} hari</span>
+                    return <span className="text-[10px] text-emerald-400 leading-tight">🟢 Batch: {bInfo.batchNumber}</span>
+                  })()}
                 </div>
                 <button
                   onClick={() => removeFromCart(item.product.id, item.variant?.id)}
@@ -1899,6 +1959,16 @@ export default function PosPage() {
                     <span className="text-[9px] font-medium text-violet-400 leading-tight">{item.variant.name}</span>
                   </span>
                 )}
+                {(() => {
+                  const bKey = `${item.product.id}::${item.variant?.id || 'base'}`
+                  const bInfo = batchInfo[bKey]
+                  if (!bInfo || !bInfo.batchNumber) return null
+                  const d = bInfo.daysUntilExpiry
+                  if (d == null) return null
+                  if (d <= 7) return <span className="text-[10px] text-rose-400 leading-tight">🔴 Exp {d} hari</span>
+                  if (d <= 30) return <span className="text-[10px] text-amber-400 leading-tight">🟠 Exp {d} hari</span>
+                  return <span className="text-[10px] text-emerald-400 leading-tight">🟢 Batch: {bInfo.batchNumber}</span>
+                })()}
                 {/* Price — editable when manual discount enabled */}
                 {settings.manualDiscountEnabled ? (
                   editingPriceId === itemKey ? (

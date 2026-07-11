@@ -87,8 +87,16 @@ import {
   Download,
   RotateCcw,
   Archive,
+  Timer,
+  Clock,
+  Flame,
+  CalendarDays,
+  Hash,
+  TrendingDown,
+  AlertCircle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import SupplierSearchInput from '@/components/purchase/supplier-search-input'
 
 // ════════════════════════════════════════════════════════════
 // Types
@@ -114,6 +122,8 @@ interface PurchaseOrderItem {
   unit: string
   baseQty: string
   pricePerItem: string  // harga per unit pembelian (e.g., 72000 per ekor)
+  batch: string
+  expiredDate: string
 }
 
 interface PurchaseOrder {
@@ -145,6 +155,8 @@ interface PurchaseOrderItemDetail {
   baseUnit: string
   totalCost: number
   unitCost: number
+  batch: string | null
+  expiredDate: string | null
 }
 
 interface InventoryCategory {
@@ -211,7 +223,6 @@ interface InventoryItemDetail {
   stock: number
   avgCost: number
   lowStockAlert: number
-  status: string
   category: { id: string; name: string; color: string } | null
   _count: { compositions: number; purchaseItems: number; movements: number }
   linkedProducts: LinkedProduct[]
@@ -223,6 +234,73 @@ interface InventoryListResponse {
   items: InventoryItem[]
   totalPages: number
   stats: InventoryStats
+}
+
+// ── Batch Intelligence Types ──
+interface BatchTimelineEntry {
+  id: string
+  batchNumber: string | null
+  status: string
+  initialQty: number
+  remainingQty: number
+  baseUnit: string
+  expiredDate: string | null
+  daysUntilExpiry: number | null
+  supplierName: string | null
+  purchaseOrderNumber: string | null
+  unitCost: number
+  createdAt: string
+}
+
+interface BatchSearchResult {
+  batch: {
+    id: string
+    batchNumber: string | null
+    status: string
+    initialQty: number
+    remainingQty: number
+    baseUnit: string
+    expiredDate: string | null
+    daysUntilExpiry: number | null
+    inventoryItem: { id: string; name: string; sku: string | null; baseUnit: string }
+  }
+  purchaseOrder: {
+    id: string
+    orderNumber: string
+    date: string
+    supplierName: string | null
+  } | null
+  transactions: Array<{
+    id: string
+    invoiceNumber: string | null
+    date: string
+    qtyConsumed: number
+    sourceProducts: string
+  }>
+}
+
+interface WasteReportItem {
+  id: string
+  inventoryItemName: string
+  batchNumber: string | null
+  initialQty: number
+  remainingQty: number
+  baseUnit: string
+  expiredDate: string | null
+  unitCost: number
+  totalLoss: number
+}
+
+interface DuplicateWarning {
+  warning: boolean
+  duplicate: {
+    batchNumber: string
+    remainingQty: number
+    baseUnit: string
+    expiredDate: string | null
+    purchaseOrderNumber: string | null
+  } | null
+  message?: string
 }
 
 interface PurchaseSummary {
@@ -313,7 +391,7 @@ export default function PurchasePage() {
   const [poCreateLoading, setPoCreateLoading] = useState(false)
   const [poCreateNotes, setPoCreateNotes] = useState('')
   const [poCreateItems, setPoCreateItems] = useState<PurchaseOrderItem[]>([
-    { inventoryItemId: '', inventoryItemName: '', baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0' },
+    { inventoryItemId: '', inventoryItemName: '', baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0', batch: '', expiredDate: '' },
   ])
 
   // Item picker for purchase dialog (pre-loaded)
@@ -358,11 +436,10 @@ export default function PurchasePage() {
   const [importPreviewData, setImportPreviewData] = useState<Array<{
     row: number; name: string; sku: string | null; purchaseUnit: string;
     qty: number; baseQty: number; baseUnit: string; pricePerUnit: number;
+    batch: string | null; expiredDate: string | null;
     matchedItemId: string | null; matchedItemName: string | null;
     matchedItemSku: string | null; matchedItemUnit: string | null;
-    isNew: boolean; isArchived: boolean;
-    archivedItemId: string | null; archivedItemName: string | null;
-    error?: string;
+    isNew: boolean; error?: string;
   }> | null>(null)
   const importFileRef = useRef<HTMLInputElement | null>(null)
 
@@ -380,7 +457,7 @@ export default function PurchasePage() {
   const [poEditLoading, setPoEditLoading] = useState(false)
   const [poEditNotes, setPoEditNotes] = useState('')
   const [poEditItems, setPoEditItems] = useState<PurchaseOrderItem[]>([
-    { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0' },
+    { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0', batch: '', expiredDate: '' },
   ])
 
   // ══════════════════════════════════════════════════════════
@@ -416,6 +493,31 @@ export default function PurchasePage() {
   const [invDetailError, setInvDetailError] = useState<string | null>(null)
   const [invDetailTab, setInvDetailTab] = useState('products')
   const [invDetailMovementPage, setInvDetailMovementPage] = useState(1)
+
+  // Batch timeline for inventory detail
+  const [batchTimeline, setBatchTimeline] = useState<BatchTimelineEntry[]>([])
+  const [batchTimelineLoading, setBatchTimelineLoading] = useState(false)
+
+  // Batch search
+  const [batchSearchOpen, setBatchSearchOpen] = useState(false)
+  const [batchSearchQuery, setBatchSearchQuery] = useState('')
+  const [batchSearchResult, setBatchSearchResult] = useState<BatchSearchResult | null>(null)
+  const [batchSearchLoading, setBatchSearchLoading] = useState(false)
+
+  // Waste report
+  const [wasteReportOpen, setWasteReportOpen] = useState(false)
+  const [wasteReportData, setWasteReportData] = useState<{ totalLoss: number; items: WasteReportItem[] } | null>(null)
+  const [wasteReportLoading, setWasteReportLoading] = useState(false)
+  const [wasteReportStartDate, setWasteReportStartDate] = useState(() => {
+    const d = new Date()
+    d.setMonth(d.getMonth() - 6)
+    return d.toISOString().split('T')[0]
+  })
+  const [wasteReportEndDate, setWasteReportEndDate] = useState(() => new Date().toISOString().split('T')[0])
+
+  // Smart purchase warnings (keyed by item index)
+  const [batchWarnings, setBatchWarnings] = useState<Record<number, DuplicateWarning>>({})
+  const [expiredWarnings, setExpiredWarnings] = useState<Record<number, boolean>>({})
 
   // Inventory delete / archive
   const [deleteInvId, setDeleteInvId] = useState<string | null>(null)
@@ -605,8 +707,8 @@ export default function PurchasePage() {
   const fetchPoItemOptions = useCallback(async () => {
     setPoItemOptionsLoading(true)
     try {
-      // PO item picker: ALWAYS only show active items — archived items cannot be used in new purchases
-      const res = await fetch('/api/inventory/items?limit=200&activeOnly=true')
+      const activeParam = showInactiveItems ? 'false' : 'true'
+      const res = await fetch(`/api/inventory/items?limit=200&activeOnly=${activeParam}`)
       if (res.ok) {
         const data = await res.json()
         setPoItemOptions((data.items || []).map((i: { id: string; name: string; sku: string | null; baseUnit: string; stock: number; active?: boolean }) => ({
@@ -623,7 +725,7 @@ export default function PurchasePage() {
     } finally {
       setPoItemOptionsLoading(false)
     }
-  }, [])
+  }, [showInactiveItems])
 
   // Pre-load items when purchase dialog opens
   useEffect(() => {
@@ -711,6 +813,8 @@ export default function PurchasePage() {
       baseQty: item.purchaseQty > 0 ? String(item.baseQty / item.purchaseQty) : String(item.baseQty),
       // Derive pricePerItem: totalCost / purchaseQty
       pricePerItem: item.purchaseQty > 0 ? String(item.totalCost / item.purchaseQty) : String(item.unitCost * item.baseQty),
+      batch: item.batch || '',
+      expiredDate: item.expiredDate ? item.expiredDate.split('T')[0] : '',
     }))
     setPoEditItems(editItems)
     setPoEditOpen(true)
@@ -731,7 +835,7 @@ export default function PurchasePage() {
   const handleAddPoEditItem = () => {
     setPoEditItems(prev => [
       ...prev,
-      { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0' },
+      { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0', batch: '', expiredDate: '' },
     ])
   }
 
@@ -791,6 +895,8 @@ export default function PurchasePage() {
               baseUnit: i.baseUnit,
               unitCost,
               totalCost,
+              batch: i.batch?.trim() || undefined,
+              expiredDate: i.expiredDate || undefined,
             }
           }),
         }),
@@ -908,6 +1014,8 @@ export default function PurchasePage() {
               baseUnit: i.baseUnit,
               unitCost,
               totalCost,
+              batch: i.batch?.trim() || undefined,
+              expiredDate: i.expiredDate || undefined,
             }
           }),
         }),
@@ -945,7 +1053,7 @@ export default function PurchasePage() {
   const resetPoCreateForm = () => {
     setPoCreateNotes('')
     setPoCreateSupplierId('')
-    setPoCreateItems([{ inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0' }])
+    setPoCreateItems([{ inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0', batch: '', expiredDate: '' }])
     setShowItemPicker(false)
     setActiveItemSearchIdx(null)
     setItemPickerFilter('')
@@ -970,6 +1078,50 @@ export default function PurchasePage() {
         setSupplierOptions(data.suppliers || [])
       }
     } catch { /* silent */ }
+  }
+
+  const handleCreateSupplierForCreate = async (name: string, phone?: string) => {
+    try {
+      const res = await fetch('/api/suppliers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, phone: phone?.trim() || undefined }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        const newSupplier = data.supplier || data
+        setSupplierOptions(prev => [...prev, { id: newSupplier.id, name: newSupplier.name }])
+        return { id: newSupplier.id, name: newSupplier.name }
+      }
+      const data = await res.json()
+      toast.error(data.error || 'Gagal menambahkan supplier')
+      return null
+    } catch {
+      toast.error('Gagal menambahkan supplier')
+      return null
+    }
+  }
+
+  const handleCreateSupplierForImport = async (name: string, phone?: string) => {
+    try {
+      const res = await fetch('/api/suppliers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, phone: phone?.trim() || undefined }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        const newSupplier = data.supplier || data
+        setSupplierOptions(prev => [...prev, { id: newSupplier.id, name: newSupplier.name }])
+        return { id: newSupplier.id, name: newSupplier.name }
+      }
+      const data = await res.json()
+      toast.error(data.error || 'Gagal menambahkan supplier')
+      return null
+    } catch {
+      toast.error('Gagal menambahkan supplier')
+      return null
+    }
   }
 
   // Open purchase create dialog with supplier fetch
@@ -1021,7 +1173,7 @@ export default function PurchasePage() {
     const newOptions: InventoryItemOption[] = []
     importPreviewData.forEach((item, idx) => {
       if (item.error) return
-      const itemId = item.matchedItemId || item.archivedItemId || `__pending_${item.name}_${item.sku || ''}_${idx}_${Date.now()}`
+      const itemId = item.matchedItemId || `__pending_${item.name}_${item.sku || ''}_${idx}_${Date.now()}`
       newItems.push({
         inventoryItemId: itemId,
         inventoryItemName: item.name,
@@ -1031,9 +1183,11 @@ export default function PurchasePage() {
         unit: item.purchaseUnit || '',
         baseQty: String(item.baseQty || 1),
         pricePerItem: String(item.pricePerUnit || 0),
+        batch: item.batch || '',
+        expiredDate: item.expiredDate || '',
       })
       // Add new items to poItemOptions so pending creation works
-      if (item.isNew && !item.matchedItemId && !item.isArchived) {
+      if (item.isNew && !item.matchedItemId) {
         newOptions.push({
           id: itemId,
           name: item.name,
@@ -1068,39 +1222,8 @@ export default function PurchasePage() {
     const idMap = new Map<string, string>() // tempKey → real inventory item ID
 
     try {
-      // Step 1: Restore archived items
-      const archivedItems = validItems.filter(i => i.isArchived && i.archivedItemId)
-      if (archivedItems.length > 0) {
-        toast.loading(`Mengaktifkan kembali ${archivedItems.length} item nonaktif...`, { id: 'import-pending-restore' })
-        for (const item of archivedItems) {
-          try {
-            const res = await fetch(`/api/inventory/items/${item.archivedItemId}`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ action: 'restore' }),
-            })
-            if (res.ok) {
-              idMap.set(`import_row_${item.row}`, item.archivedItemId!)
-            } else {
-              const err = await res.json()
-              toast.error(err.error || `Gagal mengaktifkan item "${item.name}"`)
-              toast.dismiss('import-pending-restore')
-              setImportPosting(false)
-              return
-            }
-          } catch {
-            toast.error(`Gagal mengaktifkan item "${item.name}"`)
-            toast.dismiss('import-pending-restore')
-            setImportPosting(false)
-            return
-          }
-        }
-        toast.dismiss('import-pending-restore')
-        toast.success(`${archivedItems.length} item nonaktif berhasil diaktifkan kembali`)
-      }
-
-      // Step 2: Create new inventory items for unmatched items
-      const newItems = validItems.filter(i => i.isNew && !i.matchedItemId && !i.isArchived)
+      // Step 1: Create new inventory items for unmatched items
+      const newItems = validItems.filter(i => i.isNew && !i.matchedItemId)
       if (newItems.length > 0) {
         toast.loading(`Membuat ${newItems.length} item baru di inventory...`, { id: 'import-pending-create' })
         for (const item of newItems) {
@@ -1154,6 +1277,8 @@ export default function PurchasePage() {
           baseUnit: item.baseUnit || item.matchedItemUnit || '',
           unitCost,
           totalCost,
+          batch: item.batch?.trim() || undefined,
+          expiredDate: item.expiredDate || undefined,
         }
       })
 
@@ -1201,7 +1326,7 @@ export default function PurchasePage() {
   const handleAddPoItem = () => {
     setPoCreateItems(prev => [
       ...prev,
-      { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0' },
+      { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0', batch: '', expiredDate: '' },
     ])
   }
 
@@ -1212,6 +1337,8 @@ export default function PurchasePage() {
 
   const handleUpdatePoItem = (idx: number, field: keyof PurchaseOrderItem, value: string) => {
     setPoCreateItems(prev => prev.map((item, i) => (i === idx ? { ...item, [field]: value } : item)))
+    if (field === 'batch') checkDuplicateBatch(idx, value)
+    if (field === 'expiredDate') checkExpiredDate(idx, value)
   }
 
   const handleSelectInvItem = (idx: number, item: InventoryItemOption) => {
@@ -1283,7 +1410,7 @@ export default function PurchasePage() {
       if (nextEmpty >= 0) {
         setQuickAddTargetIdx(nextEmpty)
       } else {
-        setPoCreateItems(prev => [...prev, { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0' }])
+        setPoCreateItems(prev => [...prev, { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0', batch: '', expiredDate: '' }])
         setQuickAddTargetIdx(poCreateItems.length)
       }
       toast.success(`Item "${newItem.name}" ditambahkan — lanjut ${remaining.length} item lagi`)
@@ -1354,7 +1481,7 @@ export default function PurchasePage() {
         if (emptyIdx >= 0) {
           handleSelectInvItem(emptyIdx, skuMatch)
         } else {
-          setPoCreateItems(prev => [...prev, { inventoryItemId: skuMatch.id, inventoryItemName: skuMatch.name, inventoryItemSku: skuMatch.sku, baseUnit: skuMatch.baseUnit, qty: '1', unit: '', baseQty: '0', pricePerItem: '0' }])
+          setPoCreateItems(prev => [...prev, { inventoryItemId: skuMatch.id, inventoryItemName: skuMatch.name, inventoryItemSku: skuMatch.sku, baseUnit: skuMatch.baseUnit, qty: '1', unit: '', baseQty: '0', pricePerItem: '0', batch: '', expiredDate: '' }])
         }
         toast.success(`${skuMatch.name} ditambahkan (scan)`)
       }
@@ -1405,7 +1532,7 @@ export default function PurchasePage() {
           if (emptyIdx >= 0) {
             handleSelectInvItem(emptyIdx, skuMatch)
           } else {
-            setPoCreateItems(prev => [...prev, { inventoryItemId: skuMatch.id, inventoryItemName: skuMatch.name, inventoryItemSku: skuMatch.sku, baseUnit: skuMatch.baseUnit, qty: '1', unit: '', baseQty: '0', pricePerItem: '0' }])
+            setPoCreateItems(prev => [...prev, { inventoryItemId: skuMatch.id, inventoryItemName: skuMatch.name, inventoryItemSku: skuMatch.sku, baseUnit: skuMatch.baseUnit, qty: '1', unit: '', baseQty: '0', pricePerItem: '0', batch: '', expiredDate: '' }])
           }
         }
         setSmartInput('')
@@ -1425,7 +1552,7 @@ export default function PurchasePage() {
           if (emptyIdx >= 0) {
             handleSelectInvItem(emptyIdx, nameMatch)
           } else {
-            setPoCreateItems(prev => [...prev, { inventoryItemId: nameMatch.id, inventoryItemName: nameMatch.name, inventoryItemSku: nameMatch.sku, baseUnit: nameMatch.baseUnit, qty: '1', unit: '', baseQty: '0', pricePerItem: '0' }])
+            setPoCreateItems(prev => [...prev, { inventoryItemId: nameMatch.id, inventoryItemName: nameMatch.name, inventoryItemSku: nameMatch.sku, baseUnit: nameMatch.baseUnit, qty: '1', unit: '', baseQty: '0', pricePerItem: '0', batch: '', expiredDate: '' }])
           }
         }
         setSmartInput('')
@@ -1438,7 +1565,7 @@ export default function PurchasePage() {
       const emptyIdx = poCreateItems.findIndex(i => !i.inventoryItemId)
       const targetIdx = emptyIdx >= 0 ? emptyIdx : poCreateItems.length
       if (emptyIdx < 0) {
-        setPoCreateItems(prev => [...prev, { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0' }])
+        setPoCreateItems(prev => [...prev, { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0', batch: '', expiredDate: '' }])
       }
       setQuickAddTargetIdx(targetIdx)
       setQuickAddQueue([names[0]])
@@ -1464,7 +1591,7 @@ export default function PurchasePage() {
       const matched = poItemOptions.find(i => i.sku && i.sku.toLowerCase() === query)
         || poItemOptions.find(i => i.name.toLowerCase() === query)
       if (matched) {
-        matchedItems.push({ inventoryItemId: matched.id, inventoryItemName: matched.name, inventoryItemSku: matched.sku, baseUnit: matched.baseUnit, qty: '1', unit: '', baseQty: '0', pricePerItem: '0' })
+        matchedItems.push({ inventoryItemId: matched.id, inventoryItemName: matched.name, inventoryItemSku: matched.sku, baseUnit: matched.baseUnit, qty: '1', unit: '', baseQty: '0', pricePerItem: '0', batch: '', expiredDate: '' })
       } else {
         unmatchedNames.push(name)
       }
@@ -1493,7 +1620,7 @@ export default function PurchasePage() {
       const targetIdx = poCreateItems.findIndex(i => !i.inventoryItemId)
       const actualTarget = targetIdx >= 0 ? targetIdx : poCreateItems.length
       if (targetIdx < 0) {
-        setPoCreateItems(prev => [...prev, { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0' }])
+        setPoCreateItems(prev => [...prev, { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0', batch: '', expiredDate: '' }])
       }
       setQuickAddTargetIdx(actualTarget)
       setQuickAddQueue(unmatchedNames)
@@ -1729,6 +1856,81 @@ export default function PurchasePage() {
       }
     } catch { /* ignore pagination fetch errors */ }
   }
+
+  // ── Batch Timeline Fetch ──
+  const fetchBatchTimeline = useCallback(async (inventoryItemId: string) => {
+    setBatchTimelineLoading(true)
+    try {
+      const res = await fetch(`/api/inventory/batches?type=timeline&inventoryItemId=${inventoryItemId}`)
+      if (res.ok) {
+        const json = await res.json()
+        setBatchTimeline(json.data ?? [])
+      }
+    } catch { /* ignore */ }
+    finally { setBatchTimelineLoading(false) }
+  }, [])
+
+  // ── Batch Search ──
+  const handleBatchSearch = useCallback(async () => {
+    const q = batchSearchQuery.trim()
+    if (!q) return
+    setBatchSearchLoading(true)
+    setBatchSearchResult(null)
+    try {
+      const res = await fetch(`/api/inventory/batches?type=search&batchNumber=${encodeURIComponent(q)}`)
+      if (res.ok) {
+        const json = await res.json()
+        setBatchSearchResult(json.data ?? null)
+      } else {
+        toast.error('Batch tidak ditemukan')
+      }
+    } catch { toast.error('Gagal mencari batch') }
+    finally { setBatchSearchLoading(false) }
+  }, [batchSearchQuery])
+
+  // ── Waste Report ──
+  const fetchWasteReport = useCallback(async () => {
+    setWasteReportLoading(true)
+    try {
+      const params = new URLSearchParams({ startDate: wasteReportStartDate, endDate: wasteReportEndDate })
+      const res = await fetch(`/api/inventory/batches?type=waste-report&${params}`)
+      if (res.ok) {
+        const json = await res.json()
+        setWasteReportData(json.data ?? null)
+      }
+    } catch { /* ignore */ }
+    finally { setWasteReportLoading(false) }
+  }, [wasteReportStartDate, wasteReportEndDate])
+
+  // ── Smart Purchase: Duplicate Batch Check (debounced) ──
+  const batchCheckTimers = useRef<Record<number, ReturnType<typeof setTimeout>>>({})
+
+  const checkDuplicateBatch = useCallback((idx: number, batchNumber: string) => {
+    if (batchCheckTimers.current[idx]) clearTimeout(batchCheckTimers.current[idx])
+    if (!batchNumber.trim()) {
+      setBatchWarnings(prev => { const n = { ...prev }; delete n[idx]; return n })
+      return
+    }
+    batchCheckTimers.current[idx] = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/inventory/batches?type=check-duplicate&batchNumber=${encodeURIComponent(batchNumber)}`)
+        if (res.ok) {
+          const json = await res.json()
+          setBatchWarnings(prev => ({ ...prev, [idx]: json.data }))
+        }
+      } catch { /* ignore */ }
+    }, 500)
+  }, [])
+
+  // ── Smart Purchase: Expired Date Check ──
+  const checkExpiredDate = useCallback((idx: number, dateStr: string) => {
+    if (!dateStr) {
+      setExpiredWarnings(prev => { const n = { ...prev }; delete n[idx]; return n })
+      return
+    }
+    const isPast = new Date(dateStr) < new Date(new Date().toISOString().split('T')[0])
+    setExpiredWarnings(prev => ({ ...prev, [idx]: isPast }))
+  }, [])
 
   // ══════════════════════════════════════════════════════════
   // Category CRUD
@@ -2469,6 +2671,24 @@ export default function PurchasePage() {
                   <Archive className="h-3 w-3" />
                   <span className="hidden sm:inline">{showInactiveItems ? 'Sembunyikan Nonaktif' : 'Tampilkan Nonaktif'}</span>
                 </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 text-[10px] gap-1 text-slate-400 hover:text-white hover:bg-white/[0.04] border border-white/[0.06] shrink-0"
+                  onClick={() => { setBatchSearchOpen(true); setBatchSearchQuery(''); setBatchSearchResult(null) }}
+                >
+                  <Hash className="h-3 w-3" />
+                  <span className="hidden sm:inline">Cari Batch</span>
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 text-[10px] gap-1 text-slate-400 hover:text-white hover:bg-white/[0.04] border border-white/[0.06] shrink-0"
+                  onClick={() => { setWasteReportOpen(true); setWasteReportData(null) }}
+                >
+                  <Flame className="h-3 w-3" />
+                  <span className="hidden sm:inline">Waste Report</span>
+                </Button>
                 {selectedInvIds.size > 0 && (
                   <Button
                     size="sm"
@@ -2959,10 +3179,25 @@ export default function PurchasePage() {
                         <span className="w-5 h-5 rounded-md bg-white/[0.06] flex items-center justify-center text-[10px] text-slate-500 font-medium shrink-0">{idx + 1}</span>
                         <div className="flex-1 min-w-0">
                           <p className="text-xs text-slate-200 font-medium truncate">{item.inventoryItem?.name || item.name || 'Item dihapus'}</p>
-                          <div className="flex items-center gap-2 mt-0.5">
+                          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                             <span className="text-[10px] text-slate-500">
                               {formatNumber(item.purchaseQty)} {item.purchaseUnit || '-'} = {formatNumber(item.baseQty)} {item.baseUnit || '-'}
                             </span>
+                            {item.batch && (
+                              <span className="text-[9px] font-mono text-blue-400/70 bg-blue-500/10 px-1.5 py-0.5 rounded">
+                                Batch: {item.batch}
+                              </span>
+                            )}
+                            {item.expiredDate && (
+                              <span className={cn(
+                                "text-[9px] px-1.5 py-0.5 rounded font-medium",
+                                new Date(item.expiredDate) < new Date()
+                                  ? "text-red-400 bg-red-500/10"
+                                  : "text-amber-400/70 bg-amber-500/10"
+                              )}>
+                                Exp: {formatDate(item.expiredDate)}
+                              </span>
+                            )}
                           </div>
                         </div>
                         <div className="text-right shrink-0">
@@ -3194,32 +3429,12 @@ export default function PurchasePage() {
                 <label className="text-[11px] text-slate-300 font-medium">Supplier</label>
                 <span className="text-[10px] text-slate-600">(opsional)</span>
               </div>
-              <div className="flex gap-2">
-                <Select
-                  value={poCreateSupplierId}
-                  onValueChange={setPoCreateSupplierId}
-                >
-                  <SelectTrigger className="flex-1 bg-white/[0.04] border-white/[0.04] text-white text-xs h-9">
-                    <SelectValue placeholder="Pilih supplier..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {supplierOptions.map((s) => (
-                      <SelectItem key={s.id} value={s.id} className="text-xs">
-                        {s.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {poCreateSupplierId && (
-                  <button
-                    className="w-9 h-9 rounded-lg bg-white/[0.04] border border-white/[0.04] flex items-center justify-center text-slate-500 hover:text-white hover:bg-white/[0.08] transition-colors shrink-0"
-                    onClick={() => setPoCreateSupplierId('')}
-                    title="Hapus supplier"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </div>
+              <SupplierSearchInput
+                value={poCreateSupplierId}
+                onChange={setPoCreateSupplierId}
+                options={supplierOptions}
+                onCreateSupplier={handleCreateSupplierForCreate}
+              />
             </div>
 
             <Separator className="bg-white/[0.06]" />
@@ -3403,7 +3618,7 @@ export default function PurchasePage() {
                           if (nextEmpty >= 0) {
                             setQuickAddTargetIdx(nextEmpty)
                           } else {
-                            setPoCreateItems(prev => [...prev, { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0' }])
+                            setPoCreateItems(prev => [...prev, { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0', batch: '', expiredDate: '' }])
                             setQuickAddTargetIdx(poCreateItems.length)
                           }
                         } else {
@@ -3560,7 +3775,51 @@ export default function PurchasePage() {
                               placeholder="cth: 320000"
                             />
                           </div>
+                          {/* Batch / No. Lot */}
+                          <div className="space-y-1">
+                            <label className="text-[10px] text-slate-400 font-medium">
+                              Batch / No. Lot
+                              <span className="text-slate-600 font-normal ml-1">(opsional)</span>
+                            </label>
+                            <Input
+                              value={item.batch}
+                              onChange={(e) => handleUpdatePoItem(idx, 'batch', e.target.value)}
+                              className={inputClass}
+                              placeholder="cth: B2025-001"
+                            />
+                          </div>
+                          {/* Expired Date */}
+                          <div className="space-y-1">
+                            <label className="text-[10px] text-slate-400 font-medium">
+                              Expired
+                              <span className="text-slate-600 font-normal ml-1">(opsional)</span>
+                            </label>
+                            <Input
+                              type="date"
+                              value={item.expiredDate}
+                              onChange={(e) => handleUpdatePoItem(idx, 'expiredDate', e.target.value)}
+                              className={cn(inputClass, expiredWarnings[idx] ? 'border-red-500/40 text-red-300' : 'text-slate-300')}
+                            />
+                            {expiredWarnings[idx] && (
+                              <p className="text-[10px] text-red-400 flex items-center gap-1 mt-1">
+                                <AlertCircle className="h-3 w-3 shrink-0" />
+                                🔴 Barang sudah kadaluarsa. Tidak bisa disimpan.
+                              </p>
+                            )}
+                          </div>
                         </div>
+
+                        {/* Smart Purchase Warnings */}
+                        {batchWarnings[idx]?.warning && batchWarnings[idx].duplicate && (
+                          <div className="bg-amber-500/[0.06] rounded-lg px-3 py-2 border border-amber-500/15 text-[10px] text-amber-300 flex items-start gap-1.5">
+                            <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                            <span>
+                              ⚠ Batch sudah pernah ada (sisa {formatNumber(batchWarnings[idx].duplicate!.remainingQty)} {batchWarnings[idx].duplicate!.baseUnit}
+                              {batchWarnings[idx].duplicate!.expiredDate && `, Exp ${formatDate(batchWarnings[idx].duplicate!.expiredDate).split(' ')[0]}`}
+                              {batchWarnings[idx].duplicate!.purchaseOrderNumber && `, PO-${batchWarnings[idx].duplicate!.purchaseOrderNumber}`})
+                            </span>
+                          </div>
+                        )}
 
                         {/* Consolidated summary line — enriched */}
                         {(parseFloat(item.qty) > 0 && parseFloat(item.pricePerItem) > 0 && parseFloat(item.baseQty) > 0) ? (
@@ -3659,16 +3918,7 @@ export default function PurchasePage() {
                 <span>Preview Import Excel</span>
                 <p className="text-[11px] text-slate-500 font-normal mt-0.5">
                   {importPreviewData
-                    ? (() => {
-                        const valid = importPreviewData.filter(i => !i.error)
-                        const newCount = valid.filter(i => i.isNew).length
-                        const archCount = valid.filter(i => i.isArchived).length
-                        const parts: string[] = []
-                        parts.push(`${valid.length} item ditemukan`)
-                        if (newCount > 0) parts.push(`${newCount} barang baru`)
-                        if (archCount > 0) parts.push(`${archCount} item nonaktif`)
-                        return parts.join(', ')
-                      })()
+                    ? `${importPreviewData.filter(i => !i.error).length} item ditemukan, ${importPreviewData.filter(i => i.isNew).length} barang baru`
                     : 'Membaca file...'}
                 </p>
               </div>
@@ -3713,16 +3963,12 @@ export default function PurchasePage() {
           {importPreviewData && importPreviewData.filter(i => !i.error).length > 0 && (
             <div className="mt-2">
               <Label className="text-[11px] text-slate-400 mb-1.5 block">Supplier (opsional)</Label>
-              <Select value={importSupplierId} onValueChange={setImportSupplierId}>
-                <SelectTrigger className="h-9 text-xs bg-white/[0.03] border-white/[0.08]">
-                  <SelectValue placeholder="Pilih supplier..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {supplierOptions.map(s => (
-                    <SelectItem key={s.id} value={s.id} className="text-xs">{s.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SupplierSearchInput
+                value={importSupplierId}
+                onChange={setImportSupplierId}
+                options={supplierOptions}
+                onCreateSupplier={handleCreateSupplierForImport}
+              />
             </div>
           )}
 
@@ -3743,11 +3989,9 @@ export default function PurchasePage() {
                     'rounded-lg border p-2.5 text-xs',
                     item.error
                       ? 'border-red-500/20 bg-red-500/[0.04]'
-                      : item.isArchived
+                      : item.isNew
                         ? 'border-amber-500/20 bg-amber-500/[0.04]'
-                        : item.isNew
-                          ? 'border-amber-500/20 bg-amber-500/[0.04]'
-                          : 'border-white/[0.04] bg-white/[0.02]'
+                        : 'border-white/[0.04] bg-white/[0.02]'
                   )}
                 >
                   <div className="flex items-center justify-between">
@@ -3755,15 +3999,24 @@ export default function PurchasePage() {
                       <span className="text-[10px] text-slate-600 shrink-0">#{item.row}</span>
                       <span className="text-xs text-slate-200 font-medium truncate">{item.name}</span>
                       {item.sku && <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 border-white/[0.1] text-slate-500 shrink-0">{item.sku}</Badge>}
-                      {item.isArchived ? (
-                        <Badge variant="secondary" className="text-[9px] px-1.5 py-0 h-4 bg-amber-500/15 text-amber-400 border-amber-500/20 shrink-0">⚠️ Nonaktif</Badge>
-                      ) : item.isNew ? (
+                      {item.batch && <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 border-blue-500/20 text-blue-400/80 bg-blue-500/[0.06] shrink-0 font-mono">B:{item.batch}</Badge>}
+                      {item.isNew ? (
                         <Badge className="text-[9px] px-1.5 py-0 h-4 bg-amber-500/10 text-amber-400 border-amber-500/20 shrink-0">Baru</Badge>
                       ) : item.matchedItemName ? (
                         <Badge className="text-[9px] px-1.5 py-0 h-4 bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shrink-0">Match</Badge>
                       ) : null}
                     </div>
                     <div className="flex items-center gap-3 shrink-0 ml-2">
+                      {item.expiredDate && (
+                        <span className={cn(
+                          "text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0",
+                          new Date(item.expiredDate) < new Date()
+                            ? "text-red-400 bg-red-500/10"
+                            : "text-amber-400/70 bg-amber-500/10"
+                        )}>
+                          Exp: {formatDate(item.expiredDate)}
+                        </span>
+                      )}
                       {item.qty > 0 && (
                         <span className="text-[11px] text-slate-300">
                           {item.qty}{item.purchaseUnit ? ` ${item.purchaseUnit}` : ''}
@@ -3782,11 +4035,6 @@ export default function PurchasePage() {
                   </div>
                   {item.error && (
                     <p className="text-[10px] text-red-400/80 mt-1">{item.error}</p>
-                  )}
-                  {item.isArchived && (
-                    <p className="text-[10px] text-amber-400/80 mt-1">
-                      Item ini sudah pernah ada dan saat ini berstatus <strong>Nonaktif</strong>. Saat import, item akan otomatis diaktifkan kembali.
-                    </p>
                   )}
                 </div>
               )
@@ -4028,6 +4276,26 @@ export default function PurchasePage() {
                               onChange={(e) => handleUpdatePoEditItem(idx, 'pricePerItem', e.target.value)}
                               className={inputClass}
                               placeholder="72000"
+                            />
+                          </div>
+                          {/* Batch / No. Lot */}
+                          <div className="space-y-1">
+                            <label className="text-[10px] text-slate-400 font-medium">Batch / No. Lot</label>
+                            <Input
+                              value={item.batch}
+                              onChange={(e) => handleUpdatePoEditItem(idx, 'batch', e.target.value)}
+                              className={inputClass}
+                              placeholder="B2025-001"
+                            />
+                          </div>
+                          {/* Expired Date */}
+                          <div className="space-y-1">
+                            <label className="text-[10px] text-slate-400 font-medium">Expired</label>
+                            <Input
+                              type="date"
+                              value={item.expiredDate}
+                              onChange={(e) => handleUpdatePoEditItem(idx, 'expiredDate', e.target.value)}
+                              className={cn(inputClass, 'text-slate-300')}
                             />
                           </div>
                         </div>
@@ -5127,44 +5395,28 @@ export default function PurchasePage() {
             <div className="flex items-center justify-between pr-8">
               <div className="min-w-0">
                 <ResponsiveDialogTitle className="text-white text-base truncate">Detail Item</ResponsiveDialogTitle>
-                <ResponsiveDialogDescription className="text-slate-400 text-xs truncate flex items-center gap-1.5">
+                <ResponsiveDialogDescription className="text-slate-400 text-xs truncate">
                   {invDetailData?.name || '-'}
-                  {invDetailData?.status === 'ARCHIVED' && (
-                    <Badge variant="secondary" className="text-[9px] px-1.5 py-0 bg-amber-500/15 text-amber-400 border-amber-500/20 shrink-0">Nonaktif</Badge>
-                  )}
                 </ResponsiveDialogDescription>
               </div>
               {invDetailData && (
                 <div className="flex items-center gap-1 shrink-0">
-                  {invDetailData.status === 'ARCHIVED' ? (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 px-2 text-slate-400 hover:text-amber-400 hover:bg-amber-500/[0.06]"
-                      onClick={() => { handleRestoreInv(invDetailData.id); setInvDetailOpen(false) }}
-                    >
-                      <RotateCcw className="h-3.5 w-3.5" />
-                    </Button>
-                  ) : (
-                    <>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 px-2 text-slate-400 hover:text-white hover:bg-white/[0.04]"
-                        onClick={() => { openInvForm(invDetailData); setInvDetailOpen(false) }}
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 px-2 text-slate-400 hover:text-red-400 hover:bg-red-500/[0.06]"
-                        onClick={() => { setDeleteInvId(invDetailData.id); setInvDetailOpen(false) }}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </>
-                  )}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 px-2 text-slate-400 hover:text-white hover:bg-white/[0.04]"
+                    onClick={() => { openInvForm(invDetailData); setInvDetailOpen(false) }}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 px-2 text-slate-400 hover:text-red-400 hover:bg-red-500/[0.06]"
+                    onClick={() => { setDeleteInvId(invDetailData.id); setInvDetailOpen(false) }}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
                 </div>
               )}
             </div>
@@ -5240,16 +5492,23 @@ export default function PurchasePage() {
                 </div>
               </div>
 
-              {/* Tabs: Produk Terkait & Movement */}
-              <Tabs value={invDetailTab} onValueChange={setInvDetailTab} className="w-full min-w-0">
-                <TabsList className="bg-white/[0.04] h-8 w-full grid grid-cols-2 min-w-0">
+              {/* Tabs: Produk Terkait, Movement, Batch */}
+              <Tabs value={invDetailTab} onValueChange={(v) => {
+                setInvDetailTab(v)
+                if (v === 'batch' && invDetailData) void fetchBatchTimeline(invDetailData.id)
+              }} className="w-full min-w-0">
+                <TabsList className="bg-white/[0.04] h-8 w-full grid grid-cols-3 min-w-0">
                   <TabsTrigger value="products" className="text-[10px] h-7 gap-1 data-[state=active]:bg-white/[0.08] text-slate-400 data-[state=active]:text-white">
                     <Link2 className="h-3 w-3" />
-                    Produk Terkait ({invDetailData.linkedProducts.length})
+                    Produk ({invDetailData.linkedProducts.length})
                   </TabsTrigger>
                   <TabsTrigger value="movements" className="text-[10px] h-7 gap-1 data-[state=active]:bg-white/[0.08] text-slate-400 data-[state=active]:text-white">
                     <Activity className="h-3 w-3" />
                     Movement ({invDetailData._count.movements})
+                  </TabsTrigger>
+                  <TabsTrigger value="batch" className="text-[10px] h-7 gap-1 data-[state=active]:bg-white/[0.08] text-slate-400 data-[state=active]:text-white">
+                    <Hash className="h-3 w-3" />
+                    Batch
                   </TabsTrigger>
                 </TabsList>
 
@@ -5378,9 +5637,292 @@ export default function PurchasePage() {
                     </div>
                   )}
                 </TabsContent>
+
+                {/* Batch Timeline Tab */}
+                <TabsContent value="batch" className="mt-3">
+                  {batchTimelineLoading ? (
+                    <div className="space-y-2">
+                      {Array.from({ length: 3 }).map((_, i) => (
+                        <Skeleton key={i} className="h-16 bg-white/[0.03] rounded-lg" />
+                      ))}
+                    </div>
+                  ) : batchTimeline.length === 0 ? (
+                    <div className="py-8 text-center">
+                      <Hash className="h-6 w-6 text-slate-600 mx-auto mb-2" />
+                      <p className="text-xs text-slate-500">Belum ada data batch untuk item ini.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5 max-h-64 overflow-y-auto overflow-x-hidden pr-1">
+                      {batchTimeline.map((b) => {
+                        const statusColor = b.status === 'AVAILABLE' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : b.status === 'EXPIRED' ? 'bg-red-500/10 text-red-400 border-red-500/20' : 'bg-slate-500/10 text-slate-400 border-slate-500/20'
+                        const statusLabel = b.status === 'AVAILABLE' ? 'Tersedia' : b.status === 'EXPIRED' ? 'Expired' : b.status === 'CONSUMED' ? 'Habis' : b.status
+                        const daysColor = b.daysUntilExpiry === null ? 'text-slate-500' : b.daysUntilExpiry < 0 ? 'text-red-400' : b.daysUntilExpiry < 7 ? 'text-amber-400' : b.daysUntilExpiry < 30 ? 'text-amber-300' : 'text-emerald-400'
+                        const remainPct = b.initialQty > 0 ? Math.min((b.remainingQty / b.initialQty) * 100, 100) : 0
+                        const barColor = b.status === 'EXPIRED' ? 'bg-red-400' : b.status === 'CONSUMED' ? 'bg-slate-500' : 'bg-emerald-400'
+                        return (
+                          <div key={b.id} className="bg-white/[0.02] rounded-lg p-2.5 border border-white/[0.03] space-y-1.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 min-w-0 flex-1">
+                                <span className="text-[11px] text-white font-mono font-medium truncate">{b.batchNumber || '-'}</span>
+                                <Badge variant="outline" className={cn('text-[9px] px-1.5 py-0 leading-none border shrink-0', statusColor)}>
+                                  {statusLabel}
+                                </Badge>
+                              </div>
+                              <span className={cn('text-[10px] font-medium shrink-0', daysColor)}>
+                                {b.daysUntilExpiry === null ? '∞' : b.daysUntilExpiry < 0 ? `${Math.abs(b.daysUntilExpiry)} hari lalu` : `${b.daysUntilExpiry} hari`}
+                              </span>
+                            </div>
+                            {/* Qty bar */}
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1 h-1.5 rounded-full bg-white/[0.04] overflow-hidden">
+                                <div className={cn('h-full rounded-full transition-all', barColor)} style={{ width: `${remainPct}%` }} />
+                              </div>
+                              <span className="text-[10px] text-slate-400 shrink-0 tabular-nums">{formatNumber(b.remainingQty)}/{formatNumber(b.initialQty)} {b.baseUnit}</span>
+                            </div>
+                            {/* Meta */}
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-slate-500">
+                              {b.supplierName && <span>👤 {b.supplierName}</span>}
+                              {b.purchaseOrderNumber && <span>📋 PO-{b.purchaseOrderNumber}</span>}
+                              {b.expiredDate && <span>📅 {formatDate(b.expiredDate).split(' ')[0]}</span>}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </TabsContent>
               </Tabs>
             </div>
           ) : null}
+        </ResponsiveDialogContent>
+      </ResponsiveDialog>
+
+      {/* ══════════════════════════════════════════════════════ */}
+      {/* BATCH SEARCH DIALOG                                    */}
+      {/* ══════════════════════════════════════════════════════ */}
+      <ResponsiveDialog open={batchSearchOpen} onOpenChange={(open) => { if (!open) { setBatchSearchOpen(false); setBatchSearchResult(null); setBatchSearchQuery('') } }}>
+        <ResponsiveDialogContent className="sm:max-w-lg flex flex-col max-h-[80vh]">
+          <ResponsiveDialogHeader>
+            <ResponsiveDialogTitle className="text-white text-base flex items-center gap-2">
+              <div className="w-8 h-8 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+                <Hash className="h-4 w-4 text-emerald-400" />
+              </div>
+              <div>
+                <span>Cari Batch</span>
+                <p className="text-[11px] text-slate-500 font-normal mt-0.5">Telusuri batch berdasarkan nomor batch</p>
+              </div>
+            </ResponsiveDialogTitle>
+            <ResponsiveDialogDescription className="text-slate-400 text-xs sr-only">
+              Cari batch berdasarkan nomor batch
+            </ResponsiveDialogDescription>
+          </ResponsiveDialogHeader>
+
+          <div className="mt-2 flex gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
+              <Input
+                value={batchSearchQuery}
+                onChange={(e) => setBatchSearchQuery(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') void handleBatchSearch() }}
+                placeholder="cth: FM24001"
+                className={cn(inputClass, 'pl-8')}
+              />
+            </div>
+            <Button
+              className="theme-bg theme-hover text-white text-xs h-9 px-4 shrink-0"
+              disabled={batchSearchLoading || !batchSearchQuery.trim()}
+              onClick={() => void handleBatchSearch()}
+            >
+              {batchSearchLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
+            </Button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto mt-3">
+            {batchSearchLoading && (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-5 w-5 text-emerald-400 animate-spin" />
+                <span className="text-xs text-slate-400 ml-2">Mencari batch...</span>
+              </div>
+            )}
+
+            {batchSearchResult && !batchSearchLoading && (
+              <div className="space-y-3">
+                {/* Batch Info Card */}
+                <div className="bg-white/[0.02] rounded-xl border border-white/[0.04] p-3.5 space-y-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs text-white font-medium truncate">{batchSearchResult.batch.inventoryItem.name}</p>
+                      <p className="text-[10px] text-slate-500 font-mono">{batchSearchResult.batch.inventoryItem.sku || '-'}</p>
+                    </div>
+                    <Badge variant="outline" className={cn(
+                      'text-[9px] px-1.5 py-0 leading-none border shrink-0',
+                      batchSearchResult.batch.status === 'AVAILABLE' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                      batchSearchResult.batch.status === 'EXPIRED' ? 'bg-red-500/10 text-red-400 border-red-500/20' :
+                      'bg-slate-500/10 text-slate-400 border-slate-500/20'
+                    )}>
+                      {batchSearchResult.batch.status}
+                    </Badge>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-[10px]">
+                    <div>
+                      <span className="text-slate-500">Batch</span>
+                      <p className="text-slate-200 font-mono font-medium mt-0.5">{batchSearchResult.batch.batchNumber || '-'}</p>
+                    </div>
+                    <div>
+                      <span className="text-slate-500">Sisa / Awal</span>
+                      <p className="text-slate-200 font-medium mt-0.5">{formatNumber(batchSearchResult.batch.remainingQty)} / {formatNumber(batchSearchResult.batch.initialQty)} {batchSearchResult.batch.baseUnit}</p>
+                    </div>
+                    {batchSearchResult.batch.expiredDate && (
+                      <div>
+                        <span className="text-slate-500">Tanggal Expired</span>
+                        <p className="text-slate-200 mt-0.5">{formatDate(batchSearchResult.batch.expiredDate).split(' ')[0]}</p>
+                      </div>
+                    )}
+                    {batchSearchResult.batch.daysUntilExpiry !== null && (
+                      <div>
+                        <span className="text-slate-500">Sisa Waktu</span>
+                        <p className={cn('font-medium mt-0.5', batchSearchResult.batch.daysUntilExpiry < 0 ? 'text-red-400' : batchSearchResult.batch.daysUntilExpiry < 7 ? 'text-amber-400' : 'text-emerald-400')}>
+                          {batchSearchResult.batch.daysUntilExpiry < 0 ? `${Math.abs(batchSearchResult.batch.daysUntilExpiry)} hari lalu` : `${batchSearchResult.batch.daysUntilExpiry} hari`}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Supplier + PO */}
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-slate-500 pt-1.5 border-t border-white/[0.04]">
+                    {batchSearchResult.purchaseOrder?.supplierName && <span>👤 {batchSearchResult.purchaseOrder.supplierName}</span>}
+                    {batchSearchResult.purchaseOrder && <span>📋 PO-{batchSearchResult.purchaseOrder.orderNumber}</span>}
+                    {batchSearchResult.purchaseOrder && <span>📅 {formatDate(batchSearchResult.purchaseOrder.date).split(' ')[0]}</span>}
+                  </div>
+                </div>
+
+                {/* Transactions */}
+                {batchSearchResult.transactions.length > 0 && (
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wider">Transaksi yang Menggunakan Batch Ini</p>
+                    {batchSearchResult.transactions.map((t) => (
+                      <div key={t.id} className="bg-white/[0.02] rounded-lg px-3 py-2.5 border border-white/[0.03]">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[11px] text-white font-medium">{t.invoiceNumber || '-'}</span>
+                          <span className="text-[11px] text-red-400 font-semibold tabular-nums">-{formatNumber(t.qtyConsumed)} {batchSearchResult.batch.baseUnit}</span>
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5 text-[10px] text-slate-500">
+                          <span>{formatDate(t.date).split(' ')[0]}</span>
+                          {t.sourceProducts && <span className="truncate">• {t.sourceProducts}</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {batchSearchResult.transactions.length === 0 && (
+                  <p className="text-xs text-slate-500 text-center py-4">Belum ada transaksi yang menggunakan batch ini.</p>
+                )}
+              </div>
+            )}
+          </div>
+        </ResponsiveDialogContent>
+      </ResponsiveDialog>
+
+      {/* ══════════════════════════════════════════════════════ */}
+      {/* WASTE REPORT DIALOG                                     */}
+      {/* ══════════════════════════════════════════════════════ */}
+      <ResponsiveDialog open={wasteReportOpen} onOpenChange={(open) => { if (!open) { setWasteReportOpen(false); setWasteReportData(null) } }}>
+        <ResponsiveDialogContent className="sm:max-w-lg flex flex-col max-h-[85vh]">
+          <ResponsiveDialogHeader>
+            <ResponsiveDialogTitle className="text-white text-base flex items-center gap-2">
+              <div className="w-8 h-8 rounded-xl bg-red-500/10 flex items-center justify-center">
+                <Flame className="h-4 w-4 text-red-400" />
+              </div>
+              <div>
+                <span>Laporan Waste (Sisa Mati)</span>
+                <p className="text-[11px] text-slate-500 font-normal mt-0.5">Rincian barang kadaluarsa & kerugian</p>
+              </div>
+            </ResponsiveDialogTitle>
+            <ResponsiveDialogDescription className="text-slate-400 text-xs sr-only">
+              Laporan waste berdasarkan periode
+            </ResponsiveDialogDescription>
+          </ResponsiveDialogHeader>
+
+          {/* Date filter */}
+          <div className="flex items-end gap-2 mt-2">
+            <div className="flex-1 space-y-1">
+              <label className="text-[10px] text-slate-400 font-medium">Dari</label>
+              <Input
+                type="date"
+                value={wasteReportStartDate}
+                onChange={(e) => setWasteReportStartDate(e.target.value)}
+                className={cn(inputClass, 'text-slate-300')}
+              />
+            </div>
+            <div className="flex-1 space-y-1">
+              <label className="text-[10px] text-slate-400 font-medium">Sampai</label>
+              <Input
+                type="date"
+                value={wasteReportEndDate}
+                onChange={(e) => setWasteReportEndDate(e.target.value)}
+                className={cn(inputClass, 'text-slate-300')}
+              />
+            </div>
+            <Button
+              className="theme-bg theme-hover text-white text-xs h-9 px-4 shrink-0"
+              disabled={wasteReportLoading}
+              onClick={() => void fetchWasteReport()}
+            >
+              {wasteReportLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
+            </Button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto mt-3">
+            {wasteReportLoading && (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-5 w-5 text-red-400 animate-spin" />
+                <span className="text-xs text-slate-400 ml-2">Memuat laporan...</span>
+              </div>
+            )}
+
+            {wasteReportData && !wasteReportLoading && (
+              <div className="space-y-3">
+                {/* Total Loss Card */}
+                <div className="bg-red-500/5 rounded-xl border border-red-500/10 p-4 text-center">
+                  <p className="text-[10px] text-red-400/70 uppercase tracking-wider font-medium">Total Kerugian</p>
+                  <p className="text-2xl font-bold text-red-400 mt-1">{formatCurrency(wasteReportData.totalLoss)}</p>
+                  <p className="text-[10px] text-slate-500 mt-1">{wasteReportData.items.length} item expired</p>
+                </div>
+
+                {/* Items List */}
+                {wasteReportData.items.length > 0 ? (
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wider">Rincian Item</p>
+                    {wasteReportData.items.map((item) => (
+                      <div key={item.id} className="bg-white/[0.02] rounded-lg px-3 py-2.5 border border-white/[0.03]">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[11px] text-slate-200 font-medium truncate">{item.inventoryItemName}</p>
+                            <div className="flex items-center gap-2 mt-0.5 text-[10px] text-slate-500">
+                              {item.batchNumber && <span className="font-mono">{item.batchNumber}</span>}
+                              <span>{formatNumber(item.remainingQty)}/{formatNumber(item.initialQty)} {item.baseUnit} tersisa</span>
+                              {item.expiredDate && <span>Exp: {formatDate(item.expiredDate).split(' ')[0]}</span>}
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <p className="text-[11px] text-red-400 font-semibold">-{formatCurrency(item.totalLoss)}</p>
+                            <p className="text-[9px] text-slate-600">{formatCurrency(item.unitCost)}/{item.baseUnit}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-8 text-center">
+                    <Flame className="h-6 w-6 text-slate-600 mx-auto mb-2" />
+                    <p className="text-xs text-emerald-400">✅ Tidak ada waste pada periode ini!</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </ResponsiveDialogContent>
       </ResponsiveDialog>
     </motion.div>

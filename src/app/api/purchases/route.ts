@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { parsePagination } from '@/lib/api/api-helpers'
 import { safeJson, safeJsonCreated, safeJsonError, CACHE } from '@/lib/api/safe-response'
+import { FEFOEngine } from '@/lib/fefo-engine'
 
 // Helper: recalculate HPP for all products affected by the given inventory item IDs
 async function recalculateHppForAffectedProducts(
@@ -175,6 +176,8 @@ export async function POST(request: NextRequest) {
         baseUnit: string
         unitCost: number
         totalCost: number
+        batch?: string | null
+        expiredDate?: string | null
       }>
     }
 
@@ -204,14 +207,17 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Validate supplierId if provided
+    // Validate supplierId if provided & capture supplier name for batch records
+    let supplierName: string | null = null
     if (supplierId) {
       const supplier = await db.supplier.findFirst({
         where: { id: supplierId, outletId },
+        select: { name: true },
       })
       if (!supplier) {
         return safeJsonError('Supplier not found', 400)
       }
+      supplierName = supplier.name
     }
 
     // Validate all inventory items belong to this outlet
@@ -263,6 +269,8 @@ export async function POST(request: NextRequest) {
                 baseUnit: item.baseUnit,
                 unitCost: item.unitCost,
                 totalCost: item.totalCost || (item.baseQty * item.unitCost),
+                batch: item.batch?.trim() || null,
+                expiredDate: item.expiredDate ? new Date(item.expiredDate) : null,
                 outletId,
               }
             }),
@@ -314,6 +322,8 @@ export async function POST(request: NextRequest) {
               newStock,
               previousAvgCost: existingAvgCost,
               newAvgCost,
+              batch: item.batch?.trim() || null,
+              expiredDate: item.expiredDate || null,
             }),
             outletId,
             userId,
@@ -330,7 +340,7 @@ export async function POST(request: NextRequest) {
             newStock,
             referenceId: purchaseOrder.id,
             referenceType: 'PURCHASE_ORDER',
-            notes: `Pembelian: ${invItem.name} (${orderNumber})`,
+            notes: `Pembelian: ${invItem.name} (${orderNumber})${item.batch?.trim() ? ` [Batch: ${item.batch.trim()}]` : ''}${item.expiredDate ? ` [Exp: ${item.expiredDate.split('T')[0]}]` : ''}`,
             outletId,
             userId,
           },
@@ -338,6 +348,22 @@ export async function POST(request: NextRequest) {
 
         affectedInventoryItemIds.push(item.inventoryItemId)
       }
+
+      // Create InventoryBatch records for FEFO tracking
+      await FEFOEngine.createBatchesFromPurchase(tx, {
+        purchaseOrderId: purchaseOrder.id,
+        items: normalizedItems.map(item => ({
+          inventoryItemId: item.inventoryItemId,
+          name: inventoryItems.find(ii => ii.id === item.inventoryItemId)!.name,
+          baseQty: item.baseQty,
+          unitCost: item.unitCost,
+          batch: item.batch?.trim() || null,
+          expiredDate: item.expiredDate ? new Date(item.expiredDate) : null,
+        })),
+        outletId,
+        supplierId: supplierId || null,
+        supplierName,
+      })
 
       // Recalculate HPP for all products that use these inventory items
       await recalculateHppForAffectedProducts(tx, affectedInventoryItemIds)

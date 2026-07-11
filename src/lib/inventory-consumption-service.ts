@@ -319,6 +319,25 @@ export class InventoryConsumptionService {
       })
     }
 
+    // ── 8. FEFO: Record batch consumption (batch-aware deduction) ──
+    try {
+      const { FEFOEngine } = await import('@/lib/fefo-engine')
+      for (const deduction of resultDeductions) {
+        await FEFOEngine.recordBatchConsumption(tx, {
+          inventoryItemId: deduction.inventoryItemId,
+          quantityNeeded: deduction.totalDeducted,
+          transactionId,
+          invoiceNumber,
+          outletId,
+          userId,
+          sourceDetails: JSON.stringify(deduction.sources),
+        })
+      }
+    } catch (batchError) {
+      console.warn(`[InvConsumption] FEFO batch recording failed (non-fatal):`, batchError)
+      // Non-fatal: the main deduction already succeeded
+    }
+
     return {
       success: true,
       deductions: resultDeductions,

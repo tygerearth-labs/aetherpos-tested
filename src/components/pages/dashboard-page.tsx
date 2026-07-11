@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useSession } from 'next-auth/react'
 import { usePlan } from '@/hooks/use-plan'
 import { useDashboard, useInsights, useForecast } from '@/hooks/use-dashboard'
@@ -13,7 +13,7 @@ import { HealthRing } from '@/components/dashboard/dashboard-charts'
 import { StatCards } from '@/components/dashboard/stat-cards'
 import { QuickActions } from '@/components/dashboard/quick-actions'
 import { AnalyticsTabs } from '@/components/dashboard/analytics-tabs'
-import { SalesProductsCard, InsightsSection, InventoryAlertsSection, ScoreExplanationDialog } from '@/components/dashboard/dashboard-sections'
+import { SalesProductsCard, InsightsSection, InventoryAlertsSection, ScoreExplanationDialog, InventoryFreshnessWidget, ExpiryHeatmapWidget, ExpiryAlertBanner, PromoRecommendationWidget } from '@/components/dashboard/dashboard-sections'
 import { EnterpriseBubbleChart, PendingTransfersSection, InventoryPredictionSection } from '@/components/dashboard/enterprise-sections'
 
 // ── Animation variants ──
@@ -74,6 +74,7 @@ export default function DashboardPage() {
   const { data: insightData, isLoading: insightLoading, refetch: refetchInsights } = useInsights(!!isOwner && !!hasAiInsights)
   const { data: forecastData, isLoading: forecastLoading } = useForecast(!!isOwner && !!hasForecasting)
   const [scoreDialogOpen, setScoreDialogOpen] = useState(false)
+  const expiryHeatmapRef = useRef<HTMLDivElement>(null)
 
   const topSelling = insightData?.metrics.topSelling ?? []
 
@@ -211,6 +212,28 @@ export default function DashboardPage() {
       <motion.div variants={itemVariants}>
         <InventoryAlertsSection stats={stats} />
       </motion.div>
+
+      {/* ═══════════════════════════════════════════════════
+          GROUP F — Inventory Intelligence
+          ═══════════════════════════════════════════════════ */}
+      <motion.div variants={itemVariants}>
+        <ExpiryAlertBanner
+          onShowDetail={() => {
+            expiryHeatmapRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          }}
+        />
+      </motion.div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+        <motion.div variants={itemVariants}>
+          <InventoryFreshnessWidget />
+        </motion.div>
+        <motion.div variants={itemVariants} ref={expiryHeatmapRef}>
+          <ExpiryHeatmapWidget />
+        </motion.div>
+        <motion.div variants={itemVariants}>
+          <PromoRecommendationWidget />
+        </motion.div>
+      </div>
 
       {/* Score Explanation Dialog */}
       {isOwner && insightData && (
