@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useSession } from 'next-auth/react'
 import { toast } from 'sonner'
+import { cn } from '@/lib/utils'
 import { formatCurrency, formatNumber, formatDate } from '@/lib/format'
 import { usePlan } from '@/hooks/use-plan'
 import { Button } from '@/components/ui/button'
