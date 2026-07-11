@@ -99,8 +99,6 @@ import {
   Beaker,
   Info,
   Boxes,
-  ChevronDown,
-  FileSpreadsheet as FileSpreadsheetIcon,
   HelpCircle,
   Lightbulb,
 } from 'lucide-react'
@@ -1655,7 +1653,7 @@ export default function ProductsPage() {
         {featureHelpOpen && (
           <div className="px-4 pb-3.5 pt-1 space-y-2.5 border-t border-white/[0.04]">
             {[
-              { icon: <FileSpreadsheetIcon className="h-3 w-3" />, label: 'Excel Dropdown', desc: 'Kumpulan aksi Excel dalam satu menu: Export untuk download, Upload untuk tambah produk baru massal, dan Edit untuk update produk yang sudah ada. Format file tersedia di masing-masing dialog.' },
+              { icon: <FileSpreadsheet className="h-3 w-3" />, label: 'Excel Dropdown', desc: 'Kumpulan aksi Excel dalam satu menu: Export untuk download, Upload untuk tambah produk baru massal, dan Edit untuk update produk yang sudah ada. Format file tersedia di masing-masing dialog.' },
               { icon: <ListChecks className="h-3 w-3" />, label: 'Edit Massal', desc: 'Centang beberapa produk di tabel, lalu ubah harga, stok, atau kategori secara bersamaan. Tersedia untuk akun Pro & Owner.' },
               { icon: <Printer className="h-3 w-3" />, label: 'Cetak Barcode', desc: 'Pilih produk (satu atau banyak) lalu cetak barcode dalam format yang siap tempel ke label produk.' },
               { icon: <ScanBarcode className="h-3 w-3" />, label: 'Barcode & SKU', desc: 'Setiap produk bisa punya SKU manual dan/atau barcode. Di POS, scan barcode langsung menambahkan produk ke keranjang.' },
