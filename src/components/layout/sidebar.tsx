@@ -30,6 +30,7 @@ import {
   Building2,
   PackagePlus,
   Send,
+  FlaskConical,
 } from 'lucide-react'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -82,6 +83,7 @@ const navItems: NavItem[] = [
   { label: 'Kelola Crew', shortLabel: 'Crew', icon: <UserCog className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'crew', section: 'management' },
   { label: 'Plan & Pricing', shortLabel: 'Plan', icon: <Crown className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'plan', section: 'management' },
   { label: 'Multi Outlet', shortLabel: 'Mo', icon: <Building2 className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'multi-outlet', section: 'management', groupOnly: true },
+  { label: 'Test Suite', shortLabel: 'Test', icon: <FlaskConical className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'test-suite', section: 'management' },
 ]
 
 const sectionLabels: Record<string, string> = {
