@@ -57,6 +57,9 @@ export interface OfflineTransaction {
   retryCount: number
   invoiceNumber?: string
   localId?: number
+  syncedAt?: number
+  serverTransactionId?: string
+  lastError?: string
 }
 
 export interface PendingTransaction {
@@ -83,7 +86,9 @@ interface SyncMeta {
 
 interface Setting {
   key: string
-  value: unknown
+  value?: unknown
+  data?: unknown
+  updatedAt?: string
 }
 
 // ── Dexie Database ──

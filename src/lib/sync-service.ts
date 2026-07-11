@@ -68,6 +68,7 @@ export async function syncProductsFromServer(): Promise<SyncResultBase & { count
           categoryId: (p.categoryId as string) || null,
           hasVariants: !!(p.hasVariants) as boolean,
           _variantCount: Number(p._variantCount) || 0,
+          unit: (p.unit as string) || 'pcs',
           variants: Array.isArray(p.variants) ? p.variants.map((v: Record<string, unknown>) => ({
             id: v.id as string,
             name: v.name as string,

@@ -78,6 +78,7 @@ interface Product {
   name: string
   price: number
   stock: number
+  hpp: number
   sku: string | null
   barcode: string | null
   categoryId: string | null
@@ -135,6 +136,10 @@ interface OutletSettings {
   ppnEnabled: boolean
   ppnRate: number
   manualDiscountEnabled: boolean
+  receiptDoublePrintEnabled: boolean
+  receiptMerchantCopyEnabled: boolean
+  receiptCustomerCopyEnabled: boolean
+  receiptBatchOrderEnabled: boolean
 }
 
 interface OutletInfo {
@@ -242,6 +247,10 @@ export default function PosPage() {
     ppnEnabled: false,
     ppnRate: 11,
     manualDiscountEnabled: false,
+    receiptDoublePrintEnabled: false,
+    receiptMerchantCopyEnabled: true,
+    receiptCustomerCopyEnabled: true,
+    receiptBatchOrderEnabled: false,
   })
 
   // Outlet info (from settings API)
@@ -516,10 +525,11 @@ export default function PosPage() {
       }
     }
     if (toFetch.length === 0) return
+    try {
     toFetch.forEach(key => {
       const [pid, vid] = key.split('::')
       const variantId = vid === 'base' ? undefined : vid
-      const params = new URLSearchParams({ productId })
+      const params = new URLSearchParams({ productId: pid })
       if (variantId) params.set('variantId', variantId)
       fetch(`/api/inventory/batches/pos-preview?${params}`)
         .then(r => r.ok ? r.json() : null)
@@ -544,6 +554,7 @@ export default function PosPage() {
         })
         .catch(() => { /* silent */ })
     })
+    } catch { /* guard against unexpected errors in batch fetch setup */ }
   }, [cart])
 
   // Checkout / Dialog state — NEW FLOW
