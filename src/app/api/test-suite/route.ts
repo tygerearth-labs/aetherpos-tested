@@ -1,8 +1,11 @@
 import { NextRequest } from 'next/server'
+import { requireWebmaster, webmasterUnauthorized } from '@/lib/api/webmaster-auth'
 import { SCENARIOS, type ScenarioResult } from '@/lib/test-scenarios'
 
-// GET /api/test-suite — List all scenarios (no execution)
-export async function GET() {
+// GET /api/test-suite — List all scenarios (webmaster only)
+export async function GET(request: NextRequest) {
+  if (!requireWebmaster(request)) return webmasterUnauthorized()
+
   const list = SCENARIOS.map((s) => ({
     id: s.id,
     category: s.category,
@@ -14,6 +17,8 @@ export async function GET() {
 
 // POST /api/test-suite — Run one or all scenarios
 export async function POST(request: NextRequest) {
+  if (!requireWebmaster(request)) return webmasterUnauthorized()
+
   try {
     const body = await request.json()
     const scenarioId = body.scenarioId as string | undefined

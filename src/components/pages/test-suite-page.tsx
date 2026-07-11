@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useCallback, useEffect, useRef } from 'react'
+import { useSession } from 'next-auth/react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -83,10 +84,37 @@ const STATUS_STYLES: Record<string, { icon: React.ReactNode; color: string; bg: 
 }
 
 // ════════════════════════════════════════════════════════════
-// Page Component
+// Page Component (wrapper — role guard)
 // ════════════════════════════════════════════════════════════
 
 export default function TestSuitePage() {
+  const { data: session, status: sessionStatus } = useSession()
+
+  if (sessionStatus === 'loading') {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-6 w-6 animate-spin text-slate-500" />
+      </div>
+    )
+  }
+  if (!session || session.user?.role !== 'OWNER') {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 gap-3">
+        <Shield className="h-10 w-10 text-slate-600" />
+        <p className="text-sm text-slate-400 font-medium">Akses ditolak</p>
+        <p className="text-xs text-slate-600">Modul ini hanya untuk Owner / Webmaster.</p>
+      </div>
+    )
+  }
+
+  return <TestSuiteContent />
+}
+
+// ════════════════════════════════════════════════════════════
+// Test Suite Content (all hooks live here)
+// ════════════════════════════════════════════════════════════
+
+function TestSuiteContent() {
   const [scenarios, setScenarios] = useState<ScenarioInfo[]>([])
   const [results, setResults] = useState<Record<string, ScenarioResult>>({})
   const [loading, setLoading] = useState(true)
