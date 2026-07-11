@@ -371,133 +371,167 @@ function CrewManagement() {
 
           {/* Content */}
           {loading ? (
-            <Card className="bg-nebula border-white/[0.06]">
-              <CardContent className="p-4 space-y-2">
-                {Array.from({ length: 3 }).map((_, i) => (
-                  <Skeleton key={i} className="h-14 bg-white/[0.04] rounded-lg" />
-                ))}
-              </CardContent>
-            </Card>
+            <div className="space-y-3">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} className="h-[180px] bg-white/[0.03] rounded-xl" />
+              ))}
+            </div>
           ) : filteredCrew.length === 0 ? (
-            <Card className="bg-nebula border-white/[0.06]">
-              <CardContent className="p-8 text-center">
+            <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-8 text-center">
                 <Users className="h-10 w-10 text-zinc-700 mx-auto mb-2" />
                 <p className="text-sm text-slate-400">
-                  {search ? 'Tidak ada crew yang cocok dengan pencarian' : 'Belum ada crew'}
+                  {search ? 'Tidak ada crew yang cocok' : 'Belum ada crew'}
                 </p>
-                <p className="text-[11px] text-slate-600 mt-0.5">
+                <p className="text-xs text-slate-500 mt-1 max-w-[240px] text-center leading-relaxed">
                   {search
                     ? 'Coba kata kunci lain'
                     : 'Tambahkan crew untuk membantu mengelola kasir outlet'
                   }
                 </p>
-              </CardContent>
-            </Card>
+              </div>
           ) : (
-            <Card className="bg-nebula border-white/[0.06]">
-              <CardContent className="p-4">
-                <div className="rounded-lg border border-white/[0.06] overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="border-white/[0.06] hover:bg-transparent">
-                        <TableHead className="text-slate-500 text-[11px] font-medium">Crew</TableHead>
-                        <TableHead className="text-slate-500 text-[11px] font-medium hidden sm:table-cell">Email</TableHead>
-                        <TableHead className="text-slate-500 text-[11px] font-medium text-center">Role</TableHead>
-                        <TableHead className="text-slate-500 text-[11px] font-medium text-center">Halaman Akses</TableHead>
-                        <TableHead className="text-slate-500 text-[11px] font-medium hidden lg:table-cell">Bergabung</TableHead>
-                        <TableHead className="text-slate-500 text-[11px] font-medium text-right">Aksi</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filteredCrew.map((member) => {
-                        const pages = member.crewPermission?.pages?.split(',').filter(Boolean) || []
-                        return (
-                          <TableRow key={member.id} className="border-white/[0.06] hover:bg-white/[0.03]">
-                            <TableCell className="py-2.5 px-3">
-                              <div className="flex items-center gap-2.5">
-                                <div className="w-8 h-8 rounded-lg bg-white/[0.04] flex items-center justify-center shrink-0">
-                                  <UserCog className="h-4 w-4 text-slate-400" />
-                                </div>
-                                <div className="min-w-0">
-                                  <p className="text-sm font-medium text-slate-200 truncate">{member.name}</p>
-                                </div>
+            <>
+              {/* Desktop: Table View */}
+              <div className="hidden md:block rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="border-white/[0.06] hover:bg-transparent bg-nebula/80">
+                      <TableHead className="text-slate-500 text-[11px] font-medium">Crew</TableHead>
+                      <TableHead className="text-slate-500 text-[11px] font-medium">Email</TableHead>
+                      <TableHead className="text-slate-500 text-[11px] font-medium text-center">Role</TableHead>
+                      <TableHead className="text-slate-500 text-[11px] font-medium text-center">Halaman Akses</TableHead>
+                      <TableHead className="text-slate-500 text-[11px] font-medium">Bergabung</TableHead>
+                      <TableHead className="text-slate-500 text-[11px] font-medium text-right">Aksi</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredCrew.map((member, idx) => {
+                      const pages = member.crewPermission?.pages?.split(',').filter(Boolean) || []
+                      const avatarColor = AVATAR_COLORS[idx % AVATAR_COLORS.length]
+                      return (
+                        <TableRow key={member.id} className="border-white/[0.06] hover:bg-white/[0.03]">
+                          <TableCell className="py-3 px-4">
+                            <div className="flex items-center gap-3">
+                              <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 text-xs font-bold ${avatarColor}`}>
+                                {getInitials(member.name)}
                               </div>
-                            </TableCell>
-                            <TableCell className="py-2.5 px-3 hidden sm:table-cell">
-                              <div className="flex items-center gap-1.5">
-                                <Mail className="h-3 w-3 text-slate-500 shrink-0" />
-                                <span className="text-xs text-slate-400 truncate">{member.email}</span>
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-center py-2.5 px-3">
-                              <Badge
-                                variant="outline"
-                                className="text-[10px] bg-white/[0.04] border-white/[0.08] text-slate-400"
-                              >
-                                {member.role}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-center py-2.5 px-3">
-                              <div className="flex flex-wrap justify-center gap-1">
-                                {pages.length > 0 ? (
-                                  pages.map((p) => {
-                                    const pageLabel = AVAILABLE_PAGES.find((ap) => ap.key === p)?.label || p
-                                    return (
-                                      <Badge
-                                        key={p}
-                                        className="text-[10px] theme-bg-very-light theme-border-light theme-text px-1.5 py-0"
-                                      >
-                                        {pageLabel}
-                                      </Badge>
-                                    )
-                                  })
-                                ) : (
-                                  <span className="text-[10px] text-slate-600">Default (POS)</span>
-                                )}
-                              </div>
-                            </TableCell>
-                            <TableCell className="py-2.5 px-3 hidden lg:table-cell">
-                              <div className="flex items-center gap-1.5">
-                                <Calendar className="h-3 w-3 text-slate-500" />
-                                <span className="text-xs text-slate-400">{formatDate(member.createdAt)}</span>
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-right py-2.5 px-3">
-                              <div className="flex items-center justify-end gap-0.5">
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-7 w-7 text-slate-400 hover:text-white hover:bg-white/[0.04]"
-                                  onClick={() => openEdit(member)}
-                                >
-                                  <Pencil className="h-3.5 w-3.5" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-7 w-7 text-slate-400 hover:text-red-400 hover:bg-red-500/10"
-                                  onClick={() => setDeleteId(member.id)}
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </Button>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        )
-                      })}
-                    </TableBody>
-                  </Table>
-                </div>
+                              <p className="text-sm font-medium text-slate-200">{member.name}</p>
+                            </div>
+                          </TableCell>
+                          <TableCell className="py-3 px-4">
+                            <div className="flex items-center gap-1.5">
+                              <Mail className="h-3.5 w-3.5 text-slate-500 shrink-0" />
+                              <span className="text-xs text-slate-400">{member.email}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-center py-3 px-4">
+                            <Badge variant="outline" className="text-[10px] font-medium bg-white/[0.04] border-white/[0.08] text-slate-400">
+                              {member.role}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="py-3 px-4">
+                            <div className="flex flex-wrap justify-center gap-1">
+                              {pages.length > 0 ? (
+                                pages.map((p) => {
+                                  const pageLabel = AVAILABLE_PAGES.find((ap) => ap.key === p)?.label || p
+                                  return (
+                                    <Badge key={p} className="text-[10px] theme-bg-very-light theme-border-light theme-text px-1.5 py-0">
+                                      {pageLabel}
+                                    </Badge>
+                                  )
+                                })
+                              ) : (
+                                <span className="text-[10px] text-slate-600">Default (POS)</span>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell className="py-3 px-4">
+                            <div className="flex items-center gap-1.5">
+                              <Calendar className="h-3.5 w-3.5 text-slate-500" />
+                              <span className="text-xs text-slate-400">{formatDate(member.createdAt)}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-right py-3 px-4">
+                            <div className="flex items-center justify-end gap-0.5">
+                              <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-white hover:bg-white/[0.04] rounded-lg" onClick={() => openEdit(member)}>
+                                <Pencil className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg" onClick={() => setDeleteId(member.id)}>
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
 
-                {/* Crew count */}
-                <div className="mt-3 flex items-center justify-between">
-                  <p className="text-[11px] text-slate-500">
-                    {filteredCrew.length} crew ditampilkan
-                    {search && ` dari ${crew.length} total`}
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
+              {/* Mobile: Card View */}
+              <div className="md:hidden space-y-3">
+                {filteredCrew.map((member, idx) => {
+                  const pages = member.crewPermission?.pages?.split(',').filter(Boolean) || []
+                  const avatarColor = AVATAR_COLORS[idx % AVATAR_COLORS.length]
+                  return (
+                    <div key={member.id} className="rounded-xl border border-white/[0.06] bg-white/[0.03] overflow-hidden">
+                      <div className="px-4 py-3.5 flex items-center gap-3 border-b border-white/[0.04]">
+                        <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 text-sm font-bold ${avatarColor}`}>
+                          {getInitials(member.name)}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-slate-200 truncate">{member.name}</p>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <Mail className="h-3 w-3 text-slate-500" />
+                            <span className="text-[11px] text-slate-500 truncate">{member.email}</span>
+                          </div>
+                        </div>
+                        <Badge variant="outline" className="text-[10px] font-medium bg-white/[0.04] border-white/[0.08] text-slate-400">
+                          {member.role}
+                        </Badge>
+                      </div>
+                      <div className="px-4 py-3 space-y-3">
+                        <div>
+                          <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wider mb-1.5">Halaman Akses</p>
+                          {pages.length > 0 ? (
+                            <div className="flex flex-wrap gap-1.5">
+                              {pages.map((p) => {
+                                const pageLabel = AVAILABLE_PAGES.find((ap) => ap.key === p)?.label || p
+                                return (
+                                  <Badge key={p} className="text-[10px] theme-bg-very-light theme-border-light theme-text px-1.5 py-0.5">
+                                    {pageLabel}
+                                  </Badge>
+                                )
+                              })}
+                            </div>
+                          ) : (
+                            <p className="text-[11px] text-slate-500">Default (POS)</p>
+                          )}
+                        </div>
+                        <div className="flex items-center justify-between pt-1">
+                          <div className="flex items-center gap-1.5">
+                            <Calendar className="h-3 w-3 text-slate-500" />
+                            <span className="text-[11px] text-slate-500">{formatDate(member.createdAt)}</span>
+                          </div>
+                          <div className="flex items-center gap-0.5">
+                            <button type="button" onClick={() => openEdit(member)} className="flex items-center justify-center h-9 w-9 rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.04] transition-colors">
+                              <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                            <button type="button" onClick={() => setDeleteId(member.id)} className="flex items-center justify-center h-9 w-9 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors">
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              <p className="text-[10px] text-slate-600 text-center pb-1">
+                {filteredCrew.length} crew ditampilkan{search && ` dari ${crew.length} total`}
+              </p>
+            </>
           )}
         </TabsContent>
 
