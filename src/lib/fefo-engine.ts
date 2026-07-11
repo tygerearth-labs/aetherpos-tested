@@ -151,7 +151,7 @@ export class FEFOEngine {
       ORDER BY
         CASE WHEN ib."expiredDate" IS NULL THEN 1 ELSE 0 END,
         ib."expiredDate" ASC,
-        ib.createdAt ASC
+        ib."createdAt" ASC
     `
 
     if (batches.length === 0) {
@@ -511,7 +511,7 @@ export class FEFOEngine {
       ORDER BY
         CASE WHEN ib."expiredDate" IS NULL THEN 1 ELSE 0 END,
         ib."expiredDate" ASC,
-        ib.createdAt ASC
+        ib."createdAt" ASC
     `
 
     if (batches.length === 0) {
