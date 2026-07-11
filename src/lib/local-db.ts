@@ -13,14 +13,15 @@ export interface CachedProduct {
   image: string | null
   categoryId: string | null
   hasVariants: boolean
+  _variantCount: number
   unit: string
   variants?: Array<{
     id: string
     name: string
     sku: string | null
     price: number
+    hpp: number
     stock: number
-    image: string | null
   }>
   updatedAt?: string
 }
