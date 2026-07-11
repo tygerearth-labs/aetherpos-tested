@@ -439,6 +439,7 @@ export default function PurchasePage() {
   const [showImportPreview, setShowImportPreview] = useState(false)
   const [importLoading, setImportLoading] = useState(false)
   const [importPosting, setImportPosting] = useState(false)
+  const [importProgress, setImportProgress] = useState({ step: 0, total: 0, label: '' })
   const [importSupplierId, setImportSupplierId] = useState('')
   const [importPreviewData, setImportPreviewData] = useState<Array<{
     row: number; name: string; sku: string | null; purchaseUnit: string;
@@ -1226,49 +1227,38 @@ export default function PurchasePage() {
     if (validItems.length === 0) return
 
     setImportPosting(true)
-    const idMap = new Map<string, string>() // tempKey → real inventory item ID
+    const total = validItems.length
+
+    // Animate progress while backend processes
+    let progressTimer: ReturnType<typeof setInterval> | null = null
+    let currentStep = 0
+    const steps = total <= 10
+      ? ['Menyimpan pembelian...']
+      : ['Membuat item baru...', 'Menyimpan pembelian...']
+
+    const startProgress = () => {
+      setImportProgress({ step: 0, total, label: steps[0] })
+      currentStep = 0
+      progressTimer = setInterval(() => {
+        currentStep = Math.min(currentStep + 1, total)
+        const stepIdx = currentStep > total / 2 ? Math.min(1, steps.length - 1) : 0
+        setImportProgress({ step: currentStep, total, label: steps[stepIdx] })
+      }, total <= 20 ? 200 : 80)
+    }
+    const stopProgress = () => {
+      if (progressTimer) { clearInterval(progressTimer); progressTimer = null }
+      setImportProgress({ step: total, total, label: '' })
+    }
 
     try {
-      // Step 1: Create new inventory items for unmatched items
-      const newItems = validItems.filter(i => i.isNew && !i.matchedItemId)
-      if (newItems.length > 0) {
-        toast.loading(`Membuat ${newItems.length} item baru di inventory...`, { id: 'import-pending-create' })
-        for (const item of newItems) {
-          try {
-            const res = await fetch('/api/inventory/items', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                name: item.name,
-                sku: item.sku || undefined,
-                baseUnit: item.baseUnit || item.matchedItemUnit || 'pcs',
-                stock: 0,
-                avgCost: 0,
-              }),
-            })
-            if (res.ok) {
-              const data = await res.json()
-              idMap.set(`import_row_${item.row}`, data.id)
-            } else {
-              const err = await res.json()
-              toast.error(err.error || `Gagal membuat item "${item.name}"`)
-              toast.dismiss('import-pending-create')
-              setImportPosting(false)
-              return
-            }
-          } catch {
-            toast.error(`Gagal membuat item "${item.name}"`)
-            toast.dismiss('import-pending-create')
-            setImportPosting(false)
-            return
-          }
-        }
-        toast.dismiss('import-pending-create')
-      }
+      startProgress()
 
-      // Step 2: Build purchase items and create PO
-      const purchaseItems = validItems.map(item => {
-        let itemId = item.matchedItemId || idMap.get(`import_row_${item.row}`) || ''
+      // Separate existing items vs new items
+      const existingItems = validItems.filter(i => !i.isNew && i.matchedItemId)
+      const newItems = validItems.filter(i => i.isNew && !i.matchedItemId)
+
+      // Build purchase items (existing — already have IDs)
+      const purchaseItems = existingItems.map(item => {
         const baseQtyVal = item.baseQty || 1
         const qtyVal = item.qty || 0
         const pricePerUnit = item.pricePerUnit || 0
@@ -1277,7 +1267,7 @@ export default function PurchasePage() {
         const unitCost = totalBaseQty > 0 ? totalCost / totalBaseQty : 0
 
         return {
-          inventoryItemId: itemId,
+          inventoryItemId: item.matchedItemId!,
           purchaseQty: qtyVal,
           purchaseUnit: item.purchaseUnit || '',
           baseQty: totalBaseQty,
@@ -1289,18 +1279,45 @@ export default function PurchasePage() {
         }
       })
 
+      // Build new items (no inventoryItemId — backend creates them)
+      const newItemsPayload = newItems.map(item => {
+        const baseQtyVal = item.baseQty || 1
+        const qtyVal = item.qty || 0
+        const pricePerUnit = item.pricePerUnit || 0
+        const totalCost = pricePerUnit * qtyVal
+        const totalBaseQty = qtyVal * baseQtyVal
+        const unitCost = totalBaseQty > 0 ? totalCost / totalBaseQty : 0
+
+        return {
+          key: `import_row_${item.row}`,
+          name: item.name,
+          sku: item.sku || undefined,
+          baseUnit: item.baseUnit || item.matchedItemUnit || 'pcs',
+          purchaseQty: qtyVal,
+          purchaseUnit: item.purchaseUnit || '',
+          baseQty: totalBaseQty,
+          unitCost,
+          totalCost,
+          batch: item.batch?.trim() || undefined,
+          expiredDate: item.expiredDate || undefined,
+        }
+      })
+
+      // ONE API CALL: backend creates new items + PO atomically
       const res = await fetch('/api/purchases', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           supplierId: importSupplierId || undefined,
           items: purchaseItems,
+          newItems: newItemsPayload.length > 0 ? newItemsPayload : undefined,
         }),
       })
 
       if (res.ok) {
         const data = await res.json()
-        toast.success(`Pembelian berhasil dibuat! ${data.orderNumber} (${validItems.length} item, ${formatCurrency(data.totalCost)})`)
+        stopProgress()
+        toast.success(`Pembelian berhasil! ${data.orderNumber} (${validItems.length} item, ${formatCurrency(data.totalCost)})`)
         setShowImportPreview(false)
         setImportPreviewData(null)
         setImportSupplierId('')
@@ -1308,23 +1325,14 @@ export default function PurchasePage() {
         void fetchInventoryItems()
         void fetchPurchaseSummary()
       } else {
+        stopProgress()
         const data = await res.json()
         toast.error(data.error || 'Gagal membuat pembelian')
-        // Cleanup: delete orphaned new inventory items
-        if (idMap.size > 0) {
-          for (const [, realId] of idMap) {
-            try { await fetch(`/api/inventory/items/${realId}`, { method: 'DELETE' }) } catch { /* ignore */ }
-          }
-          toast.info(`${idMap.size} item baru dibatalkan karena pembelian gagal`)
-        }
       }
-    } catch {
+    } catch (err) {
+      stopProgress()
       toast.error('Gagal membuat pembelian')
-      if (idMap.size > 0) {
-        for (const [, realId] of idMap) {
-          try { await fetch(`/api/inventory/items/${realId}`, { method: 'DELETE' }) } catch { /* ignore */ }
-        }
-      }
+      console.error('[Import Post] Error:', err)
     } finally {
       setImportPosting(false)
     }
@@ -4101,18 +4109,37 @@ export default function PurchasePage() {
             })}
           </div>
 
-          {/* Footer buttons */}
+          {/* Footer */}
           <div className="pt-3 mt-auto border-t border-white/[0.06] space-y-2">
+            {/* Progress bar (visible during posting) */}
+            {importPosting && importProgress.total > 0 && (
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-slate-400 flex items-center gap-1.5">
+                    <Loader2 className="h-3 w-3 animate-spin text-emerald-400" />
+                    {importProgress.label || 'Memproses...'}
+                  </span>
+                  <span className="text-slate-500 font-mono">
+                    {importProgress.step} / {importProgress.total}
+                  </span>
+                </div>
+                <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
+                  <motion.div
+                    className="h-full bg-emerald-500 rounded-full"
+                    initial={{ width: 0 }}
+                    animate={{ width: `${Math.min((importProgress.step / importProgress.total) * 100, 100)}%` }}
+                    transition={{ duration: 0.3, ease: 'easeOut' }}
+                  />
+                </div>
+              </div>
+            )}
+
             <Button
               className="w-full h-10 text-xs theme-bg theme-hover text-white font-medium"
               disabled={!importPreviewData || importPreviewData.filter(i => !i.error).length === 0 || importPosting}
               onClick={handleImportPost}
             >
-              {importPosting ? (
-                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-              ) : (
-                <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
-              )}
+              {!importPosting && <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />}
               {importPosting
                 ? 'Memproses...'
                 : `Posting ${importPreviewData ? importPreviewData.filter(i => !i.error).length : 0} Item`}

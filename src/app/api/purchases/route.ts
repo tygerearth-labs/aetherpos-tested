@@ -3,76 +3,58 @@ import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { parsePagination } from '@/lib/api/api-helpers'
 import { safeJson, safeJsonCreated, safeJsonError, CACHE } from '@/lib/api/safe-response'
-import { FEFOEngine } from '@/lib/fefo-engine'
 
-// Helper: recalculate HPP for all products affected by the given inventory item IDs
+// Helper: recalculate HPP for products that use these inventory items
 async function recalculateHppForAffectedProducts(
   tx: Parameters<Parameters<typeof db.$transaction>[0]>[0],
   inventoryItemIds: string[]
 ) {
-  // Find all compositions using these inventory items
   const compositions = await tx.productComposition.findMany({
     where: {
       inventoryItemId: { in: inventoryItemIds },
       product: { hasComposition: true },
     },
     include: {
-      product: {
-        select: {
-          id: true,
-          hasVariants: true,
-        },
-      },
-      variant: {
-        select: {
-          id: true,
-        },
-      },
-      inventoryItem: {
-        select: {
-          avgCost: true,
-        },
-      },
+      product: { select: { id: true, hasVariants: true } },
+      variant: { select: { id: true } },
+      inventoryItem: { select: { avgCost: true } },
     },
   })
 
   if (compositions.length === 0) return
 
-  // Get the set of affected product IDs
-  const affectedProductIds = [...new Set(compositions.map((c) => c.productId))]
+  const productHppMap = new Map<string, number>()
+  const variantHppMap = new Map<string, number>()
+  const variantProductIds = new Set<string>()
 
-  for (const productId of affectedProductIds) {
-    const productComps = compositions.filter((c) => c.productId === productId)
-    const hasVariants = productComps[0].product.hasVariants
+  for (const c of compositions) {
+    const comp = c as typeof c & { yieldPerBatch?: number }
+    const yieldPerBatch = comp.yieldPerBatch || 1
+    const cost = comp.qty * comp.inventoryItem.avgCost
 
-    if (hasVariants) {
-      // Per-variant HPP recalculation
-      const variantIds = [...new Set(productComps.filter((c) => c.variantId).map((c) => c.variantId!))]
-      for (const variantId of variantIds) {
-        const variantComps = productComps.filter((c) => c.variantId === variantId)
-        const batchCost = variantComps.reduce((sum, c) => sum + c.qty * c.inventoryItem.avgCost, 0)
-        const yieldPerBatch = variantComps[0]?.yieldPerBatch || 1
-        const newHpp = yieldPerBatch > 1 ? batchCost / yieldPerBatch : batchCost
-        await tx.productVariant.update({
-          where: { id: variantId },
-          data: { hpp: newHpp },
-        })
-      }
-      // Product-level HPP stays 0 for variant products
-      await tx.product.update({
-        where: { id: productId },
-        data: { hpp: 0 },
-      })
-    } else {
-      // Non-variant: recalculate product-level HPP (yield-aware)
-      const batchCost = productComps.reduce((sum, c) => sum + c.qty * c.inventoryItem.avgCost, 0)
-      const yieldPerBatch = productComps[0]?.yieldPerBatch || 1
-      const newHpp = yieldPerBatch > 1 ? batchCost / yieldPerBatch : batchCost
-      await tx.product.update({
-        where: { id: productId },
-        data: { hpp: newHpp },
-      })
+    if (c.variantId && c.product.hasVariants) {
+      const existing = variantHppMap.get(c.variantId) || 0
+      variantHppMap.set(c.variantId, existing + cost)
+      variantProductIds.add(c.productId)
+    } else if (!c.product.hasVariants) {
+      const existing = productHppMap.get(c.productId) || 0
+      productHppMap.set(c.productId, existing + cost)
     }
+  }
+
+  // Update products (simple loop — composition count is small)
+  for (const [productId, hpp] of productHppMap) {
+    await tx.product.update({ where: { id: productId }, data: { hpp } })
+  }
+  // Set hpp=0 for variant products
+  for (const productId of variantProductIds) {
+    if (!productHppMap.has(productId)) {
+      await tx.product.update({ where: { id: productId }, data: { hpp: 0 } })
+    }
+  }
+  // Update variants
+  for (const [variantId, hpp] of variantHppMap) {
+    await tx.productVariant.update({ where: { id: variantId }, data: { hpp } })
   }
 }
 
@@ -116,12 +98,15 @@ export async function GET(request: NextRequest) {
             select: { id: true, name: true },
           },
           items: {
-            select: { id: true },
+            select: {
+              id: true,
+              batch: true,
+              expiredDate: true,
+            },
           },
         },
       }),
       db.purchaseOrder.count({ where }),
-      // Find purchase orders whose inventory items are linked to product compositions
       db.purchaseOrderItem.findMany({
         where: {
           purchaseOrder: { outletId: user.outletId },
@@ -134,19 +119,38 @@ export async function GET(request: NextRequest) {
 
     const linkedPoIds = new Set(linkedPoItems.map(p => p.purchaseOrderId))
 
-    const mappedOrders = orders.map((o) => ({
-      ...o,
-      itemCount: o.items.length,
-      supplierName: o.supplier?.name || null,
-      createdByName: o.createdBy.name,
-      hasLinkedItems: linkedPoIds.has(o.id),
-    }))
+    const mappedOrders = orders.map((o) => {
+      const itemsWithBatch = o.items.filter(i => i.batch).length
+      const itemsWithExp = o.items.filter(i => i.expiredDate).length
+      const expiredItems = o.items.filter(i => i.expiredDate && new Date(i.expiredDate) < new Date()).length
+      const sampleBatch = o.items.find(i => i.batch)?.batch || null
+      const nearestExp = o.items
+        .filter(i => i.expiredDate)
+        .sort((a, b) => new Date(a.expiredDate!).getTime() - new Date(b.expiredDate!).getTime())[0]?.expiredDate || null
+
+      return {
+        id: o.id,
+        orderNumber: o.orderNumber,
+        totalCost: o.totalCost,
+        notes: o.notes,
+        createdAt: o.createdAt,
+        updatedAt: o.updatedAt,
+        supplierName: o.supplier?.name || null,
+        createdByName: o.createdBy.name,
+        itemCount: o.items.length,
+        hasLinkedItems: linkedPoIds.has(o.id),
+        _batchSummary: {
+          itemsWithBatch,
+          itemsWithExp,
+          expiredItems,
+          sampleBatch,
+          nearestExp,
+        },
+      }
+    })
 
     return safeJson(
-      {
-        orders: mappedOrders,
-        totalPages: Math.ceil(total / limit),
-      },
+      { orders: mappedOrders, totalPages: Math.ceil(total / limit) },
       200,
       CACHE.MEDIUM
     )
@@ -156,7 +160,14 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST /api/purchases — create purchase order (CRITICAL: inventory + HPP logic)
+// POST /api/purchases — create purchase order
+//
+// Supports two modes:
+//   1. Normal: { supplierId, notes, items: [{ inventoryItemId, ... }] }
+//   2. Import: { supplierId, notes, items: [{ inventoryItemId, ... }], newItems: [{ key, name, ... }] }
+//
+// Import mode creates new inventory items inline, then creates the PO.
+// Everything critical is in ONE transaction. Non-critical (audit, HPP) runs after.
 export async function POST(request: NextRequest) {
   try {
     const user = await getAuthUser(request)
@@ -165,33 +176,151 @@ export async function POST(request: NextRequest) {
     const outletId = user.outletId
 
     const body = await request.json()
-    const { supplierId, notes, items } = body as {
-      supplierId?: string
-      notes?: string
-      items?: Array<{
-        inventoryItemId: string
-        purchaseQty: number
-        purchaseUnit: string
-        baseQty: number
-        baseUnit: string
-        unitCost: number
-        totalCost: number
-        batch?: string | null
-        expiredDate?: string | null
-      }>
-    }
+    const supplierId = body.supplierId as string | undefined
+    const notes = body.notes as string | undefined
+    const newItems = body.newItems as Array<{
+      key: string; name: string; sku?: string | null; baseUnit: string
+      purchaseQty: number; purchaseUnit: string; baseQty: number
+      unitCost: number; totalCost: number; batch?: string | null; expiredDate?: string | null
+    }> | undefined
+    let items = body.items as Array<{
+      inventoryItemId: string; purchaseQty: number; purchaseUnit: string
+      baseQty: number; baseUnit: string; unitCost: number; totalCost: number
+      batch?: string | null; expiredDate?: string | null
+    }> | undefined
 
     if (!items || !Array.isArray(items) || items.length === 0) {
-      return safeJsonError('Purchase order must have at least 1 item', 400)
+      // Allow empty `items` if `newItems` is provided (import-only mode)
+      if (!newItems || newItems.length === 0) {
+        return safeJsonError('Purchase order must have at least 1 item', 400)
+      }
     }
 
-    // Normalize items: baseQty 0 means direct (no conversion) → treat as 1
+    // ── Validate supplier & capture name ──
+    let supplierName: string | null = null
+    if (supplierId) {
+      const supplier = await db.supplier.findFirst({
+        where: { id: supplierId, outletId },
+        select: { name: true },
+      })
+      if (!supplier) return safeJsonError('Supplier not found', 400)
+      supplierName = supplier.name
+    }
+
+    // ── Create new inventory items if provided (Excel import) ──
+    // Returns map: key → real inventoryItemId
+    let newItemIdMap: Record<string, string> = {}
+
+    if (newItems && newItems.length > 0) {
+      // Deduplicate by name within batch
+      const seenNames = new Map<string, string>() // lowercase name → first key
+      const deduped: typeof newItems = []
+      const dupKeyMap = new Map<string, string>() // dup key → first key
+
+      for (const item of newItems) {
+        if (!item.name?.trim()) continue
+        const nameLower = item.name.trim().toLowerCase()
+        if (seenNames.has(nameLower)) {
+          dupKeyMap.set(item.key, seenNames.get(nameLower)!)
+        } else {
+          seenNames.set(nameLower, item.key)
+          deduped.push(item)
+        }
+      }
+
+      // Check which names already exist in DB (1 query)
+      const uniqueNames = [...new Set(deduped.map(i => i.name.trim()))]
+      const existing = await db.inventoryItem.findMany({
+        where: { outletId, name: { in: uniqueNames } },
+        select: { name: true, id: true },
+      })
+      const existingByName = new Map(existing.map(e => [e.name.toLowerCase(), e.id]))
+
+      // Separate: existing vs truly new
+      const toCreate: Array<{ name: string; sku: string | null; baseUnit: string }> = []
+      for (const item of deduped) {
+        const nameLower = item.name.trim().toLowerCase()
+        const existingId = existingByName.get(nameLower)
+        if (existingId) {
+          newItemIdMap[item.key] = existingId
+        } else {
+          toCreate.push({
+            name: item.name.trim(),
+            sku: item.sku?.trim() || null,
+            baseUnit: item.baseUnit.trim(),
+          })
+        }
+      }
+
+      // Create truly new items (createMany + fetch-back by name)
+      if (toCreate.length > 0) {
+        const CHUNK = 100
+        for (let i = 0; i < toCreate.length; i += CHUNK) {
+          await db.inventoryItem.createMany({
+            data: toCreate.slice(i, i + CHUNK).map(item => ({
+              name: item.name,
+              sku: item.sku,
+              baseUnit: item.baseUnit,
+              stock: 0,
+              avgCost: 0,
+              lowStockAlert: 0,
+              outletId,
+              categoryId: null,
+            })),
+          })
+        }
+
+        // Fetch-back by name (reliable — names are unique per outlet)
+        const created = await db.inventoryItem.findMany({
+          where: { outletId, name: { in: toCreate.map(i => i.name) } },
+          select: { id: true, name: true },
+        })
+        const createdByName = new Map(created.map(c => [c.name.toLowerCase(), c.id]))
+
+        for (const item of deduped) {
+          if (newItemIdMap[item.key]) continue
+          const id = createdByName.get(item.name.trim().toLowerCase())
+          if (id) newItemIdMap[item.key] = id
+        }
+      }
+
+      // Map duplicates to first occurrence's ID
+      for (const [dupKey, firstKey] of dupKeyMap) {
+        if (newItemIdMap[firstKey]) {
+          newItemIdMap[dupKey] = newItemIdMap[firstKey]
+        }
+      }
+
+      // Convert newItems into purchase items with real IDs
+      const newPurchaseItems = newItems
+        .filter(ni => newItemIdMap[ni.key])
+        .map(ni => ({
+          inventoryItemId: newItemIdMap[ni.key],
+          purchaseQty: ni.purchaseQty,
+          purchaseUnit: ni.purchaseUnit || '',
+          baseQty: ni.baseQty || 1,
+          baseUnit: ni.baseUnit || 'pcs',
+          unitCost: ni.unitCost,
+          totalCost: ni.totalCost,
+          batch: ni.batch?.trim() || null,
+          expiredDate: ni.expiredDate || null,
+        }))
+
+      // Merge into items
+      items = [...(items || []), ...newPurchaseItems]
+      console.log(`[Purchase Import] ${toCreate.length} created, ${existing.length} matched, ${dupKeyMap.size} dups → ${newPurchaseItems.length} purchase items`)
+    }
+
+    // ── Validate each item ──
+    if (!items || items.length === 0) {
+      return safeJsonError('Tidak ada item valid untuk pembelian', 400)
+    }
+
     const normalizedItems = items.map(item => ({
       ...item,
       baseQty: item.baseQty || 1,
     }))
 
-    // Validate each item has required fields
     for (const item of normalizedItems) {
       if (!item.inventoryItemId) {
         return safeJsonError('Setiap item harus memiliki inventoryItemId', 400)
@@ -207,178 +336,243 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Validate supplierId if provided & capture supplier name for batch records
-    let supplierName: string | null = null
-    if (supplierId) {
-      const supplier = await db.supplier.findFirst({
-        where: { id: supplierId, outletId },
-        select: { name: true },
-      })
-      if (!supplier) {
-        return safeJsonError('Supplier not found', 400)
-      }
-      supplierName = supplier.name
-    }
-
-    // Validate all inventory items belong to this outlet
-    const itemIds = normalizedItems.map((i) => i.inventoryItemId)
+    // ── Validate all inventory item IDs (deduplicated for Excel rows with same item) ──
+    const itemIds = normalizedItems.map(i => i.inventoryItemId)
+    const uniqueItemIds = [...new Set(itemIds)]
     const inventoryItems = await db.inventoryItem.findMany({
-      where: { id: { in: itemIds }, outletId },
+      where: { id: { in: uniqueItemIds }, outletId },
     })
-    if (inventoryItems.length !== itemIds.length) {
+    if (inventoryItems.length !== uniqueItemIds.length) {
+      const found = new Set(inventoryItems.map(ii => ii.id))
+      const missing = uniqueItemIds.filter(id => !found.has(id))
+      console.error('[Purchase] Items not found:', missing)
       return safeJsonError('One or more inventory items not found', 400)
     }
+    const invItemMap = new Map(inventoryItems.map(ii => [ii.id, ii]))
 
-    // Generate order number: PO-YYYYMMDD-XXXX
+    // ── Generate order number ──
     const now = new Date()
     const yyyy = now.getFullYear()
     const mm = String(now.getMonth() + 1).padStart(2, '0')
     const dd = String(now.getDate()).padStart(2, '0')
     const todayStart = new Date(yyyy, now.getMonth(), now.getDate())
     const count = await db.purchaseOrder.count({
-      where: {
-        outletId,
-        createdAt: { gte: todayStart },
-      },
+      where: { outletId, createdAt: { gte: todayStart } },
     })
-    const orderNumber = `PO-${yyyy}${mm}${dd}-${String(count + 1).padStart(4, '0')}`
+    const orderNumber = `PO-${yyyy}${mm}${dd}-${String(Math.min(count + 1, 9999)).padStart(4, '0')}`
 
-    // Calculate total cost
     const totalCost = normalizedItems.reduce((sum, item) => sum + (item.totalCost || 0), 0)
 
-    // Execute everything in a single transaction (30s timeout for HPP recalc)
-    const result = await db.$transaction(async (tx) => {
-      // Create purchase order
-      const purchaseOrder = await tx.purchaseOrder.create({
-        data: {
-          orderNumber,
-          supplierId: supplierId || null,
-          totalCost,
-          notes: notes?.trim() || null,
-          outletId,
-          userId,
-          items: {
-            create: normalizedItems.map((item) => {
-              const invItem = inventoryItems.find((ii) => ii.id === item.inventoryItemId)!
-              return {
-                inventoryItemId: item.inventoryItemId,
-                name: invItem.name,
-                purchaseQty: item.purchaseQty,
-                purchaseUnit: item.purchaseUnit,
-                baseQty: item.baseQty,
-                baseUnit: item.baseUnit,
-                unitCost: item.unitCost,
-                totalCost: item.totalCost || (item.baseQty * item.unitCost),
-                batch: item.batch?.trim() || null,
-                expiredDate: item.expiredDate ? new Date(item.expiredDate) : null,
-                outletId,
-              }
-            }),
-          },
-        },
-        include: {
-          items: true,
-          supplier: { select: { id: true, name: true } },
-          createdBy: { select: { id: true, name: true } },
-        },
+    // ── Pre-calculate all stock updates (pure math, O(N)) ──
+    type StockUpdate = {
+      inventoryItemId: string; newStock: number; newAvgCost: number
+      existingStock: number; name: string; baseQty: number
+      unitCost: number; existingAvgCost: number
+      batch: string | null; expiredDate: string | null
+    }
+
+    const rawUpdates: StockUpdate[] = normalizedItems.map(item => {
+      const invItem = invItemMap.get(item.inventoryItemId)!
+      const existingStock = invItem.stock
+      const existingAvgCost = invItem.avgCost
+      const baseQty = item.baseQty
+      const unitCost = item.unitCost
+      const newStock = existingStock + baseQty
+      const newAvgCost = newStock > 0
+        ? (existingStock * existingAvgCost + baseQty * unitCost) / newStock
+        : 0
+      return {
+        inventoryItemId: item.inventoryItemId, newStock, newAvgCost,
+        existingStock, name: invItem.name, baseQty, unitCost, existingAvgCost,
+        batch: item.batch?.trim() || null,
+        expiredDate: item.expiredDate || null,
+      }
+    })
+
+    // Merge duplicate inventoryItemId updates
+    const updateMap = new Map<string, StockUpdate>()
+    for (const u of rawUpdates) {
+      const existing = updateMap.get(u.inventoryItemId)
+      if (existing) {
+        const mergedStock = existing.existingStock + u.baseQty
+        updateMap.set(u.inventoryItemId, {
+          ...u,
+          newStock: mergedStock,
+          newAvgCost: mergedStock > 0
+            ? (existing.existingStock * existing.existingAvgCost + u.baseQty * u.unitCost) / mergedStock
+            : 0,
+          existingStock: existing.existingStock,
+          existingAvgCost: existing.existingAvgCost,
+        })
+      } else {
+        updateMap.set(u.inventoryItemId, u)
+      }
+    }
+
+    // ── Pre-build batch data ──
+    const dateStr = now.toISOString().split('T')[0].replace(/-/g, '')
+    const needsAutoBatch = rawUpdates.some(u => !u.batch)
+    let autoBatchCounter = 0
+    if (needsAutoBatch) {
+      autoBatchCounter = await db.inventoryBatch.count({
+        where: { outletId, batchNumber: { startsWith: `AUTO-${dateStr}` } },
       })
+    }
 
-      // Update inventory items: weighted average cost and stock
-      const affectedInventoryItemIds: string[] = []
-      for (const item of normalizedItems) {
-        const invItem = inventoryItems.find((ii) => ii.id === item.inventoryItemId)!
-        const existingStock = invItem.stock
-        const existingAvgCost = invItem.avgCost
-        const baseQty = item.baseQty
-        const unitCost = item.unitCost
+    const batchData: Array<{
+      batchNumber: string; inventoryItemId: string
+      initialQty: number; remainingQty: number; unitCost: number
+      expiredDate: Date | null; purchaseOrderId: string
+      supplierId: string | null; supplierName: string | null
+      status: string; outletId: string
+    }> = []
 
-        // Weighted average: (existing.stock * existing.avgCost + baseQty * unitCost) / (existing.stock + baseQty)
-        const newStock = existingStock + baseQty
-        let newAvgCost = 0
-        if (newStock > 0) {
-          newAvgCost = (existingStock * existingAvgCost + baseQty * unitCost) / newStock
+    for (const u of rawUpdates) {
+      let batchNumber: string
+      if (u.batch) {
+        batchNumber = u.batch
+      } else {
+        autoBatchCounter++
+        batchNumber = `AUTO-${dateStr}-${String(autoBatchCounter).padStart(4, '0')}`
+      }
+      batchData.push({
+        batchNumber, inventoryItemId: u.inventoryItemId,
+        initialQty: u.baseQty, remainingQty: u.baseQty, unitCost: u.unitCost,
+        expiredDate: u.expiredDate ? new Date(u.expiredDate) : null,
+        purchaseOrderId: '', supplierId: supplierId || null,
+        supplierName: supplierName || null, status: 'AVAILABLE', outletId,
+      })
+    }
+
+    // ══════════════════════════════════════════════════════
+    // PHASE 1 (CRITICAL): PO + items + stock + batches
+    // Pure Prisma ORM — no raw SQL, works on any DB
+    // ══════════════════════════════════════════════════════
+    let purchaseOrder: Awaited<ReturnType<typeof db.purchaseOrder.create>>
+    try {
+      purchaseOrder = await db.$transaction(async (tx) => {
+        // 1. Create PO with nested items
+        const po = await tx.purchaseOrder.create({
+          data: {
+            orderNumber, supplierId: supplierId || null, totalCost,
+            notes: notes?.trim() || null, outletId, userId,
+            items: {
+              create: normalizedItems.map(item => {
+                const invItem = invItemMap.get(item.inventoryItemId)!
+                return {
+                  inventoryItemId: item.inventoryItemId, name: invItem.name,
+                  purchaseQty: item.purchaseQty, purchaseUnit: item.purchaseUnit,
+                  baseQty: item.baseQty, baseUnit: item.baseUnit,
+                  unitCost: item.unitCost,
+                  totalCost: item.totalCost || (item.baseQty * item.unitCost),
+                  batch: item.batch?.trim() || null,
+                  expiredDate: item.expiredDate ? new Date(item.expiredDate) : null,
+                  outletId,
+                }
+              }),
+            },
+          },
+          include: {
+            items: true,
+            supplier: { select: { id: true, name: true } },
+            createdBy: { select: { id: true, name: true } },
+          },
+        })
+
+        // 2. Update inventory stock (simple Prisma loop — fast for daily 10-50 items)
+        for (const [id, update] of updateMap) {
+          await tx.inventoryItem.update({
+            where: { id },
+            data: { stock: update.newStock, avgCost: update.newAvgCost },
+          })
         }
 
-        await tx.inventoryItem.update({
-          where: { id: item.inventoryItemId },
-          data: {
-            stock: newStock,
-            avgCost: newAvgCost,
-          },
-        })
+        // 3. Create batches (createMany)
+        if (batchData.length > 0) {
+          const filled = batchData.map(bd => ({ ...bd, purchaseOrderId: po.id }))
+          const CHUNK = 100
+          for (let i = 0; i < filled.length; i += CHUNK) {
+            await tx.inventoryBatch.createMany({ data: filled.slice(i, i + CHUNK) })
+          }
+        }
 
-        // Audit log for inventory restock
-        await tx.auditLog.create({
-          data: {
-            action: 'PURCHASE',
-            entityType: 'INVENTORY_ITEM',
-            entityId: item.inventoryItemId,
-            details: JSON.stringify({
-              itemName: invItem.name,
-              purchaseOrderNumber: orderNumber,
-              baseQtyAdded: baseQty,
-              unitCost,
-              previousStock: existingStock,
-              newStock,
-              previousAvgCost: existingAvgCost,
-              newAvgCost,
-              batch: item.batch?.trim() || null,
-              expiredDate: item.expiredDate || null,
-            }),
-            outletId,
-            userId,
-          },
-        })
-
-        // Create inventory movement for purchase
-        await tx.inventoryMovement.create({
-          data: {
-            type: 'PURCHASE',
-            inventoryItemId: item.inventoryItemId,
-            quantity: baseQty,
-            previousStock: existingStock,
-            newStock,
-            referenceId: purchaseOrder.id,
-            referenceType: 'PURCHASE_ORDER',
-            notes: `Pembelian: ${invItem.name} (${orderNumber})${item.batch?.trim() ? ` [Batch: ${item.batch.trim()}]` : ''}${item.expiredDate ? ` [Exp: ${item.expiredDate.split('T')[0]}]` : ''}`,
-            outletId,
-            userId,
-          },
-        })
-
-        affectedInventoryItemIds.push(item.inventoryItemId)
+        return po
+      }, { timeout: 60000 })
+    } catch (error) {
+      console.error('[Purchase Phase 1] Critical:', error)
+      const msg = error instanceof Error ? error.message : 'Unknown error'
+      if (msg.includes('P2002') || msg.includes('Unique constraint')) {
+        if (msg.includes('batchNumber')) {
+          return safeJsonError('Gagal: nomor batch sudah ada. Cek kolom Batch di Excel.', 409)
+        }
+        return safeJsonError('Gagal membuat PO: nomor order sudah ada. Silakan coba lagi.', 409)
       }
+      return safeJsonError(`Gagal membuat pembelian: ${msg}`)
+    }
 
-      // Create InventoryBatch records for FEFO tracking
-      await FEFOEngine.createBatchesFromPurchase(tx, {
-        purchaseOrderId: purchaseOrder.id,
-        items: normalizedItems.map(item => ({
-          inventoryItemId: item.inventoryItemId,
-          name: inventoryItems.find(ii => ii.id === item.inventoryItemId)!.name,
-          baseQty: item.baseQty,
-          unitCost: item.unitCost,
-          batch: item.batch?.trim() || null,
-          expiredDate: item.expiredDate ? new Date(item.expiredDate) : null,
-        })),
-        outletId,
-        supplierId: supplierId || null,
-        supplierName,
-      })
+    // ══════════════════════════════════════════════════════
+    // PHASE 2 (NON-CRITICAL): Audit + movements
+    // ══════════════════════════════════════════════════════
+    try {
+      await db.$transaction(async (tx) => {
+        const CHUNK = 100
 
-      // Recalculate HPP for all products that use these inventory items
-      await recalculateHppForAffectedProducts(tx, affectedInventoryItemIds)
+        const auditData = rawUpdates.map(u => ({
+          action: 'PURCHASE' as const,
+          entityType: 'INVENTORY_ITEM' as const,
+          entityId: u.inventoryItemId,
+          details: JSON.stringify({
+            itemName: u.name, purchaseOrderNumber: orderNumber,
+            baseQtyAdded: u.baseQty, unitCost: u.unitCost,
+            previousStock: u.existingStock, newStock: u.newStock,
+            previousAvgCost: u.existingAvgCost, newAvgCost: u.newAvgCost,
+            batch: u.batch, expiredDate: u.expiredDate,
+          }),
+          outletId, userId,
+        }))
+        for (let i = 0; i < auditData.length; i += CHUNK) {
+          await tx.auditLog.createMany({ data: auditData.slice(i, i + CHUNK) })
+        }
 
-      return purchaseOrder
-    }, { timeout: 30000 })
+        const movementData = rawUpdates.map(u => ({
+          type: 'PURCHASE' as const,
+          inventoryItemId: u.inventoryItemId, quantity: u.baseQty,
+          previousStock: u.existingStock, newStock: u.newStock,
+          referenceId: purchaseOrder.id, referenceType: 'PURCHASE_ORDER' as const,
+          notes: `Pembelian: ${u.name} (${orderNumber})${u.batch ? ` [Batch: ${u.batch}]` : ''}${u.expiredDate ? ` [Exp: ${u.expiredDate.split('T')[0]}]` : ''}`,
+          outletId, userId,
+        }))
+        for (let i = 0; i < movementData.length; i += CHUNK) {
+          await tx.inventoryMovement.createMany({ data: movementData.slice(i, i + CHUNK) })
+        }
+      }, { timeout: 60000 })
+    } catch (error) {
+      console.error('[Purchase Phase 2] Non-critical:', error)
+    }
 
-    return safeJsonCreated(result)
+    // ══════════════════════════════════════════════════════
+    // PHASE 3 (NON-CRITICAL): HPP recalculation
+    // ══════════════════════════════════════════════════════
+    try {
+      const ids = [...updateMap.keys()]
+      if (ids.length > 0) {
+        await db.$transaction(async (tx) => {
+          await recalculateHppForAffectedProducts(tx, ids)
+        }, { timeout: 60000 })
+      }
+    } catch (error) {
+      console.error('[Purchase Phase 3] Non-critical:', error)
+    }
+
+    return safeJsonCreated({
+      ...purchaseOrder,
+      _importStats: newItems?.length
+        ? { newItemsCreated: Object.keys(newItemIdMap).length }
+        : undefined,
+    })
   } catch (error) {
     console.error('Purchases POST error:', error)
     const msg = error instanceof Error ? error.message : 'Unknown error'
-    // Detect Prisma unique constraint violation (P2002) for orderNumber race condition
-    if (msg.includes('P2002') || msg.includes('Unique constraint')) {
-      return safeJsonError('Gagal membuat PO: nomor order sudah ada. Silakan coba lagi.', 409)
-    }
     return safeJsonError(`Gagal membuat pembelian: ${msg}`)
   }
 }

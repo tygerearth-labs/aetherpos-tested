@@ -672,20 +672,26 @@ export class FEFOEngine {
     const today = new Date()
     const dateStr = today.toISOString().split('T')[0].replace(/-/g, '')
 
+    // Single count query for auto-generated batch numbers (instead of N+1)
+    let autoBatchCounter = 0
+    const needsAutoBatch = items.some(item => !item.batch?.trim())
+    if (needsAutoBatch) {
+      autoBatchCounter = await tx.inventoryBatch.count({
+        where: {
+          outletId,
+          batchNumber: { startsWith: `AUTO-${dateStr}` },
+        },
+      })
+    }
+
     for (const item of items) {
       // Generate batch number
       let batchNumber: string
       if (item.batch?.trim()) {
         batchNumber = item.batch.trim()
       } else {
-        // Auto-generate: AUTO-YYYYMMDD-XXXX
-        const count = await tx.inventoryBatch.count({
-          where: {
-            outletId,
-            batchNumber: { startsWith: `AUTO-${dateStr}` },
-          },
-        })
-        batchNumber = `AUTO-${dateStr}-${String(count + 1).padStart(4, '0')}`
+        autoBatchCounter++
+        batchNumber = `AUTO-${dateStr}-${String(autoBatchCounter).padStart(4, '0')}`
       }
 
       await tx.inventoryBatch.create({
