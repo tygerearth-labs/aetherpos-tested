@@ -142,6 +142,13 @@ interface PurchaseOrder {
   hasLinkedItems?: boolean
   supplier?: { id: string; name: string; phone: string | null; address: string | null } | null
   createdBy?: { id: string; name: string; email: string } | null
+  _batchSummary?: {
+    itemsWithBatch: number
+    itemsWithExp: number
+    expiredItems: number
+    sampleBatch: string | null
+    nearestExp: string | null
+  } | null
 }
 
 interface PurchaseOrderItemDetail {
@@ -391,7 +398,7 @@ export default function PurchasePage() {
   const [poCreateLoading, setPoCreateLoading] = useState(false)
   const [poCreateNotes, setPoCreateNotes] = useState('')
   const [poCreateItems, setPoCreateItems] = useState<PurchaseOrderItem[]>([
-    { inventoryItemId: '', inventoryItemName: '', baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0', batch: '', expiredDate: '' },
+    { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0', batch: '', expiredDate: '' },
   ])
 
   // Item picker for purchase dialog (pre-loaded)
@@ -2459,6 +2466,7 @@ export default function PurchasePage() {
                       <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">No. PO</TableHead>
                       <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">Supplier</TableHead>
                       <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">Tanggal</TableHead>
+                      <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">Batch / Exp</TableHead>
                       <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider text-right">Jumlah Item</TableHead>
                       <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider text-right">Total Biaya</TableHead>
                       <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider text-right">Aksi</TableHead>
@@ -2467,7 +2475,7 @@ export default function PurchasePage() {
                   <TableBody>
                     {poList.length === 0 ? (
                       <TableRow className="border-white/[0.04] hover:bg-transparent">
-                        <TableCell colSpan={6} className="text-center py-16">
+                        <TableCell colSpan={7} className="text-center py-16">
                           <div className="flex flex-col items-center">
                             <div className="w-12 h-12 rounded-2xl bg-white/[0.04] flex items-center justify-center mb-3">
                               <ShoppingCart className="h-6 w-6 text-slate-600" />
@@ -2491,6 +2499,29 @@ export default function PurchasePage() {
                           <TableCell className="text-xs text-slate-200 font-medium font-mono">{po.orderNumber}</TableCell>
                           <TableCell className="text-xs text-slate-400">{po.supplierName || '-'}</TableCell>
                           <TableCell className="text-xs text-slate-400">{formatDate(po.createdAt)}</TableCell>
+                          <TableCell className="text-xs">
+                            {po._batchSummary && (po._batchSummary.itemsWithBatch > 0 || po._batchSummary.itemsWithExp > 0) ? (
+                              <div className="flex items-center gap-1 flex-wrap">
+                                {po._batchSummary.itemsWithBatch > 0 && (
+                                  <span className="text-[9px] font-mono text-blue-400/70 bg-blue-500/10 px-1.5 py-0.5 rounded leading-none">
+                                    B:{po._batchSummary.sampleBatch || `${po._batchSummary.itemsWithBatch}`}
+                                  </span>
+                                )}
+                                {po._batchSummary.nearestExp && (
+                                  <span className={cn(
+                                    "text-[9px] px-1.5 py-0.5 rounded font-medium leading-none",
+                                    po._batchSummary.expiredItems > 0
+                                      ? "text-red-400 bg-red-500/10"
+                                      : "text-amber-400/70 bg-amber-500/10"
+                                  )}>
+                                    Exp: {formatDate(po._batchSummary.nearestExp).split(' ')[0]}
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-slate-600">-</span>
+                            )}
+                          </TableCell>
                           <TableCell className="text-xs text-slate-300 text-right">{po.itemCount ?? po._count?.items ?? 0}</TableCell>
                           <TableCell className="text-xs text-emerald-400 text-right font-medium">{formatCurrency(po.totalCost)}</TableCell>
                           <TableCell className="text-right">
@@ -2603,9 +2634,30 @@ export default function PurchasePage() {
                             <span className="text-[11px]">{po.supplierName || '-'}</span>
                             <span className="text-[11px]">{formatDate(po.createdAt)}</span>
                           </div>
-                          <div className="flex items-center gap-1.5 text-slate-500">
-                            <Package className="h-3 w-3" />
-                            <span className="text-[11px]">{po.itemCount ?? po._count?.items ?? 0} item</span>
+                          <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1.5 text-slate-500">
+                              <Package className="h-3 w-3" />
+                              <span className="text-[11px]">{po.itemCount ?? po._count?.items ?? 0} item</span>
+                            </div>
+                            {po._batchSummary && (po._batchSummary.itemsWithBatch > 0 || po._batchSummary.itemsWithExp > 0) && (
+                              <div className="flex items-center gap-1">
+                                {po._batchSummary.itemsWithBatch > 0 && (
+                                  <span className="text-[9px] font-mono text-blue-400/70 bg-blue-500/10 px-1.5 py-0.5 rounded leading-none">
+                                    B:{po._batchSummary.sampleBatch || `${po._batchSummary.itemsWithBatch}`}
+                                  </span>
+                                )}
+                                {po._batchSummary.nearestExp && (
+                                  <span className={cn(
+                                    "text-[9px] px-1.5 py-0.5 rounded font-medium leading-none",
+                                    po._batchSummary.expiredItems > 0
+                                      ? "text-red-400 bg-red-500/10"
+                                      : "text-amber-400/70 bg-amber-500/10"
+                                  )}>
+                                    Exp: {formatDate(po._batchSummary.nearestExp).split(' ')[0]}
+                                  </span>
+                                )}
+                              </div>
+                            )}
                           </div>
                         </CardContent>
                       </Card>
@@ -3348,6 +3400,14 @@ export default function PurchasePage() {
                           <span className="text-emerald-400/60 shrink-0">•</span>
                           <span><span className="text-white font-medium">Harga per Satuan Beli</span> — Harga dari supplier per satuan beli (cth: Rp320.000/sak)</span>
                         </div>
+                        <div className="flex items-start gap-1.5">
+                          <span className="text-emerald-400/60 shrink-0">•</span>
+                          <span><span className="text-white font-medium">Batch / No. Lot</span> — Nomor batch dari supplier <span className="text-slate-500">(opsional, otomatis dibuat jika kosong)</span></span>
+                        </div>
+                        <div className="flex items-start gap-1.5">
+                          <span className="text-emerald-400/60 shrink-0">•</span>
+                          <span><span className="text-white font-medium">Tanggal Kadaluarsa</span> — Tanggal expired barang <span className="text-slate-500">(opsional, untuk tracking FEFO)</span></span>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -3907,7 +3967,7 @@ export default function PurchasePage() {
       </ResponsiveDialog>
 
       {/* ── Import Excel Preview Dialog ── */}
-      <ResponsiveDialog open={showImportPreview} onOpenChange={(open) => { if (!open) { setShowImportPreview(false); setImportPreviewData(null) } }}>
+      <ResponsiveDialog open={showImportPreview} onOpenChange={(open) => { if (importPosting) return; if (!open) { setShowImportPreview(false); setImportPreviewData(null) } }}>
         <ResponsiveDialogContent className="sm:max-w-2xl flex flex-col max-h-[85vh]">
           <ResponsiveDialogHeader>
             <ResponsiveDialogTitle className="text-white text-base flex items-center gap-2">
@@ -4061,9 +4121,10 @@ export default function PurchasePage() {
               <Button
                 variant="ghost"
                 className="flex-1 h-9 text-[11px] text-slate-400 hover:text-white"
+                disabled={importPosting}
                 onClick={() => { setShowImportPreview(false); setImportPreviewData(null) }}
               >
-                Batal
+                {importPosting ? 'Menyimpan...' : 'Batal'}
               </Button>
               <Button
                 variant="ghost"
