@@ -44,6 +44,11 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from '@/components/ui/popover'
 import { Pagination } from '@/components/shared/pagination'
 import {
   Table,
@@ -92,6 +97,12 @@ import {
   ScanBarcode,
   Printer,
   Beaker,
+  Info,
+  Boxes,
+  ChevronDown,
+  FileSpreadsheet as FileSpreadsheetIcon,
+  HelpCircle,
+  Lightbulb,
 } from 'lucide-react'
 // Collapsible removed — analytics section removed in redesign
 import { ProGate } from '@/components/shared/pro-gate'
@@ -140,6 +151,7 @@ interface Product {
 
 interface ProductStats {
   total: number
+  totalQty: number
   categories: number
   lowStock: number
   inventoryValue: number
@@ -525,6 +537,17 @@ export default function ProductsPage() {
   // Export Excel state
   const [exporting, setExporting] = useState(false)
 
+  // Excel actions dropdown
+  const [excelMenuOpen, setExcelMenuOpen] = useState(false)
+  const excelMenuRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (excelMenuRef.current && !excelMenuRef.current.contains(e.target as Node)) setExcelMenuOpen(false)
+    }
+    if (excelMenuOpen) document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [excelMenuOpen])
+
   // Edit Excel state
   const [editExcelOpen, setEditExcelOpen] = useState(false)
   const [editExcelFile, setEditExcelFile] = useState<File | null>(null)
@@ -546,6 +569,7 @@ export default function ProductsPage() {
   const [categories, setCategories] = useState<Category[]>([])
   const [categoriesLoading, setCategoriesLoading] = useState(true)
   const [categorySectionOpen, setCategorySectionOpen] = useState(true)
+  const [featureHelpOpen, setFeatureHelpOpen] = useState(false)
   const [activeCategoryId, setActiveCategoryId] = useState<string | null>(null)
   const [categoryDialogOpen, setCategoryDialogOpen] = useState(false)
   const [editCategory, setEditCategory] = useState<Category | null>(null)
@@ -557,7 +581,7 @@ export default function ProductsPage() {
   const [categoryDeleting, setCategoryDeleting] = useState(false)
 
   // Analytics stats from API (all products, not just current page)
-  const [stats, setStats] = useState<ProductStats>({ total: 0, categories: 0, lowStock: 0, inventoryValue: 0 })
+  const [stats, setStats] = useState<ProductStats>({ total: 0, totalQty: 0, categories: 0, lowStock: 0, inventoryValue: 0 })
 
   const fetchCategories = useCallback(async () => {
     try {
@@ -1296,13 +1320,7 @@ export default function ProductsPage() {
               {bulkMode ? 'Edit Massal Aktif' : 'Edit Massal'}
             </Button>
           )}
-          <Button onClick={handleExportExcel} disabled={exporting}
-              className="bg-white/[0.04] border-white/[0.04] text-slate-300 hover:text-white hover:bg-white/[0.04] h-9 text-xs font-medium disabled:opacity-50 shrink-0"
-            >
-              {exporting ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Download className="mr-1.5 h-3.5 w-3.5" />}
-              Export Excel
-            </Button>
-            <Button
+          <Button
               variant="outline"
               onClick={() => setBatchBarcodeOpen(true)}
               className="bg-white/[0.04] border-white/[0.04] text-slate-300 hover:text-white hover:bg-white/[0.04] h-9 text-xs font-medium shrink-0"
@@ -1310,36 +1328,53 @@ export default function ProductsPage() {
               <Printer className="mr-1.5 h-3.5 w-3.5" />
               Cetak Barcode
             </Button>
-          <ProGate feature="bulkUpload" label="Upload Excel" description="Upload produk massal via file Excel" variant="inline">
+          {/* Excel Actions Dropdown */}
+          <div className="relative shrink-0" ref={excelMenuRef}>
             <Button
               variant="outline"
-              onClick={() => {
-                setUploadOpen(true)
-                setUploadFile(null)
-                setUploadResult(null)
-              }}
-              className="bg-white/[0.04] border-white/[0.04] text-slate-300 hover:text-white hover:bg-white/[0.04] h-9 text-xs font-medium shrink-0"
+              onClick={() => setExcelMenuOpen(!excelMenuOpen)}
+              className="bg-white/[0.04] border-white/[0.04] text-slate-300 hover:text-white hover:bg-white/[0.04] h-9 text-xs font-medium gap-1.5"
             >
-              <Upload className="mr-1.5 h-3.5 w-3.5" />
-              Upload Excel
+              <FileSpreadsheet className="h-3.5 w-3.5" />
+              Excel
+              <ChevronDown className={cn('h-3 w-3 transition-transform', excelMenuOpen && 'rotate-180')} />
             </Button>
-          </ProGate>
-          <ProGate feature="bulkUpload" label="Edit Excel" description="Update produk massal via file Excel" variant="inline">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setEditExcelOpen(true)
-                setEditExcelFile(null)
-                setEditExcelResult(null)
-                setEditExcelProgress(0)
-                setEditExcelPhase('')
-              }}
-              className="bg-white/[0.04] border-white/[0.04] text-slate-300 hover:text-white hover:bg-white/[0.04] h-9 text-xs font-medium shrink-0"
-            >
-              <FilePenLine className="mr-1.5 h-3.5 w-3.5" />
-              Edit Excel
-            </Button>
-          </ProGate>
+            {excelMenuOpen && (
+              <div className="absolute right-0 top-full mt-1.5 z-50 min-w-[200px] rounded-xl border border-white/[0.08] bg-nebula shadow-2xl shadow-black/60 overflow-hidden animate-in fade-in-0 zoom-in-95 slide-in-from-top-1 duration-150">
+                <button
+                  onClick={() => { setExcelMenuOpen(false); handleExportExcel() }}
+                  disabled={exporting}
+                  className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs text-slate-300 hover:bg-white/[0.04] hover:text-white transition-colors disabled:opacity-50"
+                >
+                  {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5 text-slate-500" />}
+                  <span className="flex-1 text-left">Export Excel</span>
+                  <span className="text-[10px] text-slate-600">Download data</span>
+                </button>
+                <div className="h-px bg-white/[0.06]" />
+                <ProGate feature="bulkUpload" label="" description="" variant="inline">
+                  <button
+                    onClick={() => { setExcelMenuOpen(false); setUploadOpen(true); setUploadFile(null); setUploadResult(null) }}
+                    className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs text-slate-300 hover:bg-white/[0.04] hover:text-white transition-colors"
+                  >
+                    <Upload className="h-3.5 w-3.5 text-slate-500" />
+                    <span className="flex-1 text-left">Upload Excel</span>
+                    <span className="text-[10px] text-slate-600">Tambah massal</span>
+                  </button>
+                </ProGate>
+                <div className="h-px bg-white/[0.06]" />
+                <ProGate feature="bulkUpload" label="" description="" variant="inline">
+                  <button
+                    onClick={() => { setExcelMenuOpen(false); setEditExcelOpen(true); setEditExcelFile(null); setEditExcelResult(null); setEditExcelProgress(0); setEditExcelPhase('') }}
+                    className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs text-slate-300 hover:bg-white/[0.04] hover:text-white transition-colors"
+                  >
+                    <FilePenLine className="h-3.5 w-3.5 text-slate-500" />
+                    <span className="flex-1 text-left">Edit Excel</span>
+                    <span className="text-[10px] text-slate-600">Update massal</span>
+                  </button>
+                </ProGate>
+              </div>
+            )}
+          </div>
           <Button onClick={handleAdd} className="theme-bg theme-hover text-white h-9 text-xs font-medium shadow-lg theme-shadow shrink-0">
             <Plus className="mr-1.5 h-3.5 w-3.5" />
             Tambah Produk
@@ -1349,84 +1384,191 @@ export default function ProductsPage() {
 
       {/* Stats Cards */}
       {!loading && stats.total > 0 && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           {/* Total Products */}
-          <div className="relative rounded-xl border border-white/[0.06] bg-nebula p-4 space-y-3 overflow-hidden group">
-            <div className="absolute top-0 left-0 right-0 h-0.5 theme-gradient" />
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-slate-400">Total Produk</span>
-              <div className="h-8 w-8 rounded-lg theme-bg-very-light flex items-center justify-center">
-                <Package className="h-4 w-4 theme-text" />
+          <Popover>
+            <PopoverTrigger asChild>
+              <div className="relative rounded-xl border border-white/[0.06] bg-nebula p-4 space-y-3 overflow-hidden group cursor-pointer hover:border-white/[0.1] transition-colors">
+                <div className="absolute top-0 left-0 right-0 h-0.5 theme-gradient" />
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-slate-400">Total Produk</span>
+                  <div className="h-8 w-8 rounded-lg theme-bg-very-light flex items-center justify-center">
+                    <Package className="h-4 w-4 theme-text" />
+                  </div>
+                </div>
+                <p className="text-2xl font-bold text-white tracking-tight">{formatNumber(stats.total)}</p>
+                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Info className="h-3 w-3 text-slate-500" />
+                </div>
               </div>
-            </div>
-            <p className="text-2xl font-bold text-white tracking-tight">{formatNumber(stats.total)}</p>
-          </div>
+            </PopoverTrigger>
+            <PopoverContent side="bottom" align="center" className="w-64 rounded-xl border-white/[0.08] bg-nebula p-3.5 shadow-2xl shadow-black/60">
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <div className="h-6 w-6 rounded-md theme-bg-very-light flex items-center justify-center">
+                    <Package className="h-3 w-3 theme-text" />
+                  </div>
+                  <span className="text-xs font-semibold text-white">Total Produk</span>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed">Jumlah <strong className="text-slate-200">SKU produk unik</strong> yang terdaftar di outlet ini, termasuk produk dengan varian.</p>
+              </div>
+            </PopoverContent>
+          </Popover>
+
+          {/* Total Qty */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <div className="relative rounded-xl border border-white/[0.06] bg-nebula p-4 space-y-3 overflow-hidden group cursor-pointer hover:border-white/[0.1] transition-colors">
+                <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-emerald-500 to-emerald-500/40" />
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-slate-400">Qty Produk</span>
+                  <div className="h-8 w-8 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+                    <Boxes className="h-4 w-4 text-emerald-400" />
+                  </div>
+                </div>
+                <p className="text-2xl font-bold text-white tracking-tight">{formatNumber(stats.totalQty)}</p>
+                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Info className="h-3 w-3 text-slate-500" />
+                </div>
+              </div>
+            </PopoverTrigger>
+            <PopoverContent side="bottom" align="center" className="w-64 rounded-xl border-white/[0.08] bg-nebula p-3.5 shadow-2xl shadow-black/60">
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <div className="h-6 w-6 rounded-md bg-emerald-500/10 flex items-center justify-center">
+                    <Boxes className="h-3 w-3 text-emerald-400" />
+                  </div>
+                  <span className="text-xs font-semibold text-white">Qty Produk</span>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed">Total <strong className="text-slate-200">kuantitas stok</strong> dari semua produk. Untuk produk dengan varian, semua varian dijumlahkan.</p>
+              </div>
+            </PopoverContent>
+          </Popover>
 
           {/* Total Categories */}
-          <div className="relative rounded-xl border border-white/[0.06] bg-nebula p-4 space-y-3 overflow-hidden group">
-            <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-violet-500 to-violet-500/40" />
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-slate-400">Kategori</span>
-              <div className="h-8 w-8 rounded-lg bg-violet-500/10 flex items-center justify-center">
-                <Tags className="h-4 w-4 text-violet-400" />
+          <Popover>
+            <PopoverTrigger asChild>
+              <div className="relative rounded-xl border border-white/[0.06] bg-nebula p-4 space-y-3 overflow-hidden group cursor-pointer hover:border-white/[0.1] transition-colors">
+                <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-violet-500 to-violet-500/40" />
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-slate-400">Kategori</span>
+                  <div className="h-8 w-8 rounded-lg bg-violet-500/10 flex items-center justify-center">
+                    <Tags className="h-4 w-4 text-violet-400" />
+                  </div>
+                </div>
+                <p className="text-2xl font-bold text-white tracking-tight">{formatNumber(stats.categories)}</p>
+                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Info className="h-3 w-3 text-slate-500" />
+                </div>
               </div>
-            </div>
-            <p className="text-2xl font-bold text-white tracking-tight">{formatNumber(stats.categories)}</p>
-          </div>
+            </PopoverTrigger>
+            <PopoverContent side="bottom" align="center" className="w-64 rounded-xl border-white/[0.08] bg-nebula p-3.5 shadow-2xl shadow-black/60">
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <div className="h-6 w-6 rounded-md bg-violet-500/10 flex items-center justify-center">
+                    <Tags className="h-3 w-3 text-violet-400" />
+                  </div>
+                  <span className="text-xs font-semibold text-white">Kategori</span>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed">Jumlah <strong className="text-slate-200">grup kategori</strong> aktif. Gunakan kategori untuk mengelompokkan dan memfilter produk di POS.</p>
+              </div>
+            </PopoverContent>
+          </Popover>
 
           {/* Low Stock Items */}
-          <div className="relative rounded-xl border border-white/[0.06] bg-nebula p-4 space-y-3 overflow-hidden group">
-            <div className={`absolute top-0 left-0 right-0 h-0.5 ${stats.lowStock > 0 ? 'bg-gradient-to-r from-amber-500 to-amber-500/40' : 'theme-gradient'}`} />
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-slate-400">Stok Rendah</span>
-              <div className={`h-8 w-8 rounded-lg flex items-center justify-center ${stats.lowStock > 0 ? 'bg-amber-500/10' : 'theme-bg-very-light'}`}>
-                <AlertTriangle className={`h-4 w-4 ${stats.lowStock > 0 ? 'text-amber-400' : 'theme-text'}`} />
+          <Popover>
+            <PopoverTrigger asChild>
+              <div className="relative rounded-xl border border-white/[0.06] bg-nebula p-4 space-y-3 overflow-hidden group cursor-pointer hover:border-white/[0.1] transition-colors">
+                <div className={`absolute top-0 left-0 right-0 h-0.5 ${stats.lowStock > 0 ? 'bg-gradient-to-r from-amber-500 to-amber-500/40' : 'theme-gradient'}`} />
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-slate-400">Stok Rendah</span>
+                  <div className={`h-8 w-8 rounded-lg flex items-center justify-center ${stats.lowStock > 0 ? 'bg-amber-500/10' : 'theme-bg-very-light'}`}>
+                    <AlertTriangle className={`h-4 w-4 ${stats.lowStock > 0 ? 'text-amber-400' : 'theme-text'}`} />
+                  </div>
+                </div>
+                <p className={`text-2xl font-bold tracking-tight ${stats.lowStock > 0 ? 'text-amber-400' : 'text-white'}`}>
+                  {formatNumber(stats.lowStock)}
+                </p>
+                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Info className="h-3 w-3 text-slate-500" />
+                </div>
               </div>
-            </div>
-            <p className={`text-2xl font-bold tracking-tight ${stats.lowStock > 0 ? 'text-amber-400' : 'text-white'}`}>
-              {formatNumber(stats.lowStock)}
-            </p>
-          </div>
+            </PopoverTrigger>
+            <PopoverContent side="bottom" align="center" className="w-64 rounded-xl border-white/[0.08] bg-nebula p-3.5 shadow-2xl shadow-black/60">
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <div className="h-6 w-6 rounded-md bg-amber-500/10 flex items-center justify-center">
+                    <AlertTriangle className="h-3 w-3 text-amber-400" />
+                  </div>
+                  <span className="text-xs font-semibold text-white">Stok Rendah</span>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed">Produk dengan stok <strong className="text-slate-200">di bawah atau sama dengan</strong> batas peringatan (low stock alert) yang ditentukan per produk.</p>
+              </div>
+            </PopoverContent>
+          </Popover>
 
           {/* Total Inventory Value */}
-          <div className="relative rounded-xl border border-white/[0.06] bg-nebula p-4 space-y-3 overflow-hidden group">
-            <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-sky-500 to-sky-500/40" />
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-slate-400">Nilai Inventori</span>
-              <div className="h-8 w-8 rounded-lg bg-sky-500/10 flex items-center justify-center">
-                <DollarSign className="h-4 w-4 text-sky-400" />
+          <Popover>
+            <PopoverTrigger asChild>
+              <div className="relative rounded-xl border border-white/[0.06] bg-nebula p-4 space-y-3 overflow-hidden group cursor-pointer hover:border-white/[0.1] transition-colors">
+                <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-sky-500 to-sky-500/40" />
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-slate-400">Value Produk</span>
+                  <div className="h-8 w-8 rounded-lg bg-sky-500/10 flex items-center justify-center">
+                    <DollarSign className="h-4 w-4 text-sky-400" />
+                  </div>
+                </div>
+                <p className="text-2xl font-bold text-white tracking-tight">{formatCurrency(stats.inventoryValue)}</p>
+                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Info className="h-3 w-3 text-slate-500" />
+                </div>
               </div>
-            </div>
-            <p className="text-2xl font-bold text-white tracking-tight">{formatCurrency(stats.inventoryValue)}</p>
-          </div>
+            </PopoverTrigger>
+            <PopoverContent side="bottom" align="center" className="w-64 rounded-xl border-white/[0.08] bg-nebula p-3.5 shadow-2xl shadow-black/60">
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <div className="h-6 w-6 rounded-md bg-sky-500/10 flex items-center justify-center">
+                    <DollarSign className="h-3 w-3 text-sky-400" />
+                  </div>
+                  <span className="text-xs font-semibold text-white">Value Produk</span>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed">Estimasi <strong className="text-slate-200">nilai inventori</strong> berdasarkan harga jual × stok. Ini bukan HPP — gunakan untuk gambaran nilai jual potensial.</p>
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
       )}
 
-      {/* Category Management Section */}
+      {/* Category Section */}
       <div className="rounded-xl border border-white/[0.06] bg-nebula/60 overflow-hidden">
         <button
           onClick={() => setCategorySectionOpen(!categorySectionOpen)}
           className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/[0.03] transition-colors"
         >
           <div className="flex items-center gap-2.5">
-            <div className="h-6 w-6 rounded-md bg-violet-500/10 flex items-center justify-center">
-              <Tags className="h-3 w-3 text-violet-400" />
+            <div className="h-7 w-7 rounded-lg bg-violet-500/10 flex items-center justify-center">
+              <Tags className="h-3.5 w-3.5 text-violet-400" />
             </div>
-            <span className="text-xs font-semibold text-slate-200">Kategori</span>
-            {!categoriesLoading && categories.length > 0 && (
-              <span className="text-[11px] text-slate-500">({categories.length})</span>
-            )}
-            {activeCategoryId && (
-              <Badge className="theme-bg-very-light theme-border-light theme-text text-[10px] px-1.5 py-0 ml-1">
-                Filter aktif
-                <button
-                  onClick={(e) => { e.stopPropagation(); setActiveCategoryId(null) }}
-                  className="ml-1 hover:theme-text"
-                >
-                  <X className="h-2.5 w-2.5 inline" />
-                </button>
-              </Badge>
-            )}
+            <div className="text-left">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-slate-200">Kategori</span>
+                {!categoriesLoading && categories.length > 0 && (
+                  <Badge variant="secondary" className="bg-white/[0.06] text-slate-500 border-0 text-[10px] px-1.5 py-0 h-4">{categories.length}</Badge>
+                )}
+                {activeCategoryId && (
+                  <Badge className="theme-bg-very-light theme-border-light theme-text text-[10px] px-1.5 py-0 h-4">
+                    Filter aktif
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setActiveCategoryId(null) }}
+                      className="ml-1 hover:theme-text"
+                    >
+                      <X className="h-2.5 w-2.5 inline" />
+                    </button>
+                  </Badge>
+                )}
+              </div>
+              <p className="text-[10px] text-slate-500 mt-0.5">Kelompokkan produk untuk filter cepat di POS</p>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <Button
@@ -1494,6 +1636,40 @@ export default function ProductsPage() {
                 })}
               </div>
             )}
+          </div>
+        )}
+      </div>
+
+      {/* Feature Instructions */}
+      <div className="rounded-xl border border-white/[0.04] bg-white/[0.02] overflow-hidden">
+        <button
+          onClick={() => setFeatureHelpOpen(prev => !prev)}
+          className="w-full flex items-center gap-2.5 px-4 py-2.5 hover:bg-white/[0.03] transition-colors text-left"
+        >
+          <div className="h-6 w-6 rounded-md bg-amber-500/10 flex items-center justify-center shrink-0">
+            <Lightbulb className="h-3 w-3 text-amber-400" />
+          </div>
+          <span className="text-[11px] font-medium text-slate-300">Panduan Fitur Produk</span>
+          <ChevronDown className={cn('h-3 w-3 text-slate-500 ml-auto transition-transform', featureHelpOpen && 'rotate-180')} />
+        </button>
+        {featureHelpOpen && (
+          <div className="px-4 pb-3.5 pt-1 space-y-2.5 border-t border-white/[0.04]">
+            {[
+              { icon: <FileSpreadsheetIcon className="h-3 w-3" />, label: 'Excel Dropdown', desc: 'Kumpulan aksi Excel dalam satu menu: Export untuk download, Upload untuk tambah produk baru massal, dan Edit untuk update produk yang sudah ada. Format file tersedia di masing-masing dialog.' },
+              { icon: <ListChecks className="h-3 w-3" />, label: 'Edit Massal', desc: 'Centang beberapa produk di tabel, lalu ubah harga, stok, atau kategori secara bersamaan. Tersedia untuk akun Pro & Owner.' },
+              { icon: <Printer className="h-3 w-3" />, label: 'Cetak Barcode', desc: 'Pilih produk (satu atau banyak) lalu cetak barcode dalam format yang siap tempel ke label produk.' },
+              { icon: <ScanBarcode className="h-3 w-3" />, label: 'Barcode & SKU', desc: 'Setiap produk bisa punya SKU manual dan/atau barcode. Di POS, scan barcode langsung menambahkan produk ke keranjang.' },
+              { icon: <Tags className="h-3 w-3" />, label: 'Kategori', desc: 'Klik kategori di atas untuk filter. Di POS, kategori muncul sebagai tab filter untuk mempercepat pencarian.' },
+              { icon: <AlertTriangle className="h-3 w-3" />, label: 'Stok Rendah', desc: 'Atur "Peringatan Stok Rendah" di form produk. Jika stok ≤ batas, produk ditandai kuning di tabel dan POS.' },
+            ].map((item) => (
+              <div key={item.label} className="flex gap-2.5">
+                <div className="mt-0.5 text-slate-500 shrink-0">{item.icon}</div>
+                <div>
+                  <p className="text-[11px] font-medium text-slate-300">{item.label}</p>
+                  <p className="text-[10px] text-slate-500 leading-relaxed mt-0.5">{item.desc}</p>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>

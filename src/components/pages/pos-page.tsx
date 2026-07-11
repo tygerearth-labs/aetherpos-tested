@@ -2966,13 +2966,21 @@ export default function PosPage() {
 
       {/* Pending Transactions List Dialog */}
       <ResponsiveDialog open={pendingListOpen} onOpenChange={setPendingListOpen}>
-        <ResponsiveDialogContent desktopClassName="max-w-md rounded-2xl">
+        <ResponsiveDialogContent desktopClassName="max-w-sm rounded-2xl">
           <ResponsiveDialogHeader>
             <ResponsiveDialogTitle className="text-sm font-bold text-white flex items-center gap-2">
-              <ClockArrowDown className="h-4 w-4 text-amber-400" strokeWidth={1.5} /> Transaksi Pending
-              {pendingCount > 0 && (
-                <Badge variant="secondary" className="ml-1 bg-amber-500/10 text-amber-400 border-amber-500/20 text-[10px] px-1.5">{pendingCount}</Badge>
-              )}
+              <div className="h-7 w-7 rounded-lg bg-amber-500/10 flex items-center justify-center">
+                <ClockArrowDown className="h-3.5 w-3.5 text-amber-400" strokeWidth={1.5} />
+              </div>
+              <div className="text-left">
+                <div className="flex items-center gap-2">
+                  Transaksi Pending
+                  {pendingCount > 0 && (
+                    <Badge variant="secondary" className="bg-amber-500/15 text-amber-400 border-amber-500/20 text-[10px] px-1.5 py-0 h-4">{pendingCount}</Badge>
+                  )}
+                </div>
+                <p className="text-[10px] text-slate-500 font-normal mt-0.5">Transaksi yang ditunda — klik Lanjutkan untuk memuat kembali ke keranjang</p>
+              </div>
             </ResponsiveDialogTitle>
           </ResponsiveDialogHeader>
           <PendingListContent
@@ -3045,11 +3053,11 @@ function PendingListContent({
   if (pendingList.length === 0) {
     return (
       <div className="text-center py-10">
-        <div className="w-12 h-12 rounded-2xl bg-white/[0.06] flex items-center justify-center mx-auto mb-3">
-          <ClockArrowDown className="h-5 w-5 text-slate-600" strokeWidth={1.5} />
+        <div className="w-14 h-14 rounded-2xl bg-white/[0.04] flex items-center justify-center mx-auto mb-3 border border-white/[0.06]">
+          <ClockArrowDown className="h-6 w-6 text-slate-700" strokeWidth={1.5} />
         </div>
         <p className="text-sm text-slate-400 font-medium">Belum ada transaksi pending</p>
-        <p className="text-[11px] text-slate-600 mt-1">Tunda transaksi untuk melayani customer lain</p>
+        <p className="text-[11px] text-slate-600 mt-1.5 max-w-[200px] mx-auto leading-relaxed">Tunda transaksi yang sedang berjalan untuk melayani customer lain</p>
       </div>
     )
   }
@@ -3066,43 +3074,33 @@ function PendingListContent({
         const totalItems = items.reduce((s, i) => s + i.qty, 0)
 
         return (
-          <div key={pending.id} className="aether-card p-3.5 space-y-2.5">
+          <div key={pending.id} className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3.5 space-y-3">
             {/* Header */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-lg bg-amber-500/10 flex items-center justify-center">
-                  <ClockArrowDown className="h-3.5 w-3.5 text-amber-400" strokeWidth={1.5} />
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="h-9 w-9 rounded-xl bg-amber-500/10 border border-amber-500/10 flex items-center justify-center shrink-0">
+                  <ClockArrowDown className="h-4 w-4 text-amber-400" strokeWidth={1.5} />
                 </div>
-                <div>
-                  <p className="text-xs font-semibold text-slate-200">{totalItems} item</p>
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-slate-200 truncate">{totalItems} item</p>
                   <p className="text-[10px] text-slate-500">{formatTime(pending.createdAt)} · {pending.userName}</p>
                 </div>
               </div>
-              <p className="text-sm font-bold text-white tabular-nums">{formatCurrency(pending.subtotal)}</p>
+              <div className="text-right shrink-0">
+                <p className="text-sm font-bold text-white tabular-nums">{formatCurrency(pending.subtotal)}</p>
+              </div>
             </div>
 
             {/* Items preview */}
-            <div className="flex flex-wrap gap-1.5">
-              {items.slice(0, 4).map((item, idx) => (
-                <div key={idx} className="inline-flex items-center gap-1.5 bg-white/[0.04] text-slate-400 pl-1 pr-2 py-0.5 rounded-md truncate max-w-[180px]">
-                  {item.product.image ? (
-                    <div className="w-5 h-5 shrink-0 rounded overflow-hidden bg-white/[0.03]">
-                      <img src={item.product.image} alt="" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = 'none' }} />
-                    </div>
-                  ) : (
-                    <div className="w-5 h-5 shrink-0 rounded bg-white/[0.03] flex items-center justify-center">
-                      <Package className="h-2.5 w-2.5 text-slate-700" strokeWidth={1.5} />
-                    </div>
-                  )}
-                  <span className="text-[10px] truncate">
-                    {item.variant ? `${item.product.name} (${item.variant.name})` : item.product.name} ×{item.qty}
-                  </span>
+            <div className="space-y-1">
+              {items.slice(0, 3).map((item, idx) => (
+                <div key={idx} className="flex items-center gap-2 text-[11px] text-slate-400">
+                  <span className="text-slate-600 font-medium w-4 text-right shrink-0">{item.qty}×</span>
+                  <span className="truncate">{item.variant ? `${item.product.name} (${item.variant.name})` : item.product.name}</span>
                 </div>
               ))}
-              {items.length > 4 && (
-                <span className="text-[10px] bg-white/[0.04] text-slate-500 px-2 py-0.5 rounded-md">
-                  +{items.length - 4} lainnya
-                </span>
+              {items.length > 3 && (
+                <p className="text-[10px] text-slate-600 pl-6">+{items.length - 3} item lainnya</p>
               )}
             </div>
 
@@ -3116,17 +3114,20 @@ function PendingListContent({
 
             {/* Customer */}
             {pending.customerName && (
-              <p className="text-[10px] text-slate-500">👤 {pending.customerName}</p>
+              <div className="flex items-center gap-1.5 text-[10px] text-slate-500">
+                <User className="h-3 w-3" strokeWidth={1.5} />
+                {pending.customerName}
+              </div>
             )}
 
             {/* Actions */}
-            <div className="flex gap-2 pt-1">
+            <div className="flex gap-2 pt-0.5">
               <Button size="sm" onClick={() => onResume(pending)}
                 className="flex-1 h-8 text-[11px] font-medium rounded-lg theme-bg hover:theme-hover text-white transition-colors">
                 <ShoppingCart className="mr-1.5 h-3 w-3" strokeWidth={1.5} /> Lanjutkan
               </Button>
               <Button size="sm" variant="ghost" onClick={() => onDelete(pending.id!)}
-                className="h-8 px-3 text-[11px] text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors">
+                className="h-8 w-8 px-0 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors">
                 <Trash2 className="h-3 w-3" strokeWidth={1.5} />
               </Button>
             </div>
