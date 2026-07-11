@@ -46,10 +46,12 @@ import {
 } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import {
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-} from '@/components/ui/popover'
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu'
 import { Pagination } from '@/components/shared/pagination'
 import {
   Table,
@@ -536,16 +538,7 @@ export default function ProductsPage() {
   // Export Excel state
   const [exporting, setExporting] = useState(false)
 
-  // Excel actions dropdown
-  const [excelMenuOpen, setExcelMenuOpen] = useState(false)
-  const excelMenuRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (excelMenuRef.current && !excelMenuRef.current.contains(e.target as Node)) setExcelMenuOpen(false)
-    }
-    if (excelMenuOpen) document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [excelMenuOpen])
+
 
   // Edit Excel state
   const [editExcelOpen, setEditExcelOpen] = useState(false)
@@ -567,7 +560,38 @@ export default function ProductsPage() {
   // Category management state
   const [categories, setCategories] = useState<Category[]>([])
   const [categoriesLoading, setCategoriesLoading] = useState(true)
-  const [categorySectionOpen, setCategorySectionOpen] = useState(true)
+  const [categorySectionOpen, setCategorySectionOpen] = useState(false)
+  const categoryScrollRef = useRef<HTMLDivElement>(null)
+  const isDragging = useRef(false)
+  const startX = useRef(0)
+  const scrollLeft = useRef(0)
+
+  // Drag-to-scroll for category chips
+  const handleCategoryMouseDown = useCallback((e: React.MouseEvent) => {
+    if (!categoryScrollRef.current) return
+    isDragging.current = true
+    startX.current = e.pageX - categoryScrollRef.current.offsetLeft
+    scrollLeft.current = categoryScrollRef.current.scrollLeft
+  }, [])
+  const handleCategoryMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!isDragging.current || !categoryScrollRef.current) return
+    e.preventDefault()
+    const x = e.pageX - categoryScrollRef.current.offsetLeft
+    const walk = (x - startX.current) * 1.5
+    categoryScrollRef.current.scrollLeft = scrollLeft.current - walk
+  }, [])
+  const handleCategoryMouseUp = useCallback(() => { isDragging.current = false }, [])
+  const handleCategoryTouchStart = useCallback((e: React.TouchEvent) => {
+    if (!categoryScrollRef.current) return
+    startX.current = e.touches[0].pageX - categoryScrollRef.current.offsetLeft
+    scrollLeft.current = categoryScrollRef.current.scrollLeft
+  }, [])
+  const handleCategoryTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!categoryScrollRef.current) return
+    const x = e.touches[0].pageX - categoryScrollRef.current.offsetLeft
+    const walk = (x - startX.current) * 1.5
+    categoryScrollRef.current.scrollLeft = scrollLeft.current - walk
+  }, [])
   const [featureHelpOpen, setFeatureHelpOpen] = useState(false)
   const [activeCategoryId, setActiveCategoryId] = useState<string | null>(null)
   const [categoryDialogOpen, setCategoryDialogOpen] = useState(false)
@@ -1328,52 +1352,57 @@ export default function ProductsPage() {
               Cetak Barcode
             </Button>
           {/* Excel Actions Dropdown */}
-          <div className="relative shrink-0" ref={excelMenuRef}>
-            <Button
-              variant="outline"
-              onClick={() => setExcelMenuOpen(!excelMenuOpen)}
-              className="bg-white/[0.04] border-white/[0.04] text-slate-300 hover:text-white hover:bg-white/[0.04] h-9 text-xs font-medium gap-1.5"
-            >
-              <FileSpreadsheet className="h-3.5 w-3.5" />
-              Excel
-              <ChevronDown className={cn('h-3 w-3 transition-transform', excelMenuOpen && 'rotate-180')} />
-            </Button>
-            {excelMenuOpen && (
-              <div className="absolute right-0 top-full mt-1.5 z-50 min-w-[200px] rounded-xl border border-white/[0.08] bg-nebula shadow-2xl shadow-black/60 overflow-hidden animate-in fade-in-0 zoom-in-95 slide-in-from-top-1 duration-150">
-                <button
-                  onClick={() => { setExcelMenuOpen(false); handleExportExcel() }}
-                  disabled={exporting}
-                  className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs text-slate-300 hover:bg-white/[0.04] hover:text-white transition-colors disabled:opacity-50"
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                className="bg-white/[0.04] border-white/[0.04] text-slate-300 hover:text-white hover:bg-white/[0.04] h-9 text-xs font-medium gap-1.5"
+              >
+                <FileSpreadsheet className="h-3.5 w-3.5" />
+                Excel
+                <ChevronDown className="h-3 w-3" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-[220px] rounded-xl border-white/[0.08] bg-nebula p-1 shadow-2xl shadow-black/60">
+              <DropdownMenuItem
+                onClick={handleExportExcel}
+                disabled={exporting}
+                className="flex items-center gap-2.5 px-3 py-2.5 text-xs text-slate-300 hover:bg-white/[0.04] hover:text-white rounded-lg cursor-pointer focus:bg-white/[0.04] focus:text-white"
+              >
+                {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5 text-slate-500" />}
+                <div className="flex-1">
+                  <span>Export Excel</span>
+                  <p className="text-[10px] text-slate-600">Download data</p>
+                </div>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator className="bg-white/[0.06] my-1" />
+              <ProGate feature="bulkUpload" label="" description="" variant="inline">
+                <DropdownMenuItem
+                  onClick={() => { setUploadOpen(true); setUploadFile(null); setUploadResult(null) }}
+                  className="flex items-center gap-2.5 px-3 py-2.5 text-xs text-slate-300 hover:bg-white/[0.04] hover:text-white rounded-lg cursor-pointer focus:bg-white/[0.04] focus:text-white"
                 >
-                  {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5 text-slate-500" />}
-                  <span className="flex-1 text-left">Export Excel</span>
-                  <span className="text-[10px] text-slate-600">Download data</span>
-                </button>
-                <div className="h-px bg-white/[0.06]" />
-                <ProGate feature="bulkUpload" label="" description="" variant="inline">
-                  <button
-                    onClick={() => { setExcelMenuOpen(false); setUploadOpen(true); setUploadFile(null); setUploadResult(null) }}
-                    className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs text-slate-300 hover:bg-white/[0.04] hover:text-white transition-colors"
-                  >
-                    <Upload className="h-3.5 w-3.5 text-slate-500" />
-                    <span className="flex-1 text-left">Upload Excel</span>
-                    <span className="text-[10px] text-slate-600">Tambah massal</span>
-                  </button>
-                </ProGate>
-                <div className="h-px bg-white/[0.06]" />
-                <ProGate feature="bulkUpload" label="" description="" variant="inline">
-                  <button
-                    onClick={() => { setExcelMenuOpen(false); setEditExcelOpen(true); setEditExcelFile(null); setEditExcelResult(null); setEditExcelProgress(0); setEditExcelPhase('') }}
-                    className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs text-slate-300 hover:bg-white/[0.04] hover:text-white transition-colors"
-                  >
-                    <FilePenLine className="h-3.5 w-3.5 text-slate-500" />
-                    <span className="flex-1 text-left">Edit Excel</span>
-                    <span className="text-[10px] text-slate-600">Update massal</span>
-                  </button>
-                </ProGate>
-              </div>
-            )}
-          </div>
+                  <Upload className="h-3.5 w-3.5 text-slate-500" />
+                  <div className="flex-1">
+                    <span>Upload Excel</span>
+                    <p className="text-[10px] text-slate-600">Tambah massal</p>
+                  </div>
+                </DropdownMenuItem>
+              </ProGate>
+              <DropdownMenuSeparator className="bg-white/[0.06] my-1" />
+              <ProGate feature="bulkUpload" label="" description="" variant="inline">
+                <DropdownMenuItem
+                  onClick={() => { setEditExcelOpen(true); setEditExcelFile(null); setEditExcelResult(null); setEditExcelProgress(0); setEditExcelPhase('') }}
+                  className="flex items-center gap-2.5 px-3 py-2.5 text-xs text-slate-300 hover:bg-white/[0.04] hover:text-white rounded-lg cursor-pointer focus:bg-white/[0.04] focus:text-white"
+                >
+                  <FilePenLine className="h-3.5 w-3.5 text-slate-500" />
+                  <div className="flex-1">
+                    <span>Edit Excel</span>
+                    <p className="text-[10px] text-slate-600">Update massal</p>
+                  </div>
+                </DropdownMenuItem>
+              </ProGate>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button onClick={handleAdd} className="theme-bg theme-hover text-white h-9 text-xs font-medium shadow-lg theme-shadow shrink-0">
             <Plus className="mr-1.5 h-3.5 w-3.5" />
             Tambah Produk
@@ -1383,63 +1412,44 @@ export default function ProductsPage() {
 
       {/* Stats Cards */}
       {!loading && stats.total > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-          {/* Total Products */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-4 gap-3">
+          {/* Total Produk & Qty — merged */}
           <Popover>
             <PopoverTrigger asChild>
               <div className="relative rounded-xl border border-white/[0.06] bg-nebula p-4 space-y-3 overflow-hidden group cursor-pointer hover:border-white/[0.1] transition-colors">
-                <div className="absolute top-0 left-0 right-0 h-0.5 theme-gradient" />
+                <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-cyan-500 via-emerald-500 to-cyan-500/40" />
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium text-slate-400">Total Produk</span>
-                  <div className="h-8 w-8 rounded-lg theme-bg-very-light flex items-center justify-center">
-                    <Package className="h-4 w-4 theme-text" />
-                  </div>
-                </div>
-                <p className="text-2xl font-bold text-white tracking-tight">{formatNumber(stats.total)}</p>
-                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <Info className="h-3 w-3 text-slate-500" />
-                </div>
-              </div>
-            </PopoverTrigger>
-            <PopoverContent side="bottom" align="center" className="w-64 rounded-xl border-white/[0.08] bg-nebula p-3.5 shadow-2xl shadow-black/60">
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <div className="h-6 w-6 rounded-md theme-bg-very-light flex items-center justify-center">
-                    <Package className="h-3 w-3 theme-text" />
-                  </div>
-                  <span className="text-xs font-semibold text-white">Total Produk</span>
-                </div>
-                <p className="text-[11px] text-slate-400 leading-relaxed">Jumlah <strong className="text-slate-200">SKU produk unik</strong> yang terdaftar di outlet ini, termasuk produk dengan varian.</p>
-              </div>
-            </PopoverContent>
-          </Popover>
-
-          {/* Total Qty */}
-          <Popover>
-            <PopoverTrigger asChild>
-              <div className="relative rounded-xl border border-white/[0.06] bg-nebula p-4 space-y-3 overflow-hidden group cursor-pointer hover:border-white/[0.1] transition-colors">
-                <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-emerald-500 to-emerald-500/40" />
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium text-slate-400">Qty Produk</span>
+                  <span className="text-xs font-medium text-slate-400">Produk & Stok</span>
                   <div className="h-8 w-8 rounded-lg bg-emerald-500/10 flex items-center justify-center">
-                    <Boxes className="h-4 w-4 text-emerald-400" />
+                    <Package className="h-4 w-4 text-emerald-400" />
                   </div>
                 </div>
-                <p className="text-2xl font-bold text-white tracking-tight">{formatNumber(stats.totalQty)}</p>
+                <div className="flex items-end gap-3">
+                  <div>
+                    <p className="text-[10px] text-slate-500 leading-none">SKU</p>
+                    <p className="text-2xl font-bold text-white tracking-tight mt-0.5">{formatNumber(stats.total)}</p>
+                  </div>
+                  <div className="w-px h-8 bg-white/[0.06] mb-0.5" />
+                  <div>
+                    <p className="text-[10px] text-slate-500 leading-none">Qty</p>
+                    <p className="text-2xl font-bold text-emerald-400 tracking-tight mt-0.5">{formatNumber(stats.totalQty)}</p>
+                  </div>
+                </div>
                 <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
                   <Info className="h-3 w-3 text-slate-500" />
                 </div>
               </div>
             </PopoverTrigger>
             <PopoverContent side="bottom" align="center" className="w-64 rounded-xl border-white/[0.08] bg-nebula p-3.5 shadow-2xl shadow-black/60">
-              <div className="space-y-2">
+              <div className="space-y-2.5">
                 <div className="flex items-center gap-2">
                   <div className="h-6 w-6 rounded-md bg-emerald-500/10 flex items-center justify-center">
-                    <Boxes className="h-3 w-3 text-emerald-400" />
+                    <Package className="h-3 w-3 text-emerald-400" />
                   </div>
-                  <span className="text-xs font-semibold text-white">Qty Produk</span>
+                  <span className="text-xs font-semibold text-white">Produk & Stok</span>
                 </div>
-                <p className="text-[11px] text-slate-400 leading-relaxed">Total <strong className="text-slate-200">kuantitas stok</strong> dari semua produk. Untuk produk dengan varian, semua varian dijumlahkan.</p>
+                <p className="text-[11px] text-slate-400 leading-relaxed"><strong className="text-slate-200">SKU ({formatNumber(stats.total)})</strong> — jumlah produk unik yang terdaftar, termasuk produk dengan varian.</p>
+                <p className="text-[11px] text-slate-400 leading-relaxed"><strong className="text-emerald-400">Qty ({formatNumber(stats.totalQty)})</strong> — total kuantitas stok dari semua produk. Varian dijumlahkan.</p>
               </div>
             </PopoverContent>
           </Popover>
@@ -1597,7 +1607,16 @@ export default function ProductsPage() {
             ) : categories.length === 0 ? (
               <p className="text-[11px] text-slate-500 py-2">Belum ada kategori. Klik "Tambah" untuk membuat kategori baru.</p>
             ) : (
-              <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin">
+              <div
+                ref={categoryScrollRef}
+                className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide cursor-grab active:cursor-grabbing select-none"
+                onMouseDown={handleCategoryMouseDown}
+                onMouseMove={handleCategoryMouseMove}
+                onMouseUp={handleCategoryMouseUp}
+                onMouseLeave={handleCategoryMouseUp}
+                onTouchStart={handleCategoryTouchStart}
+                onTouchMove={handleCategoryTouchMove}
+              >
                 {categories.map((cat) => {
                   const colors = getColorClasses(cat.color)
                   const isActive = activeCategoryId === cat.id
@@ -1943,11 +1962,16 @@ export default function ProductsPage() {
         {/* Mobile bulk select-all bar */}
         {bulkMode && !loading && products.length > 0 && (
           <div className="flex items-center gap-2 mb-3 px-1">
-            <Checkbox
-              checked={selectAllMode || (selectedIds.size === products.length && products.length > 0)}
-              onCheckedChange={selectAllMode ? () => { setSelectAllMode(false); setSelectedIds(new Set()) } : toggleSelectAll}
-              className="border-white/[0.06] data-[state=checked]:theme-bg data-[state=checked]:theme-border"
-            />
+            <button
+              type="button"
+              onClick={selectAllMode ? () => { setSelectAllMode(false); setSelectedIds(new Set()) } : toggleSelectAll}
+              className="flex items-center justify-center min-h-[44px] min-w-[44px] -ml-2"
+            >
+              <Checkbox
+                checked={selectAllMode || (selectedIds.size === products.length && products.length > 0)}
+                className="border-white/[0.06] data-[state=checked]:theme-bg data-[state=checked]:theme-border pointer-events-none"
+              />
+            </button>
             <span className="text-[11px] text-slate-400">
               {selectAllMode
                 ? <><span className="theme-text font-medium">Semua {stats.total}</span> produk dipilih</>
@@ -2017,11 +2041,14 @@ export default function ProductsPage() {
                     {/* Thumbnail */}
                     <div className="flex-shrink-0">
                       {bulkMode ? (
-                        <div className="flex flex-col items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => toggleSelect(product.id)}
+                          className="flex flex-col items-center gap-1.5 min-h-[44px] min-w-[44px] justify-center -ml-1"
+                        >
                           <Checkbox
                             checked={selectedIds.has(product.id)}
-                            onCheckedChange={() => toggleSelect(product.id)}
-                            className="border-white/[0.06] data-[state=checked]:theme-bg data-[state=checked]:theme-border"
+                            className="border-white/[0.06] data-[state=checked]:theme-bg data-[state=checked]:theme-border pointer-events-none"
                           />
                           {product.image ? (
                             <div className="h-10 w-10 rounded-lg bg-white/[0.04] overflow-hidden">
@@ -2032,7 +2059,7 @@ export default function ProductsPage() {
                               <Package className="h-4 w-4 text-slate-600" />
                             </div>
                           )}
-                        </div>
+                        </button>
                       ) : product.image ? (
                         <div className="h-11 w-11 rounded-lg bg-white/[0.04] overflow-hidden">
                           <img src={product.image} alt={product.name} className="h-full w-full object-cover" />
