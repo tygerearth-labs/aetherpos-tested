@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
     if (user.role === 'OWNER') {
       return safeJson({
         role: 'OWNER',
-        pages: 'dashboard,products,customers,pos,transactions,audit-log,crew,settings',
+        pages: 'dashboard,products,customers,pos,transactions,purchase,transfer,audit-log,crew,settings',
       })
     }
 

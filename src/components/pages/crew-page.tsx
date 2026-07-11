@@ -88,13 +88,16 @@ const DEFAULT_FORM: CrewFormData = {
 }
 
 const AVAILABLE_PAGES = [
-  { key: 'dashboard', label: 'Dashboard' },
-  { key: 'products', label: 'Produk' },
-  { key: 'customers', label: 'Pelanggan' },
-  { key: 'pos', label: 'POS' },
-  { key: 'transactions', label: 'Transaksi' },
-  { key: 'audit-log', label: 'Audit Log' },
-  { key: 'settings', label: 'Pengaturan' },
+  { key: 'dashboard', label: 'Dashboard', section: 'Utama' },
+  { key: 'products', label: 'Produk', section: 'Utama' },
+  { key: 'customers', label: 'Pelanggan', section: 'Utama' },
+  { key: 'pos', label: 'POS', section: 'Operasional' },
+  { key: 'transactions', label: 'Transaksi', section: 'Operasional' },
+  { key: 'purchase', label: 'Pembelian', section: 'Operasional' },
+  { key: 'transfer', label: 'Kirim Barang', section: 'Operasional' },
+  { key: 'audit-log', label: 'Audit Log', section: 'Manajemen' },
+  { key: 'settings', label: 'Pengaturan', section: 'Manajemen' },
+  { key: 'crew', label: 'Kelola Crew', section: 'Manajemen' },
 ]
 
 // ==================== MAIN COMPONENT ====================
@@ -419,14 +422,17 @@ function CrewManagement() {
                             <TableCell className="text-center py-2.5 px-3">
                               <div className="flex flex-wrap justify-center gap-1">
                                 {pages.length > 0 ? (
-                                  pages.map((p) => (
-                                    <Badge
-                                      key={p}
-                                      className="text-[10px] theme-bg-very-light theme-border-light theme-text px-1.5 py-0"
-                                    >
-                                      {p}
-                                    </Badge>
-                                  ))
+                                  pages.map((p) => {
+                                    const pageLabel = AVAILABLE_PAGES.find((ap) => ap.key === p)?.label || p
+                                    return (
+                                      <Badge
+                                        key={p}
+                                        className="text-[10px] theme-bg-very-light theme-border-light theme-text px-1.5 py-0"
+                                      >
+                                        {pageLabel}
+                                      </Badge>
+                                    )
+                                  })
                                 ) : (
                                   <span className="text-[10px] text-slate-600">Default (POS)</span>
                                 )}
@@ -825,21 +831,32 @@ function CrewAccessTab() {
                       <Loader2 className="h-3.5 w-3.5 animate-spin theme-text" />
                     )}
                   </div>
-                  <div className="flex flex-wrap gap-2.5">
-                    {AVAILABLE_PAGES.map((page) => {
-                      const isChecked = crewPages.includes(page.key)
+                  <div className="space-y-3">
+                    {['Utama', 'Operasional', 'Manajemen'].map((section) => {
+                      const sectionPages = AVAILABLE_PAGES.filter((p) => p.section === section)
+                      if (sectionPages.length === 0) return null
                       return (
-                        <label
-                          key={page.key}
-                          className="flex items-center gap-1.5 text-xs text-slate-400 cursor-pointer hover:text-slate-200 transition-colors"
-                        >
-                          <Checkbox
-                            checked={isChecked}
-                            onCheckedChange={() => handleTogglePage(crew.userId, page.key, isChecked)}
-                            className="data-[state=checked]:theme-bg data-[state=checked]:theme-border"
-                          />
-                          {page.label}
-                        </label>
+                        <div key={section}>
+                          <p className="text-[11px] font-medium text-slate-500 uppercase tracking-wider mb-1.5">{section}</p>
+                          <div className="flex flex-wrap gap-2.5">
+                            {sectionPages.map((page) => {
+                              const isChecked = crewPages.includes(page.key)
+                              return (
+                                <label
+                                  key={page.key}
+                                  className="flex items-center gap-1.5 text-xs text-slate-400 cursor-pointer hover:text-slate-200 transition-colors"
+                                >
+                                  <Checkbox
+                                    checked={isChecked}
+                                    onCheckedChange={() => handleTogglePage(crew.userId, page.key, isChecked)}
+                                    className="data-[state=checked]:theme-bg data-[state=checked]:theme-border"
+                                  />
+                                  {page.label}
+                                </label>
+                              )
+                            })}
+                          </div>
+                        </div>
                       )
                     })}
                   </div>
