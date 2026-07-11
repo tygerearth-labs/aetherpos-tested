@@ -1,13 +1,17 @@
 import { NextRequest } from 'next/server'
 import { requireWebmaster, webmasterUnauthorized } from '@/lib/api/webmaster-auth'
-import { SCENARIOS, type ScenarioResult } from '@/lib/test-scenarios'
+import { SCENARIOS, SCENARIOS_ALL, type ScenarioResult } from '@/lib/test-scenarios'
+
+// Use merged list
+const ALL_SCENARIOS = SCENARIOS_ALL.length > 0 ? SCENARIOS_ALL : SCENARIOS.map(s => ({ ...s, priority: 'ORIGINAL' }))
 
 // GET /api/test-suite — List all scenarios (webmaster only)
 export async function GET(request: NextRequest) {
   if (!requireWebmaster(request)) return webmasterUnauthorized()
 
-  const list = SCENARIOS.map((s) => ({
+  const list = ALL_SCENARIOS.map((s) => ({
     id: s.id,
+    priority: s.priority ?? 'ORIGINAL',
     category: s.category,
     name: s.name,
     description: s.description,
@@ -23,18 +27,25 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const scenarioId = body.scenarioId as string | undefined
     const runAll = body.runAll as boolean | undefined
+    const priority = body.priority as string | undefined
 
-    if (!scenarioId && !runAll) {
+    if (!scenarioId && !runAll && !priority) {
       return Response.json(
-        { error: 'Provide scenarioId or runAll: true' },
+        { error: 'Provide scenarioId, priority, or runAll: true' },
         { status: 400 }
       )
     }
 
-    if (runAll) {
-      // Run all scenarios sequentially
+    // Filter by priority if specified
+    let targetScenarios = ALL_SCENARIOS
+    if (priority) {
+      targetScenarios = ALL_SCENARIOS.filter(s => s.priority === priority)
+    }
+
+    if (runAll || priority) {
+      // Run all (filtered) scenarios sequentially
       const results: ScenarioResult[] = []
-      for (const scenario of SCENARIOS) {
+      for (const scenario of targetScenarios) {
         try {
           const result = await scenario.run()
           results.push(result)
@@ -55,7 +66,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Run single scenario
-    const scenario = SCENARIOS.find((s) => s.id === scenarioId)
+    const scenario = ALL_SCENARIOS.find((s) => s.id === scenarioId)
     if (!scenario) {
       return Response.json(
         { error: `Scenario "${scenarioId}" not found` },

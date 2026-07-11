@@ -334,8 +334,12 @@ export class InventoryConsumptionService {
         })
       }
     } catch (batchError) {
-      console.warn(`[InvConsumption] FEFO batch recording failed (non-fatal):`, batchError)
-      // Non-fatal: the main deduction already succeeded
+      // INV-HC-05 FIX: FEFO batch recording is now FATAL.
+      // If batch stock is inconsistent with InventoryItem.stock, the entire
+      // transaction must rollback to prevent data corruption.
+      // Previously this was non-fatal, which could cause remainingQty != stock.
+      const msg = batchError instanceof Error ? batchError.message : String(batchError)
+      throw new Error(`[InvConsumption] FEFO batch recording failed (FATAL): ${msg}`)
     }
 
     return {

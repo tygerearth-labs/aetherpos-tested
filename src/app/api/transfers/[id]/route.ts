@@ -230,6 +230,30 @@ export async function PATCH(
       // ── INVENTORY: Deduct InventoryItem stock + create InventoryMovement ──
       if (transfer.itemType === 'INVENTORY') {
         const invItems = transfer.inventoryTransferItems
+
+        // TRF-05 FIX: Check if any inventory item has active batches.
+        // If batches exist, the transfer must go through FEFO to maintain
+        // the INV-HC-01 invariant (stock == sum of batch remainingQty).
+        // For safety, reject and require manual batch handling.
+        await db.$transaction(async (tx) => {
+          for (const item of invItems) {
+            const batchCount = await tx.inventoryBatch.count({
+              where: {
+                inventoryItemId: item.inventoryItemId,
+                outletId: transfer.fromOutletId,
+                status: { in: ['AVAILABLE'] },
+                remainingQty: { gt: 0 },
+              },
+            })
+            if (batchCount > 0) {
+              throw new Error(
+                `TRF-05: Item "${item.itemName}" memiliki ${batchCount} batch aktif. ` +
+                `Transfer batch belum didukung — batch akan hilang jika transfer dilanjutkan. ` +
+                `Hubungi admin atau gunakan penyesuaian stok manual.`
+              )
+            }
+          }
+        })
         const totalQty = invItems.reduce((s, i) => s + i.quantity, 0)
         const totalValue = invItems.reduce((s, i) => s + i.quantity * i.avgCost, 0)
 

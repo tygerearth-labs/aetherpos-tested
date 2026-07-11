@@ -120,7 +120,22 @@ export class FEFOEngine {
   ): Promise<BatchConsumptionResult> {
     const { inventoryItemId, quantityNeeded, transactionId, invoiceNumber, outletId, userId, sourceDetails } = params
 
+    // 0. Mark expired batches before FEFO selection (BAT-008 fix)
+    //    Ensures expired batches are never consumed during checkout.
+    const now = new Date()
+    await tx.inventoryBatch.updateMany({
+      where: {
+        inventoryItemId,
+        outletId,
+        status: 'AVAILABLE',
+        expiredDate: { lt: now },
+        remainingQty: { gt: 0 },
+      },
+      data: { status: 'EXPIRED', updatedAt: now },
+    })
+
     // 1. Fetch AVAILABLE batches sorted by FEFO: expiredDate ASC, null last
+    //    BAT-008: Also filter out expired dates directly as a safety net
     const batches: AvailableBatch[] = await tx.$queryRaw`
       SELECT
         ib.id, ib."batchNumber", ib."inventoryItemId", ib."initialQty",
@@ -132,6 +147,7 @@ export class FEFOEngine {
         AND ib."outletId" = ${outletId}
         AND ib.status = 'AVAILABLE'
         AND ib."remainingQty" > 0
+        AND (ib."expiredDate" IS NULL OR ib."expiredDate" >= ${now})
       ORDER BY
         CASE WHEN ib."expiredDate" IS NULL THEN 1 ELSE 0 END,
         ib."expiredDate" ASC,
@@ -465,7 +481,21 @@ export class FEFOEngine {
   ): Promise<BatchConsumptionResult | null> {
     const { inventoryItemId, quantityNeeded, transactionId, invoiceNumber, outletId, userId, sourceDetails } = params
 
+    // 0. Mark expired batches before FEFO selection (BAT-008 fix)
+    const now = new Date()
+    await tx.inventoryBatch.updateMany({
+      where: {
+        inventoryItemId,
+        outletId,
+        status: 'AVAILABLE',
+        expiredDate: { lt: now },
+        remainingQty: { gt: 0 },
+      },
+      data: { status: 'EXPIRED', updatedAt: now },
+    })
+
     // 1. Fetch AVAILABLE batches sorted by FEFO: expiredDate ASC, null last
+    //    BAT-008: Filter out expired dates as safety net
     const batches: AvailableBatch[] = await tx.$queryRaw`
       SELECT
         ib.id, ib."batchNumber", ib."inventoryItemId", ib."initialQty",
@@ -477,6 +507,7 @@ export class FEFOEngine {
         AND ib."outletId" = ${outletId}
         AND ib.status = 'AVAILABLE'
         AND ib."remainingQty" > 0
+        AND (ib."expiredDate" IS NULL OR ib."expiredDate" >= ${now})
       ORDER BY
         CASE WHEN ib."expiredDate" IS NULL THEN 1 ELSE 0 END,
         ib."expiredDate" ASC,
@@ -494,18 +525,18 @@ export class FEFOEngine {
     // 2. Calculate total available across all batches
     const totalAvailable = batches.reduce((sum, b) => sum + b.remainingQty, 0)
     if (totalAvailable < quantityNeeded) {
-      // Log warning but don't throw — InventoryItem.stock was already deducted
-      // This can happen if batch data is inconsistent with stock
-      console.warn(
-        `[FEFO:RECORD] ${invoiceNumber} — batch stock insufficient for "${itemName}". ` +
+      // INV-HC-05 FIX: Throw instead of silently capping.
+      // If this fires, InventoryItem.stock and batch totals are out of sync.
+      // The caller's transaction will rollback, preventing data corruption.
+      throw new Error(
+        `[FEFO:RECORD] ${invoiceNumber} — CRITICAL: Batch stock inconsistent for "${itemName}". ` +
         `Available (batches): ${totalAvailable} ${baseUnit}, needed: ${quantityNeeded} ${baseUnit}. ` +
-        `Proceeding with available quantity.`
+        `InventoryItem.stock does not match sum(batch.remainingQty). Data integrity violation.`
       )
-      // Fall through and consume what we can
     }
 
     // 3. FEFO: consume from closest-to-expiry batches first
-    let remaining = Math.min(quantityNeeded, totalAvailable)
+    let remaining = quantityNeeded
     const batchConsumptions: BatchConsumptionResult['batchConsumptions'] = []
 
     for (const batch of batches) {
@@ -787,7 +818,7 @@ export class FEFOEngine {
     const { batchNumber, outletId } = params
 
     const batch = await tx.inventoryBatch.findFirst({
-      where: { batchNumber, outletId, status: 'AVAILABLE' },
+      where: { batchNumber: { equals: batchNumber, mode: 'insensitive' }, outletId, status: 'AVAILABLE' },
       include: {
         inventoryItem: { select: { name: true } },
         purchaseOrder: { select: { orderNumber: true } },
@@ -1165,8 +1196,9 @@ export class FEFOEngine {
   } | null> {
     const { batchNumber, outletId } = params
 
+    // MED-09 FIX: Case-insensitive batch search
     const batch = await tx.inventoryBatch.findFirst({
-      where: { batchNumber, outletId },
+      where: { batchNumber: { equals: batchNumber, mode: 'insensitive' }, outletId },
       include: {
         inventoryItem: { select: { name: true, baseUnit: true } },
         purchaseOrder: {

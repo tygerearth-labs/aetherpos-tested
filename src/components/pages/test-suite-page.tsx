@@ -38,6 +38,7 @@ import { cn } from '@/lib/utils'
 
 interface ScenarioInfo {
   id: string
+  priority?: string
   category: string
   name: string
   description: string
@@ -73,6 +74,20 @@ const CATEGORY_CONFIG: Record<string, { label: string; icon: React.ReactNode; co
   Customer: { label: 'Customer', icon: <Users className="h-4 w-4" />, color: 'text-pink-400', bg: 'bg-pink-500/10', border: 'border-pink-500/20' },
   Audit: { label: 'Audit', icon: <Shield className="h-4 w-4" />, color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20' },
   'Relational Audit': { label: 'Audit Relasi', icon: <Activity className="h-4 w-4" />, color: 'text-orange-400', bg: 'bg-orange-500/10', border: 'border-orange-500/20' },
+  BATCH: { label: 'BATCH', icon: <Package className="h-4 w-4" />, color: 'text-rose-400', bg: 'bg-rose-500/10', border: 'border-rose-500/20' },
+  DEXIE: { label: 'DEXIE', icon: <Package className="h-4 w-4" />, color: 'text-orange-400', bg: 'bg-orange-500/10', border: 'border-orange-500/20' },
+  STOCK: { label: 'STOCK', icon: <Package className="h-4 w-4" />, color: 'text-cyan-400', bg: 'bg-cyan-500/10', border: 'border-cyan-500/20' },
+  HPP: { label: 'HPP', icon: <FileText className="h-4 w-4" />, color: 'text-amber-400', bg: 'bg-amber-500/10', border: 'border-amber-500/20' },
+  UI: { label: 'UI', icon: <Zap className="h-4 w-4" />, color: 'text-teal-400', bg: 'bg-teal-500/10', border: 'border-teal-500/20' },
+  'Health Check': { label: 'INVARIANT', icon: <Activity className="h-4 w-4" />, color: 'text-red-400', bg: 'bg-red-500/10', border: 'border-red-500/20' },
+}
+
+const PRIORITY_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
+  CRITICAL: { label: '🔴 Critical', color: 'text-rose-400', bg: 'bg-rose-500/10' },
+  MEDIUM: { label: '🟡 Medium', color: 'text-amber-400', bg: 'bg-amber-500/10' },
+  LOW: { label: '🟢 Low', color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
+  INVARIANT: { label: '🔥 Invariant', color: 'text-red-400', bg: 'bg-red-500/10' },
+  ORIGINAL: { label: '📦 Original', color: 'text-slate-400', bg: 'bg-slate-500/10' },
 }
 
 const STATUS_STYLES: Record<string, { icon: React.ReactNode; color: string; bg: string; border: string; label: string }> = {
@@ -122,6 +137,7 @@ function TestSuiteContent() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [filterCat, setFilterCat] = useState<string | null>(null)
   const [filterStatus, setFilterStatus] = useState<string | null>(null)
+  const [filterPriority, setFilterPriority] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   // Load scenario list
@@ -225,6 +241,7 @@ function TestSuiteContent() {
 
   // Filter
   const filtered = scenarios.filter((s) => {
+    if (filterPriority && (s.priority || 'ORIGINAL') !== filterPriority) return false
     if (filterCat && s.category !== filterCat) return false
     if (filterStatus) {
       const r = results[s.id]
@@ -233,6 +250,29 @@ function TestSuiteContent() {
     }
     return true
   })
+
+  // Run by priority
+  const runByPriority = useCallback(async (priority: string) => {
+    setRunning('all')
+    try {
+      const res = await fetch('/api/test-suite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ priority }),
+      })
+      const data = await res.json()
+      if (data.results) {
+        const map: Record<string, ScenarioResult> = { ...results }
+        for (const r of data.results) map[r.id] = r
+        setResults(map)
+        setExpanded(() => {
+          const s = new Set<string>()
+          for (const r of data.results) { if (r.status !== 'PASS' && r.status !== 'SKIP') s.add(r.id) }
+          return s
+        })
+      }
+    } catch { /* silent */ } finally { setRunning(null) }
+  }, [results])
 
   // ── Render ──
 
@@ -298,6 +338,21 @@ function TestSuiteContent() {
 
         {/* Filters */}
         <div className="flex flex-wrap gap-2 mb-5">
+          {/* Priority filters */}
+          <FilterPill active={filterPriority === null} onClick={() => setFilterPriority(null)}>All ({scenarios.length})</FilterPill>
+          <FilterPill active={filterPriority === 'CRITICAL'} onClick={() => setFilterPriority(filterPriority === 'CRITICAL' ? null : 'CRITICAL')}>
+            <span className="mr-1">🔴</span>Critical ({scenarios.filter(s => s.priority === 'CRITICAL').length})
+          </FilterPill>
+          <FilterPill active={filterPriority === 'MEDIUM'} onClick={() => setFilterPriority(filterPriority === 'MEDIUM' ? null : 'MEDIUM')}>
+            <span className="mr-1">🟡</span>Medium ({scenarios.filter(s => s.priority === 'MEDIUM').length})
+          </FilterPill>
+          <FilterPill active={filterPriority === 'LOW'} onClick={() => setFilterPriority(filterPriority === 'LOW' ? null : 'LOW')}>
+            <span className="mr-1">🟢</span>Low ({scenarios.filter(s => s.priority === 'LOW').length})
+          </FilterPill>
+          <FilterPill active={filterPriority === 'INVARIANT'} onClick={() => setFilterPriority(filterPriority === 'INVARIANT' ? null : 'INVARIANT')}>
+            <span className="mr-1">🔥</span>Invariant ({scenarios.filter(s => s.priority === 'INVARIANT').length})
+          </FilterPill>
+          <span className="w-px h-6 bg-slate-700/50 mx-1 self-center" />
           <FilterPill active={filterCat === null} onClick={() => setFilterCat(null)}>All Categories</FilterPill>
           {categories.map((cat) => {
             const cfg = CATEGORY_CONFIG[cat]
@@ -369,6 +424,11 @@ function TestSuiteContent() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-[10px] font-mono text-slate-600">{scenario.id}</span>
+                            {scenario.priority && scenario.priority !== 'ORIGINAL' && (
+                              <span className={cn('text-[10px] px-1.5 py-0.5 rounded-md font-medium', PRIORITY_CONFIG[scenario.priority]?.bg, PRIORITY_CONFIG[scenario.priority]?.color)}>
+                                {PRIORITY_CONFIG[scenario.priority]?.label}
+                              </span>
+                            )}
                             <span className={cn('text-[10px] px-1.5 py-0.5 rounded-md font-medium', catConfig.bg, catConfig.color, 'border', catConfig.border)}>
                               {catConfig.label}
                             </span>

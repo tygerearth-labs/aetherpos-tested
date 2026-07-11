@@ -159,9 +159,26 @@ async function fetchAvailableBatches(
     .equals(inventoryItemId)
     .toArray()
 
-  return allBatches.filter(
-    b => b.outletId === outletId && b.status === 'AVAILABLE' && b.remainingQty > 0 && b.deletedAt === null,
-  )
+  const now = new Date()
+
+  // BAT-008 FIX: Also filter out expired batches and mark them
+  const safeBatches: OfflineInventoryBatch[] = []
+  for (const b of allBatches) {
+    if (b.outletId !== outletId || b.status !== 'AVAILABLE' || b.remainingQty <= 0 || b.deletedAt !== null) {
+      continue
+    }
+    // Check if expired
+    if (b.expiredDate !== null && new Date(b.expiredDate) < now) {
+      // Mark as expired
+      b.status = 'EXPIRED'
+      b.updatedAt = now.toISOString()
+      await db.inventoryBatches.put(b)
+      continue
+    }
+    safeBatches.push(b)
+  }
+
+  return safeBatches
 }
 
 /**
@@ -178,8 +195,15 @@ async function sumAvailableBatchStock(
     .equals(inventoryItemId)
     .toArray()
 
+  const now = new Date()
+
   return allBatches
-    .filter(b => b.outletId === outletId && b.status === 'AVAILABLE' && b.deletedAt === null)
+    .filter(b => {
+      if (b.outletId !== outletId || b.status !== 'AVAILABLE' || b.deletedAt !== null) return false
+      // BAT-008: Exclude expired batches
+      if (b.expiredDate !== null && new Date(b.expiredDate) < now) return false
+      return b.remainingQty > 0
+    })
     .reduce((sum, b) => sum + b.remainingQty, 0)
 }
 

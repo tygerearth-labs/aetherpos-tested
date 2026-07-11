@@ -19,6 +19,7 @@ interface SyncTransactionItem {
 
 interface SyncTransaction {
   id?: number
+  eventId?: string // DEX-007: Client-provided idempotency key
   payload: {
     customerId: string | null
     items: SyncTransactionItem[]
@@ -73,6 +74,33 @@ export async function POST(request: NextRequest) {
         if (!tx.id) {
           results.push({ localId: -1, success: false, error: 'Missing localId' })
           continue
+        }
+
+        // DEX-007 FIX: Idempotency check — skip if event was already processed
+        if (tx.eventId) {
+          // Use auditLog as idempotency store (existing table, no schema change needed)
+          const existingAudit = await db.auditLog.findFirst({
+            where: {
+              outletId,
+              action: 'SYNC_DEDUP',
+              entityId: tx.eventId,
+            },
+          })
+          if (existingAudit) {
+            console.log(`[sync] DEX-007: Duplicate event ${tx.eventId} ignored (already processed)`)
+            try {
+              const parsed = JSON.parse(existingAudit.details || '{}')
+              results.push({
+                localId: tx.id,
+                success: true,
+                invoiceNumber: parsed.invoiceNumber as string | undefined,
+                serverId: parsed.serverId as string | undefined,
+              })
+            } catch {
+              results.push({ localId: tx.id, success: true, error: 'Already synced (duplicate skipped)' })
+            }
+            continue
+          }
         }
 
         const { payload, createdAt } = tx
@@ -393,6 +421,25 @@ export async function POST(request: NextRequest) {
 
           return { transactionId: transaction.id, invoiceNumber }
         }, { timeout: 15000 })
+
+        // DEX-007: Record eventId as processed (idempotency marker)
+        if (tx.eventId) {
+          await db.auditLog.create({
+            data: {
+              action: 'SYNC_DEDUP',
+              entityType: 'SYNC_EVENT',
+              entityId: tx.eventId,
+              details: JSON.stringify({
+                invoiceNumber: result.invoiceNumber,
+                serverId: result.transactionId,
+                localId: tx.id,
+                processedAt: new Date().toISOString(),
+              }),
+              outletId,
+              userId,
+            },
+          })
+        }
 
         results.push({
           localId: tx.id,

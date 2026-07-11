@@ -2357,3 +2357,21 @@ export const SCENARIOS: Array<{
   // Relational Audit (1)
   { id: 'REL-01', category: 'Audit', name: 'Full Relational Audit Trail for Import Purchase', description: 'Verify all relational data created after PO import: PO, items, batches, stock, movements, audit', run: scenarioRel01 },
 ]
+
+// ════════════════════════════════════════════════════════════
+// V2 Scenarios — merged from test-scenarios-v2.ts
+// ════════════════════════════════════════════════════════════
+
+import { SCENARIOS_V2 } from '@/lib/test-scenarios-v2'
+
+export const SCENARIOS_ALL: Array<{
+  id: string
+  priority?: string
+  category: string
+  name: string
+  description: string
+  run: () => Promise<ScenarioResult>
+}> = [
+  ...SCENARIOS.map(s => ({ ...s, priority: 'ORIGINAL' })),
+  ...SCENARIOS_V2,
+]
