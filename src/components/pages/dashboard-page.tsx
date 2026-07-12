@@ -80,7 +80,7 @@ export default function DashboardPage() {
   const topSelling = insightData?.metrics.topSelling ?? []
 
   // ── Migration Banner: show only for OWNER when 0 products ──
-  const showMigrationBanner = isOwner && (stats.totalProducts ?? 0) === 0
+  const showMigrationBanner = isOwner && (stats?.totalProducts ?? 0) === 0
 
   // ── Loading Skeleton ──
   if (isLoading || !stats) {
