@@ -15,6 +15,7 @@ import { QuickActions } from '@/components/dashboard/quick-actions'
 import { AnalyticsTabs } from '@/components/dashboard/analytics-tabs'
 import { SalesProductsCard, InsightsSection, InventoryAlertsSection, ScoreExplanationDialog, InventoryFreshnessWidget, ExpiryHeatmapWidget, ExpiryAlertBanner, PromoRecommendationWidget } from '@/components/dashboard/dashboard-sections'
 import { EnterpriseBubbleChart, PendingTransfersSection, InventoryPredictionSection } from '@/components/dashboard/enterprise-sections'
+import { MigrationBanner } from '@/components/migration/migration-banner'
 
 // ── Animation variants ──
 const containerVariants = {
@@ -78,6 +79,9 @@ export default function DashboardPage() {
 
   const topSelling = insightData?.metrics.topSelling ?? []
 
+  // ── Migration Banner: show only for OWNER when 0 products ──
+  const showMigrationBanner = isOwner && (stats.totalProducts ?? 0) === 0
+
   // ── Loading Skeleton ──
   if (isLoading || !stats) {
     return (
@@ -123,6 +127,15 @@ export default function DashboardPage() {
           </div>
         )}
       </motion.div>
+
+      {/* ═══════════════════════════════════════════════════
+          ROW 1.5 — Migration Banner (New User: 0 Products)
+          ═══════════════════════════════════════════════════ */}
+      {showMigrationBanner && (
+        <motion.div variants={itemVariants}>
+          <MigrationBanner />
+        </motion.div>
+      )}
 
       {/* ═══════════════════════════════════════════════════
           ROW 2 — Upgrade Banner (FREE only)

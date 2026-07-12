@@ -1,0 +1,574 @@
+'use client'
+
+import { useState, useRef, useCallback } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import {
+  Upload, FileSpreadsheet, Check, Loader2,
+  PartyPopper, ArrowRight, Download,
+  Package, Tag, BarChart3, BookOpen,
+  Boxes, DollarSign, ShoppingCart, X,
+  FileSearch, ClipboardCheck, ArrowRightLeft, Cpu, Database,
+} from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Progress } from '@/components/ui/progress'
+import { formatCurrency, formatNumber } from '@/lib/format'
+import type { ImportMode } from './migration-banner'
+
+type WizardStep = 'upload' | 'processing' | 'success'
+
+interface ProcessingStep {
+  id: string
+  label: string
+  icon: React.ElementType
+  status: 'pending' | 'active' | 'done'
+}
+
+interface MigrationWizardProps {
+  mode: ImportMode
+  state: string
+  onStateChange: (state: 'idle' | 'choosing_mode' | 'uploading' | 'processing' | 'success') => void
+  onSuccess: (result: {
+    productsCreated: number
+    totalCategories: number
+    barcodeCount: number
+    mode: ImportMode
+    inventoryItemsCreated?: number
+    totalStock?: number
+    totalModalValue?: number
+  }) => void
+  onClose: () => void
+  onDismiss: () => void
+}
+
+export function MigrationWizard({
+  mode,
+  state,
+  onStateChange,
+  onSuccess,
+  onClose,
+  onDismiss,
+}: MigrationWizardProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [isDragging, setIsDragging] = useState(false)
+  const [isUploading, setIsUploading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [processingSteps, setProcessingSteps] = useState<ProcessingStep[]>([])
+  const [progress, setProgress] = useState(0)
+  const [result, setResult] = useState<{
+    productsCreated: number
+    totalCategories: number
+    barcodeCount: number
+    inventoryItemsCreated?: number
+    totalStock?: number
+    totalModalValue?: number
+  } | null>(null)
+
+  const isInventory = mode === 'product_inventory'
+
+  const baseSteps: ProcessingStep[] = [
+    { id: 'reading', label: 'Membaca file', icon: FileSearch, status: 'pending' },
+    { id: 'validating', label: 'Validasi data', icon: ClipboardCheck, status: 'pending' },
+    { id: 'mapping', label: 'Mapping kolom', icon: ArrowRightLeft, status: 'pending' },
+    { id: 'creating_product', label: 'Membuat Product', icon: Cpu, status: 'pending' },
+  ]
+
+  if (isInventory) {
+    baseSteps.push({ id: 'creating_inventory', label: 'Membuat Inventory', icon: Database, status: 'pending' })
+  }
+
+  const handleFileSelect = useCallback((file: File) => {
+    const ext = file.name.split('.').pop()?.toLowerCase()
+    if (!['xlsx', 'xls', 'csv'].includes(ext || '')) {
+      setError('Format file tidak didukung. Gunakan .xlsx, .xls, atau .csv')
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setError('Ukuran file maksimal 5MB')
+      return
+    }
+    setSelectedFile(file)
+    setError(null)
+  }, [])
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(false)
+    const file = e.dataTransfer.files[0]
+    if (file) handleFileSelect(file)
+  }, [handleFileSelect])
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(true)
+  }, [])
+
+  const handleDragLeave = useCallback(() => {
+    setIsDragging(false)
+  }, [])
+
+  const simulateProcessing = useCallback((steps: ProcessingStep[]) => {
+    const durations = [600, 800, 600, 1200, ...(isInventory ? [1000] : [])]
+    let stepIndex = 0
+
+    setProcessingSteps(steps)
+    onStateChange('processing')
+
+    const runStep = () => {
+      if (stepIndex >= steps.length) return
+
+      const newSteps = [...steps]
+      // Mark current as active
+      newSteps[stepIndex] = { ...newSteps[stepIndex], status: 'active' }
+      setProcessingSteps([...newSteps])
+      setProgress(((stepIndex + 0.5) / steps.length) * 100)
+
+      setTimeout(() => {
+        newSteps[stepIndex] = { ...newSteps[stepIndex], status: 'done' }
+        setProcessingSteps([...newSteps])
+        setProgress(((stepIndex + 1) / steps.length) * 100)
+        stepIndex++
+        if (stepIndex < steps.length) {
+          runStep()
+        }
+      }, durations[stepIndex])
+    }
+
+    // Small delay before starting
+    setTimeout(runStep, 300)
+  }, [isInventory, onStateChange])
+
+  const handleUpload = useCallback(async () => {
+    if (!selectedFile) return
+    setIsUploading(true)
+    setError(null)
+
+    try {
+      // Start processing animation
+      const steps = baseSteps.map(s => ({ ...s, status: 'pending' as const }))
+      simulateProcessing(steps)
+
+      // Actually upload the file
+      const formData = new FormData()
+      formData.append('file', selectedFile)
+      formData.append('mode', mode)
+
+      const res = await fetch('/api/migration/import', {
+        method: 'POST',
+        body: formData,
+      })
+
+      const data = await res.json()
+
+      if (!res.ok || data.error) {
+        setError(data.error || data.details || 'Gagal memproses file')
+        onStateChange('uploading')
+        setIsUploading(false)
+        return
+      }
+
+      // Wait for processing animation to finish before showing success
+      const totalAnimTime = baseSteps.length * 800 + 500
+      setTimeout(() => {
+        setResult({
+          productsCreated: data.productsCreated,
+          totalCategories: data.totalCategories,
+          barcodeCount: data.barcodeCount,
+          inventoryItemsCreated: data.inventoryItemsCreated,
+          totalStock: data.totalStock,
+          totalModalValue: data.totalModalValue,
+        })
+        onStateChange('success')
+        setIsUploading(false)
+        onSuccess({
+          productsCreated: data.productsCreated,
+          totalCategories: data.totalCategories,
+          barcodeCount: data.barcodeCount,
+          mode,
+          inventoryItemsCreated: data.inventoryItemsCreated,
+          totalStock: data.totalStock,
+          totalModalValue: data.totalModalValue,
+        })
+      }, totalAnimTime)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal memproses file')
+      onStateChange('uploading')
+      setIsUploading(false)
+    }
+  }, [selectedFile, mode, baseSteps, simulateProcessing, onStateChange, onSuccess])
+
+  // Determine current wizard step
+  let wizardStep: WizardStep = 'upload'
+  if (state === 'processing') wizardStep = 'processing'
+  if (state === 'success') wizardStep = 'success'
+
+  return (
+    <div className="relative">
+      {/* Step indicator */}
+      <div className="px-6 pt-5 pb-3">
+        <div className="flex items-center gap-2 mb-3">
+          {['Upload', 'Proses', 'Selesai'].map((label, i) => {
+            const stepOrder = ['upload', 'processing', 'success'] as const
+            const currentIdx = stepOrder.indexOf(wizardStep)
+            const isActive = i <= currentIdx
+            const isCurrent = i === currentIdx
+
+            return (
+              <div key={label} className="flex items-center gap-2 flex-1">
+                <div className={`flex items-center gap-2 ${isCurrent ? '' : ''}`}>
+                  <div className={`flex items-center justify-center h-6 w-6 rounded-full text-[10px] font-bold transition-all duration-300 ${
+                    isActive
+                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                      : 'bg-white/[0.04] text-slate-600 border border-white/[0.08]'
+                  }`}>
+                    {i < currentIdx ? (
+                      <Check className="h-3 w-3" />
+                    ) : (
+                      i + 1
+                    )}
+                  </div>
+                  <span className={`text-xs font-medium transition-colors ${isCurrent ? 'text-white' : isActive ? 'text-slate-400' : 'text-slate-600'}`}>
+                    {label}
+                  </span>
+                </div>
+                {i < 2 && (
+                  <div className={`flex-1 h-px mx-1 transition-colors ${i < currentIdx ? 'bg-emerald-500/30' : 'bg-white/[0.06]'}`} />
+                )}
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Progress bar */}
+        {wizardStep === 'processing' && (
+          <Progress value={progress} className="h-1 bg-white/[0.06] [&>div]:bg-emerald-500" />
+        )}
+      </div>
+
+      <div className="px-6 pb-6">
+        <AnimatePresence mode="wait">
+          {/* ═══════ STEP 1: UPLOAD ═══════ */}
+          {wizardStep === 'upload' && (
+            <motion.div
+              key="upload"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.25 }}
+              className="space-y-4"
+            >
+              <div className="text-center space-y-1">
+                <h3 className="text-sm font-bold text-white">Upload File Excel</h3>
+                <p className="text-xs text-slate-400">
+                  Gunakan template migrasi atau file Excel dari POS lama Anda
+                </p>
+              </div>
+
+              {/* Drop zone */}
+              <div
+                onDrop={handleDrop}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onClick={() => fileInputRef.current?.click()}
+                className={`relative cursor-pointer rounded-xl border-2 border-dashed p-8 text-center transition-all duration-200 ${
+                  isDragging
+                    ? 'border-emerald-500/50 bg-emerald-500/[0.05]'
+                    : selectedFile
+                      ? 'border-emerald-500/30 bg-emerald-500/[0.03]'
+                      : 'border-white/[0.1] bg-white/[0.02] hover:border-white/[0.2] hover:bg-white/[0.04]'
+                }`}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (file) handleFileSelect(file)
+                    e.target.value = ''
+                  }}
+                />
+
+                {selectedFile ? (
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="flex items-center justify-center h-12 w-12 rounded-xl bg-emerald-500/15 border border-emerald-500/20">
+                      <FileSpreadsheet className="h-6 w-6 text-emerald-400" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-white">{selectedFile.name}</p>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        {(selectedFile.size / 1024).toFixed(1)} KB
+                      </p>
+                    </div>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setSelectedFile(null) }}
+                      className="text-[11px] text-slate-400 hover:text-white transition-colors"
+                    >
+                      Ganti file
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="flex items-center justify-center h-12 w-12 rounded-xl bg-white/[0.04] border border-white/[0.08]">
+                      <Upload className="h-5 w-5 text-slate-500" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-slate-300">
+                        Drag & drop atau <span className="text-emerald-400">klik untuk pilih</span>
+                      </p>
+                      <p className="text-[11px] text-slate-500 mt-1">
+                        .xlsx, .xls, .csv — Maks. 5MB
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Mode badge */}
+              <div className="flex items-center justify-center gap-2">
+                <span className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">Mode:</span>
+                <span className={`inline-flex items-center px-2 py-0.5 text-[10px] font-semibold rounded-md ${
+                  isInventory
+                    ? 'text-violet-300 bg-violet-500/15 border border-violet-500/20'
+                    : 'text-emerald-300 bg-emerald-500/15 border border-emerald-500/20'
+                }`}>
+                  {isInventory ? 'Produk + Inventory' : 'Produk Saja'}
+                </span>
+              </div>
+
+              {/* Error */}
+              {error && (
+                <motion.div
+                  initial={{ opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="flex items-start gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20"
+                >
+                  <X className="h-4 w-4 text-red-400 mt-0.5 shrink-0" />
+                  <p className="text-xs text-red-300">{error}</p>
+                </motion.div>
+              )}
+
+              {/* Actions */}
+              <div className="flex items-center gap-2 pt-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={onDismiss}
+                  className="text-xs text-slate-400 hover:text-white flex-1"
+                >
+                  Kembali
+                </Button>
+                <Button
+                  onClick={handleUpload}
+                  disabled={!selectedFile || isUploading}
+                  className="flex-[2] bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold h-9 gap-2 disabled:opacity-40"
+                >
+                  {isUploading ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  )}
+                  Mulai Import
+                </Button>
+              </div>
+            </motion.div>
+          )}
+
+          {/* ═══════ STEP 2: PROCESSING ═══════ */}
+          {wizardStep === 'processing' && (
+            <motion.div
+              key="processing"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.25 }}
+              className="py-4 space-y-3"
+            >
+              <div className="text-center space-y-1 mb-5">
+                <div className="inline-flex items-center justify-center h-12 w-12 rounded-xl bg-emerald-500/15 border border-emerald-500/20 mb-2">
+                  <Loader2 className="h-6 w-6 text-emerald-400 animate-spin" />
+                </div>
+                <h3 className="text-sm font-bold text-white">Memproses Import...</h3>
+                <p className="text-xs text-slate-400">Mohon tunggu, jangan tutup halaman ini</p>
+              </div>
+
+              {/* Step list */}
+              <div className="space-y-2">
+                {processingSteps.map((step, i) => {
+                  const Icon = step.icon
+                  return (
+                    <motion.div
+                      key={step.id}
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: i * 0.05 }}
+                      className="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors"
+                    >
+                      <div className={`flex items-center justify-center h-7 w-7 rounded-lg shrink-0 transition-all duration-300 ${
+                        step.status === 'done'
+                          ? 'bg-emerald-500/20 border border-emerald-500/30'
+                          : step.status === 'active'
+                            ? 'bg-emerald-500/10 border border-emerald-500/20 animate-pulse'
+                            : 'bg-white/[0.04] border border-white/[0.06]'
+                      }`}>
+                        {step.status === 'done' ? (
+                          <Check className="h-3.5 w-3.5 text-emerald-400" />
+                        ) : step.status === 'active' ? (
+                          <Loader2 className="h-3.5 w-3.5 text-emerald-400 animate-spin" />
+                        ) : (
+                          <Icon className="h-3.5 w-3.5 text-slate-600" />
+                        )}
+                      </div>
+                      <span className={`text-xs font-medium transition-colors ${
+                        step.status === 'done'
+                          ? 'text-emerald-400'
+                          : step.status === 'active'
+                            ? 'text-white'
+                            : 'text-slate-600'
+                      }`}>
+                        {step.label}
+                      </span>
+                    </motion.div>
+                  )
+                })}
+              </div>
+            </motion.div>
+          )}
+
+          {/* ═══════ STEP 3: SUCCESS ═══════ */}
+          {wizardStep === 'success' && result && (
+            <motion.div
+              key="success"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] }}
+              className="py-2 space-y-5"
+            >
+              {/* Success header */}
+              <div className="text-center space-y-2 pt-2">
+                <motion.div
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  transition={{ type: 'spring', stiffness: 500, damping: 25, delay: 0.1 }}
+                  className="inline-flex items-center justify-center h-16 w-16 rounded-2xl bg-emerald-500/15 border border-emerald-500/25"
+                >
+                  <PartyPopper className="h-8 w-8 text-emerald-400" />
+                </motion.div>
+                <motion.h3
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.2 }}
+                  className="text-xl font-bold text-white"
+                >
+                  Import Berhasil 🎉
+                </motion.h3>
+                <motion.p
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.3 }}
+                  className="text-xs text-slate-400"
+                >
+                  {isInventory
+                    ? 'Produk & inventory Anda telah berhasil diimport'
+                    : 'Produk Anda telah berhasil diimport dan siap dijual'
+                  }
+                </motion.p>
+              </div>
+
+              {/* Stats grid */}
+              <motion.div
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.4 }}
+                className="space-y-2.5"
+              >
+                {/* Product stats */}
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="text-center p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+                    <div className="flex items-center justify-center mb-1.5">
+                      <Package className="h-3.5 w-3.5 text-emerald-400" />
+                    </div>
+                    <p className="text-lg font-bold text-white">{formatNumber(result.productsCreated)}</p>
+                    <p className="text-[10px] text-slate-500 mt-0.5">Produk</p>
+                  </div>
+                  <div className="text-center p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+                    <div className="flex items-center justify-center mb-1.5">
+                      <BookOpen className="h-3.5 w-3.5 text-amber-400" />
+                    </div>
+                    <p className="text-lg font-bold text-white">{formatNumber(result.totalCategories)}</p>
+                    <p className="text-[10px] text-slate-500 mt-0.5">Kategori</p>
+                  </div>
+                  <div className="text-center p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+                    <div className="flex items-center justify-center mb-1.5">
+                      <BarChart3 className="h-3.5 w-3.5 text-cyan-400" />
+                    </div>
+                    <p className="text-lg font-bold text-white">{formatNumber(result.barcodeCount)}</p>
+                    <p className="text-[10px] text-slate-500 mt-0.5">Barcode</p>
+                  </div>
+                </div>
+
+                {/* Inventory stats (only for product_inventory mode) */}
+                {isInventory && result.inventoryItemsCreated !== undefined && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.6 }}
+                    className="rounded-xl bg-violet-500/[0.06] border border-violet-500/15 p-4 space-y-3"
+                  >
+                    <div className="flex items-center gap-2 mb-2">
+                      <Boxes className="h-3.5 w-3.5 text-violet-400" />
+                      <span className="text-xs font-semibold text-violet-300">Inventory</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="text-center">
+                        <p className="text-base font-bold text-white">{formatNumber(result.inventoryItemsCreated)}</p>
+                        <p className="text-[10px] text-slate-500">Inventory Item</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-base font-bold text-white">{formatNumber(result.totalStock)}</p>
+                        <p className="text-[10px] text-slate-500">Stock</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-base font-bold text-white">{formatCurrency(result.totalModalValue)}</p>
+                        <p className="text-[10px] text-slate-500">Nilai Modal</p>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </motion.div>
+
+              {/* Next steps hint */}
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.7 }}
+                className="flex items-start gap-2.5 p-3 rounded-lg bg-emerald-500/[0.06] border border-emerald-500/15"
+              >
+                <ShoppingCart className="h-4 w-4 text-emerald-400 mt-0.5 shrink-0" />
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  Selanjutnya, setiap barang masuk silakan gunakan menu <span className="font-semibold text-white">Pembelian</span>
+                </p>
+              </motion.div>
+
+              {/* Close button */}
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.8 }}
+              >
+                <Button
+                  onClick={onClose}
+                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold h-10 gap-2"
+                >
+                  Mulai Berjualan
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </div>
+  )
+}
