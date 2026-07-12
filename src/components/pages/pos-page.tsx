@@ -2944,14 +2944,27 @@ export default function PosPage() {
       <ResponsiveDialog open={offlineListOpen} onOpenChange={setOfflineListOpen}>
         <ResponsiveDialogContent desktopClassName="max-w-lg rounded-2xl">
           <ResponsiveDialogHeader>
-            <ResponsiveDialogTitle className="text-sm font-bold text-white flex items-center gap-2">
-              <CloudOff className="h-4 w-4 text-amber-400" strokeWidth={1.5} /> Transaksi Offline
-              {unsyncedCount > 0 && (
-                <Badge variant="secondary" className="ml-1 bg-amber-500/10 text-amber-400 border-amber-500/20 text-[10px] px-1.5">{unsyncedCount}</Badge>
-              )}
+            <ResponsiveDialogTitle className="text-base font-bold text-white flex items-center gap-3">
+              <div className="h-8 w-8 rounded-full bg-amber-500/15 border border-amber-500/20 flex items-center justify-center">
+                <CloudOff className="h-4 w-4 text-amber-400" strokeWidth={1.5} />
+              </div>
+              <div className="text-left">
+                <div className="flex items-center gap-2">
+                  Transaksi Offline
+                  {unsyncedCount > 0 && (
+                    <Badge variant="secondary" className="bg-amber-500/15 text-amber-400 border-amber-500/20 text-[10px] px-2 py-0.5 h-5 font-semibold">{unsyncedCount} belum sync</Badge>
+                  )}
+                </div>
+              </div>
             </ResponsiveDialogTitle>
-            <ResponsiveDialogDescription className="text-[11px] text-slate-500">
-              Transaksi yang belum berhasil disinkronkan ke server
+            <ResponsiveDialogDescription className="text-[11px] text-slate-400 flex items-center gap-2 pt-1">
+              <span className={cn(
+                "inline-block h-1.5 w-1.5 rounded-full",
+                isOnline ? "bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.6)]" : "bg-red-400 shadow-[0_0_6px_rgba(248,113,113,0.6)]"
+              )} />
+              <span className={cn("font-medium", isOnline ? "text-emerald-400" : "text-red-400")}>{isOnline ? 'Online' : 'Offline'}</span>
+              <span className="text-slate-600">—</span>
+              <span className="text-slate-500">Transaksi yang belum berhasil disinkronkan ke server</span>
             </ResponsiveDialogDescription>
           </ResponsiveDialogHeader>
           <OfflineSyncContent
@@ -2968,20 +2981,23 @@ export default function PosPage() {
       <ResponsiveDialog open={pendingListOpen} onOpenChange={setPendingListOpen}>
         <ResponsiveDialogContent desktopClassName="max-w-sm rounded-2xl">
           <ResponsiveDialogHeader>
-            <ResponsiveDialogTitle className="text-sm font-bold text-white flex items-center gap-2">
-              <div className="h-7 w-7 rounded-lg bg-amber-500/10 flex items-center justify-center">
-                <ClockArrowDown className="h-3.5 w-3.5 text-amber-400" strokeWidth={1.5} />
+            <ResponsiveDialogTitle className="text-sm font-bold text-white flex items-center gap-2.5">
+              <div className="h-8 w-8 rounded-full bg-amber-500/15 border border-amber-500/20 flex items-center justify-center">
+                <ClockArrowDown className="h-4 w-4 text-amber-400" strokeWidth={1.5} />
               </div>
               <div className="text-left">
                 <div className="flex items-center gap-2">
-                  Transaksi Pending
-                  {pendingCount > 0 && (
-                    <Badge variant="secondary" className="bg-amber-500/15 text-amber-400 border-amber-500/20 text-[10px] px-1.5 py-0 h-4">{pendingCount}</Badge>
-                  )}
+                  Transaksi Ditunda
                 </div>
-                <p className="text-[10px] text-slate-500 font-normal mt-0.5">Transaksi yang ditunda — klik Lanjutkan untuk memuat kembali ke keranjang</p>
+                <p className="text-[10px] text-slate-500 font-normal mt-0.5">Transaksi yang sedang berjalan bisa ditunda lalu dilanjutkan kembali</p>
               </div>
             </ResponsiveDialogTitle>
+            <ResponsiveDialogDescription className="text-[11px] text-slate-400 flex items-center gap-2 pt-1">
+              Keranjang yang ditunda bisa dilanjutkan kapan saja
+              {pendingCount > 0 && (
+                <Badge variant="secondary" className="bg-amber-500/15 text-amber-400 border-amber-500/20 text-[10px] px-2 py-0.5 h-5 font-semibold">{pendingCount}</Badge>
+              )}
+            </ResponsiveDialogDescription>
           </ResponsiveDialogHeader>
           <PendingListContent
             onResume={handleResumePending}
@@ -3052,85 +3068,114 @@ function PendingListContent({
 
   if (pendingList.length === 0) {
     return (
-      <div className="text-center py-10">
-        <div className="w-14 h-14 rounded-2xl bg-white/[0.04] flex items-center justify-center mx-auto mb-3 border border-white/[0.06]">
-          <ClockArrowDown className="h-6 w-6 text-slate-700" strokeWidth={1.5} />
+      <div className="text-center py-8">
+        <div className="w-16 h-16 rounded-2xl bg-white/[0.03] flex items-center justify-center mx-auto mb-3.5 border border-white/[0.06]">
+          <ClockArrowDown className="h-7 w-7 text-slate-600" strokeWidth={1.5} />
         </div>
-        <p className="text-sm text-slate-400 font-medium">Belum ada transaksi pending</p>
-        <p className="text-[11px] text-slate-600 mt-1.5 max-w-[200px] mx-auto leading-relaxed">Tunda transaksi yang sedang berjalan untuk melayani customer lain</p>
+        <p className="text-sm text-white font-bold">Belum Ada yang Ditunda</p>
+        <p className="text-[11px] text-slate-500 mt-1.5 max-w-[220px] mx-auto leading-relaxed">
+          Saat melayani pelanggan, Anda bisa menunda transaksi yang sedang berjalan lalu melanjutkannya nanti.
+        </p>
+        <div className="mt-4 mx-auto max-w-[260px] px-3 py-2.5 rounded-xl bg-amber-500/[0.06] border border-amber-500/[0.08]">
+          <p className="text-[10px] text-amber-400/80 leading-relaxed text-left">
+            💡 <span className="font-medium text-amber-400">Tip:</span> Gunakan tombol <span className="font-semibold text-white">Tunda</span> di keranjang untuk menahan sementara pesanan ini.
+          </p>
+        </div>
       </div>
     )
   }
 
-  const formatTime = (ts: number) => {
-    const d = new Date(ts)
-    return d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+  const formatRelativeTime = (ts: number) => {
+    const diff = Date.now() - ts
+    const minutes = Math.floor(diff / 60000)
+    if (minutes < 1) return 'Baru saja'
+    if (minutes < 60) return `${minutes} menit lalu`
+    const hours = Math.floor(minutes / 60)
+    if (hours < 24) return `${hours} jam lalu`
+    const days = Math.floor(hours / 24)
+    return `${days} hari lalu`
   }
 
   return (
-    <div className="space-y-2 py-2 max-h-[60vh] overflow-y-auto">
+    <div className="space-y-2.5 py-2 max-h-[60vh] overflow-y-auto">
       {pendingList.map((pending) => {
         const items = pending.items as Array<{ product: { name: string; image: string | null }; variant: { name: string } | null; qty: number }>
         const totalItems = items.reduce((s, i) => s + i.qty, 0)
 
         return (
-          <div key={pending.id} className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3.5 space-y-3">
-            {/* Header */}
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div className="h-9 w-9 rounded-xl bg-amber-500/10 border border-amber-500/10 flex items-center justify-center shrink-0">
-                  <ClockArrowDown className="h-4 w-4 text-amber-400" strokeWidth={1.5} />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold text-slate-200 truncate">{totalItems} item</p>
-                  <p className="text-[10px] text-slate-500">{formatTime(pending.createdAt)} · {pending.userName}</p>
+          <div key={pending.id} className="relative rounded-xl border border-white/[0.06] bg-white/[0.02] border-l-[3px] border-l-amber-500/30 p-3.5 space-y-3">
+            {/* Delete button overlay top-right */}
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => onDelete(pending.id!)}
+              className="absolute top-2.5 right-2.5 h-6 w-6 px-0 text-slate-600 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+            >
+              <X className="h-3 w-3" strokeWidth={2} />
+            </Button>
+
+            {/* Header: time + user + item count | subtotal */}
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-[10px] text-slate-500 flex items-center gap-1">
+                    <Clock className="h-2.5 w-2.5" strokeWidth={1.5} />
+                    {formatRelativeTime(pending.createdAt)}
+                  </span>
+                  <Badge variant="secondary" className="bg-white/[0.06] text-slate-400 border-white/[0.08] text-[9px] px-1.5 py-0 h-4 font-normal">
+                    {pending.userName}
+                  </Badge>
+                  <Badge variant="secondary" className="bg-white/[0.06] text-slate-400 border-white/[0.08] text-[9px] px-1.5 py-0 h-4 font-normal">
+                    {totalItems} item
+                  </Badge>
                 </div>
               </div>
-              <div className="text-right shrink-0">
+              <div className="shrink-0">
                 <p className="text-sm font-bold text-white tabular-nums">{formatCurrency(pending.subtotal)}</p>
               </div>
             </div>
 
-            {/* Items preview */}
-            <div className="space-y-1">
-              {items.slice(0, 3).map((item, idx) => (
-                <div key={idx} className="flex items-center gap-2 text-[11px] text-slate-400">
-                  <span className="text-slate-600 font-medium w-4 text-right shrink-0">{item.qty}×</span>
-                  <span className="truncate">{item.variant ? `${item.product.name} (${item.variant.name})` : item.product.name}</span>
-                </div>
-              ))}
-              {items.length > 3 && (
-                <p className="text-[10px] text-slate-600 pl-6">+{items.length - 3} item lainnya</p>
-              )}
+            {/* Items preview — mini receipt look */}
+            <div className="rounded-lg bg-white/[0.02] border border-white/[0.04] border-l-2 border-l-white/[0.06] overflow-hidden">
+              <div className="space-y-0.5 px-3 py-2">
+                {items.slice(0, 3).map((item, idx) => (
+                  <div key={idx} className="flex items-baseline gap-2 text-[11px]">
+                    <span className="font-mono text-slate-500 w-5 text-right shrink-0">{item.qty}×</span>
+                    <span className="text-slate-300 truncate">{item.product.name}</span>
+                    {item.variant && (
+                      <span className="text-slate-600 text-[10px] truncate">{item.variant.name}</span>
+                    )}
+                  </div>
+                ))}
+                {items.length > 3 && (
+                  <p className="text-[10px] text-slate-600 pl-7">+{items.length - 3} item lainnya</p>
+                )}
+              </div>
             </div>
 
-            {/* Note */}
+            {/* Note — chat bubble style */}
             {pending.note && (
-              <div className="flex items-start gap-1.5 px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.04]">
-                <MessageSquare className="h-3 w-3 text-slate-500 shrink-0 mt-0.5" strokeWidth={1.5} />
-                <p className="text-[11px] text-slate-400 leading-relaxed">{pending.note}</p>
+              <div className="flex items-start gap-1.5">
+                <MessageSquare className="h-3 w-3 text-slate-600 shrink-0 mt-0.5" strokeWidth={1.5} />
+                <div className="rounded-xl rounded-tl-sm bg-white/[0.03] border border-white/[0.05] px-3 py-2 max-w-full">
+                  <p className="text-[11px] text-slate-400 leading-relaxed">{pending.note}</p>
+                </div>
               </div>
             )}
 
             {/* Customer */}
             {pending.customerName && (
-              <div className="flex items-center gap-1.5 text-[10px] text-slate-500">
-                <User className="h-3 w-3" strokeWidth={1.5} />
-                {pending.customerName}
+              <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
+                <User className="h-3 w-3 text-slate-500" strokeWidth={1.5} />
+                <span className="font-medium text-slate-300">{pending.customerName}</span>
               </div>
             )}
 
-            {/* Actions */}
-            <div className="flex gap-2 pt-0.5">
-              <Button size="sm" onClick={() => onResume(pending)}
-                className="flex-1 h-8 text-[11px] font-medium rounded-lg theme-bg hover:theme-hover text-white transition-colors">
-                <ShoppingCart className="mr-1.5 h-3 w-3" strokeWidth={1.5} /> Lanjutkan
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => onDelete(pending.id!)}
-                className="h-8 w-8 px-0 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors">
-                <Trash2 className="h-3 w-3" strokeWidth={1.5} />
-              </Button>
-            </div>
+            {/* Action — full width resume button */}
+            <Button size="sm" onClick={() => onResume(pending)}
+              className="w-full h-8.5 text-[11px] font-medium rounded-xl theme-bg hover:theme-hover text-white transition-colors">
+              <ShoppingCart className="mr-1.5 h-3 w-3" strokeWidth={1.5} /> Lanjutkan ke Keranjang
+            </Button>
           </div>
         )
       })}
@@ -3284,93 +3329,170 @@ function OfflineSyncContent({
 
   if (offlineList.length === 0) {
     return (
-      <div className="text-center py-10">
-        <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center mx-auto mb-3">
-          <Check className="h-5 w-5 text-emerald-400" strokeWidth={1.5} />
+      <div className="text-center py-8">
+        <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/15 flex items-center justify-center mx-auto mb-3.5">
+          <Check className="h-7 w-7 text-emerald-400" strokeWidth={1.5} />
         </div>
-        <p className="text-sm text-slate-400 font-medium">Semua transaksi tersinkronisasi</p>
-        <p className="text-[11px] text-slate-600 mt-1">Tidak ada transaksi offline yang pending</p>
+        <p className="text-sm text-white font-bold">Semua Tersinkronisasi</p>
+        <p className="text-xs text-slate-500 mt-1.5">Tidak ada transaksi yang perlu disinkronkan</p>
+        <Separator className="mt-5 bg-white/[0.06]" />
       </div>
     )
   }
 
+  const totalNominal = offlineList.reduce((s, tx) => {
+    const p = tx.payload
+    return s + ((p.total as number) || (p.subtotal as number) || 0)
+  }, 0)
+
   return (
     <div className="space-y-3 py-2">
-      {/* Bulk Actions */}
-      <div className="flex gap-2">
-        <Button
-          size="sm"
-          onClick={syncAll}
-          disabled={syncingAll || !isOnline}
-          className="flex-1 h-9 text-xs font-medium rounded-xl theme-bg hover:theme-hover text-white transition-colors disabled:opacity-40"
-        >
-          {syncingAll ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : <RefreshCw className="mr-1.5 h-3 w-3" strokeWidth={1.5} />}
-          Sync Semua
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={deleteAll}
-          className="h-9 px-3 text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-xl transition-colors"
-        >
-          <Trash2 className="h-3 w-3" strokeWidth={1.5} />
-        </Button>
-      </div>
-
+      {/* Offline warning banner */}
       {!isOnline && (
-        <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-red-500/10 border border-red-500/20">
-          <WifiOff className="h-3.5 w-3.5 text-red-400 shrink-0" strokeWidth={1.5} />
-          <p className="text-[11px] text-red-400 font-medium">Anda sedang offline. Sync hanya bisa dilakukan saat online.</p>
+        <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-red-500/[0.08] border border-red-500/[0.15]">
+          <span className="relative flex h-2.5 w-2.5 shrink-0">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
+          </span>
+          <WifiOff className="h-4 w-4 text-red-400 shrink-0" strokeWidth={1.5} />
+          <div className="min-w-0">
+            <p className="text-[11px] text-red-400 font-bold leading-tight">Mode Offline Aktif</p>
+            <p className="text-[10px] text-red-400/60 mt-0.5 leading-relaxed">Sinkronisasi otomatis akan dilakukan saat koneksi kembali</p>
+          </div>
         </div>
       )}
 
+      {/* Summary stats bar */}
+      <div className="flex gap-2">
+        <div className="flex-1 rounded-xl bg-white/[0.03] border border-white/[0.06] px-3 py-2.5">
+          <p className="text-[10px] text-slate-500">Transaksi</p>
+          <p className="text-sm font-bold text-white tabular-nums">{offlineList.length}</p>
+        </div>
+        <div className="flex-1 rounded-xl bg-white/[0.03] border border-white/[0.06] px-3 py-2.5">
+          <p className="text-[10px] text-slate-500">Total Nominal</p>
+          <p className="text-sm font-bold text-white tabular-nums">{formatCurrency(totalNominal)}</p>
+        </div>
+        <div className="flex-1 rounded-xl bg-white/[0.03] border border-white/[0.06] px-3 py-2.5">
+          <p className="text-[10px] text-slate-500">Status</p>
+          <div className="flex items-center gap-1.5 mt-0.5">
+            <span className={cn("h-1.5 w-1.5 rounded-full", isOnline ? "bg-emerald-400" : "bg-red-400")} />
+            <span className={cn("text-xs font-semibold", isOnline ? "text-emerald-400" : "text-red-400")}>{isOnline ? 'Online' : 'Offline'}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Sticky bulk actions bar */}
+      <div className="sticky top-0 z-10 -mx-1 px-1 pb-2 bg-nebula/95 backdrop-blur-sm">
+        <div className="flex items-center justify-between gap-2 rounded-xl bg-white/[0.03] border border-white/[0.06] px-3 py-2">
+          <Button
+            size="sm"
+            onClick={syncAll}
+            disabled={syncingAll || !isOnline}
+            className="h-8 text-[11px] font-medium rounded-lg theme-bg hover:theme-hover text-white transition-colors disabled:opacity-40"
+          >
+            {syncingAll ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : <RefreshCw className="mr-1.5 h-3 w-3" strokeWidth={1.5} />}
+            Sinkronkan Semua
+            {offlineList.length > 0 && (
+              <Badge variant="secondary" className="ml-1.5 bg-white/[0.15] text-white border-white/[0.2] text-[9px] px-1.5 py-0 h-4 font-semibold">
+                {offlineList.length}
+              </Badge>
+            )}
+          </Button>
+          <button
+            onClick={deleteAll}
+            className="text-[11px] text-slate-500 hover:text-red-400 transition-colors font-medium shrink-0"
+          >
+            Hapus Semua
+          </button>
+        </div>
+      </div>
+
       {/* Transaction List */}
-      <div className="space-y-2 max-h-[50vh] overflow-y-auto">
+      <div className="space-y-2.5 max-h-[50vh] overflow-y-auto">
         {offlineList.map((tx) => {
           const { invoice, total, itemCount } = getTxInfo(tx)
           const isSyncing = syncingIds.has(tx.id!)
+          const hasError = !!tx.lastError
+          const borderColor = hasError ? 'border-l-red-500/40' : 'border-l-amber-500/40'
 
           return (
-            <div key={tx.id} className="aether-card p-3.5 space-y-2.5">
-              {/* Header */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 min-w-0">
-                  <div className="w-7 h-7 rounded-lg bg-amber-500/10 flex items-center justify-center shrink-0">
-                    <CloudOff className="h-3.5 w-3.5 text-amber-400" strokeWidth={1.5} />
-                  </div>
-                  <div className="min-w-0">
+            <div key={tx.id} className={cn(
+              "relative rounded-xl border border-white/[0.06] bg-white/[0.02] border-l-[3px] p-3.5 space-y-3",
+              borderColor
+            )}>
+              {/* Delete button overlay top-right */}
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => deleteOne(tx.id!)}
+                className="absolute top-2.5 right-2.5 h-6 w-6 px-0 text-slate-600 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+              >
+                <X className="h-3 w-3" strokeWidth={2} />
+              </Button>
+
+              {/* Header: Invoice + OFFLINE tag + item count | Total */}
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
                     <p className="text-xs font-semibold text-slate-200 font-mono truncate">{invoice}</p>
-                    <p className="text-[10px] text-slate-500">{formatTime(tx.createdAt)} · {itemCount} item</p>
+                    <Badge variant="secondary" className="bg-red-500/10 text-red-400 border-red-500/15 text-[8px] px-1.5 py-0 h-4 font-bold tracking-wider shrink-0">
+                      OFFLINE
+                    </Badge>
+                  </div>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="text-[10px] text-slate-500 flex items-center gap-1">
+                      <Package className="h-2.5 w-2.5" strokeWidth={1.5} />
+                      {itemCount} item
+                    </span>
+                    <span className="text-slate-700">·</span>
+                    <span className="text-[10px] text-slate-600">{formatTime(tx.createdAt)}</span>
                   </div>
                 </div>
-                <p className="text-sm font-bold text-white tabular-nums shrink-0 ml-2">{formatCurrency(total)}</p>
+                <div className="shrink-0">
+                  <p className="text-sm font-bold text-white tabular-nums">{formatCurrency(total)}</p>
+                </div>
               </div>
 
-              {/* Status Info */}
-              <div className="flex items-center gap-3 text-[10px]">
-                <span className="flex items-center gap-1 text-slate-500">
-                  <RefreshCw className="h-2.5 w-2.5" strokeWidth={1.5} />
-                  {tx.retryCount}x dicoba
-                </span>
+              {/* Status section: retry badge + error */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <Badge
+                  variant="secondary"
+                  className={cn(
+                    "text-[9px] px-1.5 py-0 h-4 font-semibold border",
+                    (tx.retryCount || 0) > 2
+                      ? "bg-red-500/10 text-red-400 border-red-500/15"
+                      : "bg-amber-500/10 text-amber-400 border-amber-500/15"
+                  )}
+                >
+                  {tx.retryCount || 0}x retry
+                </Badge>
                 {tx.lastError && (
-                  <span className="text-red-400/80 truncate max-w-[200px]" title={tx.lastError}>
-                    {tx.lastError}
+                  <span className="flex items-center gap-1 text-[10px] text-red-400/80 min-w-0">
+                    <AlertTriangle className="h-2.5 w-2.5 shrink-0" strokeWidth={1.5} />
+                    <span className="truncate" title={tx.lastError}>{tx.lastError}</span>
                   </span>
                 )}
               </div>
 
-              {/* Actions */}
-              <div className="flex gap-2 pt-0.5">
-                <Button size="sm" onClick={() => syncOne(tx)} disabled={isSyncing || !isOnline}
-                  className="flex-1 h-8 text-[11px] font-medium rounded-lg theme-bg hover:theme-hover text-white transition-colors disabled:opacity-40">
-                  {isSyncing ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : <RefreshCw className="mr-1.5 h-3 w-3" strokeWidth={1.5} />}
-                  {isSyncing ? 'Syncing...' : 'Sync'}
-                </Button>
-                <Button size="sm" variant="ghost" onClick={() => deleteOne(tx.id!)}
-                  className="h-8 px-3 text-[11px] text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors">
-                  <Trash2 className="h-3 w-3" strokeWidth={1.5} />
-                </Button>
-              </div>
+              {/* Sync button — full width */}
+              <Button
+                size="sm"
+                onClick={() => syncOne(tx)}
+                disabled={isSyncing || !isOnline}
+                className="w-full h-8 text-[11px] font-medium rounded-xl theme-bg hover:theme-hover text-white transition-colors disabled:opacity-40"
+              >
+                {isSyncing ? (
+                  <>
+                    <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                    Menyinkronkan...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="mr-1.5 h-3 w-3" strokeWidth={1.5} />
+                    Sync Sekarang
+                  </>
+                )}
+              </Button>
             </div>
           )
         })}

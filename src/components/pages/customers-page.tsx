@@ -395,7 +395,7 @@ export default function CustomersPage() {
                 <Users className="h-4 w-4 theme-text" />
               </div>
               <div className="min-w-0">
-                <p className="text-[11px] font-medium text-slate-500 truncate">Total Customers</p>
+                <p className="text-[11px] font-medium text-slate-500 truncate">Total Pelanggan</p>
                 <p className="text-lg font-bold text-white leading-tight">{formatNumber(stats.total)}</p>
               </div>
             </div>
@@ -408,7 +408,7 @@ export default function CustomersPage() {
                 <Coins className="h-4 w-4 text-amber-400" />
               </div>
               <div className="min-w-0">
-                <p className="text-[11px] font-medium text-slate-500 truncate">Total Loyalty Points</p>
+                <p className="text-[11px] font-medium text-slate-500 truncate">Total Poin Loyalti</p>
                 <p className="text-lg font-bold text-white leading-tight">{formatNumber(stats.totalPoints)}</p>
               </div>
             </div>
@@ -421,7 +421,7 @@ export default function CustomersPage() {
                 <TrendingUp className="h-4 w-4 text-blue-400" />
               </div>
               <div className="min-w-0">
-                <p className="text-[11px] font-medium text-slate-500 truncate">Average Spend</p>
+                <p className="text-[11px] font-medium text-slate-500 truncate">Rata-rata Belanja</p>
                 <p className="text-lg font-bold text-white leading-tight">{formatCurrency(stats.avgSpend)}</p>
               </div>
             </div>
@@ -434,7 +434,7 @@ export default function CustomersPage() {
                 <UserPlus className="h-4 w-4 text-violet-400" />
               </div>
               <div className="min-w-0">
-                <p className="text-[11px] font-medium text-slate-500 truncate">New This Month</p>
+                <p className="text-[11px] font-medium text-slate-500 truncate">Pelanggan Baru</p>
                 <p className="text-lg font-bold text-white leading-tight">{formatNumber(stats.newThisMonth)}</p>
               </div>
             </div>
@@ -549,23 +549,69 @@ export default function CustomersPage() {
         </Collapsible>
       )}
 
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold text-white">Customers</h1>
-          <p className="text-xs text-slate-500 mt-0.5">Manage your customer database & CRM</p>
+      {/* Header & Instructions */}
+      <div className="space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h1 className="text-lg font-semibold text-white">Pelanggan</h1>
+            <p className="text-xs text-slate-500 mt-0.5">Kelola database pelanggan & program loyalti</p>
+          </div>
+          <Button onClick={handleAdd} className="theme-bg hover:theme-hover text-white h-8 text-xs">
+            <Plus className="mr-1.5 h-3.5 w-3.5" />
+            Tambah Pelanggan
+          </Button>
         </div>
-        <Button onClick={handleAdd} className="theme-bg hover:theme-hover text-white h-8 text-xs">
-          <Plus className="mr-1.5 h-3.5 w-3.5" />
-          Add Customer
-        </Button>
+
+        {/* Rich Text Instructions */}
+        <div className="rounded-xl bg-white/[0.02] border border-white/[0.06] p-4 space-y-2.5">
+          <div className="flex items-start gap-3">
+            <div className="h-8 w-8 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center shrink-0 mt-0.5">
+              <Users className="h-4 w-4 text-blue-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h3 className="text-xs font-semibold text-slate-200 mb-1">Database Pelanggan & Loyalti</h3>
+              <div className="text-[11px] text-slate-400 leading-relaxed space-y-1.5">
+                <p>
+                  Kelola data pelanggan Anda di satu tempat. Setiap transaksi yang terhubung ke pelanggan otomatis menambah <span className="text-amber-400 font-medium">poin loyalti</span> dan meningkatkan <span className="text-slate-200 font-medium">tier membership</span>.
+                </p>
+              </div>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+            <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-white/[0.03] border border-white/[0.04]">
+              <div className="h-5 w-5 rounded-md bg-emerald-500/10 flex items-center justify-center shrink-0 mt-0.5">
+                <span className="text-[10px] font-bold text-emerald-400">1</span>
+              </div>
+              <p className="text-[11px] text-slate-400 leading-relaxed"><span className="text-slate-200 font-medium">Tambah pelanggan</span> — Isi nama & nomor WhatsApp. Pelanggan otomatis naik tier berdasarkan total belanja.</p>
+            </div>
+            <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-white/[0.03] border border-white/[0.04]">
+              <div className="h-5 w-5 rounded-md bg-amber-500/10 flex items-center justify-center shrink-0 mt-0.5">
+                <span className="text-[10px] font-bold text-amber-400">2</span>
+              </div>
+              <p className="text-[11px] text-slate-400 leading-relaxed"><span className="text-slate-200 font-medium">Transaksi terhubung</span> — Pilih pelanggan saat checkout di POS untuk akumulasi poin & riwayat belanja.</p>
+            </div>
+            <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-white/[0.03] border border-white/[0.04]">
+              <div className="h-5 w-5 rounded-md bg-violet-500/10 flex items-center justify-center shrink-0 mt-0.5">
+                <span className="text-[10px] font-bold text-violet-400">3</span>
+              </div>
+              <p className="text-[11px] text-slate-400 leading-relaxed"><span className="text-slate-200 font-medium">Loyalti & tier</span> — Lihat riwayat poin, naikkan tier (New → Regular → VIP), dan pantau pembelian.</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 pt-0.5">
+            <Crown className="h-3 w-3 text-amber-400 shrink-0" />
+            <p className="text-[10px] text-slate-500">
+              <span className="text-slate-400 font-medium">Tier otomatis:</span>
+              {' '}New (Rp0) → Regular (Rp1–500K) → VIP (Rp500K+). Poin bisa ditukar diskon di POS.
+            </p>
+          </div>
+        </div>
       </div>
 
       {/* Search */}
       <div className="relative w-full sm:max-w-sm">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
         <Input
-          placeholder="Search customers..."
+          placeholder="Cari nama atau WhatsApp..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="pl-9 h-9 sm:h-10 text-xs bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500"
@@ -580,8 +626,18 @@ export default function CustomersPage() {
           ))}
         </div>
       ) : customers.length === 0 ? (
-        <div className="rounded-lg border border-white/[0.06] bg-nebula p-6 text-center">
-          <p className="text-xs text-slate-500">No customers found</p>
+        <div className="rounded-xl border border-white/[0.06] bg-nebula/50 p-8 sm:p-12 text-center">
+          <div className="w-16 h-16 rounded-2xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center mx-auto mb-4">
+            <Users className="h-7 w-7 text-slate-600" />
+          </div>
+          <h3 className="text-sm font-bold text-white mb-1">Belum Ada Pelanggan</h3>
+          <p className="text-xs text-slate-400 max-w-sm mx-auto leading-relaxed mb-4">
+            Mulai tambahkan pelanggan untuk mengaktifkan program loyalti, tracking pembelian, dan analitik pelanggan.
+          </p>
+          <Button onClick={handleAdd} variant="outline" className="theme-bg hover:theme-hover text-white border-transparent h-8 text-xs gap-1.5">
+            <UserPlus className="h-3.5 w-3.5" />
+            Tambah Pelanggan Pertama
+          </Button>
         </div>
       ) : (
         <div className="space-y-2">
