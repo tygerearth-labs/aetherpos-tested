@@ -289,7 +289,7 @@ export async function GET(request: NextRequest) {
       { wch: 35 }, // Catatan
     ]
 
-    XLSX.utils.book_append_sheet(wb, wsComposition, 'Komposisi (Resep/BOM)')
+    XLSX.utils.book_append_sheet(wb, wsComposition, 'Komposisi (Resep BOM)')
 
     // ============================================================
     // SHEET 5: Panduan Import

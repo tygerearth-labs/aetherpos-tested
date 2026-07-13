@@ -10,6 +10,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { ImportModeDialog } from './import-mode-dialog'
 import { MigrationWizard } from './migration-wizard'
+import { toast } from 'sonner'
 
 type ImportMode = 'product_only' | 'product_inventory'
 type WizardState = 'idle' | 'choosing_mode' | 'uploading' | 'processing' | 'success'
@@ -62,10 +63,10 @@ export function MigrationBanner() {
       a.click()
       a.remove()
       URL.revokeObjectURL(url)
+      toast.success('Template berhasil diunduh')
     } catch (err) {
       console.error('Download template error:', err)
-      // Fallback: try opening in new tab
-      window.open('/api/migration/template', '_blank')
+      toast.error('Gagal mengunduh template. Silakan coba lagi.')
     }
   }, [])
 
