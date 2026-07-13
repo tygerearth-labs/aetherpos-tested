@@ -4,13 +4,11 @@ import { safeJsonError } from '@/lib/api/safe-response'
 
 export async function GET(request: NextRequest) {
   try {
-    // No auth required — template is a public resource with sample data only
-
     const wb = XLSX.utils.book_new()
 
     // ============================================================
     // SHEET 1: Produk Non-Varian
-    // Untuk produk tanpa varian (produk langsung jual)
+    // Contoh seimbang dari 10 lini industri bisnis
     // ============================================================
     const nonVariantHeader = [
       'NAMA PRODUK*',
@@ -26,71 +24,76 @@ export async function GET(request: NextRequest) {
     ]
 
     const nonVariantData = [
-      // ── F&B (Makanan & Minuman) ──
-      ['Nasi Goreng Spesial', 'SKU-001', '8991234001', 10000, 25000, 50, 'porsi', 'Makanan', 10, 'Nasi:200gr,Rogut:1butir,Minyak:15ml,Bawang:10gr'],
-      ['Es Teh Manis', 'SKU-002', '8991234002', 3000, 8000, 100, 'gelas', 'Minuman', 20, 'Teh Celup:1pcs,Gula:20gr,Es Batu:100gr'],
-      ['Kopi Susu Gula Aren', 'SKU-003', '8991234003', 5000, 15000, 80, 'gelas', 'Minuman', 15, 'Espresso:30ml,Susu:80ml,Gula Aren:25gr'],
-      ['Ayam Geprek', 'SKU-004', '8991234004', 12000, 20000, 30, 'porsi', 'Makanan', 5, 'Ayam Dada:150gr,Tepung:50gr,Minyak:30ml'],
-      ['Mie Goreng', 'SKU-005', '8991234005', 8000, 18000, 40, 'porsi', 'Makanan', 8, 'Mie:200gr,Telur:1butir,Sawi:30gr'],
-      ['Jus Alpukat', 'SKU-006', '8991234006', 6000, 15000, 30, 'gelas', 'Minuman', 5, 'Alpukat:100gr,Susu:100ml,Gula:20gr'],
-      ['Bakso Kuah', 'SKU-007', '8991234007', 9000, 18000, 20, 'porsi', 'Makanan', 5, 'Bakso:10pcs,Mie:50gr,Tahu:2pcs'],
-      ['Sate Ayam 10 tusuk', 'SKU-008', '8991234008', 11000, 22000, 25, 'porsi', 'Makanan', 5, 'Ayam:200gr,Bambu:10pcs,Kecap:15ml'],
-
-      // ── Beauty / Kecantikan ──
-      ['Cream Wajah 30ml', 'BTY-001', '8992001001', 25000, 55000, 48, 'pcs', 'Skincare', 10, ''],
-      ['Serum Vitamin C 20ml', 'BTY-002', '8992001002', 35000, 85000, 30, 'pcs', 'Skincare', 10, ''],
-      ['Lipstik Matte', 'BTY-003', '8992001003', 15000, 45000, 60, 'pcs', 'Makeup', 10, ''],
-      ['Bedak Tabur', 'BTY-004', '8992001004', 20000, 50000, 40, 'pcs', 'Makeup', 10, ''],
-      ['Parfum 50ml', 'BTY-005', '8992001005', 45000, 95000, 24, 'pcs', 'Parfum', 5, ''],
-
-      // ── Jasa ──
-      ['Jasa Cuci Motor', 'JSA-001', '', 5000, 15000, 999, 'pcs', 'Jasa', 0, ''],
-      ['Jasa Potong Rambut', 'JSA-002', '', 0, 25000, 999, 'pcs', 'Jasa', 0, ''],
-      ['Jasa Isi Angin Ban', 'JSA-003', '', 0, 5000, 999, 'pcs', 'Jasa', 0, ''],
+      // ── F&B (Restoran, Kafe, Warung) ──
+      ['Nasi Goreng Spesial', 'FNB-001', '8991001001', 10000, 25000, 50, 'porsi', 'Makanan', 10, ''],
+      ['Es Teh Manis', 'FNB-002', '8991001002', 3000, 8000, 100, 'gelas', 'Minuman', 20, ''],
+      ['Ayam Geprek', 'FNB-003', '8991001003', 12000, 20000, 30, 'porsi', 'Makanan', 5, ''],
 
       // ── Retail / Minimarket ──
-      ['Air Mineral 600ml', 'RTL-001', '8993001001', 2500, 4000, 144, 'pcs', 'Minuman', 24, ''],
-      ['Minyak Goreng 1L', 'RTL-002', '8993001002', 14000, 18000, 60, 'pcs', 'Sembako', 10, ''],
-      ['Gula Pasir 500g', 'RTL-003', '8993001003', 8000, 12000, 40, 'pcs', 'Sembako', 10, ''],
-      ['Tisu Paseo 250 Sheet', 'RTL-004', '8993001004', 7500, 11000, 48, 'pcs', 'Kebutuhan Rumah', 10, ''],
-      ['Sabun Mandi 100g', 'RTL-005', '8993001005', 7000, 12000, 36, 'pcs', 'Perawatan Tubuh', 10, ''],
-      ['Charger HP Android', 'RTL-006', '8993001006', 15000, 25000, 15, 'pcs', 'Elektronik', 5, ''],
+      ['Air Mineral 600ml', 'RTL-001', '8992001001', 2500, 4000, 144, 'pcs', 'Minuman', 24, ''],
+      ['Minyak Goreng 1L', 'RTL-002', '8992001002', 14000, 18000, 60, 'pcs', 'Sembako', 10, ''],
+      ['Tisu Paseo 250 Sheet', 'RTL-003', '8992001003', 7500, 11000, 48, 'pcs', 'Kebutuhan Rumah', 10, ''],
+
+      // ── Beauty / Kecantikan ──
+      ['Cream Wajah 30ml', 'BTY-001', '8993001001', 25000, 55000, 48, 'pcs', 'Skincare', 10, ''],
+      ['Serum Vitamin C 20ml', 'BTY-002', '8993001002', 35000, 85000, 30, 'pcs', 'Skincare', 10, ''],
+      ['Lipstik Matte', 'BTY-003', '8993001003', 15000, 45000, 60, 'pcs', 'Makeup', 10, ''],
+
+      // ── Jasa / Layanan ──
+      ['Jasa Cuci Motor', 'JSA-001', '', 5000, 15000, 999, 'pcs', 'Jasa', 0, ''],
+      ['Jasa Potong Rambut', 'JSA-002', '', 0, 25000, 999, 'pcs', 'Jasa', 0, ''],
+      ['Jasa Laundry Kiloan', 'JSA-003', '', 3000, 8000, 999, 'kg', 'Jasa', 0, ''],
 
       // ── Percetakan ──
-      ['Cetak Brosur A5', 'PCT-001', '', 500, 1500, 500, 'lembar', 'Percetakan', 100, 'Kertas A5:1pcs,Tinta:2ml'],
-      ['Cetak Kartu Nama', 'PCT-002', '', 200, 800, 1000, 'lembar', 'Percetakan', 200, 'Kertas Art Carton:1pcs,Laminasi:1pcs'],
-      ['Cetak Stiker Roll', 'PCT-003', '', 3000, 8000, 50, 'roll', 'Percetakan', 10, 'Bahan Stiker:1roll,Tinta:50ml'],
-      ['Cetak Undangan', 'PCT-004', '', 1500, 3500, 200, 'pcs', 'Percetakan', 50, 'Kertas Ivory:1pcs,Plastik:1pcs'],
+      ['Cetak Brosur A5', 'PCT-001', '', 500, 1500, 500, 'lembar', 'Percetakan', 100, ''],
+      ['Cetak Kartu Nama', 'PCT-002', '', 200, 800, 1000, 'pcs', 'Percetakan', 200, ''],
+      ['Cetak Stiker Roll', 'PCT-003', '', 3000, 8000, 50, 'roll', 'Percetakan', 10, ''],
+
+      // ── Fashion / Pakaian ──
+      ['Kaos Polos Cotton 30s', 'FSH-001', '8994001001', 35000, 65000, 100, 'pcs', 'Atasan', 15, ''],
+      ['Celana Jeans Slim', 'FSH-002', '8994001002', 80000, 150000, 50, 'pcs', 'Bawahan', 10, ''],
+      ['Hijab Segi Empat', 'FSH-003', '8994001003', 15000, 35000, 200, 'pcs', 'Hijab', 20, ''],
+
+      // ── Farmasi / Kesehatan ──
+      ['Paracetamol 500mg', 'FRM-001', '8995001001', 3500, 7000, 200, 'strip', 'Obat Bebas', 50, ''],
+      ['Minyak Kayu Putih 60ml', 'FRM-002', '8995001002', 12000, 22000, 80, 'botol', 'Obat Herbal', 15, ''],
+      ['Masker Medis 3ply', 'FRM-003', '8995001003', 800, 2000, 500, 'pcs', 'Alat Kesehatan', 100, ''],
+
+      // ── Elektronik / Gadget ──
+      ['Charger HP 20W', 'ELK-001', '8996001001', 15000, 35000, 30, 'pcs', 'Aksesoris HP', 5, ''],
+      ['Kabel Data USB-C', 'ELK-002', '8996001002', 8000, 18000, 50, 'pcs', 'Aksesoris HP', 10, ''],
+      ['Earphone Bluetooth', 'ELK-003', '8996001003', 25000, 55000, 25, 'pcs', 'Audio', 5, ''],
+
+      // ── Bangunan / Material ──
+      ['Semen 50kg', 'BNG-001', '8997001001', 55000, 65000, 100, 'sak', 'Semen', 20, ''],
+      ['Cat Tembok 5L', 'BNG-002', '8997001002', 75000, 95000, 30, 'pcs', 'Cat', 5, ''],
+      ['Besi Beton 10mm', 'BNG-003', '8997001003', 18000, 25000, 200, 'batang', 'Besi', 20, ''],
+
+      // ── Pertanian / Agrobisnis ──
+      ['Pupuk NPK 1kg', 'AGB-001', '8998001001', 8000, 15000, 100, 'kg', 'Pupuk', 20, ''],
+      ['Benih Padi 1kg', 'AGB-002', '8998001002', 25000, 45000, 50, 'kg', 'Benih', 10, ''],
+      ['Pestisida 100ml', 'AGB-003', '8998001003', 15000, 28000, 40, 'botol', 'Pestisida', 10, ''],
     ]
 
     const wsNonVariant = XLSX.utils.aoa_to_sheet([nonVariantHeader, ...nonVariantData])
     wsNonVariant['!cols'] = [
-      { wch: 30 }, // Nama Produk
-      { wch: 15 }, // SKU
-      { wch: 18 }, // Barcode
-      { wch: 20 }, // HPP / Modal
-      { wch: 22 }, // Harga Jual
-      { wch: 14 }, // Stok Awal
-      { wch: 12 }, // Satuan
-      { wch: 18 }, // Kategori
-      { wch: 16 }, // Low Stock Alert
-      { wch: 55 }, // Komposisi Inline
+      { wch: 30 }, { wch: 15 }, { wch: 18 }, { wch: 20 },
+      { wch: 22 }, { wch: 14 }, { wch: 12 }, { wch: 22 },
+      { wch: 16 }, { wch: 55 },
     ]
 
-    // Data validation for SATUAN
     wsNonVariant['!dataValidation'] = [{
       type: 'list',
       allowBlank: true,
       sqref: 'G2:G5000',
-      formulas: ['"pcs,ml,lt,gr,kg,box,pack,botol,gelas,mangkuk,porsi,bungkus,sachet,dus,rim,lembar,meter,cm,ons,roll,strip,ekor"'],
+      formulas: ['"pcs,ml,lt,gr,kg,box,pack,botol,gelas,mangkuk,porsi,bungkus,sachet,dus,rim,lembar,meter,cm,ons,roll,strip,ekor,sak,batang"'],
     }]
 
     XLSX.utils.book_append_sheet(wb, wsNonVariant, 'Produk Non-Varian')
 
     // ============================================================
     // SHEET 2: Produk Varian
-    // Untuk produk yang punya varian (ukuran, rasa, dll)
-    // Format: Baris pertama = produk induk, baris berikutnya = varian
+    // Contoh seimbang dari berbagai industri
     // ============================================================
     const variantHeader = [
       'NAMA PRODUK*',
@@ -109,54 +112,51 @@ export async function GET(request: NextRequest) {
     ]
 
     const variantData = [
-      // ── Kopi Susu (Varian Ukuran) ──
-      ['Kopi Susu', 'KPI-001', '', 0, 0, 'Minuman', 'Small 200ml', 'KPI-SM', '', 3500, 12000, 50, 'Espresso:20ml,Susu:60ml,Gula Aren:15gr'],
-      ['', '', '', '', '', '', 'Regular 300ml', 'KPI-RG', '', 5000, 16000, 40, 'Espresso:30ml,Susu:90ml,Gula Aren:20gr'],
-      ['', '', '', '', '', '', 'Large 400ml', 'KPI-LG', '', 6500, 20000, 30, 'Espresso:40ml,Susu:120ml,Gula Aren:25gr'],
+      // ── F&B: Kopi (Varian Ukuran) ──
+      ['Kopi Susu', 'VAR-FNB-001', '', 0, 0, 'Minuman', 'Small 200ml', 'VAR-FNB-001-S', '', 3500, 12000, 50, ''],
+      ['', '', '', '', '', '', 'Regular 300ml', 'VAR-FNB-001-R', '', 5000, 16000, 40, ''],
+      ['', '', '', '', '', '', 'Large 400ml', 'VAR-FNB-001-L', '', 6500, 20000, 30, ''],
 
-      // ── Teh (Varian Rasa) ──
-      ['Teh', 'TEH-001', '', 0, 0, 'Minuman', 'Original', 'TEH-ORG', '', 1500, 5000, 80, 'Teh Celup:1pcs,Gula:15gr,Es Batu:80gr'],
-      ['', '', '', '', '', '', 'Lemon', 'TEH-LMN', '', 2000, 7000, 60, 'Teh Celup:1pcs,Gula:15gr,Perasan Lemon:15ml,Es Batu:80gr'],
-      ['', '', '', '', '', '', 'Peach', 'TEH-PCH', '', 2500, 8000, 40, 'Teh Celup:1pcs,Gula:15gr,Sirup Peach:15ml,Es Batu:80gr'],
+      // ── Fashion: Kaos (Varian Ukuran) ──
+      ['Kaos Polos Premium', 'VAR-FSH-001', '', 0, 0, 'Atasan', 'S', 'VAR-FSH-001-S', '', 35000, 65000, 40, ''],
+      ['', '', '', '', '', '', 'M', 'VAR-FSH-001-M', '', 38000, 68000, 50, ''],
+      ['', '', '', '', '', '', 'L', 'VAR-FSH-001-L', '', 40000, 70000, 40, ''],
+      ['', '', '', '', '', '', 'XL', 'VAR-FSH-001-XL', '', 43000, 75000, 25, ''],
 
-      // ── Ayam Geprek (Varian Level) ──
-      ['Ayam Geprek', 'AGP-001', '', 0, 0, 'Makanan', 'Level 0 (Original)', 'AGP-L0', '', 10000, 18000, 30, 'Ayam Dada:150gr,Tepung:50gr,Minyak:30ml'],
-      ['', '', '', '', '', '', 'Level 1 (Pedas)', 'AGP-L1', '', 10000, 19000, 25, 'Ayam Dada:150gr,Tepung:50gr,Cabai Rawit:5gr,Minyak:30ml'],
-      ['', '', '', '', '', '', 'Level 2 (Extreme)', 'AGP-L2', '', 10000, 20000, 20, 'Ayam Dada:150gr,Tepung:50gr,Cabai Rawit:15gr,Minyak:30ml'],
+      // ── Beauty: Bedak (Varian Shade) ──
+      ['Bedak Tabur', 'VAR-BTY-001', '', 0, 0, 'Makeup', 'Natural', 'VAR-BTY-001-N', '', 15000, 45000, 40, ''],
+      ['', '', '', '', '', '', 'Warm', 'VAR-BTY-001-W', '', 15000, 45000, 40, ''],
+      ['', '', '', '', '', '', 'Cool', 'VAR-BTY-001-C', '', 15000, 45000, 30, ''],
 
-      // ── Bedak (Varian Shade) ──
-      ['Bedak Tabur', 'BDK-001', '', 0, 0, 'Makeup', 'Natural', 'BDK-NAT', '', 15000, 45000, 40, ''],
-      ['', '', '', '', '', '', 'Warm', 'BDK-WRM', '', 15000, 45000, 40, ''],
-      ['', '', '', '', '', '', 'Cool', 'BDK-COO', '', 15000, 45000, 30, ''],
+      // ── Elektronik: Casing HP (Varian Tipe) ──
+      ['Casing HP Silicone', 'VAR-ELK-001', '', 0, 0, 'Aksesoris HP', 'iPhone 15', 'VAR-ELK-001-IP', '', 8000, 25000, 60, ''],
+      ['', '', '', '', '', '', 'Samsung S24', 'VAR-ELK-001-SS', '', 8000, 25000, 50, ''],
+      ['', '', '', '', '', '', 'Xiaomi 14', 'VAR-ELK-001-XM', '', 8000, 25000, 40, ''],
 
-      // ── Sabun Mandi (Varian Varian) ──
-      ['Sabun Mandi', 'SBM-001', '', 0, 0, 'Perawatan Tubuh', 'Lavender 100g', 'SBM-LAV', '', 5000, 12000, 36, ''],
-      ['', '', '', '', '', '', 'Charcoal 100g', 'SBM-CHR', '', 6000, 15000, 30, ''],
-      ['', '', '', '', '', '', 'Aloe Vera 100g', 'SBM-ALV', '', 5500, 13000, 25, ''],
+      // ── Percetakan: Undangan (Varian Paket) ──
+      ['Undangan Pernikahan', 'VAR-PCT-001', '', 0, 0, 'Percetakan', 'Bronze (100 pcs)', 'VAR-PCT-001-B', '', 150000, 250000, 20, ''],
+      ['', '', '', '', '', '', 'Silver (100 pcs)', 'VAR-PCT-001-S', '', 200000, 350000, 15, ''],
+      ['', '', '', '', '', '', 'Gold (100 pcs)', 'VAR-PCT-001-G', '', 300000, 500000, 10, ''],
+
+      // ── F&B: Mie Ayam (Varian Toping) ──
+      ['Mie Ayam', 'VAR-FNB-002', '', 0, 0, 'Makanan', 'Biasa', 'VAR-FNB-002-B', '', 7000, 15000, 50, ''],
+      ['', '', '', '', '', '', 'Mie Ayam Bakso', 'VAR-FNB-002-BK', '', 9000, 18000, 40, ''],
+      ['', '', '', '', '', '', 'Mie Ayam Pangsit', 'VAR-FNB-002-PG', '', 10000, 20000, 30, ''],
     ]
 
     const wsVariant = XLSX.utils.aoa_to_sheet([variantHeader, ...variantData])
     wsVariant['!cols'] = [
-      { wch: 25 }, // Nama Produk
-      { wch: 15 }, // SKU Produk
-      { wch: 18 }, // Barcode Produk
-      { wch: 18 }, // HPP Produk
-      { wch: 22 }, // Harga Jual Produk
-      { wch: 18 }, // Kategori
-      { wch: 24 }, // Nama Varian
-      { wch: 15 }, // SKU Varian
-      { wch: 18 }, // Barcode Varian
-      { wch: 18 }, // HPP Varian
-      { wch: 22 }, // Harga Jual Varian
-      { wch: 18 }, // Stok Awal Varian
-      { wch: 55 }, // Komposisi Varian
+      { wch: 25 }, { wch: 18 }, { wch: 18 }, { wch: 18 },
+      { wch: 22 }, { wch: 18 }, { wch: 24 }, { wch: 20 },
+      { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 18 },
+      { wch: 55 },
     ]
 
     XLSX.utils.book_append_sheet(wb, wsVariant, 'Produk Varian')
 
     // ============================================================
     // SHEET 3: Inventory (Bahan Baku)
-    // Untuk tracking stok bahan baku / raw materials
+    // Contoh seimbang dari berbagai industri
     // ============================================================
     const inventoryHeader = [
       'NAMA BAHAN*',
@@ -170,64 +170,66 @@ export async function GET(request: NextRequest) {
     ]
 
     const inventoryData = [
-      // ── Bahan F&B ──
-      ['Beras', 'INV-BRS', 'kg', 50, 12000, 'Bahan Pokok', 10, 'Nasi Goreng Spesial,Bakso Kuah'],
-      ['Daging Ayam Dada', 'INV-AYM', 'kg', 20, 35000, 'Protein', 5, 'Ayam Geprek,Sate Ayam 10 tusuk'],
-      ['Telur Ayam', 'INV-TLU', 'pcs', 200, 2500, 'Protein', 20, 'Mie Goreng'],
-      ['Minyak Goreng', 'INV-MYK', 'lt', 10, 18000, 'Bahan Pokok', 3, 'Nasi Goreng Spesial,Ayam Geprek'],
-      ['Bawang Merah', 'INV-BWM', 'kg', 5, 30000, 'Bumbu', 2, 'Nasi Goreng Spesial'],
-      ['Bawang Putih', 'INV-BWP', 'kg', 3, 35000, 'Bumbu', 2, 'Nasi Goreng Spesial,Ayam Geprek'],
-      ['Cabai Rawit', 'INV-CBR', 'kg', 2, 45000, 'Bumbu', 1, 'Ayam Geprek'],
-      ['Teh Celup', 'INV-THC', 'pcs', 500, 1500, 'Minuman', 50, 'Es Teh Manis,Teh'],
-      ['Gula Pasir', 'INV-GLP', 'kg', 25, 14000, 'Bahan Pokok', 5, 'Es Teh Manis,Jus Alpukat,Teh'],
-      ['Es Batu', 'INV-ESB', 'kg', 30, 2000, 'Minuman', 5, 'Es Teh Manis,Jus Alpukat,Teh,Kopi Susu'],
-      ['Susu UHT', 'INV-SUS', 'lt', 15, 16000, 'Bahan Susu', 3, 'Kopi Susu,Jus Alpukat'],
-      ['Espresso Shot', 'INV-ESP', 'ml', 3000, 80, 'Bahan Kopi', 500, 'Kopi Susu'],
-      ['Gula Aren Cair', 'INV-GAC', 'ml', 2000, 25, 'Bahan Kopi', 200, 'Kopi Susu'],
-      ['Alpukat', 'INV-ALP', 'kg', 10, 25000, 'Buah', 3, 'Jus Alpukat'],
-      ['Sawi Hijau', 'INV-SWI', 'kg', 5, 8000, 'Sayuran', 2, 'Mie Goreng'],
-      ['Mie Telur Kuning', 'INV-MIE', 'kg', 10, 15000, 'Bahan Pokok', 3, 'Mie Goreng,Bakso Kuah'],
-      ['Bakso Daging', 'INV-BKS', 'pcs', 500, 1500, 'Protein', 50, 'Bakso Kuah'],
-      ['Tahu Putih', 'INV-THU', 'pcs', 100, 1000, 'Protein', 20, 'Bakso Kuah'],
-      ['Tepung Terigu', 'INV-TPG', 'kg', 10, 12000, 'Bahan Pokok', 3, 'Ayam Geprek'],
-      ['Sirup Peach', 'INV-SRP', 'ml', 1000, 35, 'Bahan Sirup', 100, 'Teh'],
-      ['Perasan Lemon', 'INV-PLM', 'ml', 500, 50, 'Bahan Minuman', 50, 'Teh'],
-      ['Kertas A5', 'INV-KA5', 'pcs', 2000, 300, 'Bahan Cetak', 200, 'Cetak Brosur A5'],
-      ['Kertas Art Carton', 'INV-KAC', 'pcs', 1000, 500, 'Bahan Cetak', 100, 'Cetak Kartu Nama'],
-      ['Bahan Stiker Roll', 'INV-BSR', 'roll', 100, 5000, 'Bahan Cetak', 10, 'Cetak Stiker Roll'],
-      ['Kertas Ivory', 'INV-KIV', 'pcs', 500, 1000, 'Bahan Cetak', 50, 'Cetak Undangan'],
-      ['Laminasi Glossy', 'INV-LMG', 'pcs', 500, 200, 'Bahan Cetak', 50, 'Cetak Kartu Nama'],
-      ['Tinta Cetak', 'INV-TNT', 'ml', 5000, 15, 'Bahan Cetak', 500, 'Cetak Brosur A5,Cetak Stiker Roll'],
-      ['Plastik Undangan', 'INV-PLS', 'pcs', 500, 150, 'Bahan Cetak', 50, 'Cetak Undangan'],
-      ['Bambu Sate', 'INV-BMB', 'pcs', 1000, 50, 'Bahan Sate', 100, 'Sate Ayam 10 tusuk'],
-      ['Kecap Manis', 'INV-KCP', 'ml', 1000, 15, 'Bumbu', 100, 'Sate Ayam 10 tusuk'],
+      // ── F&B: Bahan Makanan & Minuman ──
+      ['Beras', 'INV-FNB-001', 'kg', 50, 12000, 'Bahan Pokok', 10, 'Nasi Goreng Spesial,Mie Ayam'],
+      ['Daging Ayam Dada', 'INV-FNB-002', 'kg', 20, 35000, 'Protein', 5, 'Ayam Geprek'],
+      ['Telur Ayam', 'INV-FNB-003', 'pcs', 200, 2500, 'Protein', 20, 'Mie Ayam'],
+      ['Minyak Goreng', 'INV-FNB-004', 'lt', 10, 18000, 'Bahan Pokok', 3, 'Nasi Goreng Spesial,Ayam Geprek'],
+      ['Teh Celup', 'INV-FNB-005', 'pcs', 500, 1500, 'Minuman', 50, 'Es Teh Manis'],
+      ['Gula Pasir', 'INV-FNB-006', 'kg', 25, 14000, 'Bahan Pokok', 5, 'Es Teh Manis'],
+
+      // ── Percetakan: Bahan Cetak ──
+      ['Kertas HVS A5', 'INV-PCT-001', 'pcs', 2000, 300, 'Bahan Cetak', 200, 'Cetak Brosur A5'],
+      ['Kertas Art Carton', 'INV-PCT-002', 'pcs', 1000, 500, 'Bahan Cetak', 100, 'Cetak Kartu Nama'],
+      ['Bahan Stiker Roll', 'INV-PCT-003', 'roll', 100, 5000, 'Bahan Cetak', 10, 'Cetak Stiker Roll'],
+      ['Tinta Cetak', 'INV-PCT-004', 'ml', 5000, 15, 'Bahan Cetak', 500, 'Cetak Brosur A5,Cetak Stiker Roll'],
+      ['Plastik Undangan', 'INV-PCT-005', 'pcs', 500, 150, 'Bahan Cetak', 50, 'Undangan Pernikahan'],
+      ['Amplop Undangan', 'INV-PCT-006', 'pcs', 500, 200, 'Bahan Cetak', 50, 'Undangan Pernikahan'],
+
+      // ── Fashion: Bahan Garmen ──
+      ['Kain Katun Combed 30s', 'INV-FSH-001', 'meter', 200, 25000, 'Bahan Kain', 20, 'Kaos Polos Cotton 30s,Kaos Polos Premium'],
+      ['Benang Jahit Poly', 'INV-FSH-002', 'roll', 100, 8000, 'Bahan Jahit', 15, 'Kaos Polos Cotton 30s,Kaos Polos Premium'],
+      ['Resleting YKK 20cm', 'INV-FSH-003', 'pcs', 500, 3500, 'Kelengkapan', 30, 'Celana Jeans Slim'],
+      ['Kain Denim 12oz', 'INV-FSH-004', 'meter', 100, 55000, 'Bahan Kain', 10, 'Celana Jeans Slim'],
+      ['Kain Voal Premium', 'INV-FSH-005', 'meter', 150, 30000, 'Bahan Kain', 15, 'Hijab Segi Empat'],
+      ['Label Woven', 'INV-FSH-006', 'pcs', 2000, 500, 'Kelengkapan', 200, 'Kaos Polos Cotton 30s,Celana Jeans Slim'],
+      ['Polycotton 1m', 'INV-FSH-007', 'meter', 80, 22000, 'Bahan Kain', 10, 'Hijab Segi Empat'],
+
+      // ── Bangunan: Material Konstruksi ──
+      ['Semen Portland 50kg', 'INV-BNG-001', 'sak', 200, 58000, 'Semen', 30, 'Semen 50kg'],
+      ['Pasir Cor', 'INV-BNG-002', 'm3', 10, 350000, 'Pasir', 2, ''],
+      ['Kerikil / Split', 'INV-BNG-003', 'm3', 8, 450000, 'Kerikil', 2, ''],
+      ['Besi Beton 10mm', 'INV-BNG-004', 'batang', 300, 22000, 'Besi', 30, 'Besi Beton 10mm'],
+      ['Cat Tembok 5L Interior', 'INV-BNG-005', 'pcs', 50, 78000, 'Cat', 5, 'Cat Tembok 5L'],
+      ['Paku 2 inch', 'INV-BNG-006', 'kg', 20, 25000, 'Hardware', 3, ''],
+      ['Semen Mortar', 'INV-BNG-007', 'sak', 50, 35000, 'Semen', 10, ''],
+
+      // ── Pertanian: Input Pertanian ──
+      ['Pupuk NPK Granul', 'INV-AGB-001', 'kg', 200, 9000, 'Pupuk', 30, 'Pupuk NPK 1kg'],
+      ['Benih Padi Unggul', 'INV-AGB-002', 'kg', 100, 28000, 'Benih', 15, 'Benih Padi 1kg'],
+      ['Pestisida Organik', 'INV-AGB-003', 'lt', 20, 45000, 'Pestisida', 3, 'Pestisida 100ml'],
+      ['Herbisida', 'INV-AGB-004', 'lt', 10, 85000, 'Herbisida', 2, ''],
+      ['Mulsa Plastik', 'INV-AGB-005', 'roll', 30, 120000, 'Perlengkapan', 3, ''],
     ]
 
     const wsInventory = XLSX.utils.aoa_to_sheet([inventoryHeader, ...inventoryData])
     wsInventory['!cols'] = [
-      { wch: 28 }, // Nama Bahan
-      { wch: 15 }, // SKU
-      { wch: 14 }, // Satuan Dasar
-      { wch: 12 }, // Stok Awal
-      { wch: 20 }, // HPP Rata-rata
-      { wch: 22 }, // Kategori Inventory
-      { wch: 16 }, // Low Stock Alert
-      { wch: 50 }, // Digunakan Di Produk
+      { wch: 28 }, { wch: 18 }, { wch: 14 }, { wch: 12 },
+      { wch: 20 }, { wch: 22 }, { wch: 16 }, { wch: 50 },
     ]
 
-    // Data validation for SATUAN DASAR
     wsInventory['!dataValidation'] = [{
       type: 'list',
       allowBlank: true,
       sqref: 'C2:C5000',
-      formulas: ['"pcs,ml,lt,gr,kg,box,pack,botol,gelas,mangkuk,porsi,bungkus,sachet,dus,rim,lembar,meter,cm,ons,roll,strip,ekor"'],
+      formulas: ['"pcs,ml,lt,gr,kg,box,pack,botol,gelas,mangkuk,porsi,bungkus,sachet,dus,rim,lembar,meter,cm,ons,roll,strip,ekor,sak,batang,m3"'],
     }]
 
     XLSX.utils.book_append_sheet(wb, wsInventory, 'Inventory (Bahan Baku)')
 
     // ============================================================
     // SHEET 4: Komposisi / Resep (Detail BOM)
-    // Opsional — untuk resep yang kompleks dengan yield per batch
+    // Contoh seimbang dari berbagai industri
     // ============================================================
     const compositionHeader = [
       'NAMA PRODUK*',
@@ -241,65 +243,62 @@ export async function GET(request: NextRequest) {
     ]
 
     const compositionData = [
-      // ── Kopi Susu Variants ──
-      ['Kopi Susu', 'Small 200ml', 'Espresso Shot', 'INV-ESP', 20, 'ml', 1, '1 cup = 20ml espresso'],
-      ['Kopi Susu', 'Small 200ml', 'Susu UHT', 'INV-SUS', 60, 'ml', 1, ''],
-      ['Kopi Susu', 'Small 200ml', 'Gula Aren Cair', 'INV-GAC', 15, 'ml', 1, ''],
-      ['Kopi Susu', 'Regular 300ml', 'Espresso Shot', 'INV-ESP', 30, 'ml', 1, ''],
-      ['Kopi Susu', 'Regular 300ml', 'Susu UHT', 'INV-SUS', 90, 'ml', 1, ''],
-      ['Kopi Susu', 'Regular 300ml', 'Gula Aren Cair', 'INV-GAC', 20, 'ml', 1, ''],
-      ['Kopi Susu', 'Large 400ml', 'Espresso Shot', 'INV-ESP', 40, 'ml', 1, ''],
-      ['Kopi Susu', 'Large 400ml', 'Susu UHT', 'INV-SUS', 120, 'ml', 1, ''],
-      ['Kopi Susu', 'Large 400ml', 'Gula Aren Cair', 'INV-GAC', 25, 'ml', 1, ''],
+      // ── F&B: Nasi Goreng (non-varian) ──
+      ['Nasi Goreng Spesial', '', 'Beras', 'INV-FNB-001', 200, 'gr', 1, 'Per porsi'],
+      ['Nasi Goreng Spesial', '', 'Telur Ayam', 'INV-FNB-003', 1, 'pcs', 1, 'Per porsi'],
+      ['Nasi Goreng Spesial', '', 'Minyak Goreng', 'INV-FNB-004', 15, 'ml', 1, 'Per porsi'],
 
-      // ── Nasi Goreng (non-varian, kolom Varian kosong) ──
-      ['Nasi Goreng Spesial', '', 'Beras', 'INV-BRS', 200, 'gr', 1, '200gr beras per porsi'],
-      ['Nasi Goreng Spesial', '', 'Telur Ayam', 'INV-TLU', 1, 'pcs', 1, '1 butir per porsi'],
-      ['Nasi Goreng Spesial', '', 'Minyak Goreng', 'INV-MYK', 15, 'ml', 1, ''],
-      ['Nasi Goreng Spesial', '', 'Bawang Merah', 'INV-BWM', 10, 'gr', 1, ''],
+      // ── F&B: Mie Ayam Bakso (varian) ──
+      ['Mie Ayam', 'Mie Ayam Bakso', 'Telur Ayam', 'INV-FNB-003', 1, 'pcs', 1, ''],
+      ['Mie Ayam', 'Mie Ayam Bakso', 'Beras', 'INV-FNB-001', 50, 'gr', 1, 'Pangsit isi'],
 
-      // ── Ayam Geprek Level ──
-      ['Ayam Geprek', 'Level 0 (Original)', 'Daging Ayam Dada', 'INV-AYM', 150, 'gr', 1, ''],
-      ['Ayam Geprek', 'Level 0 (Original)', 'Tepung Terigu', 'INV-TPG', 50, 'gr', 1, ''],
-      ['Ayam Geprek', 'Level 0 (Original)', 'Minyak Goreng', 'INV-MYK', 30, 'ml', 1, ''],
-      ['Ayam Geprek', 'Level 1 (Pedas)', 'Daging Ayam Dada', 'INV-AYM', 150, 'gr', 1, ''],
-      ['Ayam Geprek', 'Level 1 (Pedas)', 'Tepung Terigu', 'INV-TPG', 50, 'gr', 1, ''],
-      ['Ayam Geprek', 'Level 1 (Pedas)', 'Cabai Rawit', 'INV-CBR', 5, 'gr', 1, ''],
-      ['Ayam Geprek', 'Level 1 (Pedas)', 'Minyak Goreng', 'INV-MYK', 30, 'ml', 1, ''],
-      ['Ayam Geprek', 'Level 2 (Extreme)', 'Daging Ayam Dada', 'INV-AYM', 150, 'gr', 1, ''],
-      ['Ayam Geprek', 'Level 2 (Extreme)', 'Tepung Terigu', 'INV-TPG', 50, 'gr', 1, ''],
-      ['Ayam Geprek', 'Level 2 (Extreme)', 'Cabai Rawit', 'INV-CBR', 15, 'gr', 1, '3x lipat pedasnya'],
-      ['Ayam Geprek', 'Level 2 (Extreme)', 'Minyak Goreng', 'INV-MYK', 30, 'ml', 1, ''],
+      // ── Percetakan: Brosur A5 (yield per batch) ──
+      ['Cetak Brosur A5', '', 'Kertas HVS A5', 'INV-PCT-001', 100, 'pcs', 100, '1 rim → 100 lembar jadi'],
+      ['Cetak Brosur A5', '', 'Tinta Cetak', 'INV-PCT-004', 20, 'ml', 100, '100 lembar butuh ~20ml tinta'],
 
-      // ── Contoh Yield per Batch ──
-      ['Roti Bakar (contoh)', '', 'Tepung Terigu', 'INV-TPG', 1000, 'gr', 10, '1kg tepung → 10 potong'],
-      ['Roti Bakar (contoh)', '', 'Gula Pasir', 'INV-GLP', 100, 'gr', 10, '100gr gula → 10 potong'],
-      ['Roti Bakar (contoh)', '', 'Telur Ayam', 'INV-TLU', 5, 'pcs', 10, '5 butir telur → 10 potong'],
+      // ── Percetakan: Undangan (varian Bronze) ──
+      ['Undangan Pernikahan', 'Bronze (100 pcs)', 'Kertas Art Carton', 'INV-PCT-002', 100, 'pcs', 100, ''],
+      ['Undangan Pernikahan', 'Bronze (100 pcs)', 'Plastik Undangan', 'INV-PCT-005', 100, 'pcs', 100, ''],
+      ['Undangan Pernikahan', 'Bronze (100 pcs)', 'Amplop Undangan', 'INV-PCT-006', 100, 'pcs', 100, ''],
+
+      // ── Fashion: Kaos Polos (yield per batch) ──
+      ['Kaos Polos Cotton 30s', '', 'Kain Katun Combed 30s', 'INV-FSH-001', 2, 'meter', 10, '2m kain → 10 kaos'],
+      ['Kaos Polos Cotton 30s', '', 'Benang Jahit Poly', 'INV-FSH-002', 1, 'roll', 10, '1 roll → 10 kaos'],
+      ['Kaos Polos Cotton 30s', '', 'Label Woven', 'INV-FSH-006', 10, 'pcs', 10, '10 label → 10 kaos'],
+
+      // ── Bangunan: Campuran Cor (yield per batch) ──
+      ['Campuran Cor 1 Sak Semen', '', 'Semen Portland 50kg', 'INV-BNG-001', 1, 'sak', 0.15, '1 sak → 0.15 m3 cor'],
+      ['Campuran Cor 1 Sak Semen', '', 'Pasir Cor', 'INV-BNG-002', 0.06, 'm3', 0.15, ''],
+      ['Campuran Cor 1 Sak Semen', '', 'Kerikil / Split', 'INV-BNG-003', 0.08, 'm3', 0.15, ''],
+
+      // ── Pertanian: Pupuk NPK Repackaging (yield per batch) ──
+      ['Pupuk NPK 1kg', '', 'Pupuk NPK Granul', 'INV-AGB-001', 1, 'kg', 1, 'Repack dari karung 50kg'],
     ]
 
     const wsComposition = XLSX.utils.aoa_to_sheet([compositionHeader, ...compositionData])
     wsComposition['!cols'] = [
-      { wch: 28 }, // Nama Produk
-      { wch: 30 }, // Nama Varian
-      { wch: 24 }, // Nama Bahan
-      { wch: 18 }, // SKU Bahan
-      { wch: 16 }, // QTY Per Batch
-      { wch: 14 }, // Satuan Bahan
-      { wch: 26 }, // Yield Per Batch
-      { wch: 35 }, // Catatan
+      { wch: 30 }, { wch: 30 }, { wch: 28 }, { wch: 20 },
+      { wch: 16 }, { wch: 14 }, { wch: 28 }, { wch: 35 },
     ]
 
     XLSX.utils.book_append_sheet(wb, wsComposition, 'Komposisi (Resep BOM)')
 
     // ============================================================
-    // SHEET 5: Panduan Import
+    // SHEET 5: Panduan Import — Universal
     // ============================================================
     const guideData = [
-      ['TEMPLATE MIGRASI — AETHER POS (Revisi Lengkap)'],
+      ['TEMPLATE MIGRASI — AETHER POS'],
       [''],
-      ['Template ini sudah disesuaikan untuk migrasi baru dengan dukungan:'],
+      ['Template ini dirancang universal untuk semua lini bisnis:'],
+      [''],
+      ['  F&B & Kuliner          │  Retail & Minimarket    │  Beauty & Kecantikan'],
+      ['  Fashion & Pakaian      │  Jasa & Layanan        │  Percetakan & Desain'],
+      ['  Farmasi & Kesehatan    │  Elektronik & Gadget   │  Bangunan & Material'],
+      ['  Pertanian & Agrobisnis│  Manufactur & Produksi │  Dan industri lainnya'],
+      [''],
+      ['Fitur template:'],
       ['  ✓ Produk Non-Varian (langsung jual)'],
-      ['  ✓ Produk Varian (ukuran, rasa, level, shade, dll)'],
+      ['  ✓ Produk Varian (ukuran, rasa, shade, tipe, level, dll)'],
       ['  ✓ Inventory / Bahan Baku dengan stok awal'],
       ['  ✓ Komposisi Inline (di sheet Produk) & Komposisi Detail (sheet terpisah)'],
       [''],
@@ -310,36 +309,45 @@ export async function GET(request: NextRequest) {
       ['Untuk produk tanpa varian — langsung siap jual.'],
       [''],
       ['KOLOM', 'DESKRIPSI', 'CONTOH', 'WAJIB?'],
-      ['NAMA PRODUK*', 'Nama produk / item', 'Nasi Goreng Spesial', 'Ya'],
+      ['NAMA PRODUK*', 'Nama produk / item', 'Nasi Goreng / Charger HP / Semen 50kg', 'Ya'],
       ['SKU', 'Kode unik (auto-generate jika kosong)', 'SKU-001', 'Tidak'],
-      ['BARCODE', 'Barcode untuk scan (auto dari SKU)', '8991234001', 'Tidak'],
+      ['BARCODE', 'Barcode untuk scan (auto dari SKU)', '8991001001', 'Tidak'],
       ['HPP / MODAL (Rp)', 'Harga pokok per unit', '10000', 'Tidak'],
       ['HARGA JUAL* (Rp)', 'Harga jual ke customer', '25000', 'Ya'],
       ['STOK AWAL', 'Jumlah stok saat ini', '50', 'Tidak'],
-      ['SATUAN', 'Unit produk', 'porsi', 'Tidak'],
-      ['KATEGORI', 'Nama kategori (auto-create)', 'Makanan', 'Tidak'],
+      ['SATUAN', 'Unit produk (sesuai industri)', 'pcs / porsi / kg / sak / botol', 'Tidak'],
+      ['KATEGORI', 'Nama kategori (auto-create)', 'Makanan / Aksesoris HP / Semen', 'Tidak'],
       ['LOW STOCK ALERT', 'Batas peringatan stok rendah', '10', 'Tidak'],
-      ['KOMPOSISI INLINE', 'Resep langsung di kolom (opsional)', 'Nasi:200gr,Telur:1pcs', 'Tidak'],
+      ['KOMPOSISI INLINE', 'Resep/bahan langsung di kolom', 'Kain:2m,Benang:1roll', 'Tidak'],
       [''],
       ['FORMAT KOMPOSISI INLINE:'],
       ['  NamaBahan:qtySatuan,NamaBahan:qtySatuan'],
-      ['  Contoh: Nasi:200gr,Rogut:1butir,Minyak:15ml'],
-      ['  → Otomatis di-parse dan di-link ke Inventory Items'],
-      ['  → Nama bahan harus cocok dengan sheet "Inventory (Bahan Baku)"'],
+      ['  Contoh F&B:      Nasi:200gr,Telur:1pcs,Minyak:15ml'],
+      ['  Contoh Percetakan: Kertas A5:1pcs,Tinta:2ml'],
+      ['  Contoh Fashion:   Kain Katun:2m,Benang:1roll,Label:1pcs'],
+      ['  Contoh Bangunan:  Semen:1sak,Pasir:0.06m3,Kerikil:0.08m3'],
       [''],
       ['═'.repeat(70)],
       ['SHEET 2: PRODUK VARIAN'],
       ['═'.repeat(70)],
       [''],
-      ['Untuk produk yang punya varian (ukuran, rasa, level, shade, dll).'],
-      ['Baris pertama = produk induk. Baris kosong NAMA PRODUK = varian dari induk terakhir.'],
+      ['Untuk produk yang punya varian. Baris pertama = produk induk.'],
+      ['Baris dengan NAMA PRODUK kosong = varian dari induk terakhir.'],
+      [''],
+      ['CONTOH VARIAN PER INDUSTRI:'],
+      ['  F&B:        Kopi Susu → Small 200ml / Regular 300ml / Large 400ml'],
+      ['  Fashion:    Kaos Polos → S / M / L / XL'],
+      ['  Beauty:     Bedak Tabur → Natural / Warm / Cool'],
+      ['  Elektronik: Casing HP → iPhone 15 / Samsung S24 / Xiaomi 14'],
+      ['  Percetakan: Undangan → Bronze (100 pcs) / Silver (100 pcs) / Gold (100 pcs)'],
+      ['  F&B:        Mie Ayam → Biasa / Bakso / Pangsit'],
       [''],
       ['KOLOM', 'DESKRIPSI', 'WAJIB?'],
-      ['NAMA PRODUK*', 'Nama produk induk (isi di baris pertama saja)', 'Ya'],
+      ['NAMA PRODUK*', 'Produk induk (isi baris pertama saja)', 'Ya'],
       ['SKU PRODUK', 'SKU produk induk', 'Tidak'],
-      ['HARGA JUAL PRODUK*', 'Harga default (tidak dipakai jika ada varian)', 'Ya'],
-      ['KATEGORI', 'Kategori (isi di baris pertama saja)', 'Tidak'],
-      ['NAMA VARIAN*', 'Nama varian (Small, Regular, Original, dll)', 'Ya'],
+      ['HARGA JUAL PRODUK*', 'Harga default', 'Ya'],
+      ['KATEGORI', 'Kategori (isi baris pertama saja)', 'Tidak'],
+      ['NAMA VARIAN*', 'Nama varian', 'Ya'],
       ['SKU VARIAN', 'SKU varian', 'Tidak'],
       ['BARCODE VARIAN', 'Barcode varian', 'Tidak'],
       ['HPP VARIAN (Rp)', 'HPP per varian', 'Tidak'],
@@ -354,37 +362,50 @@ export async function GET(request: NextRequest) {
       ['Untuk tracking stok bahan baku / raw materials.'],
       ['Digunakan bersama mode "Buat Produk + Inventory".'],
       [''],
+      ['CONTOH BAHAN BAKU PER INDUSTRI:'],
+      ['  F&B:        Beras, Daging Ayam, Telur, Minyak Goreng, Gula Pasir'],
+      ['  Percetakan: Kertas HVS, Art Carton, Bahan Stiker, Tinta Cetak'],
+      ['  Fashion:    Kain Katun, Benang Jahit, Resleting YKK, Kain Denim'],
+      ['  Bangunan:   Semen Portland, Pasir Cor, Kerikil, Besi Beton'],
+      ['  Pertanian:  Pupuk NPK, Benih Padi, Pestisida, Mulsa Plastik'],
+      [''],
       ['KOLOM', 'DESKRIPSI', 'WAJIB?'],
       ['NAMA BAHAN*', 'Nama bahan baku', 'Ya'],
       ['SKU', 'Kode SKU', 'Tidak'],
-      ['SATUAN DASAR*', 'Unit dasar: gr, kg, ml, lt, pcs, meter', 'Ya'],
+      ['SATUAN DASAR*', 'Unit dasar', 'Ya'],
       ['STOK AWAL', 'Stok saat ini', 'Tidak'],
       ['HPP RATA-RATA (Rp)', 'Harga pokok rata-rata per unit', 'Tidak'],
-      ['KATEGORI INVENTORY', 'Kategori bahan (Bahan Pokok, Protein, dll)', 'Tidak'],
+      ['KATEGORI INVENTORY', 'Kategori bahan', 'Tidak'],
       ['LOW STOCK ALERT', 'Batas peringatan', 'Tidak'],
-      ['DIGUNAKAN DI PRODUK', 'List produk yang pakai bahan ini (opsional)', 'Tidak'],
+      ['DIGUNAKAN DI PRODUK', 'List produk (opsional)', 'Tidak'],
       [''],
       ['═'.repeat(70)],
       ['SHEET 4: KOMPOSISI / RESEP (BOM DETAIL)'],
       ['═'.repeat(70)],
       [''],
-      ['Untuk resep yang kompleks — misal 1kg tepung menghasilkan 10 roti.'],
-      ['Lebih detail dari komposisi inline di sheet Produk.'],
+      ['Untuk resep/BOM yang kompleks — misal 1 sak semen menghasilkan 0.15m3 cor,'],
+      ['atau 2 meter kain menghasilkan 10 kaos.'],
+      [''],
+      ['CONTOH BOM PER INDUSTRI:'],
+      ['  F&B:        Nasi Goreng → Beras 200gr + Telur 1pcs + Minyak 15ml (yield 1 porsi)'],
+      ['  Percetakan: Brosur A5 → Kertas 100pcs + Tinta 20ml (yield 100 lembar)'],
+      ['  Fashion:    Kaos → Kain 2m + Benang 1roll + Label 10pcs (yield 10 kaos)'],
+      ['  Bangunan:   Cor → Semen 1sak + Pasir 0.06m3 + Kerikil 0.08m3 (yield 0.15m3)'],
+      ['  Pertanian:  Pupuk Repack → NPK Granul 1kg (yield 1 paket)'],
       [''],
       ['KOLOM', 'DESKRIPSI', 'WAJIB?'],
       ['NAMA PRODUK*', 'Nama produk (harus cocok)', 'Ya'],
-      ['NAMA VARIAN', 'Kosongkan jika produk non-varian', 'Tidak'],
-      ['NAMA BAHAN*', 'Nama bahan baku (harus cocok)', 'Ya'],
-      ['SKU BAHAN', 'SKU bahan (opsional, untuk verifikasi)', 'Tidak'],
-      ['QTY PER BATCH*', 'Jumlah bahan per 1 batch', 'Ya'],
+      ['NAMA VARIAN', 'Kosongkan jika non-varian', 'Tidak'],
+      ['NAMA BAHAN*', 'Nama bahan (harus cocok)', 'Ya'],
+      ['SKU BAHAN', 'SKU bahan (opsional)', 'Tidak'],
+      ['QTY PER BATCH*', 'Jumlah bahan per batch', 'Ya'],
       ['SATUAN BAHAN', 'Satuan bahan', 'Ya'],
-      ['YIELD PER BATCH', 'Berapa hasil per 1 batch (default: 1)', 'Tidak'],
+      ['YIELD PER BATCH', 'Hasil per batch (default: 1)', 'Tidak'],
       ['CATATAN', 'Catatan tambahan', 'Tidak'],
       [''],
-      ['CONTOH YIELD:'],
-      ['  Roti Bakar: 1000gr Tepung + 100gr Gula + 5pcs Telur → 10 potong'],
-      ['  → QTY = 1000 (gr), Yield Per Batch = 10'],
-      ['  → Artinya: 1 potong roti mengkonsumsi 100gr tepung'],
+      ['CARA KERJA YIELD:'],
+      ['  Fashion:  2m kain + 1 roll benih + 10 label → 10 kaos'],
+      ['  → QTY kain = 2 (meter), Yield = 10 → 1 kaos butuh 0.2m kain'],
       [''],
       ['═'.repeat(70)],
       ['MODE IMPORT'],
@@ -392,18 +413,84 @@ export async function GET(request: NextRequest) {
       [''],
       ['1. BUAT PRODUK SAJA (sheet Produk Non-Varian & Varian saja)'],
       ['   → Product + Varian dibuat, tanpa inventory'],
-      ['   → Cocok untuk: Retail, Jasa, F&B tanpa resep'],
+      ['   → Cocok untuk:'],
+      ['     • Retail / Minimarket — jual langsung tanpa perlu tracking bahan'],
+      ['     • Jasa / Layanan — cuci motor, potong rambut, laundry, dll'],
+      ['     • Farmasi / Kesehatan — jual obat-obatan jadi'],
+      ['     • Elektronik / Gadget — jual HP, charger, aksesoris'],
+      ['     • Fashion tanpa produksi sendiri — jual barang jadi dari supplier'],
+      ['     • F&B tanpa tracking resep — menu tanpa perlu hitung HPP detail'],
       [''],
       ['2. BUAT PRODUK + INVENTORY (semua sheet diproses)'],
       ['   → Product + Varian + InventoryItem + Komposisi + Opening Balance'],
-      ['   → Cocok untuk: F&B dengan resep, Manufactur, Percetakan'],
+      ['   → Cocok untuk:'],
+      ['     • F&B dengan resep — kafe, restoran, catering yang perlu hitung HPP'],
+      ['     • Percetakan — perlu track kertas, tinta, bahan cetak'],
+      ['     • Fashion produksi sendiri — konveksi, butik yang jahit sendiri'],
+      ['     • Bangunan / Konstruksi — track material bangunan'],
+      ['     • Pertanian — track pupuk, benih, pestisida'],
+      ['     • Manufactur / Produksi — industri yang mengolah bahan jadi produk'],
+      [''],
+      ['═'.repeat(70)],
+      ['TIPS PER INDUSTRI'],
+      ['═'.repeat(70)],
+      [''],
+      ['F&B & KULINER:'],
+      ['  • Isi komposisi untuk tracking bahan baku & perhitungan HPP otomatis'],
+      ['  • Gunakan satuan: porsi, gelas, mangkuk, cup, botol'],
+      ['  • Untuk menu dengan varian rasa/ukuran, gunakan sheet "Produk Varian"'],
+      [''],
+      ['RETAIL / MINIMARKET:'],
+      ['  • Mode "Produk Saja" sudah cukup, tidak perlu inventory bahan baku'],
+      ['  • Gunakan barcode untuk scan cepat di kasir'],
+      ['  • Satuan umum: pcs, pack, dus, box, liter'],
+      [''],
+      ['BEAUTY / KECANTIKAN:'],
+      ['  • Varian shade (Natural, Warm, Cool) atau ukuran (15ml, 30ml, 50ml)'],
+      ['  • Jika produksi sendiri, gunakan mode "Produk + Inventory"'],
+      ['  • Jika jual barang jadi, mode "Produk Saja" cukup'],
+      [''],
+      ['JASA / LAYANAN:'],
+      ['  • Stok awal isi 999 (tidak terbatas) atau sesuai kapasitas harian'],
+      ['  • HPP isi biaya operasional (misal: shampo cuci motor Rp5.000)'],
+      ['  • Barcode bisa dikosongkan (jasa tidak di-scan)'],
+      [''],
+      ['PERCETAKAN & DESAIN:'],
+      ['  • Gunakan mode "Produk + Inventory" untuk track kertas & tinta'],
+      ['  • Varian bisa berupa paket (Bronze, Silver, Gold) atau ukuran cetak'],
+      ['  • Manfaatkan Yield Per Batch untuk efisiensi material'],
+      [''],
+      ['FASHION / PAKAIAN:'],
+      ['  • Varian ukuran: S, M, L, XL, XXL'],
+      ['  • Jika konveksi, gunakan mode "Produk + Inventory" untuk track kain'],
+      ['  • Jika jual barang jadi, mode "Produk Saja" sudah cukup'],
+      [''],
+      ['FARMASI & KESEHATAN:'],
+      ['  • Gunakan satuan: strip, tablet, botol, tube, box'],
+      ['  • Isi barcode untuk scan obat di apotek'],
+      ['  • Low stock alert penting untuk obat-obatan vital'],
+      [''],
+      ['ELEKTRONIK & GADGET:'],
+      ['  • Varian tipe: iPhone, Samsung, Xiaomi (untuk aksesoris)'],
+      ['  • Barcode wajib diisi untuk scan di kasir'],
+      ['  • Gunakan kategori yang spesifik: Aksesoris HP, Audio, Charger, dll'],
+      [''],
+      ['BANGUNAN & MATERIAL:'],
+      ['  • Gunakan mode "Produk + Inventory" untuk track material proyek'],
+      ['  • Satuan khusus: sak (semen), batang (besi), m3 (pasir/kerikil)'],
+      ['  • Manfaatkan komposisi untuk campuran (cor, adukan) dengan yield'],
+      [''],
+      ['PERTANIAN & AGROBISNIS:'],
+      ['  • Gunakan mode "Produk + Inventory" untuk track input pertanian'],
+      ['  • Satuan umum: kg, liter, botol, roll (mulsa)'],
+      ['  • Repackaging (karung → kemasan kecil) bisa pakai komposisi + yield'],
       [''],
       ['═'.repeat(70)],
       ['CATATAN UMUM'],
       ['═'.repeat(70)],
       [''],
       ['• Kolom bertanda * wajib diisi'],
-      ['• Maksimal 500 baris per sheet'],
+      ['• Maksimal 5000 baris per sheet'],
       ['• Produk duplikat (nama sama) akan dilewati (skip)'],
       ['• Kategori baru otomatis dibuat'],
       ['• SKU & Barcode auto-generate jika dikosongkan'],
@@ -411,13 +498,14 @@ export async function GET(request: NextRequest) {
       ['• Komposisi inline & detail bisa digunakan bersamaan'],
       ['• Import bisa diulang dengan aman (skip duplikat)'],
       ['• Bahan baku di komposisi harus sudah ada di sheet Inventory ATAU auto-create'],
+      ['• Ganti/hapus contoh data dengan data asli Anda sebelum import'],
     ]
 
     const wsGuide = XLSX.utils.aoa_to_sheet(guideData)
     wsGuide['!cols'] = [
       { wch: 35 },
-      { wch: 60 },
-      { wch: 40 },
+      { wch: 70 },
+      { wch: 45 },
       { wch: 10 },
     ]
     XLSX.utils.book_append_sheet(wb, wsGuide, 'Panduan Import')

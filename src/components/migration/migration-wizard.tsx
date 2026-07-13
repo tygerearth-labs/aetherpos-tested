@@ -4,9 +4,9 @@ import { useState, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Upload, FileSpreadsheet, Check, Loader2,
-  PartyPopper, ArrowRight, Download,
-  Package, Tag, BarChart3, BookOpen,
-  Boxes, DollarSign, ShoppingCart, X,
+  PartyPopper, ArrowRight,
+  Package, BarChart3, BookOpen,
+  Boxes, ShoppingCart, X,
   FileSearch, ClipboardCheck, ArrowRightLeft, Cpu, Database,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -547,7 +547,10 @@ export function MigrationWizard({
               >
                 <ShoppingCart className="h-4 w-4 text-emerald-400 mt-0.5 shrink-0" />
                 <p className="text-xs text-slate-300 leading-relaxed">
-                  Selanjutnya, setiap barang masuk silakan gunakan menu <span className="font-semibold text-white">Pembelian</span>
+                  {isInventory
+                    ? <>Stok bahan baku sudah tercatat. Untuk restock, gunakan menu <span className="font-semibold text-white">Pembelian</span></>
+                    : <>Produk siap dijual! Buka <span className="font-semibold text-white">POS</span> untuk mulai transaksi</>
+                  }
                 </p>
               </motion.div>
 
