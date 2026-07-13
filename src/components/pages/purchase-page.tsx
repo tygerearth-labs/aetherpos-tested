@@ -48,8 +48,16 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Pagination } from '@/components/shared/pagination'
+import { ProGate } from '@/components/shared/pro-gate'
 import { Switch } from '@/components/ui/switch'
 import { Checkbox } from '@/components/ui/checkbox'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import {
   Plus,
   Search,
@@ -69,6 +77,7 @@ import {
   Edit3,
   Pencil,
   FileText,
+  FilePenLine,
   Banknote,
   Info,
   ArrowRight,
@@ -450,6 +459,17 @@ export default function PurchasePage() {
     isNew: boolean; error?: string;
   }> | null>(null)
   const importFileRef = useRef<HTMLInputElement | null>(null)
+
+  // Edit Excel state
+  const [editExcelOpen, setEditExcelOpen] = useState(false)
+  const [editExcelFile, setEditExcelFile] = useState<File | null>(null)
+  const [editExcelUploading, setEditExcelUploading] = useState(false)
+  const [editExcelResult, setEditExcelResult] = useState<{
+    updated: number
+    notFound: number
+    errors: string[]
+  } | null>(null)
+  const [editExcelDragOver, setEditExcelDragOver] = useState(false)
 
   const smartInputRef = useRef<HTMLInputElement>(null)
 
@@ -2338,6 +2358,36 @@ export default function PurchasePage() {
                 <Plus className="h-3.5 w-3.5" />
                 Buat Pembelian
               </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" className="bg-white/[0.04] border-white/[0.04] text-slate-300 hover:text-white hover:bg-white/[0.04] h-8 text-xs font-medium gap-1.5 shrink-0 w-full sm:w-auto rounded-lg">
+                    <FileSpreadsheet className="h-3.5 w-3.5" />
+                    Excel
+                    <ChevronDown className="h-3 w-3" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-[220px] rounded-xl border-white/[0.08] bg-nebula p-1 shadow-2xl shadow-black/60">
+                  <DropdownMenuItem onClick={() => {
+                    window.open('/api/purchases/export', '_blank')
+                  }} className="flex items-center gap-2.5 px-3 py-2.5 text-xs text-slate-300 hover:bg-white/[0.04] hover:text-white rounded-lg cursor-pointer focus:bg-white/[0.04] focus:text-white">
+                    <Download className="h-3.5 w-3.5 text-slate-500" />
+                    <div className="flex-1">
+                      <span>Export Excel</span>
+                      <p className="text-[10px] text-slate-600">Download data</p>
+                    </div>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator className="bg-white/[0.06] my-1" />
+                  <ProGate feature="bulkUpload" label="" description="" variant="inline">
+                    <DropdownMenuItem onClick={() => { setEditExcelOpen(true); setEditExcelFile(null); setEditExcelResult(null) }} className="flex items-center gap-2.5 px-3 py-2.5 text-xs text-slate-300 hover:bg-white/[0.04] hover:text-white rounded-lg cursor-pointer focus:bg-white/[0.04] focus:text-white">
+                      <FilePenLine className="h-3.5 w-3.5 text-slate-500" />
+                      <div className="flex-1">
+                        <span>Edit Excel</span>
+                        <p className="text-[10px] text-slate-600">Update massal</p>
+                      </div>
+                    </DropdownMenuItem>
+                  </ProGate>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
 
             {/* Compact Summary Row */}
@@ -6011,6 +6061,143 @@ export default function PurchasePage() {
               </div>
             )}
           </div>
+        </ResponsiveDialogContent>
+      </ResponsiveDialog>
+
+      {/* Edit Excel Dialog */}
+      <ResponsiveDialog open={editExcelOpen} onOpenChange={(open) => {
+        if (!open) { setEditExcelFile(null); setEditExcelResult(null) }
+        setEditExcelOpen(open)
+      }}>
+        <ResponsiveDialogContent className="bg-nebula border-white/[0.06]" desktopClassName="max-w-md">
+          <ResponsiveDialogHeader>
+            <ResponsiveDialogTitle className="text-white text-sm font-semibold">Edit Pembelian via Excel</ResponsiveDialogTitle>
+            <ResponsiveDialogDescription className="text-slate-400 text-xs">
+              Update tanggal expired item pembelian via file Excel
+            </ResponsiveDialogDescription>
+          </ResponsiveDialogHeader>
+          {!editExcelResult ? (
+            <div className="space-y-3 py-1">
+              {/* Step instructions */}
+              <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] p-3 space-y-2">
+                <p className="text-[11px] text-slate-400 font-medium">Langkah-langkah:</p>
+                <div className="space-y-1.5">
+                  <div className="flex items-start gap-2 text-[11px] text-slate-300">
+                    <span className="flex-shrink-0 h-4 w-4 rounded-full bg-emerald-500/15 border border-emerald-500/20 flex items-center justify-center text-[10px] text-emerald-400 font-bold">1</span>
+                    <span>Download template edit berisi data pembelian saat ini</span>
+                  </div>
+                  <div className="flex items-start gap-2 text-[11px] text-slate-300">
+                    <span className="flex-shrink-0 h-4 w-4 rounded-full bg-emerald-500/15 border border-emerald-500/20 flex items-center justify-center text-[10px] text-emerald-400 font-bold">2</span>
+                    <span>Edit kolom "Tanggal Expired" di Excel</span>
+                  </div>
+                  <div className="flex items-start gap-2 text-[11px] text-slate-300">
+                    <span className="flex-shrink-0 h-4 w-4 rounded-full bg-emerald-500/15 border border-emerald-500/20 flex items-center justify-center text-[10px] text-emerald-400 font-bold">3</span>
+                    <span>Upload file yang sudah diedit</span>
+                  </div>
+                </div>
+              </div>
+              {/* Download template button */}
+              <Button onClick={() => {
+                window.open('/api/purchases/export', '_blank')
+              }} variant="outline" className="w-full bg-white/[0.04] border-white/[0.04] text-slate-300 hover:text-white hover:bg-white/[0.04] h-9 text-xs">
+                <Download className="mr-1.5 h-3.5 w-3.5" />
+                Download Template Edit
+              </Button>
+              {/* File drop area */}
+              <div
+                onDragOver={(e) => { e.preventDefault(); setEditExcelDragOver(true) }}
+                onDragLeave={() => setEditExcelDragOver(false)}
+                onDrop={(e) => {
+                  e.preventDefault(); setEditExcelDragOver(false)
+                  const file = e.dataTransfer.files[0]
+                  if (file && (file.name.endsWith('.xlsx') || file.name.endsWith('.xls') || file.name.endsWith('.csv'))) {
+                    setEditExcelFile(file)
+                  } else {
+                    toast.error('Format file tidak didukung. Gunakan .xlsx, .xls, atau .csv')
+                  }
+                }}
+                className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
+                  editExcelDragOver ? 'border-emerald-500/30 bg-emerald-500/[0.03]'
+                    : editExcelFile ? 'border-emerald-500/20 bg-emerald-500/[0.02]'
+                    : 'border-white/[0.04] hover:border-white/[0.06]'
+                }`}
+              >
+                {editExcelFile ? (
+                  <div className="flex items-center justify-center gap-2">
+                    <FileSpreadsheet className="h-5 w-5 text-emerald-400" />
+                    <span className="text-xs text-slate-200">{editExcelFile.name}</span>
+                    <Button variant="ghost" size="sm" onClick={() => setEditExcelFile(null)} className="h-6 w-6 p-0 text-slate-500 hover:text-red-400">
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    <Upload className="h-8 w-8 mx-auto mb-2 text-slate-600" />
+                    <p className="text-xs text-slate-400">Drag & drop file Excel/CSV di sini</p>
+                  </>
+                )}
+              </div>
+              {!editExcelFile && (
+                <label className="block">
+                  <input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (file) setEditExcelFile(file)
+                  }} className="hidden" />
+                  <div className="w-full text-center py-2 rounded-md bg-white/[0.04] border border-white/[0.04] text-slate-300 hover:text-white hover:bg-white/[0.04] cursor-pointer text-xs">
+                    Pilih File
+                  </div>
+                </label>
+              )}
+              <Button onClick={async () => {
+                if (!editExcelFile) return
+                setEditExcelUploading(true)
+                try {
+                  const formData = new FormData()
+                  formData.append('file', editExcelFile)
+                  const res = await fetch('/api/purchases/bulk-update-excel', { method: 'POST', body: formData })
+                  const data = await res.json()
+                  if (!res.ok || data.error) {
+                    toast.error(data.error || data.details || 'Gagal memproses file')
+                    setEditExcelUploading(false)
+                    return
+                  }
+                  setEditExcelResult(data)
+                  toast.success(`Berhasil update ${data.updated} item`)
+                  fetchPurchaseOrders() // refresh data
+                } catch {
+                  toast.error('Gagal memproses file')
+                } finally {
+                  setEditExcelUploading(false)
+                }
+              }} disabled={!editExcelFile || editExcelUploading} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold h-9 gap-2 disabled:opacity-40">
+                {editExcelUploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                Upload & Update
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-3 py-1">
+              <div className="flex items-center gap-3 p-4 rounded-xl bg-emerald-500/[0.06] border border-emerald-500/15">
+                <CheckCircle2 className="h-8 w-8 text-emerald-400 shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-white">Update Berhasil!</p>
+                  <p className="text-xs text-slate-400">{editExcelResult.updated} item diperbarui</p>
+                </div>
+              </div>
+              {editExcelResult.notFound > 0 && (
+                <p className="text-xs text-amber-400">{editExcelResult.notFound} item tidak ditemukan</p>
+              )}
+              {editExcelResult.errors.length > 0 && (
+                <div className="max-h-40 overflow-y-auto rounded-lg border border-red-500/20 bg-red-500/[0.05] p-3 space-y-1">
+                  {editExcelResult.errors.map((err, i) => (
+                    <p key={i} className="text-[11px] text-red-300">{err}</p>
+                  ))}
+                </div>
+              )}
+              <Button onClick={() => { setEditExcelFile(null); setEditExcelResult(null) }} className="w-full bg-white/[0.04] border border-white/[0.06] text-slate-300 hover:text-white hover:bg-white/[0.04] h-8 text-xs">
+                Selesai
+              </Button>
+            </div>
+          )}
         </ResponsiveDialogContent>
       </ResponsiveDialog>
     </motion.div>

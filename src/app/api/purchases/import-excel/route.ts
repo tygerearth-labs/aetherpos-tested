@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
+import { getOutletPlan } from '@/lib/config/plan-config'
 import * as XLSX from 'xlsx'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 
@@ -83,6 +84,13 @@ export async function POST(request: NextRequest) {
     const user = await getAuthUser(request)
     if (!user) return unauthorized()
     const outletId = user.outletId
+
+    // Check plan: bulkUpload required for Excel import
+    const outletPlan = await getOutletPlan(outletId, db)
+    if (!outletPlan) return safeJsonError('Outlet not found', 404)
+    if (!outletPlan.features.bulkUpload) {
+      return safeJsonError('Fitur import pembelian via Excel hanya tersedia untuk akun Pro ke atas. Upgrade sekarang!', 403)
+    }
 
     const formData = await request.formData()
     const file = formData.get('file') as File | null

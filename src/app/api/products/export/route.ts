@@ -18,13 +18,13 @@ export async function GET(request: NextRequest) {
     const outletId = user.outletId
     const userId = user.id
 
-    // Check plan: bulkUpload feature required
+    // Check plan: exportExcel feature required
     const outletPlan = await getOutletPlan(outletId, db)
     if (!outletPlan) {
       return safeJsonError('Outlet not found', 404)
     }
 
-    if (!outletPlan.features.bulkUpload) {
+    if (!outletPlan.features.exportExcel) {
       return safeJsonError('Fitur export hanya tersedia untuk akun Pro. Upgrade untuk mengakses fitur ini.', 403)
     }
 

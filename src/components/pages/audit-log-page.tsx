@@ -24,6 +24,7 @@ import {
 } from '@/components/ui/responsive-dialog'
 import { Separator } from '@/components/ui/separator'
 import { Pagination } from '@/components/shared/pagination'
+import { ProGate } from '@/components/shared/pro-gate'
 import { DateFilter } from '@/components/shared/date-filter'
 import {
   Search,
@@ -1005,6 +1006,23 @@ export default function AuditLogPage() {
                 })()}
               </div>
             </div>
+          )}
+          {(detailLog.entityType === 'INVENTORY_ITEM' || detailLog.entityType === 'PURCHASE_ORDER') && (
+            <>
+              <Separator className="bg-white/[0.06]" />
+              <div className="flex justify-end">
+                <ProGate feature="exportExcel" label="Export Batch Detail" variant="inline">
+                  <Button
+                    onClick={() => window.open(`/api/audit-logs/batch-export?entityType=${detailLog.entityType}&entityId=${detailLog.entityId}`, '_blank')}
+                    variant="outline"
+                    className="h-8 text-xs bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.06] gap-1.5"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    Export Batch Detail
+                  </Button>
+                </ProGate>
+              </div>
+            </>
           )}
         </ResponsiveDialogContent>
       </ResponsiveDialog>
