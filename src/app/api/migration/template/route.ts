@@ -1,14 +1,10 @@
 import { NextRequest } from 'next/server'
-import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import * as XLSX from 'xlsx'
 import { safeJsonError } from '@/lib/api/safe-response'
 
 export async function GET(request: NextRequest) {
   try {
-    const user = await getAuthUser(request)
-    if (!user) {
-      return unauthorized()
-    }
+    // No auth required — template is a public resource with sample data only
 
     const wb = XLSX.utils.book_new()
 
@@ -438,6 +434,6 @@ export async function GET(request: NextRequest) {
     })
   } catch (error) {
     console.error('Migration template error:', error)
-    return safeJsonError('Gagal mengunduh template')
+    return safeJsonError('Gagal mengunduh template', 500)
   }
 }

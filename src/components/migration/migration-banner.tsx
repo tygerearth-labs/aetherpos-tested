@@ -46,8 +46,27 @@ export function MigrationBanner() {
     setImportResult(null)
   }, [])
 
-  const handleDownloadTemplate = useCallback(() => {
-    window.open('/api/migration/template', '_blank')
+  const handleDownloadTemplate = useCallback(async () => {
+    try {
+      const res = await fetch('/api/migration/template')
+      if (!res.ok) {
+        const data = await res.json().catch(() => null)
+        throw new Error(data?.error || `HTTP ${res.status}`)
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'template-migrasi-aether-pos.xlsx'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error('Download template error:', err)
+      // Fallback: try opening in new tab
+      window.open('/api/migration/template', '_blank')
+    }
   }, [])
 
   const handleImportSuccess = useCallback((result: {
