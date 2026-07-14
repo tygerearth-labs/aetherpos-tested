@@ -556,7 +556,7 @@ export default function AuditLogPage() {
       const res = await fetch(`/api/audit-logs?${params}`)
       if (res.ok) {
         const data: AuditLogListResponse = await res.json()
-        setAllLogs(Array.isArray(data.logs) ? data.logs.filter(Boolean) : [])
+        setAllLogs(data.logs)
       } else {
         toast.error('Gagal memuat audit log')
       }
