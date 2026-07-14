@@ -109,9 +109,74 @@ import {
   Boxes,
   HelpCircle,
   Lightbulb,
+  Lock,
+  Crown,
 } from 'lucide-react'
 // Collapsible removed — analytics section removed in redesign
 import { ProGate } from '@/components/shared/pro-gate'
+
+// ==================== LOCKED DROPDOWN ITEM ====================
+function LockedDropdownItem({
+  feature,
+  icon,
+  iconColor,
+  iconHoverColor,
+  title,
+  subtitle,
+  onClick,
+}: {
+  feature: keyof import('@/lib/plan-config').PlanFeatures
+  icon: React.ReactNode
+  iconColor: string
+  iconHoverColor: string
+  title: string
+  subtitle: string
+  onClick: () => void
+}) {
+  const { features, plan, isLoading } = usePlan()
+
+  const isAvailable = useMemo(() => {
+    if (isLoading || !features) return true
+    const value = features[feature]
+    if (typeof value === 'boolean') return value
+    if (Array.isArray(value)) return value.length > 0
+    return true
+  }, [features, feature, isLoading])
+
+  const isGated = !isAvailable && plan?.type !== 'pro' && plan?.type !== 'enterprise'
+
+  if (!isGated) {
+    return (
+      <DropdownMenuItem
+        onClick={onClick}
+        className="flex items-center gap-3 px-2.5 py-2.5 text-xs text-slate-300 hover:bg-white/[0.05] hover:text-white rounded-lg cursor-pointer focus:bg-white/[0.05] focus:text-white group"
+      >
+        <span className={cn('transition-colors', iconColor, iconHoverColor)}>{icon}</span>
+        <div className="flex-1 min-w-0">
+          <p className="font-medium">{title}</p>
+          <p className="text-[10px] text-slate-500 group-hover:text-slate-400 transition-colors">{subtitle}</p>
+        </div>
+      </DropdownMenuItem>
+    )
+  }
+
+  return (
+    <DropdownMenuItem
+      disabled
+      className="flex items-center gap-3 px-2.5 py-2.5 text-xs rounded-lg group opacity-60"
+    >
+      <span className={cn('text-violet-500/50')}>{icon}</span>
+      <div className="flex-1 min-w-0">
+        <p className="font-medium text-slate-400">{title}</p>
+        <p className="text-[10px] text-slate-600">{subtitle}</p>
+      </div>
+      <span className="inline-flex items-center gap-1 shrink-0">
+        <Crown className="h-3 w-3 text-violet-400/70" />
+        <Lock className="h-3 w-3 text-violet-500/50" />
+      </span>
+    </DropdownMenuItem>
+  )
+}
 import ProductFormDialog from './product-form-dialog'
 import dynamic from 'next/dynamic'
 
@@ -1384,31 +1449,25 @@ export default function ProductsPage() {
                 </div>
               </DropdownMenuItem>
               <DropdownMenuSeparator className="bg-white/[0.06] my-1" />
-              <ProGate feature="bulkUpload" label="" description="" variant="inline">
-                <DropdownMenuItem
-                  onClick={() => { setUploadOpen(true); setUploadFile(null); setUploadResult(null) }}
-                  className="flex items-center gap-3 px-2.5 py-2.5 text-xs text-slate-300 hover:bg-white/[0.05] hover:text-white rounded-lg cursor-pointer focus:bg-white/[0.05] focus:text-white group"
-                >
-                  <Upload className="h-4 w-4 text-slate-500 group-hover:text-amber-400 transition-colors" />
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium">Upload Excel</p>
-                    <p className="text-[10px] text-slate-500 group-hover:text-slate-400 transition-colors">Tambah produk baru massal</p>
-                  </div>
-                </DropdownMenuItem>
-              </ProGate>
+              <LockedDropdownItem
+                feature="bulkUpload"
+                icon={<Upload className="h-4 w-4" />}
+                iconColor="text-slate-500"
+                iconHoverColor="group-hover:text-amber-400"
+                title="Upload Excel"
+                subtitle="Tambah produk baru massal"
+                onClick={() => { setUploadOpen(true); setUploadFile(null); setUploadResult(null) }}
+              />
               <DropdownMenuSeparator className="bg-white/[0.06] my-1" />
-              <ProGate feature="bulkUpload" label="" description="" variant="inline">
-                <DropdownMenuItem
-                  onClick={() => { setEditExcelOpen(true); setEditExcelFile(null); setEditExcelResult(null); setEditExcelProgress(0); setEditExcelPhase('') }}
-                  className="flex items-center gap-3 px-2.5 py-2.5 text-xs text-slate-300 hover:bg-white/[0.05] hover:text-white rounded-lg cursor-pointer focus:bg-white/[0.05] focus:text-white group"
-                >
-                  <FilePenLine className="h-4 w-4 text-slate-500 group-hover:text-cyan-400 transition-colors" />
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium">Edit Excel</p>
-                    <p className="text-[10px] text-slate-500 group-hover:text-slate-400 transition-colors">Update produk yang sudah ada</p>
-                  </div>
-                </DropdownMenuItem>
-              </ProGate>
+              <LockedDropdownItem
+                feature="bulkUpload"
+                icon={<FilePenLine className="h-4 w-4" />}
+                iconColor="text-slate-500"
+                iconHoverColor="group-hover:text-cyan-400"
+                title="Edit Excel"
+                subtitle="Update produk yang sudah ada"
+                onClick={() => { setEditExcelOpen(true); setEditExcelFile(null); setEditExcelResult(null); setEditExcelProgress(0); setEditExcelPhase('') }}
+              />
             </DropdownMenuContent>
           </DropdownMenu>
           <Button onClick={handleAdd} className="theme-bg theme-hover text-white h-9 text-xs font-medium shadow-lg theme-shadow shrink-0">

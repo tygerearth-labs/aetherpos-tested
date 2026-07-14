@@ -70,6 +70,8 @@ import {
   Settings,
   UserCircle,
   Layers,
+  UserPlus,
+  Sparkles,
 } from 'lucide-react'
 
 // ==================== TYPES ====================
@@ -377,18 +379,44 @@ function CrewManagement() {
               ))}
             </div>
           ) : filteredCrew.length === 0 ? (
-            <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-8 text-center">
-                <Users className="h-10 w-10 text-zinc-700 mx-auto mb-2" />
-                <p className="text-sm text-slate-400">
-                  {search ? 'Tidak ada crew yang cocok' : 'Belum ada crew'}
-                </p>
-                <p className="text-xs text-slate-500 mt-1 max-w-[240px] text-center leading-relaxed">
-                  {search
-                    ? 'Coba kata kunci lain'
-                    : 'Tambahkan crew untuk membantu mengelola kasir outlet'
-                  }
-                </p>
+            <div className="rounded-xl border border-dashed border-white/[0.08] bg-white/[0.02] py-16 px-6 flex flex-col items-center justify-center text-center">
+              {/* Illustration */}
+              <div className="relative mb-5">
+                <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-violet-500/[0.08] to-purple-500/[0.05] border border-violet-500/[0.1] flex items-center justify-center">
+                  <Users className="h-9 w-9 text-violet-500/40" />
+                </div>
+                <div className="absolute -bottom-1 -right-1 w-7 h-7 rounded-lg bg-gradient-to-br from-emerald-500/20 to-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
+                  <UserPlus className="h-3.5 w-3.5 text-emerald-400/70" />
+                </div>
               </div>
+
+              {search ? (
+                <>
+                  <p className="text-sm font-medium text-slate-300">Tidak ada crew yang cocok</p>
+                  <p className="text-xs text-slate-500 mt-1.5 max-w-[260px] leading-relaxed">
+                    Coba kata kunci lain untuk menemukan crew yang kamu cari
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm font-medium text-slate-300">Belum ada crew</p>
+                  <p className="text-xs text-slate-500 mt-1.5 max-w-[260px] leading-relaxed">
+                    Tambahkan crew untuk membantu mengelola kasir dan operasional outlet
+                  </p>
+                  <div className="flex items-center gap-1.5 mt-1 mb-4">
+                    <Sparkles className="h-3 w-3 text-violet-400/60" />
+                    <span className="text-[10px] text-violet-400/60 font-medium">Atur hak akses per halaman untuk setiap crew</span>
+                  </div>
+                  <Button
+                    onClick={() => { setFormData(DEFAULT_FORM); setAddOpen(true) }}
+                    className="h-8 text-xs font-medium gap-1.5 rounded-lg theme-bg theme-hover text-white shadow-lg theme-shadow"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Tambah Crew
+                  </Button>
+                </>
+              )}
+            </div>
           ) : (
             <>
               {/* Desktop: Table View */}
@@ -958,13 +986,19 @@ function CrewAccessTab() {
             <p className="text-xs text-slate-400 mt-0.5">Kelola halaman yang dapat diakses oleh setiap crew</p>
           </div>
         </div>
-        <div className="rounded-xl border border-dashed border-white/[0.08] bg-white/[0.02] py-12 flex flex-col items-center justify-center">
-          <div className="w-14 h-14 rounded-2xl bg-white/[0.04] flex items-center justify-center mb-3">
-            <Users className="h-7 w-7 text-slate-600" />
+        <div className="rounded-xl border border-dashed border-white/[0.08] bg-white/[0.02] py-16 px-6 flex flex-col items-center justify-center text-center">
+          {/* Illustration */}
+          <div className="relative mb-5">
+            <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-violet-500/[0.08] to-purple-500/[0.05] border border-violet-500/[0.1] flex items-center justify-center">
+              <Users className="h-9 w-9 text-violet-500/40" />
+            </div>
+            <div className="absolute -bottom-1 -right-1 w-7 h-7 rounded-lg bg-gradient-to-br from-emerald-500/20 to-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
+              <ShieldCheck className="h-3.5 w-3.5 text-emerald-400/70" />
+            </div>
           </div>
-          <p className="text-sm font-medium text-slate-400">Belum ada crew</p>
-          <p className="text-xs text-slate-500 mt-1 max-w-[240px] text-center leading-relaxed">
-            Tambahkan crew di tab <span className="text-slate-400 font-medium">Daftar Crew</span> terlebih dahulu, lalu atur hak aksesnya di sini.
+          <p className="text-sm font-medium text-slate-300">Belum ada crew</p>
+          <p className="text-xs text-slate-500 mt-1.5 max-w-[260px] leading-relaxed">
+            Tambahkan crew di tab <span className="text-slate-300 font-medium">Daftar Crew</span> terlebih dahulu, lalu atur hak aksesnya di sini.
           </p>
         </div>
       </div>
