@@ -94,7 +94,7 @@ export function DateFilter({ dateFrom, dateTo, onChange, className }: DateFilter
             'inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-[11px] font-medium transition-all shrink-0',
             hasFilter
               ? 'theme-bg-very-light theme-border-light border theme-text hover:theme-hover-light'
-              : 'bg-white/[0.04] border border-zinc-700 text-slate-400 hover:text-slate-200 hover:bg-zinc-700 border',
+              : 'bg-white/[0.04] border border-zinc-700 text-slate-400 hover:text-slate-200 hover:bg-zinc-700',
             className
           )}
         >

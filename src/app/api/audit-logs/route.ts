@@ -10,9 +10,16 @@ export async function GET(request: NextRequest) {
     if (!user) {
       return unauthorized()
     }
-    // Security: Only OWNER can view full audit logs (contain sensitive user actions)
+    // Permission check: OWNER always allowed; CREW must have 'audit-log' in their assigned pages
     if (user.role !== 'OWNER') {
-      return safeJsonError('Hanya pemilik yang dapat melihat audit log', 403)
+      const perm = await db.crewPermission.findUnique({
+        where: { userId: user.id },
+        select: { pages: true },
+      })
+      const allowedPages = perm?.pages?.split(',').map((p) => p.trim()) || []
+      if (!allowedPages.includes('audit-log')) {
+        return safeJsonError('Kamu tidak memiliki akses ke Audit Log', 403)
+      }
     }
     const outletId = user.outletId
 

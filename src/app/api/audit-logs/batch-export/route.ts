@@ -23,6 +23,18 @@ export async function GET(request: NextRequest) {
     const outletId = user.outletId
     const userId = user.id
 
+    // Permission check: OWNER always allowed; CREW must have 'audit-log' in their assigned pages
+    if (user.role !== 'OWNER') {
+      const perm = await db.crewPermission.findUnique({
+        where: { userId: user.id },
+        select: { pages: true },
+      })
+      const allowedPages = perm?.pages?.split(',').map((p) => p.trim()) || []
+      if (!allowedPages.includes('audit-log')) {
+        return safeJsonError('Kamu tidak memiliki akses ke Audit Log', 403)
+      }
+    }
+
     // Plan gate
     const outletPlan = await getOutletPlan(outletId, db)
     if (!outletPlan) return safeJsonError('Outlet not found', 404)
