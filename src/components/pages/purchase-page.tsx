@@ -1794,20 +1794,24 @@ export default function PurchasePage() {
   const downloadBlob = async (url: string, filename: string, loadingSetter: (v: boolean) => void) => {
     loadingSetter(true)
     try {
-      const res = await fetch(url)
+      const res = await fetch(url, { credentials: 'include' })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
         toast.error(data.error || `Export gagal (${res.status})`)
         return
       }
       const blob = await res.blob()
+      const blobUrl = URL.createObjectURL(blob)
       const a = document.createElement('a')
-      a.href = URL.createObjectURL(blob)
+      a.href = blobUrl
       a.download = filename
       document.body.appendChild(a)
       a.click()
-      a.remove()
-      URL.revokeObjectURL(a.href)
+      // Delay cleanup to ensure browser finishes initiating the download
+      setTimeout(() => {
+        a.remove()
+        URL.revokeObjectURL(blobUrl)
+      }, 1000)
       toast.success('Export berhasil diunduh')
     } catch {
       toast.error('Gagal mengekspor. Coba lagi.')
@@ -1819,8 +1823,10 @@ export default function PurchasePage() {
   const handlePoExport = () => {
     const params = new URLSearchParams()
     if (poDebouncedSearch) params.set('search', poDebouncedSearch)
+    const qs = params.toString()
+    const url = qs ? `/api/purchases/export?${qs}` : '/api/purchases/export'
     const filename = `purchase-export-${new Date().toISOString().slice(0, 10)}.xlsx`
-    void downloadBlob(`/api/purchases/export?${params}`, filename, setPoExporting)
+    void downloadBlob(url, filename, setPoExporting)
   }
 
   const handleInvExport = () => {
@@ -1837,13 +1843,23 @@ export default function PurchasePage() {
       const res = await fetch(`/api/inventory/items/${id}`)
       if (res.ok) {
         const data = await res.json()
-        if (data.linkedProducts && data.linkedProducts.length > 0) {
+        // Check ALL business history types (not just linked products)
+        const counts = data._count || {}
+        const totalHistory = (counts.compositions || 0) + (counts.purchaseItems || 0) + (counts.movements || 0) + (counts.inventoryTransferItems || 0) + (counts.consumptionSnapshots || 0)
+        const hasLinkedProducts = data.linkedProducts && data.linkedProducts.length > 0
+        if (totalHistory > 0 || hasLinkedProducts) {
+          const blockers: string[] = []
+          if (counts.compositions > 0) blockers.push(`${counts.compositions} komposisi produk`)
+          if (counts.purchaseItems > 0) blockers.push(`${counts.purchaseItems} riwayat pembelian`)
+          if (counts.movements > 0) blockers.push(`${counts.movements} riwayat stok`)
+          if (counts.inventoryTransferItems > 0) blockers.push(`${counts.inventoryTransferItems} riwayat transfer`)
+          if (counts.consumptionSnapshots > 0) blockers.push(`${counts.consumptionSnapshots} riwayat konsumsi`)
           setInvDeleteBlocked({
             blockType: 'hasHistory',
             message: 'Item ini memiliki histori bisnis dan tidak dapat dihapus',
-            blockers: [],
+            blockers,
             suggestion: 'Gunakan "Nonaktifkan" untuk menyembunyikan item tanpa menghapus data.',
-            linkedProducts: data.linkedProducts,
+            linkedProducts: hasLinkedProducts ? data.linkedProducts : [],
           })
         }
       }
@@ -3362,7 +3378,7 @@ export default function PurchasePage() {
                                   if (item.status === 'ARCHIVED') {
                                     handleRestoreInv(item.id)
                                   } else {
-                                    setDeleteInvId(item.id)
+                                    void openDeleteInvDialog(item.id)
                                   }
                                 }}
                               >
@@ -5010,7 +5026,7 @@ export default function PurchasePage() {
               <AlertDialogAction
                 className="bg-amber-500/15 text-amber-400 hover:bg-amber-500/25 border border-amber-500/20"
                 onClick={(e) => handleArchiveInv(e)}
-                disabled={archivingInv}
+                disabled={archivingInv || deleteInvLoading}
               >
                 {archivingInv ? <Loader2 className="h-4 w-4 animate-spin" /> : '🚫 Nonaktifkan'}
               </AlertDialogAction>
@@ -5018,9 +5034,9 @@ export default function PurchasePage() {
               <AlertDialogAction
                 className="bg-red-500/15 text-red-400 hover:bg-red-500/25 border border-red-500/20"
                 onClick={(e) => handleDeleteInv(e)}
-                disabled={archivingInv}
+                disabled={archivingInv || deleteInvLoading}
               >
-                {archivingInv ? <Loader2 className="h-4 w-4 animate-spin" /> : '🗑 Hapus'}
+                {deleteInvLoading || archivingInv ? <Loader2 className="h-4 w-4 animate-spin" /> : '🗑 Hapus'}
               </AlertDialogAction>
             )}
           </AlertDialogFooter>

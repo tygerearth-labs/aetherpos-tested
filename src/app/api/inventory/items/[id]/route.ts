@@ -22,7 +22,7 @@ export async function GET(
       where: { id, outletId: user.outletId },
       include: {
         category: { select: { id: true, name: true, color: true } },
-        _count: { select: { compositions: true, purchaseItems: true, movements: true } },
+        _count: { select: { compositions: true, purchaseItems: true, movements: true, inventoryTransferItems: true, consumptionSnapshots: true } },
       },
     })
 
