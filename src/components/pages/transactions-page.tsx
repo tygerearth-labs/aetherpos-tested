@@ -215,6 +215,33 @@ export default function TransactionsPage() {
   // Filter panel toggle
   const [filterOpen, setFilterOpen] = useState(false)
 
+  // Export
+  const [exporting, setExporting] = useState(false)
+  const downloadBlob = async (url: string, filename: string) => {
+    setExporting(true)
+    try {
+      const res = await fetch(url, { credentials: 'include' })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        toast.error(data.error || `Export gagal (${res.status})`)
+        return
+      }
+      const blob = await res.blob()
+      const blobUrl = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = blobUrl
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      setTimeout(() => { a.remove(); URL.revokeObjectURL(blobUrl) }, 1000)
+      toast.success('Export berhasil diunduh')
+    } catch {
+      toast.error('Gagal mengekspor. Coba lagi.')
+    } finally {
+      setExporting(false)
+    }
+  }
+
   const receiptRef = useRef<HTMLDivElement>(null)
 
   // Fetch cashiers
@@ -412,7 +439,7 @@ export default function TransactionsPage() {
     if (dateTo) params.set('dateToMs', String(getEndOfDayMs(dateTo)))
     if (cashierId) params.set('cashierId', cashierId)
     if (paymentMethod) params.set('paymentMethod', paymentMethod)
-    window.open(`/api/transactions/export?${params}`, '_blank')
+    void downloadBlob(`/api/transactions/export?${params}`, `transaksi-export-${new Date().toISOString().slice(0, 10)}.xlsx`)
   }
 
   const handleVoid = async () => {
@@ -965,10 +992,10 @@ export default function TransactionsPage() {
           variant="outline"
           size="sm"
           onClick={handleExport}
-          disabled={!isPro}
+          disabled={!isPro || exporting}
           className="bg-white/[0.04] border-white/[0.08] text-slate-300 hover:text-white hover:bg-white/[0.06] h-8 text-xs rounded-lg shrink-0"
         >
-          {isPro ? <Download className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
+          {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : isPro ? <Download className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
         </Button>
       </div>
 

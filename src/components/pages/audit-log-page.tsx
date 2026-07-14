@@ -44,6 +44,7 @@ import {
   Beaker,
   Receipt,
   List,
+  Loader2,
 } from 'lucide-react'
 
 // ==================== TYPES ====================
@@ -544,6 +545,33 @@ export default function AuditLogPage() {
   const [search, setSearch] = useState('')
   const [searchInput, setSearchInput] = useState('')
   const [detailLog, setDetailLog] = useState<AuditLog | null>(null)
+  const [exporting, setExporting] = useState(false)
+  const [batchExporting, setBatchExporting] = useState(false)
+
+  const downloadBlob = async (url: string, filename: string, loadingSetter: (v: boolean) => void) => {
+    loadingSetter(true)
+    try {
+      const res = await fetch(url, { credentials: 'include' })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        toast.error(data.error || `Export gagal (${res.status})`)
+        return
+      }
+      const blob = await res.blob()
+      const blobUrl = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = blobUrl
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      setTimeout(() => { a.remove(); URL.revokeObjectURL(blobUrl) }, 1000)
+      toast.success('Export berhasil diunduh')
+    } catch {
+      toast.error('Gagal mengekspor. Coba lagi.')
+    } finally {
+      loadingSetter(false)
+    }
+  }
 
   // Fetch all logs (no action/entityType filter, only search + date)
   const fetchLogs = useCallback(async () => {
@@ -621,7 +649,7 @@ export default function AuditLogPage() {
     if (search) params.set('search', search)
     if (dateFrom) params.set('from', dateFrom)
     if (dateTo) params.set('to', dateTo)
-    window.open(`/api/audit-logs/export?${params}`, '_blank')
+    void downloadBlob(`/api/audit-logs/export?${params}`, `audit-log-export-${new Date().toISOString().slice(0, 10)}.xlsx`, setExporting)
   }
 
   const hasActiveFilters = search || dateFrom || dateTo
@@ -659,11 +687,12 @@ export default function AuditLogPage() {
         </div>
         <Button
           onClick={handleExport}
+          disabled={exporting}
           variant="outline"
           className="h-9 sm:h-8 text-xs bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.06] gap-1.5"
         >
-          <Download className="h-3.5 w-3.5" />
-          Export
+          {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+          {exporting ? 'Mengunduh...' : 'Export'}
         </Button>
       </div>
 
@@ -1013,12 +1042,13 @@ export default function AuditLogPage() {
               <div className="flex justify-end">
                 <ProGate feature="exportExcel" label="Export Batch Detail" variant="inline">
                   <Button
-                    onClick={() => window.open(`/api/audit-logs/batch-export?entityType=${detailLog.entityType}&entityId=${detailLog.entityId}`, '_blank')}
+                    onClick={() => void downloadBlob(`/api/audit-logs/batch-export?entityType=${detailLog.entityType}&entityId=${detailLog.entityId}`, `batch-detail-${detailLog.entityType}-${new Date().toISOString().slice(0, 10)}.xlsx`, setBatchExporting)}
+                    disabled={batchExporting}
                     variant="outline"
                     className="h-8 text-xs bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.06] gap-1.5"
                   >
-                    <Download className="h-3.5 w-3.5" />
-                    Export Batch Detail
+                    {batchExporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+                    {batchExporting ? 'Mengunduh...' : 'Export Batch Detail'}
                   </Button>
                 </ProGate>
               </div>

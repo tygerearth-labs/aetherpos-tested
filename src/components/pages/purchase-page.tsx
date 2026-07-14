@@ -103,6 +103,7 @@ import {
   Hash,
   TrendingDown,
   AlertCircle,
+  FolderInput,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import SupplierSearchInput from '@/components/purchase/supplier-search-input'
@@ -193,6 +194,7 @@ interface InventoryItem {
   avgCost: number
   lowStockAlert: number
   status?: string // ACTIVE, ARCHIVED
+  updatedAt?: string
   _count?: { compositions: number; purchaseItems: number }
 }
 
@@ -395,6 +397,7 @@ export default function PurchasePage() {
   const [poDebouncedSearch, setPoDebouncedSearch] = useState('')
   const [poPage, setPoPage] = useState(1)
   const [poTotalPages, setPoTotalPages] = useState(1)
+  const [poSortBy, setPoSortBy] = useState('createdAt-desc')
 
   // Purchase detail dialog
   const [poDetailOpen, setPoDetailOpen] = useState(false)
@@ -470,6 +473,12 @@ export default function PurchasePage() {
     errors: string[]
   } | null>(null)
   const [editExcelDragOver, setEditExcelDragOver] = useState(false)
+  const [templateDownloadLoading, setTemplateDownloadLoading] = useState(false)
+
+  // Bulk category change
+  const [bulkCatOpen, setBulkCatOpen] = useState(false)
+  const [bulkCatTarget, setBulkCatTarget] = useState<string>('')
+  const [bulkCatLoading, setBulkCatLoading] = useState(false)
 
   const smartInputRef = useRef<HTMLInputElement>(null)
 
@@ -499,6 +508,7 @@ export default function PurchasePage() {
   const [invCategoryFilter, setInvCategoryFilter] = useState<string>('all')
   const [invPage, setInvPage] = useState(1)
   const [invTotalPages, setInvTotalPages] = useState(1)
+  const [invSortBy, setInvSortBy] = useState('name-asc')
   const invPerPage = 20
   const [invStats, setInvStats] = useState<InventoryStats>({ totalItems: 0, totalValue: 0, lowStockCount: 0 })
 
@@ -623,7 +633,8 @@ export default function PurchasePage() {
   const fetchPurchaseOrders = useCallback(async () => {
     setPoLoading(true)
     try {
-      const params = new URLSearchParams({ page: String(poPage), search: poDebouncedSearch })
+      const [sortField, sortOrder] = poSortBy.split('-')
+      const params = new URLSearchParams({ page: String(poPage), search: poDebouncedSearch, sortBy: sortField, sortOrder })
       const res = await fetch(`/api/purchases?${params}`)
       if (res.ok) {
         const data = await res.json()
@@ -635,7 +646,7 @@ export default function PurchasePage() {
     } finally {
       setPoLoading(false)
     }
-  }, [poPage, poDebouncedSearch])
+  }, [poPage, poDebouncedSearch, poSortBy])
 
   useEffect(() => {
     if (tab === 'purchase') void fetchPurchaseOrders()
@@ -662,11 +673,21 @@ export default function PurchasePage() {
       if (res.ok) {
         const data = await res.json()
         const allItems: InventoryItem[] = data.items || []
+        // Client-side sort
+        const [sortField, sortDir] = invSortBy.split('-')
+        const sorted = [...allItems].sort((a, b) => {
+          let cmp = 0
+          if (sortField === 'name') cmp = a.name.localeCompare(b.name)
+          else if (sortField === 'stock') cmp = a.stock - b.stock
+          else if (sortField === 'value') cmp = (a.stock * a.avgCost) - (b.stock * b.avgCost)
+          else if (sortField === 'updatedAt') cmp = new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime()
+          return sortDir === 'desc' ? -cmp : cmp
+        })
         // Client-side pagination
-        const totalItems = allItems.length
+        const totalItems = sorted.length
         const totalPages = Math.max(1, Math.ceil(totalItems / invPerPage))
         const start = (invPage - 1) * invPerPage
-        const pageItems = allItems.slice(start, start + invPerPage)
+        const pageItems = sorted.slice(start, start + invPerPage)
         setInvList(pageItems)
         setInvTotalPages(totalPages)
         // Client-side stats
@@ -679,7 +700,7 @@ export default function PurchasePage() {
     } finally {
       setInvLoading(false)
     }
-  }, [invPage, invDebouncedSearch, invCategoryFilter, showInactiveItems])
+  }, [invPage, invDebouncedSearch, invCategoryFilter, showInactiveItems, invSortBy])
 
   useEffect(() => {
     if (tab === 'inventory') void fetchInventoryItems()
@@ -1965,6 +1986,34 @@ export default function PurchasePage() {
     }
   }
 
+  const handleBulkCategoryChange = async () => {
+    if (selectedInvIds.size === 0) return
+    setBulkCatLoading(true)
+    try {
+      const res = await fetch('/api/inventory/items/bulk-category', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: Array.from(selectedInvIds), categoryId: bulkCatTarget || null }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        const catName = bulkCatTarget ? categories.find(c => c.id === bulkCatTarget)?.name || 'kategori' : 'tanpa kategori'
+        toast.success(`${data.updated} item dipindah ke ${catName}`)
+        setBulkCatOpen(false)
+        setBulkCatTarget('')
+        setSelectedInvIds(new Set())
+        void fetchInventoryItems()
+      } else {
+        const data = await res.json().catch(() => ({}))
+        toast.error(data.error || 'Gagal mengubah kategori')
+      }
+    } catch {
+      toast.error('Gagal mengubah kategori')
+    } finally {
+      setBulkCatLoading(false)
+    }
+  }
+
   const handleInvEditExcelUpload = async () => {
     if (!invEditExcelFile) return
     setInvEditExcelUploading(true)
@@ -2509,6 +2558,19 @@ export default function PurchasePage() {
                   className={cn(inputClass, 'pl-8')}
                 />
               </div>
+              <Select value={poSortBy} onValueChange={(v) => { setPoSortBy(v); setPoPage(1) }}>
+                <SelectTrigger className="bg-white/[0.04] border-white/[0.06] text-white text-xs h-8 w-[140px] rounded-lg shrink-0">
+                  <ArrowUpDown className="h-3 w-3 mr-1 text-slate-500" />
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-nebula border-white/[0.06]">
+                  <SelectItem value="createdAt-desc" className="text-slate-200 text-xs">Terbaru</SelectItem>
+                  <SelectItem value="createdAt-asc" className="text-slate-200 text-xs">Terlama</SelectItem>
+                  <SelectItem value="totalCost-desc" className="text-slate-200 text-xs">Nominal Terbesar</SelectItem>
+                  <SelectItem value="totalCost-asc" className="text-slate-200 text-xs">Nominal Terkecil</SelectItem>
+                  <SelectItem value="orderNumber-asc" className="text-slate-200 text-xs">No. PO A-Z</SelectItem>
+                </SelectContent>
+              </Select>
               <Button
                 size="sm"
                 onClick={() => { resetPoCreateForm(); openPoCreate() }}
@@ -2902,6 +2964,22 @@ export default function PurchasePage() {
                 />
               </div>
               <div className="flex items-center gap-2 w-full sm:w-auto">
+                <Select value={invSortBy} onValueChange={(v) => { setInvSortBy(v); setInvPage(1); setSelectedInvIds(new Set()) }}>
+                  <SelectTrigger className="bg-white/[0.04] border-white/[0.06] text-white text-xs h-8 w-[140px] rounded-lg shrink-0">
+                    <ArrowUpDown className="h-3 w-3 mr-1 text-slate-500" />
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-nebula border-white/[0.06]">
+                    <SelectItem value="name-asc" className="text-slate-200 text-xs">Nama A-Z</SelectItem>
+                    <SelectItem value="name-desc" className="text-slate-200 text-xs">Nama Z-A</SelectItem>
+                    <SelectItem value="stock-desc" className="text-slate-200 text-xs">Stock Terbanyak</SelectItem>
+                    <SelectItem value="stock-asc" className="text-slate-200 text-xs">Stock Terendah</SelectItem>
+                    <SelectItem value="value-desc" className="text-slate-200 text-xs">Nilai Terbesar</SelectItem>
+                    <SelectItem value="value-asc" className="text-slate-200 text-xs">Nilai Terkecil</SelectItem>
+                    <SelectItem value="updatedAt-desc" className="text-slate-200 text-xs">Terbaru</SelectItem>
+                    <SelectItem value="updatedAt-asc" className="text-slate-200 text-xs">Terlama</SelectItem>
+                  </SelectContent>
+                </Select>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -2984,18 +3062,6 @@ export default function PurchasePage() {
                     />
                   </DropdownMenuContent>
                 </DropdownMenu>
-                {selectedInvIds.size > 0 && (
-                  <Button
-                    size="sm"
-                    onClick={() => { setPostStep(1); setPostProductOpen(true); void fetchProductCategories() }}
-                    className="theme-bg theme-hover text-white text-xs font-medium h-8 px-3 rounded-lg gap-1.5 shrink-0"
-                  >
-                    <Sparkles className="h-3.5 w-3.5" />
-                    <span className="hidden sm:inline">Post Produk</span>
-                    <span className="sm:hidden">Post</span>
-                    <span className="bg-white/20 px-1.5 py-0.5 rounded-full text-[10px]">{selectedInvIds.size}</span>
-                  </Button>
-                )}
               </div>
             </div>
 
@@ -3100,33 +3166,43 @@ export default function PurchasePage() {
               )}
             </div>
 
-            {/* Selection action bar */}
+            {/* Selection action bar — floating */}
             {selectedInvIds.size > 0 && (
               <motion.div
                 initial={{ opacity: 0, y: -8 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="flex items-center justify-between gap-3 p-2.5 rounded-xl bg-emerald-500/[0.06] border border-emerald-500/10"
+                className="sticky bottom-4 z-30 flex items-center justify-between gap-2 p-2.5 rounded-xl bg-nebula/95 backdrop-blur-xl border border-emerald-500/20 shadow-2xl shadow-emerald-500/5"
               >
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-                  <span className="text-xs text-slate-300 font-medium">
+                <div className="flex items-center gap-2 min-w-0">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                  <span className="text-xs text-slate-300 font-medium truncate">
                     <span className="text-emerald-400">{selectedInvIds.size}</span> item terpilih
                   </span>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 shrink-0">
                   <button
-                    className="text-[11px] text-slate-500 hover:text-slate-300 transition-colors"
+                    className="text-[11px] text-slate-500 hover:text-slate-300 transition-colors px-1.5"
                     onClick={() => setSelectedInvIds(new Set())}
                   >
                     Batal
                   </button>
                   <Button
                     size="sm"
+                    onClick={() => { setBulkCatOpen(true); setBulkCatTarget('') }}
+                    className="h-7 text-[11px] bg-white/[0.06] hover:bg-white/[0.1] text-slate-300 px-3 gap-1.5 rounded-lg border border-white/[0.06]"
+                  >
+                    <FolderInput className="h-3 w-3" />
+                    <span className="hidden sm:inline">Pindah Kategori</span>
+                    <span className="sm:hidden">Kategori</span>
+                  </Button>
+                  <Button
+                    size="sm"
                     onClick={() => { setPostStep(1); setPostProductOpen(true); void fetchProductCategories() }}
                     className="h-7 text-[11px] theme-bg theme-hover text-white px-3 gap-1.5 rounded-lg"
                   >
                     <Sparkles className="h-3 w-3" />
-                    Post Produk
+                    <span className="hidden sm:inline">Post ke Produk</span>
+                    <span className="sm:hidden">Post</span>
                   </Button>
                   <Button
                     size="sm"
@@ -3135,7 +3211,7 @@ export default function PurchasePage() {
                     className="h-7 text-[11px] text-red-400 hover:text-red-300 hover:bg-red-500/[0.06] px-3 gap-1.5 rounded-lg border border-red-500/10"
                   >
                     <Trash2 className="h-3 w-3" />
-                    Hapus {selectedInvIds.size}
+                    Hapus
                   </Button>
                 </div>
               </motion.div>
@@ -3797,17 +3873,11 @@ export default function PurchasePage() {
                 </button>
                 <button
                   className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.04] text-slate-500 hover:text-slate-300 hover:bg-white/[0.06] transition-colors text-[11px]"
-                  onClick={() => {
-                    const a = document.createElement('a')
-                    a.href = '/api/purchases/import-excel/template'
-                    a.download = 'template-pembelian-aether-pos.xlsx'
-                    document.body.appendChild(a)
-                    a.click()
-                    document.body.removeChild(a)
-                  }}
+                  onClick={() => void downloadBlob('/api/purchases/import-excel/template', 'template-pembelian-aether-pos.xlsx', setTemplateDownloadLoading)}
+                  disabled={templateDownloadLoading}
                   title="Download template Excel untuk import pembelian"
                 >
-                  <Download className="h-3.5 w-3.5" />
+                  {templateDownloadLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
                 </button>
                 <button
                   className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.04] text-slate-500 hover:text-slate-300 hover:bg-white/[0.06] transition-colors text-[11px]"
@@ -4856,6 +4926,53 @@ export default function PurchasePage() {
       {/* INVENTORY BULK DELETE / EDIT EXCEL DIALOGS               */}
       {/* ══════════════════════════════════════════════════════════ */}
 
+      {/* Bulk Category Change */}
+      <ResponsiveDialog open={bulkCatOpen} onOpenChange={(open) => { if (!open) { setBulkCatOpen(false); setBulkCatTarget('') } }}>
+        <ResponsiveDialogContent className="bg-nebula border-white/[0.06] sm:max-w-md">
+          <ResponsiveDialogHeader>
+            <ResponsiveDialogTitle className="text-white text-sm font-semibold">Pindah Kategori</ResponsiveDialogTitle>
+            <ResponsiveDialogDescription className="text-slate-400 text-xs">
+              Pindahkan {selectedInvIds.size} item ke kategori baru
+            </ResponsiveDialogDescription>
+          </ResponsiveDialogHeader>
+          <div className="py-3">
+            <Select value={bulkCatTarget} onValueChange={setBulkCatTarget}>
+              <SelectTrigger className="bg-white/[0.04] border-white/[0.06] text-white text-xs">
+                <SelectValue placeholder="Pilih kategori..." />
+              </SelectTrigger>
+              <SelectContent className="bg-nebula border-white/[0.06]">
+                <SelectItem value="__none__" className="text-slate-200 text-xs">Tanpa Kategori</SelectItem>
+                {categories.map((c) => (
+                  <SelectItem key={c.id} value={c.id} className="text-slate-200 text-xs">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: c.color || '#64748b' }} />
+                      {c.name}
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <ResponsiveDialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => { setBulkCatOpen(false); setBulkCatTarget('') }} className="bg-white/[0.04] border-white/[0.06] text-slate-300 hover:bg-white/[0.06] text-xs h-9">
+              Batal
+            </Button>
+            <Button
+              onClick={() => {
+                const catId = bulkCatTarget === '__none__' ? '' : bulkCatTarget
+                setBulkCatTarget(catId)
+                void handleBulkCategoryChange()
+              }}
+              disabled={bulkCatLoading || !bulkCatTarget}
+              className="theme-bg theme-hover text-white text-xs h-9 gap-1.5"
+            >
+              {bulkCatLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FolderInput className="h-3.5 w-3.5" />}
+              Pindahkan
+            </Button>
+          </ResponsiveDialogFooter>
+        </ResponsiveDialogContent>
+      </ResponsiveDialog>
+
       {/* Bulk Delete Inventory */}
       <AlertDialog open={invBulkDeleteOpen} onOpenChange={setInvBulkDeleteOpen}>
         <AlertDialogContent className="bg-nebula border-white/[0.06]">
@@ -4906,8 +5023,8 @@ export default function PurchasePage() {
                   </div>
                 </div>
               </div>
-              <Button onClick={() => window.open('/api/inventory/items/export', '_blank')} variant="outline" className="w-full bg-white/[0.04] border-white/[0.04] text-slate-300 hover:text-white hover:bg-white/[0.04] h-9 text-xs">
-                <Download className="mr-1.5 h-3.5 w-3.5" />
+              <Button onClick={() => void downloadBlob('/api/inventory/items/export', `inventory-edit-template-${new Date().toISOString().slice(0, 10)}.xlsx`, setInvEditExcelUploading)} disabled={invEditExcelUploading} variant="outline" className="w-full bg-white/[0.04] border-white/[0.04] text-slate-300 hover:text-white hover:bg-white/[0.04] h-9 text-xs">
+                {invEditExcelUploading ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Download className="mr-1.5 h-3.5 w-3.5" />}
                 Download Template Edit
               </Button>
               <div
@@ -6423,10 +6540,8 @@ export default function PurchasePage() {
                 </div>
               </div>
               {/* Download template button */}
-              <Button onClick={() => {
-                window.open('/api/purchases/export-template', '_blank')
-              }} variant="outline" className="w-full bg-white/[0.04] border-white/[0.04] text-slate-300 hover:text-white hover:bg-white/[0.04] h-9 text-xs">
-                <Download className="mr-1.5 h-3.5 w-3.5" />
+              <Button onClick={() => void downloadBlob('/api/purchases/export-template', `purchase-edit-template-${new Date().toISOString().slice(0, 10)}.xlsx`, setEditExcelUploading)} disabled={editExcelUploading} variant="outline" className="w-full bg-white/[0.04] border-white/[0.04] text-slate-300 hover:text-white hover:bg-white/[0.04] h-9 text-xs">
+                {editExcelUploading ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Download className="mr-1.5 h-3.5 w-3.5" />}
                 Download Template Edit
               </Button>
               {/* File drop area */}

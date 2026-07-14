@@ -67,6 +67,11 @@ export async function GET(request: NextRequest) {
     const { searchParams } = request.nextUrl
     const { page, limit, skip } = parsePagination(searchParams, { limit: 20 })
     const search = searchParams.get('search') || ''
+    const sortBy = searchParams.get('sortBy') || 'createdAt'
+    const sortOrder = searchParams.get('sortOrder') || 'desc'
+    const allowedSort = ['createdAt', 'totalCost', 'orderNumber'] as const
+    const validSort = allowedSort.includes(sortBy as typeof allowedSort[number]) ? sortBy : 'createdAt'
+    const validOrder = sortOrder === 'asc' ? 'asc' as const : 'desc' as const
 
     const where: Record<string, unknown> = { outletId: user.outletId }
 
@@ -81,7 +86,7 @@ export async function GET(request: NextRequest) {
     const [orders, total, linkedPoItems] = await Promise.all([
       db.purchaseOrder.findMany({
         where,
-        orderBy: { createdAt: 'desc' },
+        orderBy: { [validSort]: validOrder },
         skip,
         take: limit,
         select: {
