@@ -4,6 +4,7 @@ import { useMemo } from 'react'
 import { Crown, Lock } from 'lucide-react'
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { usePlan } from '@/hooks/use-plan'
+import { usePageStore } from '@/hooks/use-page-store'
 import { cn } from '@/lib/utils'
 
 interface LockedDropdownItemProps {
@@ -33,6 +34,7 @@ export function LockedDropdownItem({
   onClick,
 }: LockedDropdownItemProps) {
   const { features, plan, isLoading } = usePlan()
+  const { setCurrentPage } = usePageStore()
 
   const isAvailable = useMemo(() => {
     if (isLoading || !features) return true
@@ -62,7 +64,8 @@ export function LockedDropdownItem({
   return (
     <DropdownMenuItem
       disabled
-      className="flex items-center gap-3 px-2.5 py-2.5 text-xs rounded-lg group opacity-60"
+      className="flex items-center gap-3 px-2.5 py-2.5 text-xs rounded-lg group"
+      onClick={(e) => { e.preventDefault(); setCurrentPage('plan') }}
     >
       <span className="text-violet-500/50">{icon}</span>
       <div className="flex-1 min-w-0">

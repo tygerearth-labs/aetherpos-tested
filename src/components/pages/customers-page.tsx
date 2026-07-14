@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { toast } from 'sonner'
 import { formatCurrency, formatNumber, formatDate } from '@/lib/format'
 import { usePlan, useFeatureGate } from '@/hooks/use-plan'
+import { usePageStore } from '@/hooks/use-page-store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -200,6 +201,7 @@ export default function CustomersPage() {
   const [adjusting, setAdjusting] = useState(false)
 
   // Plan gating
+  const { setCurrentPage } = usePageStore()
   const { plan, features } = usePlan()
   const isPro = plan?.type === 'pro' || plan?.type === 'enterprise'
 
@@ -1012,6 +1014,7 @@ export default function CustomersPage() {
                   </div>
                   <Button
                     className="bg-violet-500 hover:bg-violet-600 text-white h-8 text-xs"
+                    onClick={() => setCurrentPage('plan')}
                   >
                     <Sparkles className="mr-1.5 h-3.5 w-3.5" />
                     Upgrade ke Pro

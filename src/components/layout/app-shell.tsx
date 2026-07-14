@@ -12,6 +12,7 @@ import MobileBottomNav from '@/components/layout/mobile-bottom-nav'
 import AuthView from '@/components/auth/auth-view'
 import LandingPage from '@/components/landing/landing-page'
 import { Loader2, WifiOff, ShieldCheck } from 'lucide-react'
+import { ErrorBoundary } from '@/components/shared/error-boundary'
 
 // ── Lazy-loaded pages (code splitting for faster initial load) ──
 const DashboardPage = lazy(() => import('@/components/pages/dashboard-page'))
@@ -40,7 +41,11 @@ function PageLoader() {
 }
 
 function LazyPage({ children }: { children: React.ReactNode }) {
-  return <Suspense fallback={<PageLoader />}>{children}</Suspense>
+  return (
+    <ErrorBoundary>
+      <Suspense fallback={<PageLoader />}>{children}</Suspense>
+    </ErrorBoundary>
+  )
 }
 
 // ── Init Loading Screen (session loading) ──

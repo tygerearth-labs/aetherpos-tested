@@ -3,6 +3,7 @@
 import { useState, useRef } from 'react'
 import { useSession } from 'next-auth/react'
 import { usePlan } from '@/hooks/use-plan'
+import { usePageStore } from '@/hooks/use-page-store'
 import { useDashboard, useInsights, useForecast } from '@/hooks/use-dashboard'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -13,7 +14,7 @@ import { HealthRing } from '@/components/dashboard/dashboard-charts'
 import { StatCards } from '@/components/dashboard/stat-cards'
 import { QuickActions } from '@/components/dashboard/quick-actions'
 import { AnalyticsTabs } from '@/components/dashboard/analytics-tabs'
-import { SalesProductsCard, InsightsSection, InventoryAlertsSection, ScoreExplanationDialog, InventoryFreshnessWidget, ExpiryHeatmapWidget, ExpiryAlertBanner, PromoRecommendationWidget } from '@/components/dashboard/dashboard-sections'
+import { SalesProductsCard, InsightsSection, InventoryAlertsSection, ScoreExplanationDialog, InventoryFreshnessWidget, ExpiryHeatmapWidget, ExpiryAlertBanner } from '@/components/dashboard/dashboard-sections'
 import { EnterpriseBubbleChart, PendingTransfersSection, InventoryPredictionSection } from '@/components/dashboard/enterprise-sections'
 import { MigrationBanner } from '@/components/migration/migration-banner'
 
@@ -61,6 +62,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 // ════════════════════════════════════════════════════════════
 export default function DashboardPage() {
   const { data: session } = useSession()
+  const { setCurrentPage } = usePageStore()
   const { plan, features, isLoading: planLoading } = usePlan()
   const isOwner = session?.user?.role === 'OWNER'
   const isPro = plan?.type === 'pro' || plan?.type === 'enterprise'
@@ -150,7 +152,7 @@ export default function DashboardPage() {
                 Buka fitur <span className="font-medium text-slate-200">Forecasting & Prediksi</span> — upgrade ke Pro atau Enterprise
               </p>
             </div>
-            <Button size="sm" className="shrink-0 theme-bg hover:theme-hover-light text-white text-xs font-medium h-7 px-3 rounded-lg gap-1.5">
+            <Button size="sm" className="shrink-0 theme-bg hover:theme-hover-light text-white text-xs font-medium h-7 px-3 rounded-lg gap-1.5" onClick={() => setCurrentPage('plan')}>
               <Crown className="h-3 w-3" />Upgrade
             </Button>
           </div>
@@ -237,15 +239,12 @@ export default function DashboardPage() {
           }}
         />
       </motion.div>
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         <motion.div variants={itemVariants}>
           <InventoryFreshnessWidget />
         </motion.div>
         <motion.div variants={itemVariants} ref={expiryHeatmapRef}>
           <ExpiryHeatmapWidget />
-        </motion.div>
-        <motion.div variants={itemVariants}>
-          <PromoRecommendationWidget />
         </motion.div>
       </div>
 

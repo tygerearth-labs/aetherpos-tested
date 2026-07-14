@@ -1,6 +1,7 @@
 'use client'
 
 import { usePlan } from '@/hooks/use-plan'
+import { usePageStore } from '@/hooks/use-page-store'
 import { Lock, Crown, Sparkles } from 'lucide-react'
 
 interface ProGateProps {
@@ -50,6 +51,7 @@ export function ProGate({
   variant = 'card',
 }: ProGateProps) {
   const { features, plan, isLoading } = usePlan()
+  const { setCurrentPage } = usePageStore()
 
   // Don't gate anything while loading or if plan data is unavailable
   if (isLoading || !features) {
@@ -166,7 +168,7 @@ export function ProGate({
           </div>
 
           {/* Pro badge */}
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-violet-500/10 to-purple-500/10 border border-violet-500/20">
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-violet-500/10 to-purple-500/10 border border-violet-500/20 cursor-pointer hover:from-violet-500/20 hover:to-purple-500/20 transition-colors" onClick={() => setCurrentPage('plan')}>
             <Sparkles className="h-3 w-3 text-violet-400" />
             <span className="text-[11px] font-semibold text-violet-300">Upgrade Pro</span>
           </div>

@@ -197,7 +197,7 @@ function UpgradeCard({ icon, title, desc }: { icon: React.ReactNode; title: stri
       <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-violet-500/10 to-sky-500/10 border border-white/[0.06] flex items-center justify-center mb-3">{icon}</div>
       <h3 className="text-sm font-semibold text-slate-300 mb-1">{title}</h3>
       <p className="text-xs text-slate-500 max-w-xs mb-4">{desc}</p>
-      <Button size="sm" className="theme-bg hover:theme-hover-light text-white text-xs font-medium h-8 px-4 rounded-lg gap-1.5" onClick={() => setCurrentPage('settings')}>
+      <Button size="sm" className="theme-bg hover:theme-hover-light text-white text-xs font-medium h-8 px-4 rounded-lg gap-1.5" onClick={() => setCurrentPage('plan')}>
         <Crown className="h-3 w-3" />Upgrade ke PRO
       </Button>
     </CardContent></Card>
