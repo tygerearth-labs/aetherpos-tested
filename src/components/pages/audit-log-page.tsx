@@ -1007,7 +1007,7 @@ export default function AuditLogPage() {
               </div>
             </div>
           )}
-          {(detailLog.entityType === 'INVENTORY_ITEM' || detailLog.entityType === 'PURCHASE_ORDER') && (
+          {detailLog && (detailLog.entityType === 'INVENTORY_ITEM' || detailLog.entityType === 'PURCHASE_ORDER') && (
             <>
               <Separator className="bg-white/[0.06]" />
               <div className="flex justify-end">
