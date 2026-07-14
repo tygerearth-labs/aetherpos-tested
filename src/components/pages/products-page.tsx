@@ -1361,35 +1361,38 @@ export default function ProductsPage() {
             <DropdownMenuTrigger asChild>
               <Button
                 variant="outline"
-                className="bg-white/[0.04] border-white/[0.04] text-slate-300 hover:text-white hover:bg-white/[0.04] h-9 text-xs font-medium gap-1.5"
+                className="bg-emerald-500/[0.08] border-emerald-500/20 text-emerald-300 hover:text-emerald-200 hover:bg-emerald-500/[0.12] hover:border-emerald-500/30 h-9 text-xs font-medium gap-1.5 transition-all"
               >
                 <FileSpreadsheet className="h-3.5 w-3.5" />
                 Excel
-                <ChevronDown className="h-3 w-3" />
+                <ChevronDown className="h-3 w-3 opacity-60" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-[220px] rounded-xl border-white/[0.08] bg-nebula p-1 shadow-2xl shadow-black/60">
+            <DropdownMenuContent align="end" className="w-[240px] rounded-xl border-white/[0.08] bg-nebula p-1.5 shadow-2xl shadow-black/60">
+              <div className="px-2.5 py-1.5 mb-0.5">
+                <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Aksi Excel</p>
+              </div>
               <DropdownMenuItem
                 onClick={handleExportExcel}
                 disabled={exporting}
-                className="flex items-center gap-2.5 px-3 py-2.5 text-xs text-slate-300 hover:bg-white/[0.04] hover:text-white rounded-lg cursor-pointer focus:bg-white/[0.04] focus:text-white"
+                className="flex items-center gap-3 px-2.5 py-2.5 text-xs text-slate-300 hover:bg-white/[0.05] hover:text-white rounded-lg cursor-pointer focus:bg-white/[0.05] focus:text-white group"
               >
-                {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5 text-slate-500" />}
-                <div className="flex-1">
-                  <span>Export Excel</span>
-                  <p className="text-[10px] text-slate-600">Download data</p>
+                {exporting ? <Loader2 className="h-4 w-4 animate-spin text-slate-400" /> : <Download className="h-4 w-4 text-slate-500 group-hover:text-emerald-400 transition-colors" />}
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium">Export Excel</p>
+                  <p className="text-[10px] text-slate-500 group-hover:text-slate-400 transition-colors">Download semua data produk</p>
                 </div>
               </DropdownMenuItem>
               <DropdownMenuSeparator className="bg-white/[0.06] my-1" />
               <ProGate feature="bulkUpload" label="" description="" variant="inline">
                 <DropdownMenuItem
                   onClick={() => { setUploadOpen(true); setUploadFile(null); setUploadResult(null) }}
-                  className="flex items-center gap-2.5 px-3 py-2.5 text-xs text-slate-300 hover:bg-white/[0.04] hover:text-white rounded-lg cursor-pointer focus:bg-white/[0.04] focus:text-white"
+                  className="flex items-center gap-3 px-2.5 py-2.5 text-xs text-slate-300 hover:bg-white/[0.05] hover:text-white rounded-lg cursor-pointer focus:bg-white/[0.05] focus:text-white group"
                 >
-                  <Upload className="h-3.5 w-3.5 text-slate-500" />
-                  <div className="flex-1">
-                    <span>Upload Excel</span>
-                    <p className="text-[10px] text-slate-600">Tambah massal</p>
+                  <Upload className="h-4 w-4 text-slate-500 group-hover:text-amber-400 transition-colors" />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium">Upload Excel</p>
+                    <p className="text-[10px] text-slate-500 group-hover:text-slate-400 transition-colors">Tambah produk baru massal</p>
                   </div>
                 </DropdownMenuItem>
               </ProGate>
@@ -1397,12 +1400,12 @@ export default function ProductsPage() {
               <ProGate feature="bulkUpload" label="" description="" variant="inline">
                 <DropdownMenuItem
                   onClick={() => { setEditExcelOpen(true); setEditExcelFile(null); setEditExcelResult(null); setEditExcelProgress(0); setEditExcelPhase('') }}
-                  className="flex items-center gap-2.5 px-3 py-2.5 text-xs text-slate-300 hover:bg-white/[0.04] hover:text-white rounded-lg cursor-pointer focus:bg-white/[0.04] focus:text-white"
+                  className="flex items-center gap-3 px-2.5 py-2.5 text-xs text-slate-300 hover:bg-white/[0.05] hover:text-white rounded-lg cursor-pointer focus:bg-white/[0.05] focus:text-white group"
                 >
-                  <FilePenLine className="h-3.5 w-3.5 text-slate-500" />
-                  <div className="flex-1">
-                    <span>Edit Excel</span>
-                    <p className="text-[10px] text-slate-600">Update massal</p>
+                  <FilePenLine className="h-4 w-4 text-slate-500 group-hover:text-cyan-400 transition-colors" />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium">Edit Excel</p>
+                    <p className="text-[10px] text-slate-500 group-hover:text-slate-400 transition-colors">Update produk yang sudah ada</p>
                   </div>
                 </DropdownMenuItem>
               </ProGate>
