@@ -80,14 +80,16 @@ export function MigrationBanner() {
   const handleImportSuccess = useCallback((result: ImportResult) => {
     setImportResult(result)
     setWizardState('success')
-
-    // Invalidate dashboard queries to refresh product count
-    queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-  }, [queryClient])
+    // NOTE: Do NOT invalidateQueries here — it triggers dashboard refetch
+    // which may unmount this component (totalProducts > 0) before user sees success dialog.
+    // Refetch is deferred to handleCloseSuccess instead.
+  }, [])
 
   const handleCloseSuccess = useCallback(() => {
+    // Invalidate dashboard NOW — after user closes dialog, safe to refetch
+    queryClient.invalidateQueries({ queryKey: ['dashboard'] })
     handleDismiss()
-  }, [handleDismiss])
+  }, [queryClient, handleDismiss])
 
   // Banner visibility — hide ONLY the banner on success, dialogs stay mounted
   const showBanner = wizardState !== 'success' && wizardState !== 'choosing_mode' && wizardState !== 'uploading' && wizardState !== 'processing'
