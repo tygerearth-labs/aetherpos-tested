@@ -89,15 +89,16 @@ export function MigrationBanner() {
     handleDismiss()
   }, [handleDismiss])
 
-  // Don't render if in success state (banner hidden permanently after import)
-  if (wizardState === 'success') return null
+  // Banner visibility — hide ONLY the banner on success, dialogs stay mounted
+  const showBanner = wizardState !== 'success' && wizardState !== 'choosing_mode' && wizardState !== 'uploading' && wizardState !== 'processing'
 
   return (
     <>
       {/* ═══════════════════════════════════════════════════
           MIGRATION BANNER — New User (0 Products)
           ═══════════════════════════════════════════════════ */}
-      <motion.div variants={bannerVariants}>
+      {showBanner && (
+        <motion.div variants={bannerVariants}>
         <div className="relative overflow-hidden rounded-2xl border border-stellar-border">
           {/* Background gradient */}
           <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/[0.08] via-teal-500/[0.05] to-cyan-500/[0.08]" />
@@ -164,7 +165,8 @@ export function MigrationBanner() {
             </div>
           </div>
         </div>
-      </motion.div>
+        </motion.div>
+      )}
 
       {/* ═══════════════════════════════════════════════════
           IMPORT MODE SELECTION DIALOG
