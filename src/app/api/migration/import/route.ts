@@ -209,6 +209,27 @@ export async function POST(request: NextRequest) {
       compositionStr: string
     }[] = []
 
+    // Batch audit logs for opening stock (flushed after each sheet to avoid N+1)
+    const openingStockLogs: Array<{
+      action: string
+      entityType: string
+      entityId: string
+      details: string
+      outletId: string
+      userId: string
+    }> = []
+    const OPENING_STOCK_BATCH_SIZE = 200
+
+    async function flushOpeningStockLogs() {
+      if (openingStockLogs.length === 0) return
+      try {
+        await db.auditLog.createMany({ data: openingStockLogs })
+      } catch (e) {
+        console.warn('[migration] Failed to batch-create opening stock audit logs:', e)
+      }
+      openingStockLogs.length = 0
+    }
+
     // ==================== HELPER: GET OR CREATE CATEGORY ====================
     async function getOrCreateCategory(name: string): Promise<string | null> {
       if (categoryCache.has(name)) {
@@ -395,6 +416,27 @@ export async function POST(request: NextRequest) {
           if (finalBarcode) barcodeCount++
           productCache.set(name, product.id)
 
+          // === Opening stock audit log per product (batched) ===
+          if (stock > 0) {
+            openingStockLogs.push({
+              action: 'RESTOCK',
+              entityType: 'PRODUCT',
+              entityId: product.id,
+              details: JSON.stringify({
+                productName: name,
+                productSku: finalSku,
+                initialStock: stock,
+                newStock: stock,
+                reason: 'Stok awal migrasi',
+              }),
+              outletId,
+              userId,
+            })
+            if (openingStockLogs.length >= OPENING_STOCK_BATCH_SIZE) {
+              await flushOpeningStockLogs()
+            }
+          }
+
           // === If inventory mode + stock > 0: create InventoryItem + Opening Balance ===
           if (includeInventory && stock > 0) {
             const existingInv = await db.inventoryItem.findFirst({
@@ -449,6 +491,9 @@ export async function POST(request: NextRequest) {
           }
         }
       }
+
+      // Flush opening stock logs after non-variant sheet
+      await flushOpeningStockLogs()
 
       // ──────────────────────────────────────────────
       // SHEET 2: Produk Varian
@@ -551,6 +596,28 @@ export async function POST(request: NextRequest) {
             variantsCreated++
             if (finalVariantBarcode) barcodeCount++
 
+            // === Opening stock audit log per variant (batched) ===
+            if (variantStock > 0) {
+              openingStockLogs.push({
+                action: 'RESTOCK',
+                entityType: 'VARIANT',
+                entityId: variant.id,
+                details: JSON.stringify({
+                  productName: currentParentProduct.name,
+                  variantName,
+                  variantSku: finalVariantSku,
+                  initialStock: variantStock,
+                  newStock: variantStock,
+                  reason: 'Stok awal migrasi',
+                }),
+                outletId,
+                userId,
+              })
+              if (openingStockLogs.length >= OPENING_STOCK_BATCH_SIZE) {
+                await flushOpeningStockLogs()
+              }
+            }
+
             // Cache variant for composition linking
             variantCache.set(`${currentParentProduct.name}||${variantName}`, variant.id)
 
@@ -567,6 +634,9 @@ export async function POST(request: NextRequest) {
           }
         }
       }
+
+      // Flush opening stock logs after variant sheet
+      await flushOpeningStockLogs()
 
       // ──────────────────────────────────────────────
       // SHEET 3: Inventory (Bahan Baku)
@@ -794,6 +864,9 @@ export async function POST(request: NextRequest) {
 
     // ==================== COUNT TOTAL CATEGORIES ====================
     const totalCategories = await db.category.count({ where: { outletId } })
+
+    // ==================== FLUSH REMAINING OPENING STOCK LOGS ====================
+    await flushOpeningStockLogs()
 
     // ==================== AUDIT LOG ====================
     if (productsCreated > 0 || inventoryItemsCreated > 0 || compositionsCreated > 0) {

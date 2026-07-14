@@ -408,6 +408,11 @@ function getActionDescription(action: string, details: Record<string, unknown>):
         const valueInfo = totalVal > 0 ? ` — Nilai: ${formatCurrency(totalVal)}` : ''
         return `+${formatNumber(Number(details.quantityAdded) || 0)} dari transfer ${details.transferNumber || ''} (${details.fromOutlet || 'outlet lain'}) — Stok: ${formatNumber(Number(details.previousStock) || 0)} → ${formatNumber(Number(details.newStock) || 0)}${valueInfo}`
       }
+      // Migration opening stock
+      if (details.reason === 'Stok awal migrasi') {
+        const initStock = Number(details.initialStock) || 0
+        return `Stok awal migrasi: ${formatNumber(initStock)} unit${variantLabel}`
+      }
       const totalVal = Number(details.totalValue)
       const valueInfo = totalVal > 0 ? ` — Nilai: ${formatCurrency(totalVal)}` : ''
       return `Restock +${formatNumber(Number(details.quantityAdded) || 0)} unit${variantLabel} (Stok: ${formatNumber(Number(details.previousStock) || 0)} → ${formatNumber(Number(details.newStock) || 0)})${valueInfo}`

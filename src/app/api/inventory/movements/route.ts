@@ -90,6 +90,8 @@ export async function GET(request: NextRequest) {
         referenceLabel = transferMap.get(m.referenceId) || null
       } else if (m.referenceType === 'PURCHASE_ORDER' && m.referenceId) {
         referenceLabel = poMap.get(m.referenceId) || null
+      } else if (m.referenceType === 'MIGRATION') {
+        referenceLabel = 'Migrasi Data'
       }
       return { ...m, referenceLabel }
     })

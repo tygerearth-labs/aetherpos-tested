@@ -12,8 +12,23 @@ import { ImportModeDialog } from './import-mode-dialog'
 import { MigrationWizard } from './migration-wizard'
 import { toast } from 'sonner'
 
-type ImportMode = 'product_only' | 'product_inventory'
-type WizardState = 'idle' | 'choosing_mode' | 'uploading' | 'processing' | 'success'
+export type ImportMode = 'product_only' | 'product_inventory'
+export type WizardState = 'idle' | 'choosing_mode' | 'uploading' | 'processing' | 'success'
+
+export interface ImportResult {
+  productsCreated: number
+  variantsCreated: number
+  productsSkipped: number
+  totalCategories: number
+  barcodeCount: number
+  mode: ImportMode
+  errors: string[]
+  inventoryItemsCreated?: number
+  inventoryItemsSkipped?: number
+  compositionsCreated?: number
+  totalStock?: number
+  totalModalValue?: number
+}
 
 // Animation variants
 const bannerVariants = {
@@ -31,15 +46,7 @@ export function MigrationBanner() {
   const queryClient = useQueryClient()
   const [wizardState, setWizardState] = useState<WizardState>('idle')
   const [selectedMode, setSelectedMode] = useState<ImportMode>('product_only')
-  const [importResult, setImportResult] = useState<{
-    productsCreated: number
-    totalCategories: number
-    barcodeCount: number
-    mode: ImportMode
-    inventoryItemsCreated?: number
-    totalStock?: number
-    totalModalValue?: number
-  } | null>(null)
+  const [importResult, setImportResult] = useState<ImportResult | null>(null)
 
   const handleDismiss = useCallback(() => {
     setWizardState('idle')
@@ -70,15 +77,7 @@ export function MigrationBanner() {
     }
   }, [])
 
-  const handleImportSuccess = useCallback((result: {
-    productsCreated: number
-    totalCategories: number
-    barcodeCount: number
-    mode: ImportMode
-    inventoryItemsCreated?: number
-    totalStock?: number
-    totalModalValue?: number
-  }) => {
+  const handleImportSuccess = useCallback((result: ImportResult) => {
     setImportResult(result)
     setWizardState('success')
 

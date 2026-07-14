@@ -5,14 +5,15 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Upload, FileSpreadsheet, Check, Loader2,
   PartyPopper, ArrowRight,
-  Package, BarChart3, BookOpen,
-  Boxes, ShoppingCart, X,
+  Package, Boxes, X,
   FileSearch, ClipboardCheck, ArrowRightLeft, Cpu, Database,
+  CircleCheck, CircleAlert, Copy, GitBranch, Tags, ScanBarcode,
+  FlaskConical, TrendingUp,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { formatCurrency, formatNumber } from '@/lib/format'
-import type { ImportMode } from './migration-banner'
+import type { ImportMode, ImportResult } from './migration-banner'
 
 type WizardStep = 'upload' | 'processing' | 'success'
 
@@ -27,15 +28,7 @@ interface MigrationWizardProps {
   mode: ImportMode
   state: string
   onStateChange: (state: 'idle' | 'choosing_mode' | 'uploading' | 'processing' | 'success') => void
-  onSuccess: (result: {
-    productsCreated: number
-    totalCategories: number
-    barcodeCount: number
-    mode: ImportMode
-    inventoryItemsCreated?: number
-    totalStock?: number
-    totalModalValue?: number
-  }) => void
+  onSuccess: (result: ImportResult) => void
   onClose: () => void
   onDismiss: () => void
 }
@@ -55,14 +48,7 @@ export function MigrationWizard({
   const [error, setError] = useState<string | null>(null)
   const [processingSteps, setProcessingSteps] = useState<ProcessingStep[]>([])
   const [progress, setProgress] = useState(0)
-  const [result, setResult] = useState<{
-    productsCreated: number
-    totalCategories: number
-    barcodeCount: number
-    inventoryItemsCreated?: number
-    totalStock?: number
-    totalModalValue?: number
-  } | null>(null)
+  const [result, setResult] = useState<ImportResult | null>(null)
 
   const isInventory = mode === 'product_inventory'
 
@@ -170,25 +156,24 @@ export function MigrationWizard({
       // Wait for processing animation to finish before showing success
       const totalAnimTime = baseSteps.length * 800 + 500
       setTimeout(() => {
-        setResult({
+        const importResult: ImportResult = {
           productsCreated: data.productsCreated,
-          totalCategories: data.totalCategories,
-          barcodeCount: data.barcodeCount,
-          inventoryItemsCreated: data.inventoryItemsCreated,
-          totalStock: data.totalStock,
-          totalModalValue: data.totalModalValue,
-        })
-        onStateChange('success')
-        setIsUploading(false)
-        onSuccess({
-          productsCreated: data.productsCreated,
+          variantsCreated: data.variantsCreated,
+          productsSkipped: data.productsSkipped,
           totalCategories: data.totalCategories,
           barcodeCount: data.barcodeCount,
           mode,
+          errors: data.errors || [],
           inventoryItemsCreated: data.inventoryItemsCreated,
+          inventoryItemsSkipped: data.inventoryItemsSkipped,
+          compositionsCreated: data.compositionsCreated,
           totalStock: data.totalStock,
           totalModalValue: data.totalModalValue,
-        })
+        }
+        setResult(importResult)
+        onStateChange('success')
+        setIsUploading(false)
+        onSuccess(importResult)
       }, totalAnimTime)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal memproses file')
@@ -201,6 +186,11 @@ export function MigrationWizard({
   let wizardStep: WizardStep = 'upload'
   if (state === 'processing') wizardStep = 'processing'
   if (state === 'success') wizardStep = 'success'
+
+  // Derived values for success screen
+  const totalItems = (result?.productsCreated ?? 0) + (result?.variantsCreated ?? 0)
+  const hasErrors = result && result.errors.length > 0
+  const hasSkipped = result && result.productsSkipped > 0
 
   return (
     <div className="relative">
@@ -443,10 +433,10 @@ export function MigrationWizard({
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] }}
-              className="py-2 space-y-5"
+              className="py-2 space-y-4"
             >
               {/* Success header */}
-              <div className="text-center space-y-2 pt-2">
+              <div className="text-center space-y-2.5 pt-1">
                 <motion.div
                   initial={{ scale: 0 }}
                   animate={{ scale: 1 }}
@@ -461,29 +451,29 @@ export function MigrationWizard({
                   transition={{ delay: 0.2 }}
                   className="text-xl font-bold text-white"
                 >
-                  Import Berhasil 🎉
+                  Import Berhasil
                 </motion.h3>
-                <motion.p
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
+
+                {/* Confirmation badge */}
+                <motion.div
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.3 }}
-                  className="text-xs text-slate-400"
                 >
-                  {isInventory
-                    ? 'Produk & inventory Anda telah berhasil diimport'
-                    : 'Produk Anda telah berhasil diimport dan siap dijual'
-                  }
-                </motion.p>
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/25 text-emerald-300 text-xs font-semibold">
+                    <CircleCheck className="h-3.5 w-3.5" />
+                    Semua {formatNumber(totalItems)} item berhasil diimport
+                  </span>
+                </motion.div>
               </div>
 
-              {/* Stats grid */}
+              {/* Stats grid — Products */}
               <motion.div
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.4 }}
-                className="space-y-2.5"
+                className="space-y-2"
               >
-                {/* Product stats */}
                 <div className="grid grid-cols-3 gap-2">
                   <div className="text-center p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
                     <div className="flex items-center justify-center mb-1.5">
@@ -494,62 +484,121 @@ export function MigrationWizard({
                   </div>
                   <div className="text-center p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
                     <div className="flex items-center justify-center mb-1.5">
-                      <BookOpen className="h-3.5 w-3.5 text-amber-400" />
+                      <GitBranch className="h-3.5 w-3.5 text-amber-400" />
+                    </div>
+                    <p className="text-lg font-bold text-white">{formatNumber(result.variantsCreated)}</p>
+                    <p className="text-[10px] text-slate-500 mt-0.5">Varian</p>
+                  </div>
+                  <div className="text-center p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+                    <div className="flex items-center justify-center mb-1.5">
+                      <Tags className="h-3.5 w-3.5 text-cyan-400" />
                     </div>
                     <p className="text-lg font-bold text-white">{formatNumber(result.totalCategories)}</p>
                     <p className="text-[10px] text-slate-500 mt-0.5">Kategori</p>
                   </div>
-                  <div className="text-center p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
-                    <div className="flex items-center justify-center mb-1.5">
-                      <BarChart3 className="h-3.5 w-3.5 text-cyan-400" />
-                    </div>
-                    <p className="text-lg font-bold text-white">{formatNumber(result.barcodeCount)}</p>
-                    <p className="text-[10px] text-slate-500 mt-0.5">Barcode</p>
-                  </div>
                 </div>
 
-                {/* Inventory stats (only for product_inventory mode) */}
-                {isInventory && result.inventoryItemsCreated !== undefined && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.6 }}
-                    className="rounded-xl bg-violet-500/[0.06] border border-violet-500/15 p-4 space-y-3"
-                  >
-                    <div className="flex items-center gap-2 mb-2">
-                      <Boxes className="h-3.5 w-3.5 text-violet-400" />
-                      <span className="text-xs font-semibold text-violet-300">Inventory</span>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="text-center p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+                    <div className="flex items-center justify-center mb-1">
+                      <ScanBarcode className="h-3.5 w-3.5 text-violet-400" />
                     </div>
-                    <div className="grid grid-cols-3 gap-2">
-                      <div className="text-center">
-                        <p className="text-base font-bold text-white">{formatNumber(result.inventoryItemsCreated)}</p>
-                        <p className="text-[10px] text-slate-500">Inventory Item</p>
+                    <p className="text-base font-bold text-white">{formatNumber(result.barcodeCount)}</p>
+                    <p className="text-[10px] text-slate-500 mt-0.5">Barcode</p>
+                  </div>
+                  {hasSkipped ? (
+                    <div className="text-center p-2.5 rounded-xl bg-amber-500/[0.04] border border-amber-500/10">
+                      <div className="flex items-center justify-center mb-1">
+                        <Copy className="h-3.5 w-3.5 text-amber-400" />
                       </div>
-                      <div className="text-center">
-                        <p className="text-base font-bold text-white">{formatNumber(result.totalStock)}</p>
-                        <p className="text-[10px] text-slate-500">Stock</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-base font-bold text-white">{formatCurrency(result.totalModalValue)}</p>
-                        <p className="text-[10px] text-slate-500">Nilai Modal</p>
-                      </div>
+                      <p className="text-base font-bold text-amber-300">{formatNumber(result.productsSkipped)}</p>
+                      <p className="text-[10px] text-slate-500 mt-0.5">Duplikat Dilewati</p>
                     </div>
-                  </motion.div>
-                )}
+                  ) : (
+                    <div className="text-center p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+                      <div className="flex items-center justify-center mb-1">
+                        <Copy className="h-3.5 w-3.5 text-slate-500" />
+                      </div>
+                      <p className="text-base font-bold text-slate-500">0</p>
+                      <p className="text-[10px] text-slate-500 mt-0.5">Duplikat Dilewati</p>
+                    </div>
+                  )}
+                </div>
               </motion.div>
+
+              {/* Inventory stats (only for product_inventory mode) */}
+              {isInventory && (result.inventoryItemsCreated !== undefined || result.compositionsCreated !== undefined) && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.55 }}
+                  className="rounded-xl bg-violet-500/[0.06] border border-violet-500/15 p-4 space-y-3"
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <Boxes className="h-3.5 w-3.5 text-violet-400" />
+                    <span className="text-xs font-semibold text-violet-300">Inventory</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="text-center">
+                      <p className="text-base font-bold text-white">{formatNumber(result.inventoryItemsCreated)}</p>
+                      <p className="text-[10px] text-slate-500">Item</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-base font-bold text-white">{formatNumber(result.totalStock)}</p>
+                      <p className="text-[10px] text-slate-500">Total Stok</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-base font-bold text-white">{formatCurrency(result.totalModalValue)}</p>
+                      <p className="text-[10px] text-slate-500">Nilai Modal</p>
+                    </div>
+                  </div>
+                  {result.compositionsCreated !== undefined && result.compositionsCreated > 0 && (
+                    <div className="flex items-center gap-2 pt-2 border-t border-violet-500/10">
+                      <FlaskConical className="h-3 w-3 text-violet-400/70 shrink-0" />
+                      <span className="text-[11px] text-slate-400">
+                        <span className="text-violet-300 font-semibold">{formatNumber(result.compositionsCreated)}</span> komposisi resep terbuat
+                      </span>
+                    </div>
+                  )}
+                </motion.div>
+              )}
+
+              {/* Errors/Warnings section */}
+              {hasErrors && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.65 }}
+                  className="rounded-xl bg-amber-500/[0.06] border border-amber-500/15 p-3 space-y-2.5"
+                >
+                  <div className="flex items-center gap-2">
+                    <CircleAlert className="h-3.5 w-3.5 text-amber-400" />
+                    <span className="text-xs font-semibold text-amber-300">
+                      {result.errors.length} peringatan
+                    </span>
+                  </div>
+                  <div className="max-h-28 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
+                    {result.errors.map((err, i) => (
+                      <p key={i} className="text-[11px] text-slate-400 leading-relaxed pl-5.5 relative before:content-['·'] before:absolute before:left-1.5 before:text-amber-500/60 before:font-bold">
+                        {err}
+                      </p>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
 
               {/* Next steps hint */}
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                transition={{ delay: 0.7 }}
+                transition={{ delay: 0.75 }}
                 className="flex items-start gap-2.5 p-3 rounded-lg bg-emerald-500/[0.06] border border-emerald-500/15"
               >
-                <ShoppingCart className="h-4 w-4 text-emerald-400 mt-0.5 shrink-0" />
+                <TrendingUp className="h-4 w-4 text-emerald-400 mt-0.5 shrink-0" />
                 <p className="text-xs text-slate-300 leading-relaxed">
                   {isInventory
-                    ? <>Stok bahan baku sudah tercatat. Untuk restock, gunakan menu <span className="font-semibold text-white">Pembelian</span></>
-                    : <>Produk siap dijual! Buka <span className="font-semibold text-white">POS</span> untuk mulai transaksi</>
+                    ? <>Stok awal migrasi sudah tercatat. Untuk restock, gunakan menu <span className="font-semibold text-white">Pembelian</span></>
+                    : <>Stok awal migrasi sudah tercatat di audit log. Buka <span className="font-semibold text-white">POS</span> untuk mulai transaksi</>
                   }
                 </p>
               </motion.div>
@@ -558,7 +607,7 @@ export function MigrationWizard({
               <motion.div
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.8 }}
+                transition={{ delay: 0.85 }}
               >
                 <Button
                   onClick={onClose}

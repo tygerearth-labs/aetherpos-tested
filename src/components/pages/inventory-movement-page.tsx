@@ -153,6 +153,7 @@ const REFERENCE_TYPE_LABELS: Record<string, string> = {
   TRANSFER: 'Transfer',
   PURCHASE_ORDER: 'Pembelian',
   MANUAL: 'Manual',
+  MIGRATION: 'Migrasi Data',
 }
 
 function getReferenceTypeLabel(type: string | null): string {
