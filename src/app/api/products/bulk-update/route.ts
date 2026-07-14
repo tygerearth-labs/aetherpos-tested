@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
     const userId = user.id
 
     const body = await request.json()
-    const { productIds, priceAdjustment, stockAdjustment, categoryId, selectAllMode } = body
+    const { productIds, priceAdjustment, stockAdjustment, categoryId, selectAllMode, filter } = body
 
     const isSelectAll = !!selectAllMode
 
@@ -65,10 +65,27 @@ export async function POST(request: NextRequest) {
     }
 
     // Verify all products belong to this outlet
-    // If selectAllMode, fetch ALL products in the outlet
+    // If selectAllMode, fetch products matching the current filter
+    const selectAllWhere: Record<string, unknown> = { outletId }
+    if (filter?.search) {
+      selectAllWhere.OR = [
+        { name: { contains: filter.search } },
+        { sku: { contains: filter.search } },
+        { barcode: { contains: filter.search } },
+        { unit: { contains: filter.search } },
+        { category: { name: { contains: filter.search } } },
+        { variants: { some: { name: { contains: filter.search } } } },
+        { variants: { some: { sku: { contains: filter.search } } } },
+        { variants: { some: { barcode: { contains: filter.search } } } },
+      ]
+    }
+    if (filter?.categoryId) {
+      selectAllWhere.categoryId = filter.categoryId
+    }
+
     const existingProducts = isSelectAll
       ? await db.product.findMany({
-          where: { outletId },
+          where: selectAllWhere,
           select: { id: true, name: true, sku: true, price: true, stock: true, categoryId: true, hasVariants: true, hpp: true },
         })
       : await db.product.findMany({

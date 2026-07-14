@@ -49,6 +49,9 @@ export function MigrationWizard({
   const [processingSteps, setProcessingSteps] = useState<ProcessingStep[]>([])
   const [progress, setProgress] = useState(0)
   const [result, setResult] = useState<ImportResult | null>(null)
+  // Mutable ref so the setTimeout chain can accumulate "done" steps
+  // without reverting to the original "pending" array on each tick.
+  const stepsRef = useRef<ProcessingStep[]>([])
 
   const isInventory = mode === 'product_inventory'
 
@@ -97,24 +100,26 @@ export function MigrationWizard({
     const durations = [600, 800, 600, 1200, ...(isInventory ? [1000] : [])]
     let stepIndex = 0
 
-    setProcessingSteps(steps)
+    // Store a mutable copy in the ref so each tick builds on the previous state
+    const mutableSteps = steps.map(s => ({ ...s }))
+    stepsRef.current = mutableSteps
+    setProcessingSteps([...mutableSteps])
     onStateChange('processing')
 
     const runStep = () => {
-      if (stepIndex >= steps.length) return
+      if (stepIndex >= mutableSteps.length) return
 
-      const newSteps = [...steps]
-      // Mark current as active
-      newSteps[stepIndex] = { ...newSteps[stepIndex], status: 'active' }
-      setProcessingSteps([...newSteps])
-      setProgress(((stepIndex + 0.5) / steps.length) * 100)
+      // Mark current as active (previous steps retain their 'done' status)
+      mutableSteps[stepIndex] = { ...mutableSteps[stepIndex], status: 'active' }
+      setProcessingSteps([...mutableSteps])
+      setProgress(((stepIndex + 0.5) / mutableSteps.length) * 100)
 
       setTimeout(() => {
-        newSteps[stepIndex] = { ...newSteps[stepIndex], status: 'done' }
-        setProcessingSteps([...newSteps])
-        setProgress(((stepIndex + 1) / steps.length) * 100)
+        mutableSteps[stepIndex] = { ...mutableSteps[stepIndex], status: 'done' }
+        setProcessingSteps([...mutableSteps])
+        setProgress(((stepIndex + 1) / mutableSteps.length) * 100)
         stepIndex++
-        if (stepIndex < steps.length) {
+        if (stepIndex < mutableSteps.length) {
           runStep()
         }
       }, durations[stepIndex])

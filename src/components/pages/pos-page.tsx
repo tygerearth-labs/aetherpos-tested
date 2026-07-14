@@ -782,7 +782,7 @@ export default function PosPage() {
         filtered = filtered.filter(p => p.categoryId === categoryId)
       }
 
-      // Search filter — also match variant SKUs
+      // Search filter — also match variant SKUs, barcodes, unit, and category name
       if (search.trim()) {
         const q = search.trim().toLowerCase()
         filtered = filtered.filter(
@@ -790,9 +790,12 @@ export default function PosPage() {
             p.name.toLowerCase().includes(q) ||
             (p.sku && p.sku.toLowerCase().includes(q)) ||
             (p.barcode && p.barcode.toLowerCase().includes(q)) ||
-            // Match variant SKU or variant name
+            (p.unit && p.unit.toLowerCase().includes(q)) ||
+            (p.categoryName && p.categoryName.toLowerCase().includes(q)) ||
+            // Match variant SKU, barcode, or name
             (p.hasVariants && p.variants && p.variants.some((v: any) =>
               (v.sku && v.sku.toLowerCase().includes(q)) ||
+              (v.barcode && v.barcode.toLowerCase().includes(q)) ||
               v.name.toLowerCase().includes(q)
             ))
         )

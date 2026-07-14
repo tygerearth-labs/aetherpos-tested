@@ -28,6 +28,11 @@ export async function GET(request: NextRequest) {
         { name: { contains: q } },
         { sku: { contains: q } },
         { barcode: { contains: q } },
+        { unit: { contains: q } },
+        { category: { name: { contains: q } } },
+        { variants: { some: { name: { contains: q } } } },
+        { variants: { some: { sku: { contains: q } } } },
+        { variants: { some: { barcode: { contains: q } } } },
       ]
     }
 

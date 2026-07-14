@@ -559,6 +559,16 @@ export default function PurchasePage() {
     purchaseItemCount?: number
     linkedProducts: Array<{ productId: string; productName: string; variantName: string | null; qty: number; baseUnit: string }>
   } | null>(null)
+  const [invBulkDeleteOpen, setInvBulkDeleteOpen] = useState(false)
+  const [invBulkDeleting, setInvBulkDeleting] = useState(false)
+  // Inventory edit Excel
+  const [invEditExcelOpen, setInvEditExcelOpen] = useState(false)
+  const [invEditExcelFile, setInvEditExcelFile] = useState<File | null>(null)
+  const [invEditExcelUploading, setInvEditExcelUploading] = useState(false)
+  const [invEditExcelResult, setInvEditExcelResult] = useState<{
+    updated: number; notFound: number; errors: string[]
+  } | null>(null)
+  const [invEditExcelDragOver, setInvEditExcelDragOver] = useState(false)
 
   // Categories
   const [categories, setCategories] = useState<InventoryCategory[]>([])
@@ -1775,9 +1785,11 @@ export default function PurchasePage() {
     }
   }
 
-  const handleDeleteInv = async () => {
+  const handleDeleteInv = async (e?: React.MouseEvent) => {
+    if (e) e.preventDefault() // Prevent AlertDialogAction from auto-closing
     if (!deleteInvId) return
     setArchivingInv(true)
+    setInvDeleteBlocked(null)
     try {
       const res = await fetch(`/api/inventory/items/${deleteInvId}`, { method: 'DELETE' })
       if (res.ok) {
@@ -1799,18 +1811,24 @@ export default function PurchasePage() {
       } else {
         const data = await res.json().catch(() => ({}))
         toast.error(data.error || 'Gagal menghapus item')
+        setDeleteInvId(null)
+        setInvDeleteBlocked(null)
       }
     } catch {
       toast.error('Gagal menghapus item')
+      setDeleteInvId(null)
+      setInvDeleteBlocked(null)
     } finally {
       setArchivingInv(false)
     }
   }
 
-  const handleArchiveInv = async (id: string) => {
+  const handleArchiveInv = async (e?: React.MouseEvent) => {
+    if (e) e.preventDefault()
+    if (!deleteInvId) return
     setArchivingInv(true)
     try {
-      const res = await fetch(`/api/inventory/items/${id}`, {
+      const res = await fetch(`/api/inventory/items/${deleteInvId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'archive' }),
@@ -1828,6 +1846,57 @@ export default function PurchasePage() {
       toast.error('Gagal menonaktifkan item')
     } finally {
       setArchivingInv(false)
+    }
+  }
+
+  const handleInvBulkDelete = async () => {
+    if (selectedInvIds.size === 0) return
+    setInvBulkDeleting(true)
+    try {
+      const res = await fetch('/api/inventory/items/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: Array.from(selectedInvIds) }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        toast.success(`${data.deletedCount} item berhasil dihapus`)
+        setInvBulkDeleteOpen(false)
+        setSelectedInvIds(new Set())
+        void fetchInventoryItems()
+      } else {
+        const data = await res.json().catch(() => ({}))
+        toast.error(data.error || 'Gagal menghapus item')
+      }
+    } catch {
+      toast.error('Gagal menghapus item')
+    } finally {
+      setInvBulkDeleting(false)
+    }
+  }
+
+  const handleInvEditExcelUpload = async () => {
+    if (!invEditExcelFile) return
+    setInvEditExcelUploading(true)
+    setInvEditExcelResult(null)
+    try {
+      const formData = new FormData()
+      formData.append('file', invEditExcelFile)
+      const res = await fetch('/api/inventory/items/bulk-update-excel', {
+        method: 'POST',
+        body: formData,
+      })
+      const data = await res.json()
+      if (res.ok) {
+        setInvEditExcelResult({ updated: data.updated || 0, notFound: data.notFound || 0, errors: data.errors || [] })
+        void fetchInventoryItems()
+      } else {
+        toast.error(data.error || 'Gagal mengupdate inventory')
+      }
+    } catch {
+      toast.error('Gagal mengupdate inventory')
+    } finally {
+      setInvEditExcelUploading(false)
     }
   }
 
@@ -2368,7 +2437,9 @@ export default function PurchasePage() {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-[220px] rounded-xl border-white/[0.08] bg-nebula p-1 shadow-2xl shadow-black/60">
                   <DropdownMenuItem onClick={() => {
-                    window.open('/api/purchases/export', '_blank')
+                    const params = new URLSearchParams()
+                    if (poDebouncedSearch) params.set('search', poDebouncedSearch)
+                    window.open(`/api/purchases/export?${params}`, '_blank')
                   }} className="flex items-center gap-2.5 px-3 py-2.5 text-xs text-slate-300 hover:bg-white/[0.04] hover:text-white rounded-lg cursor-pointer focus:bg-white/[0.04] focus:text-white">
                     <Download className="h-3.5 w-3.5 text-slate-500" />
                     <div className="flex-1">
@@ -2799,6 +2870,31 @@ export default function PurchasePage() {
                   <Flame className="h-3 w-3" />
                   <span className="hidden sm:inline">Waste Report</span>
                 </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="sm" className="h-8 text-[10px] gap-1 text-slate-400 hover:text-white hover:bg-white/[0.04] border border-white/[0.06] shrink-0">
+                      <FileSpreadsheet className="h-3 w-3" />
+                      <span className="hidden sm:inline">Excel</span>
+                      <ChevronDown className="h-3 w-3" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-[200px] rounded-xl border-white/[0.08] bg-nebula p-1 shadow-2xl shadow-black/60">
+                    <DropdownMenuItem onClick={() => window.open('/api/inventory/items/export', '_blank')} className="flex items-center gap-2.5 px-3 py-2.5 text-xs text-slate-300 hover:bg-white/[0.04] hover:text-white rounded-lg cursor-pointer focus:bg-white/[0.04] focus:text-white">
+                      <Download className="h-3.5 w-3.5 text-slate-500" />
+                      <div className="flex-1">
+                        <span>Export Excel</span>
+                        <p className="text-[10px] text-slate-600">Download data</p>
+                      </div>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => { setInvEditExcelOpen(true); setInvEditExcelFile(null); setInvEditExcelResult(null) }} className="flex items-center gap-2.5 px-3 py-2.5 text-xs text-slate-300 hover:bg-white/[0.04] hover:text-white rounded-lg cursor-pointer focus:bg-white/[0.04] focus:text-white">
+                      <FilePenLine className="h-3.5 w-3.5 text-slate-500" />
+                      <div className="flex-1">
+                        <span>Edit Excel</span>
+                        <p className="text-[10px] text-slate-600">Update massal</p>
+                      </div>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 {selectedInvIds.size > 0 && (
                   <Button
                     size="sm"
@@ -2942,6 +3038,15 @@ export default function PurchasePage() {
                   >
                     <Sparkles className="h-3 w-3" />
                     Post Produk
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setInvBulkDeleteOpen(true)}
+                    className="h-7 text-[11px] text-red-400 hover:text-red-300 hover:bg-red-500/[0.06] px-3 gap-1.5 rounded-lg border border-red-500/10"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                    Hapus {selectedInvIds.size}
                   </Button>
                 </div>
               </motion.div>
@@ -4658,6 +4763,120 @@ export default function PurchasePage() {
         </ResponsiveDialogContent>
       </ResponsiveDialog>
 
+      {/* ══════════════════════════════════════════════════════════ */}
+      {/* INVENTORY BULK DELETE / EDIT EXCEL DIALOGS               */}
+      {/* ══════════════════════════════════════════════════════════ */}
+
+      {/* Bulk Delete Inventory */}
+      <AlertDialog open={invBulkDeleteOpen} onOpenChange={setInvBulkDeleteOpen}>
+        <AlertDialogContent className="bg-nebula border-white/[0.06]">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-white">Hapus {selectedInvIds.size} Item Inventory?</AlertDialogTitle>
+            <AlertDialogDescription className="text-slate-400 text-sm">
+              Item yang dihapus tidak dapat dikembalikan. Semua batch, komposisi, dan riwayat akan ikut terhapus.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-2">
+            <AlertDialogCancel className="text-slate-400 hover:text-white hover:bg-white/[0.04]">Batal</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-500/15 text-red-400 hover:bg-red-500/25 border border-red-500/20"
+              onClick={(e) => { e.preventDefault(); handleInvBulkDelete() }}
+              disabled={invBulkDeleting}
+            >
+              {invBulkDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : '🗑 Hapus'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Edit Inventory Excel Dialog */}
+      <ResponsiveDialog open={invEditExcelOpen} onOpenChange={(open) => { if (!open) { setInvEditExcelOpen(false); setInvEditExcelFile(null); setInvEditExcelResult(null) } }}>
+        <ResponsiveDialogContent className="sm:max-w-md">
+          <ResponsiveDialogHeader>
+            <ResponsiveDialogTitle className="text-white text-sm font-semibold">Edit Inventory via Excel</ResponsiveDialogTitle>
+            <ResponsiveDialogDescription className="text-slate-400 text-xs">
+              Update data inventory item via file Excel
+            </ResponsiveDialogDescription>
+          </ResponsiveDialogHeader>
+          {!invEditExcelResult ? (
+            <div className="space-y-3 py-1">
+              <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] p-3 space-y-2">
+                <p className="text-[11px] text-slate-400 font-medium">Langkah-langkah:</p>
+                <div className="space-y-1.5">
+                  <div className="flex items-start gap-2 text-[11px] text-slate-300">
+                    <span className="flex-shrink-0 h-4 w-4 rounded-full bg-emerald-500/15 border border-emerald-500/20 flex items-center justify-center text-[10px] text-emerald-400 font-bold">1</span>
+                    <span>Download template edit berisi data inventory saat ini</span>
+                  </div>
+                  <div className="flex items-start gap-2 text-[11px] text-slate-300">
+                    <span className="flex-shrink-0 h-4 w-4 rounded-full bg-emerald-500/15 border border-emerald-500/20 flex items-center justify-center text-[10px] text-emerald-400 font-bold">2</span>
+                    <span>Edit kolom yang ingin diubah</span>
+                  </div>
+                  <div className="flex items-start gap-2 text-[11px] text-slate-300">
+                    <span className="flex-shrink-0 h-4 w-4 rounded-full bg-emerald-500/15 border border-emerald-500/20 flex items-center justify-center text-[10px] text-emerald-400 font-bold">3</span>
+                    <span>Upload file yang sudah diedit</span>
+                  </div>
+                </div>
+              </div>
+              <Button onClick={() => window.open('/api/inventory/items/export', '_blank')} variant="outline" className="w-full bg-white/[0.04] border-white/[0.04] text-slate-300 hover:text-white hover:bg-white/[0.04] h-9 text-xs">
+                <Download className="mr-1.5 h-3.5 w-3.5" />
+                Download Template Edit
+              </Button>
+              <div
+                onDragOver={(e) => { e.preventDefault(); setInvEditExcelDragOver(true) }}
+                onDragLeave={() => setInvEditExcelDragOver(false)}
+                onDrop={(e) => {
+                  e.preventDefault(); setInvEditExcelDragOver(false)
+                  const file = e.dataTransfer.files[0]
+                  if (file && (file.name.endsWith('.xlsx') || file.name.endsWith('.xls') || file.name.endsWith('.csv'))) {
+                    setInvEditExcelFile(file)
+                  }
+                }}
+                className={`relative rounded-xl border-2 border-dashed p-6 text-center transition-all ${invEditExcelDragOver ? 'border-emerald-500/50 bg-emerald-500/[0.05]' : invEditExcelFile ? 'border-emerald-500/30 bg-emerald-500/[0.03]' : 'border-white/[0.1] hover:border-white/[0.2]'}`}
+              >
+                <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) setInvEditExcelFile(f); e.target.value = '' }} id="inv-edit-excel-input" />
+                <label htmlFor="inv-edit-excel-input" className="cursor-pointer">
+                  {invEditExcelFile ? (
+                    <div className="flex flex-col items-center gap-2">
+                      <FileSpreadsheet className="h-8 w-8 text-emerald-400" />
+                      <p className="text-xs text-white font-medium">{invEditExcelFile.name}</p>
+                      <p className="text-[10px] text-slate-500">{(invEditExcelFile.size / 1024).toFixed(1)} KB</p>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center gap-2">
+                      <Upload className="h-8 w-8 text-slate-500" />
+                      <p className="text-xs text-slate-300">Drag & drop atau <span className="text-emerald-400">klik untuk pilih</span></p>
+                      <p className="text-[10px] text-slate-500">.xlsx, .xls, .csv — Maks. 5MB</p>
+                    </div>
+                  )}
+                </label>
+              </div>
+              <Button onClick={handleInvEditExcelUpload} disabled={!invEditExcelFile || invEditExcelUploading} className="w-full h-9 text-xs">
+                {invEditExcelUploading ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> Mengupdate...</> : <><Upload className="h-3.5 w-3.5 mr-1.5" /> Upload & Update</>}
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-3 py-1">
+              <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-4 text-center space-y-2">
+                <CheckCircle2 className="h-8 w-8 text-emerald-400 mx-auto" />
+                <p className="text-sm font-medium text-white">Update Selesai!</p>
+                <div className="flex justify-center gap-4 text-xs text-slate-400">
+                  <span><span className="text-emerald-400 font-semibold">{invEditExcelResult.updated}</span> diupdate</span>
+                  {invEditExcelResult.notFound > 0 && <span><span className="text-amber-400 font-semibold">{invEditExcelResult.notFound}</span> tidak ditemukan</span>}
+                </div>
+              </div>
+              {invEditExcelResult.errors.length > 0 && (
+                <div className="rounded-lg bg-red-500/10 border border-red-500/20 p-3 max-h-28 overflow-y-auto custom-scrollbar">
+                  <p className="text-[11px] text-red-300 font-medium mb-1.5">{invEditExcelResult.errors.length} error:</p>
+                  {invEditExcelResult.errors.map((err, i) => (
+                    <p key={i} className="text-[11px] text-slate-400">• {err}</p>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </ResponsiveDialogContent>
+      </ResponsiveDialog>
+
       {/* Delete / Archive Inventory Item Alert */}
       <AlertDialog open={!!deleteInvId} onOpenChange={(open) => { if (!open) { setDeleteInvId(null); setInvDeleteBlocked(null) } }}>
         <AlertDialogContent className="bg-nebula border-white/[0.06]">
@@ -4694,12 +4913,30 @@ export default function PurchasePage() {
             </div>
           )}
 
+          {/* Linked products list */}
+          {invDeleteBlocked && invDeleteBlocked.linkedProducts.length > 0 && (
+            <div className="my-2 space-y-1.5">
+              <p className="text-[11px] text-slate-400 font-medium">{invDeleteBlocked.linkedProducts.length} produk terhubung:</p>
+              <div className="max-h-32 overflow-y-auto rounded-lg bg-white/[0.03] border border-white/[0.06] p-2 custom-scrollbar">
+                {invDeleteBlocked.linkedProducts.map((p, i) => (
+                  <div key={i} className="flex items-center justify-between gap-2 text-[11px] py-1 px-1.5 rounded hover:bg-white/[0.04]">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Link2 className="h-3 w-3 text-slate-500 shrink-0" />
+                      <span className="text-slate-300 truncate">{p.productName}{p.variantName ? ` — ${p.variantName}` : ''}</span>
+                    </div>
+                    <span className="text-slate-500 shrink-0">{p.qty} {p.baseUnit}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <AlertDialogFooter className="gap-2">
             <AlertDialogCancel className="text-slate-400 hover:text-white hover:bg-white/[0.04]">Batal</AlertDialogCancel>
             {invDeleteBlocked?.blockType === 'hasHistory' ? (
               <AlertDialogAction
                 className="bg-amber-500/15 text-amber-400 hover:bg-amber-500/25 border border-amber-500/20"
-                onClick={() => { if (deleteInvId) handleArchiveInv(deleteInvId) }}
+                onClick={(e) => handleArchiveInv(e)}
                 disabled={archivingInv}
               >
                 {archivingInv ? <Loader2 className="h-4 w-4 animate-spin" /> : '🚫 Nonaktifkan'}
@@ -4707,7 +4944,7 @@ export default function PurchasePage() {
             ) : (
               <AlertDialogAction
                 className="bg-red-500/15 text-red-400 hover:bg-red-500/25 border border-red-500/20"
-                onClick={() => handleDeleteInv()}
+                onClick={(e) => handleDeleteInv(e)}
                 disabled={archivingInv}
               >
                 {archivingInv ? <Loader2 className="h-4 w-4 animate-spin" /> : '🗑 Hapus'}
@@ -6098,7 +6335,7 @@ export default function PurchasePage() {
               </div>
               {/* Download template button */}
               <Button onClick={() => {
-                window.open('/api/purchases/export', '_blank')
+                window.open('/api/purchases/export-template', '_blank')
               }} variant="outline" className="w-full bg-white/[0.04] border-white/[0.04] text-slate-300 hover:text-white hover:bg-white/[0.04] h-9 text-xs">
                 <Download className="mr-1.5 h-3.5 w-3.5" />
                 Download Template Edit

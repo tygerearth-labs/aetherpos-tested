@@ -36,6 +36,11 @@ export async function GET(request: NextRequest) {
         { name: { contains: search } },
         { sku: { contains: search } },
         { barcode: { contains: search } },
+        { unit: { contains: search } },
+        { category: { name: { contains: search } } },
+        { variants: { some: { name: { contains: search } } } },
+        { variants: { some: { sku: { contains: search } } } },
+        { variants: { some: { barcode: { contains: search } } } },
       ]
     }
     if (categoryId) {

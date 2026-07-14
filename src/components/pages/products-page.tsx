@@ -989,6 +989,10 @@ export default function ProductsPage() {
           productIds: Array.from(selectedIds),
           priceAdjustment: { type: bulkPriceType, value },
           selectAllMode,
+          filter: {
+            search: search || undefined,
+            categoryId: activeCategoryId || undefined,
+          },
         }),
       })
       if (res.ok) {
@@ -1027,6 +1031,10 @@ export default function ProductsPage() {
           productIds: Array.from(selectedIds),
           stockAdjustment: { type: bulkStockType, value },
           selectAllMode,
+          filter: {
+            search: search || undefined,
+            categoryId: activeCategoryId || undefined,
+          },
         }),
       })
       if (res.ok) {
@@ -1059,6 +1067,10 @@ export default function ProductsPage() {
           productIds: Array.from(selectedIds),
           categoryId: bulkCategoryId,
           selectAllMode,
+          filter: {
+            search: search || undefined,
+            categoryId: activeCategoryId || undefined,
+          },
         }),
       })
       if (res.ok) {
@@ -1263,6 +1275,11 @@ export default function ProductsPage() {
         body: JSON.stringify({
           productIds: Array.from(selectedIds),
           selectAllMode,
+          // Send current filter params so the API deletes only matching products
+          filter: {
+            search: search || undefined,
+            categoryId: activeCategoryId || undefined,
+          },
         }),
       })
       if (res.ok) {
@@ -1769,11 +1786,19 @@ export default function ProductsPage() {
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
           <Input
-            placeholder="Cari produk..."
+            placeholder="Cari nama, SKU, barcode, kategori, varian..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-9 h-9 text-xs bg-white/[0.04] border-white/[0.04] text-white placeholder:text-slate-500 rounded-lg focus-visible:ring-white/[0.06]"
+            className="pl-9 pr-8 h-9 text-xs bg-white/[0.04] border-white/[0.04] text-white placeholder:text-slate-500 rounded-lg focus-visible:ring-white/[0.06]"
           />
+          {search && (
+            <button
+              onClick={() => setSearch('')}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white transition-colors"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
         <Select value={sort} onValueChange={(val) => setSort(val as SortOption)}>
           <SelectTrigger className="w-full sm:w-[180px] h-9 text-xs bg-white/[0.04] border-white/[0.04] text-white rounded-lg">

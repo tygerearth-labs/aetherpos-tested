@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
     const outletId = user.outletId
     const userId = user.id
     const body = await request.json()
-    const { productIds, selectAllMode } = body
+    const { productIds, selectAllMode, filter } = body
 
     if (!selectAllMode && (!Array.isArray(productIds) || productIds.length === 0)) {
       return safeJsonError('Product IDs diperlukan', 400)
@@ -32,15 +32,34 @@ export async function POST(request: NextRequest) {
       return safeJsonError(`Maksimal ${maxDelete} produk yang bisa dihapus sekaligus`, 400)
     }
 
+    // Build the where clause for selectAllMode using the same filters
+    // as the products list API, so we only delete what the user sees.
+    const selectAllWhere: Record<string, unknown> = { outletId }
+    if (filter?.search) {
+      selectAllWhere.OR = [
+        { name: { contains: filter.search } },
+        { sku: { contains: filter.search } },
+        { barcode: { contains: filter.search } },
+        { unit: { contains: filter.search } },
+        { category: { name: { contains: filter.search } } },
+        { variants: { some: { name: { contains: filter.search } } } },
+        { variants: { some: { sku: { contains: filter.search } } } },
+        { variants: { some: { barcode: { contains: filter.search } } } },
+      ]
+    }
+    if (filter?.categoryId) {
+      selectAllWhere.categoryId = filter.categoryId
+    }
+
     // Delete in a transaction: compositions, variants, then products
     // TransactionItem rows are preserved — Prisma's onDelete: SetNull
     // will nullify productId/variantId, but snapshot fields (productName,
     // variantName, price, qty, subtotal) remain intact.
     const { count: deletedCount, productsForAudit, variantIds } = await db.$transaction(async (tx) => {
-      // Get all product IDs to delete (including all if selectAllMode)
+      // Get all product IDs to delete (using filters when selectAllMode)
       const idsToDelete = selectAllMode
         ? (await tx.product.findMany({
-            where: { outletId },
+            where: selectAllWhere,
             select: { id: true },
           })).map((p) => p.id)
         : productIds
