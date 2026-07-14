@@ -2965,22 +2965,6 @@ export default function PurchasePage() {
                 />
               </div>
               <div className="flex items-center gap-2 w-full sm:w-auto">
-                <Select value={invSortBy} onValueChange={(v) => { setInvSortBy(v); setInvPage(1); setSelectedInvIds(new Set()) }}>
-                  <SelectTrigger className="bg-white/[0.04] border-white/[0.06] text-white text-xs h-8 w-[140px] rounded-lg shrink-0">
-                    <ArrowUpDown className="h-3 w-3 mr-1 text-slate-500" />
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="bg-nebula border-white/[0.06]">
-                    <SelectItem value="name-asc" className="text-slate-200 text-xs">Nama A-Z</SelectItem>
-                    <SelectItem value="name-desc" className="text-slate-200 text-xs">Nama Z-A</SelectItem>
-                    <SelectItem value="stock-desc" className="text-slate-200 text-xs">Stock Terbanyak</SelectItem>
-                    <SelectItem value="stock-asc" className="text-slate-200 text-xs">Stock Terendah</SelectItem>
-                    <SelectItem value="value-desc" className="text-slate-200 text-xs">Nilai Terbesar</SelectItem>
-                    <SelectItem value="value-asc" className="text-slate-200 text-xs">Nilai Terkecil</SelectItem>
-                    <SelectItem value="updatedAt-desc" className="text-slate-200 text-xs">Terbaru</SelectItem>
-                    <SelectItem value="updatedAt-asc" className="text-slate-200 text-xs">Terlama</SelectItem>
-                  </SelectContent>
-                </Select>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -3170,9 +3154,10 @@ export default function PurchasePage() {
             {/* Selection action bar — floating */}
             {selectedInvIds.size > 0 && (
               <motion.div
-                initial={{ opacity: 0, y: -8 }}
+                initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="sticky bottom-4 z-30 flex items-center justify-between gap-2 p-2.5 rounded-xl bg-nebula/95 backdrop-blur-xl border border-emerald-500/20 shadow-2xl shadow-emerald-500/5"
+                exit={{ opacity: 0, y: 16 }}
+                className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center justify-between gap-2 p-2.5 rounded-xl bg-nebula/95 backdrop-blur-xl border border-emerald-500/20 shadow-2xl shadow-emerald-500/10 max-w-[calc(100vw-2rem)]"
               >
                 <div className="flex items-center gap-2 min-w-0">
                   <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
@@ -3225,6 +3210,32 @@ export default function PurchasePage() {
             {/* Desktop Table */}
             <div className="hidden md:block">
               <Card className="bg-nebula border-white/[0.06] overflow-hidden rounded-xl">
+                {/* Inline sort filter chips */}
+                <div className="flex items-center gap-1 px-4 pt-3 pb-1 overflow-x-auto custom-scrollbar">
+                  {([
+                    ['name-asc', 'Nama A-Z'],
+                    ['name-desc', 'Nama Z-A'],
+                    ['stock-desc', 'Stock Terbanyak'],
+                    ['stock-asc', 'Stock Terendah'],
+                    ['value-desc', 'Nilai Terbesar'],
+                    ['value-asc', 'Nilai Terkecil'],
+                    ['updatedAt-desc', 'Terbaru'],
+                    ['updatedAt-asc', 'Terlama'],
+                  ] as const).map(([val, label]) => (
+                    <button
+                      key={val}
+                      onClick={() => { setInvSortBy(val); setInvPage(1); setSelectedInvIds(new Set()) }}
+                      className={cn(
+                        'shrink-0 px-2.5 py-1 rounded-md text-[11px] font-medium transition-all whitespace-nowrap',
+                        invSortBy === val
+                          ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/25'
+                          : 'text-slate-500 hover:text-slate-300 hover:bg-white/[0.04] border border-transparent',
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
                 <Table>
                   <TableHeader>
                     <TableRow className="border-white/[0.06] hover:bg-transparent">
@@ -3361,6 +3372,33 @@ export default function PurchasePage() {
                   </TableBody>
                 </Table>
               </Card>
+            </div>
+
+            {/* Mobile sort chips */}
+            <div className="md:hidden flex items-center gap-1 overflow-x-auto custom-scrollbar pb-1">
+              {([
+                ['name-asc', 'A-Z'],
+                ['name-desc', 'Z-A'],
+                ['stock-desc', 'Stock ↓'],
+                ['stock-asc', 'Stock ↑'],
+                ['value-desc', 'Nilai ↓'],
+                ['value-asc', 'Nilai ↑'],
+                ['updatedAt-desc', 'Terbaru'],
+                ['updatedAt-asc', 'Terlama'],
+              ] as const).map(([val, label]) => (
+                <button
+                  key={val}
+                  onClick={() => { setInvSortBy(val); setInvPage(1); setSelectedInvIds(new Set()) }}
+                  className={cn(
+                    'shrink-0 px-2.5 py-1 rounded-md text-[11px] font-medium transition-all whitespace-nowrap',
+                    invSortBy === val
+                      ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/25'
+                      : 'text-slate-500 hover:text-slate-300 hover:bg-white/[0.04] border border-transparent',
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
 
             {/* Mobile Cards */}
@@ -5083,6 +5121,9 @@ export default function PurchasePage() {
                   ))}
                 </div>
               )}
+              <Button onClick={() => { setInvEditExcelFile(null); setInvEditExcelResult(null) }} className="w-full bg-white/[0.04] border border-white/[0.06] text-slate-300 hover:text-white hover:bg-white/[0.04] h-8 text-xs">
+                Selesai
+              </Button>
             </div>
           )}
         </ResponsiveDialogContent>

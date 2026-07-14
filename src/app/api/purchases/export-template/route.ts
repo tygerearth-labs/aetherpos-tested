@@ -29,11 +29,11 @@ export async function GET(request: NextRequest) {
       return safeJsonError('Fitur edit pembelian via Excel hanya tersedia untuk akun Pro ke atas. Upgrade sekarang!', 403)
     }
 
-    // Fetch all PO items for this outlet (non-deleted POs)
+    // Fetch all PO items for this outlet
     const poItems = await db.purchaseOrderItem.findMany({
-      where: { outletId, purchaseOrder: { deletedAt: null } },
+      where: { outletId },
       include: {
-        purchaseOrder: { select: { orderNumber: true, supplierName: true } },
+        purchaseOrder: { select: { orderNumber: true, supplier: { select: { name: true } } } },
       },
       orderBy: { createdAt: 'desc' },
       take: 5000,
