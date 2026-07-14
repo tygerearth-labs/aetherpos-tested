@@ -377,6 +377,7 @@ const itemVariants = {
 // ════════════════════════════════════════════════════════════
 export default function PurchasePage() {
   const { data: session } = useSession()
+  const isOwner = session?.user?.role === 'OWNER'
 
   // ── Tab ──
   const [tab, setTab] = useState<string>('purchase')
@@ -2819,7 +2820,7 @@ export default function PurchasePage() {
                               >
                                 <Pencil className="h-3.5 w-3.5" />
                               </Button>
-                              {session?.user?.role === 'OWNER' && (
+                              {isOwner && (
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -2890,7 +2891,7 @@ export default function PurchasePage() {
                               >
                                 <Pencil className="h-3.5 w-3.5" />
                               </button>
-                              {session?.user?.role === 'OWNER' && (
+                              {isOwner && (
                               <button
                                 className={cn(
                                   "w-7 h-7 rounded-md flex items-center justify-center transition-colors",
@@ -3195,24 +3196,28 @@ export default function PurchasePage() {
                     <span className="hidden sm:inline">Pindah Kategori</span>
                     <span className="sm:hidden">Kategori</span>
                   </Button>
-                  <Button
-                    size="sm"
-                    onClick={() => { setPostStep(1); setPostProductOpen(true); void fetchProductCategories() }}
-                    className="h-7 text-[11px] theme-bg theme-hover text-white px-3 gap-1.5 rounded-lg"
-                  >
-                    <Sparkles className="h-3 w-3" />
-                    <span className="hidden sm:inline">Post ke Produk</span>
-                    <span className="sm:hidden">Post</span>
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => setInvBulkDeleteOpen(true)}
-                    className="h-7 text-[11px] text-red-400 hover:text-red-300 hover:bg-red-500/[0.06] px-3 gap-1.5 rounded-lg border border-red-500/10"
-                  >
-                    <Trash2 className="h-3 w-3" />
-                    Hapus
-                  </Button>
+                  {isOwner && (
+                    <Button
+                      size="sm"
+                      onClick={() => { setPostStep(1); setPostProductOpen(true); void fetchProductCategories() }}
+                      className="h-7 text-[11px] theme-bg theme-hover text-white px-3 gap-1.5 rounded-lg"
+                    >
+                      <Sparkles className="h-3 w-3" />
+                      <span className="hidden sm:inline">Post ke Produk</span>
+                      <span className="sm:hidden">Post</span>
+                    </Button>
+                  )}
+                  {isOwner && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setInvBulkDeleteOpen(true)}
+                      className="h-7 text-[11px] text-red-400 hover:text-red-300 hover:bg-red-500/[0.06] px-3 gap-1.5 rounded-lg border border-red-500/10"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                      Hapus
+                    </Button>
+                  )}
                 </div>
               </motion.div>
             )}
@@ -3606,7 +3611,7 @@ export default function PurchasePage() {
               )}
 
               {/* Actions — Owner only */}
-              {session?.user?.role === 'OWNER' && (
+              {isOwner && (
               <div>
                 <div className="flex gap-2 pt-2 border-t border-white/[0.04]">
                   <Button

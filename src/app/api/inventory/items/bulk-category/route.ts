@@ -14,7 +14,16 @@ export async function PATCH(request: NextRequest) {
   try {
     const user = await getAuthUser(request)
     if (!user) return unauthorized()
-    if (user.role !== 'OWNER') return safeJsonError('Hanya OWNER yang dapat mengubah kategori', 403)
+    // OWNER always allowed; CREW allowed if they have "purchase" page access
+    if (user.role !== 'OWNER') {
+      const crewPerm = await db.crewPermission.findUnique({
+        where: { userId: user.id },
+      })
+      const pages = (crewPerm?.pages || 'pos').split(',')
+      if (!pages.includes('purchase')) {
+        return safeJsonError('Anda tidak memiliki akses untuk mengubah kategori', 403)
+      }
+    }
 
     const body = await request.json()
     const { ids, categoryId } = body as { ids?: string[]; categoryId?: string | null }
