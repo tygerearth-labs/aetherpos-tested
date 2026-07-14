@@ -80,6 +80,9 @@ export default function DashboardPage() {
   const topSelling = insightData?.metrics.topSelling ?? []
 
   // ── Migration Banner: show only for OWNER when 0 products ──
+  // IMPORTANT: Always render <MigrationBanner /> so its internal dialog state
+  // survives dashboard refetches (refetchInterval / refetchOnWindowFocus).
+  // The component itself decides when to show the banner card vs dialogs.
   const showMigrationBanner = isOwner && (stats?.totalProducts ?? 0) === 0
 
   // ── Loading Skeleton ──
@@ -131,11 +134,9 @@ export default function DashboardPage() {
       {/* ═══════════════════════════════════════════════════
           ROW 1.5 — Migration Banner (New User: 0 Products)
           ═══════════════════════════════════════════════════ */}
-      {showMigrationBanner && (
-        <motion.div variants={itemVariants}>
-          <MigrationBanner />
-        </motion.div>
-      )}
+      <motion.div variants={itemVariants}>
+        <MigrationBanner showBanner={showMigrationBanner} />
+      </motion.div>
 
       {/* ═══════════════════════════════════════════════════
           ROW 2 — Upgrade Banner (FREE only)

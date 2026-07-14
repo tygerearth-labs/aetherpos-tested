@@ -42,7 +42,11 @@ const itemVariants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.35, ease: [0.25, 0.46, 0.45, 0.94] } },
 }
 
-export function MigrationBanner() {
+interface MigrationBannerProps {
+  showBanner: boolean
+}
+
+export function MigrationBanner({ showBanner: shouldShowBanner }: MigrationBannerProps) {
   const queryClient = useQueryClient()
   const [wizardState, setWizardState] = useState<WizardState>('idle')
   const [selectedMode, setSelectedMode] = useState<ImportMode>('product_only')
@@ -91,15 +95,28 @@ export function MigrationBanner() {
     handleDismiss()
   }, [queryClient, handleDismiss])
 
-  // Banner visibility — hide ONLY the banner on success, dialogs stay mounted
-  const showBanner = wizardState !== 'success' && wizardState !== 'choosing_mode' && wizardState !== 'uploading' && wizardState !== 'processing'
+  // Banner card visibility — only show the banner card when:
+  // 1. Parent says we should (totalProducts === 0)
+  // 2. Wizard is NOT active (not in the middle of upload/process/success flow)
+  //
+  // CRITICAL: The dialogs are ALWAYS rendered (controlled by their `open` prop)
+  // so they survive parent re-renders when totalProducts changes from 0 to >0.
+  const isWizardActive = wizardState !== 'idle'
+  const showBannerCard = shouldShowBanner && !isWizardActive
+
+  // Render nothing at all when banner shouldn't show AND wizard is not active.
+  // This avoids an empty Fragment being mounted on every dashboard page for
+  // existing users who already have products.
+  if (!shouldShowBanner && !isWizardActive) {
+    return null
+  }
 
   return (
     <>
       {/* ═══════════════════════════════════════════════════
           MIGRATION BANNER — New User (0 Products)
           ═══════════════════════════════════════════════════ */}
-      {showBanner && (
+      {showBannerCard && (
         <motion.div variants={bannerVariants}>
         <div className="relative overflow-hidden rounded-2xl border border-stellar-border">
           {/* Background gradient */}
