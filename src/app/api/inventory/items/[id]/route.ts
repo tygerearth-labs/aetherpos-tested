@@ -317,6 +317,40 @@ export async function DELETE(
       if (counts.inventoryTransferItems > 0) blockers.push(`${counts.inventoryTransferItems} riwayat transfer`)
       if (counts.consumptionSnapshots > 0) blockers.push(`${counts.consumptionSnapshots} riwayat konsumsi`)
 
+      // Fetch linked products (same logic as GET endpoint)
+      let linkedProducts: Array<{ productId: string; productName: string; variantName: string | null; qty: number; baseUnit: string }> = []
+      if (counts.compositions > 0) {
+        try {
+          const allComps = await db.productComposition.findMany({
+            where: { inventoryItemId: id },
+            select: { productId: true, variantId: true, qty: true, baseUnit: true },
+          })
+          const productIds = [...new Set(allComps.map(c => c.productId))]
+          const variantIds = [...new Set(allComps.filter(c => c.variantId).map(c => c.variantId!))]
+
+          const [existingProducts, existingVariants] = await Promise.all([
+            db.product.findMany({ where: { id: { in: productIds } }, select: { id: true, name: true } }),
+            variantIds.length > 0
+              ? db.productVariant.findMany({ where: { id: { in: variantIds } }, select: { id: true, name: true } })
+              : Promise.resolve([]),
+          ])
+          const productMap = new Map(existingProducts.map(p => [p.id, p]))
+          const variantMap = new Map(existingVariants.map(v => [v.id, v]))
+
+          linkedProducts = allComps
+            .filter(c => productMap.has(c.productId))
+            .map(c => ({
+              productId: c.productId,
+              productName: productMap.get(c.productId)!.name,
+              variantName: c.variantId ? variantMap.get(c.variantId)?.name || null : null,
+              qty: c.qty,
+              baseUnit: c.baseUnit,
+            }))
+        } catch {
+          // Non-critical: linked products list is informational only
+        }
+      }
+
       return safeJson({
         blocked: true,
         blockType: 'hasHistory',
@@ -324,6 +358,7 @@ export async function DELETE(
         blockers,
         totalHistory,
         counts,
+        linkedProducts,
         suggestion: 'Gunakan "Nonaktifkan" untuk menyembunyikan item tanpa menghapus data.',
       })
     }

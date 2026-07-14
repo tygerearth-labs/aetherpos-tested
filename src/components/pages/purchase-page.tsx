@@ -48,7 +48,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Pagination } from '@/components/shared/pagination'
-import { ProGate } from '@/components/shared/pro-gate'
+import { LockedDropdownItem } from '@/components/shared/locked-dropdown-item'
 import { Switch } from '@/components/ui/switch'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -549,6 +549,7 @@ export default function PurchasePage() {
 
   // Inventory delete / archive
   const [deleteInvId, setDeleteInvId] = useState<string | null>(null)
+  const [deleteInvLoading, setDeleteInvLoading] = useState(false)
   const [archivingInv, setArchivingInv] = useState(false)
   const [invDeleteBlocked, setInvDeleteBlocked] = useState<{
     blockType?: 'hasHistory' | 'compositions' | 'purchaseItems'
@@ -561,6 +562,8 @@ export default function PurchasePage() {
   } | null>(null)
   const [invBulkDeleteOpen, setInvBulkDeleteOpen] = useState(false)
   const [invBulkDeleting, setInvBulkDeleting] = useState(false)
+  const [poExporting, setPoExporting] = useState(false)
+  const [invExporting, setInvExporting] = useState(false)
   // Inventory edit Excel
   const [invEditExcelOpen, setInvEditExcelOpen] = useState(false)
   const [invEditExcelFile, setInvEditExcelFile] = useState<File | null>(null)
@@ -1785,10 +1788,77 @@ export default function PurchasePage() {
     }
   }
 
+  // ══════════════════════════════════════════════════════════
+  // Export helpers (fetch + blob download with error handling)
+  // ══════════════════════════════════════════════════════════
+  const downloadBlob = async (url: string, filename: string, loadingSetter: (v: boolean) => void) => {
+    loadingSetter(true)
+    try {
+      const res = await fetch(url)
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        toast.error(data.error || `Export gagal (${res.status})`)
+        return
+      }
+      const blob = await res.blob()
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(a.href)
+      toast.success('Export berhasil diunduh')
+    } catch {
+      toast.error('Gagal mengekspor. Coba lagi.')
+    } finally {
+      loadingSetter(false)
+    }
+  }
+
+  const handlePoExport = () => {
+    const params = new URLSearchParams()
+    if (poDebouncedSearch) params.set('search', poDebouncedSearch)
+    const filename = `purchase-export-${new Date().toISOString().slice(0, 10)}.xlsx`
+    void downloadBlob(`/api/purchases/export?${params}`, filename, setPoExporting)
+  }
+
+  const handleInvExport = () => {
+    const filename = `inventory-export-${new Date().toISOString().slice(0, 10)}.xlsx`
+    void downloadBlob('/api/inventory/items/export', filename, setInvExporting)
+  }
+
+  // Pre-fetch inventory item details when opening delete dialog
+  const openDeleteInvDialog = async (id: string) => {
+    setDeleteInvId(id)
+    setInvDeleteBlocked(null)
+    setDeleteInvLoading(true)
+    try {
+      const res = await fetch(`/api/inventory/items/${id}`)
+      if (res.ok) {
+        const data = await res.json()
+        if (data.linkedProducts && data.linkedProducts.length > 0) {
+          setInvDeleteBlocked({
+            blockType: 'hasHistory',
+            message: 'Item ini memiliki histori bisnis dan tidak dapat dihapus',
+            blockers: [],
+            suggestion: 'Gunakan "Nonaktifkan" untuk menyembunyikan item tanpa menghapus data.',
+            linkedProducts: data.linkedProducts,
+          })
+        }
+      }
+    } catch {
+      // Non-critical — dialog will still work, just without pre-fetched data
+    } finally {
+      setDeleteInvLoading(false)
+    }
+  }
+
   const handleDeleteInv = async (e?: React.MouseEvent) => {
     if (e) e.preventDefault() // Prevent AlertDialogAction from auto-closing
     if (!deleteInvId) return
     setArchivingInv(true)
+    const preFetchedLinked = invDeleteBlocked?.linkedProducts || []
     setInvDeleteBlocked(null)
     try {
       const res = await fetch(`/api/inventory/items/${deleteInvId}`, { method: 'DELETE' })
@@ -1800,7 +1870,7 @@ export default function PurchasePage() {
             message: data.message,
             blockers: data.blockers || [],
             suggestion: data.suggestion,
-            linkedProducts: data.linkedProducts || [],
+            linkedProducts: data.linkedProducts?.length > 0 ? data.linkedProducts : preFetchedLinked,
           })
         } else {
           toast.success('Item berhasil dihapus')
@@ -1860,7 +1930,11 @@ export default function PurchasePage() {
       })
       if (res.ok) {
         const data = await res.json()
-        toast.success(`${data.deletedCount} item berhasil dihapus`)
+        if (data.blockedCount > 0) {
+          toast.warning(`${data.deletedCount} item dihapus, ${data.blockedCount} dilewati (punya histori)`)
+        } else {
+          toast.success(`${data.deletedCount} item berhasil dihapus`)
+        }
         setInvBulkDeleteOpen(false)
         setSelectedInvIds(new Set())
         void fetchInventoryItems()
@@ -2436,27 +2510,23 @@ export default function PurchasePage() {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-[220px] rounded-xl border-white/[0.08] bg-nebula p-1 shadow-2xl shadow-black/60">
-                  <DropdownMenuItem onClick={() => {
-                    const params = new URLSearchParams()
-                    if (poDebouncedSearch) params.set('search', poDebouncedSearch)
-                    window.open(`/api/purchases/export?${params}`, '_blank')
-                  }} className="flex items-center gap-2.5 px-3 py-2.5 text-xs text-slate-300 hover:bg-white/[0.04] hover:text-white rounded-lg cursor-pointer focus:bg-white/[0.04] focus:text-white">
-                    <Download className="h-3.5 w-3.5 text-slate-500" />
+                  <DropdownMenuItem onClick={handlePoExport} disabled={poExporting} className="flex items-center gap-2.5 px-3 py-2.5 text-xs text-slate-300 hover:bg-white/[0.04] hover:text-white rounded-lg cursor-pointer focus:bg-white/[0.04] focus:text-white">
+                    {poExporting ? <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" /> : <Download className="h-3.5 w-3.5 text-slate-500" />}
                     <div className="flex-1">
                       <span>Export Excel</span>
-                      <p className="text-[10px] text-slate-600">Download data</p>
+                      <p className="text-[10px] text-slate-600">{poExporting ? 'Mengunduh...' : 'Download data'}</p>
                     </div>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator className="bg-white/[0.06] my-1" />
-                  <ProGate feature="bulkUpload" label="" description="" variant="inline">
-                    <DropdownMenuItem onClick={() => { setEditExcelOpen(true); setEditExcelFile(null); setEditExcelResult(null) }} className="flex items-center gap-2.5 px-3 py-2.5 text-xs text-slate-300 hover:bg-white/[0.04] hover:text-white rounded-lg cursor-pointer focus:bg-white/[0.04] focus:text-white">
-                      <FilePenLine className="h-3.5 w-3.5 text-slate-500" />
-                      <div className="flex-1">
-                        <span>Edit Excel</span>
-                        <p className="text-[10px] text-slate-600">Update massal</p>
-                      </div>
-                    </DropdownMenuItem>
-                  </ProGate>
+                  <LockedDropdownItem
+                    feature="bulkUpload"
+                    icon={<FilePenLine className="h-3.5 w-3.5" />}
+                    iconColor="text-slate-500"
+                    iconHoverColor="group-hover:text-cyan-400"
+                    title="Edit Excel"
+                    subtitle="Update massal"
+                    onClick={() => { setEditExcelOpen(true); setEditExcelFile(null); setEditExcelResult(null) }}
+                  />
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
@@ -2810,7 +2880,7 @@ export default function PurchasePage() {
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
                 <Input
                   value={invSearch}
-                  onChange={(e) => { setInvSearch(e.target.value); setInvPage(1) }}
+                  onChange={(e) => { setInvSearch(e.target.value); setInvPage(1); setSelectedInvIds(new Set()) }}
                   placeholder="Cari item..."
                   className={cn(inputClass, 'pl-8')}
                 />
@@ -2825,7 +2895,7 @@ export default function PurchasePage() {
                   <Tags className="h-3 w-3" />
                   <span className="hidden sm:inline">Kategori</span>
                 </Button>
-                <Select value={invCategoryFilter} onValueChange={(v) => { setInvCategoryFilter(v); setInvPage(1) }}>
+                <Select value={invCategoryFilter} onValueChange={(v) => { setInvCategoryFilter(v); setInvPage(1); setSelectedInvIds(new Set()) }}>
                   <SelectTrigger className="bg-white/[0.04] border-white/[0.06] text-white text-xs h-8 w-[120px] rounded-lg">
                     <SelectValue placeholder="Semua" />
                   </SelectTrigger>
@@ -2847,7 +2917,7 @@ export default function PurchasePage() {
                       ? 'text-amber-400 hover:text-amber-300 bg-amber-500/[0.06] border-amber-500/20'
                       : 'text-slate-500 hover:text-slate-300 hover:bg-white/[0.04] border-white/[0.06]',
                   )}
-                  onClick={() => { setShowInactiveItems(!showInactiveItems); setInvPage(1) }}
+                  onClick={() => { setShowInactiveItems(!showInactiveItems); setInvPage(1); setSelectedInvIds(new Set()) }}
                 >
                   <Archive className="h-3 w-3" />
                   <span className="hidden sm:inline">{showInactiveItems ? 'Sembunyikan Nonaktif' : 'Tampilkan Nonaktif'}</span>
@@ -2879,20 +2949,23 @@ export default function PurchasePage() {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-[200px] rounded-xl border-white/[0.08] bg-nebula p-1 shadow-2xl shadow-black/60">
-                    <DropdownMenuItem onClick={() => window.open('/api/inventory/items/export', '_blank')} className="flex items-center gap-2.5 px-3 py-2.5 text-xs text-slate-300 hover:bg-white/[0.04] hover:text-white rounded-lg cursor-pointer focus:bg-white/[0.04] focus:text-white">
-                      <Download className="h-3.5 w-3.5 text-slate-500" />
+                    <DropdownMenuItem onClick={handleInvExport} disabled={invExporting} className="flex items-center gap-2.5 px-3 py-2.5 text-xs text-slate-300 hover:bg-white/[0.04] hover:text-white rounded-lg cursor-pointer focus:bg-white/[0.04] focus:text-white">
+                      {invExporting ? <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" /> : <Download className="h-3.5 w-3.5 text-slate-500" />}
                       <div className="flex-1">
                         <span>Export Excel</span>
-                        <p className="text-[10px] text-slate-600">Download data</p>
+                        <p className="text-[10px] text-slate-600">{invExporting ? 'Mengunduh...' : 'Download data'}</p>
                       </div>
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => { setInvEditExcelOpen(true); setInvEditExcelFile(null); setInvEditExcelResult(null) }} className="flex items-center gap-2.5 px-3 py-2.5 text-xs text-slate-300 hover:bg-white/[0.04] hover:text-white rounded-lg cursor-pointer focus:bg-white/[0.04] focus:text-white">
-                      <FilePenLine className="h-3.5 w-3.5 text-slate-500" />
-                      <div className="flex-1">
-                        <span>Edit Excel</span>
-                        <p className="text-[10px] text-slate-600">Update massal</p>
-                      </div>
-                    </DropdownMenuItem>
+                    <DropdownMenuSeparator className="bg-white/[0.06] my-1" />
+                    <LockedDropdownItem
+                      feature="bulkUpload"
+                      icon={<FilePenLine className="h-3.5 w-3.5" />}
+                      iconColor="text-slate-500"
+                      iconHoverColor="group-hover:text-cyan-400"
+                      title="Edit Excel"
+                      subtitle="Update massal"
+                      onClick={() => { setInvEditExcelOpen(true); setInvEditExcelFile(null); setInvEditExcelResult(null) }}
+                    />
                   </DropdownMenuContent>
                 </DropdownMenu>
                 {selectedInvIds.size > 0 && (
@@ -3172,7 +3245,7 @@ export default function PurchasePage() {
                                     if (item.status === 'ARCHIVED') {
                                       handleRestoreInv(item.id)
                                     } else {
-                                      setDeleteInvId(item.id)
+                                      void openDeleteInvDialog(item.id)
                                     }
                                   }}
                                 >
@@ -3310,7 +3383,7 @@ export default function PurchasePage() {
             </div>
 
             {/* Pagination */}
-            <Pagination currentPage={invPage} totalPages={invTotalPages} onPageChange={setInvPage} />
+            <Pagination currentPage={invPage} totalPages={invTotalPages} onPageChange={(p) => { setInvPage(p); setSelectedInvIds(new Set()) }} />
           </TabsContent>
         </Tabs>
       </motion.div>
@@ -4882,9 +4955,9 @@ export default function PurchasePage() {
         <AlertDialogContent className="bg-nebula border-white/[0.06]">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-white">
-              {invDeleteBlocked?.blockType === 'hasHistory' ? '🚫 Item Tidak Dapat Dihapus' : 'Hapus Item?'}
+              {deleteInvLoading ? 'Memeriksa item...' : invDeleteBlocked?.blockType === 'hasHistory' ? '🚫 Item Tidak Dapat Dihapus' : 'Hapus Item?'}
             </AlertDialogTitle>
-            {!invDeleteBlocked ? (
+            {!invDeleteBlocked && !deleteInvLoading ? (
               <AlertDialogDescription className="text-slate-400">
                 Item yang dihapus tidak dapat dikembalikan.
               </AlertDialogDescription>
@@ -5788,7 +5861,7 @@ export default function PurchasePage() {
                     size="sm"
                     variant="ghost"
                     className="h-7 px-2 text-slate-400 hover:text-red-400 hover:bg-red-500/[0.06]"
-                    onClick={() => { setDeleteInvId(invDetailData.id); setInvDetailOpen(false) }}
+                    onClick={() => { setInvDetailOpen(false); void openDeleteInvDialog(invDetailData.id) }}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>

@@ -88,7 +88,7 @@ export async function GET(request: NextRequest) {
       o.totalCost,
       o.items.length,
       o.notes || '',
-      o.createdBy.name,
+      o.createdBy?.name || '-',
     ])
 
     const wsPO = XLSX.utils.aoa_to_sheet([poHeader, ...poRows])
@@ -204,6 +204,7 @@ export async function GET(request: NextRequest) {
       headers: {
         'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'Content-Disposition': `attachment; filename="${filename}"`,
+        'Content-Length': String(buffer.length),
       },
     })
   } catch (error) {
