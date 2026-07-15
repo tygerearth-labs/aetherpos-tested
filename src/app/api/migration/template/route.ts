@@ -39,35 +39,67 @@ export async function GET(request: NextRequest) {
     ]
 
     const nonVariantData: (string | number)[][] = [
-      // ── Retail / Minimarket ──
-      ['Air Mineral 600ml', 'RTL-001', '8992001001', 2500, 4000, ...(showStock ? [144] : []), 'pcs', 'Minuman', ...(showStock ? [24] : []), ...(showComposition ? [''] : [])],
-      ['Minyak Goreng 1L', 'RTL-002', '8992001002', 14000, 18000, ...(showStock ? [60] : []), 'pcs', 'Sembako', ...(showStock ? [10] : []), ...(showComposition ? [''] : [])],
-      ['Tisu Paseo 250 Sheet', 'RTL-003', '8992001003', 7500, 11000, ...(showStock ? [48] : []), 'pcs', 'Kebutuhan Rumah', ...(showStock ? [10] : []), ...(showComposition ? [''] : [])],
+      // ════════════════════════════════════════════════════════
+      // MODE 2: PRODUK + STOK GUDANG (1:1)
+      // Untuk: Ritel, Fashion, Beauty, Kelontong, Elektronik, dll
+      // Stok = Produk yang dijual (Auto-linked 1:1)
+      // ════════════════════════════════════════════════════════
 
-      // ── Beauty / Kecantikan ──
-      ['Cream Wajah 30ml', 'BTY-001', '8993001001', 25000, 55000, ...(showStock ? [48] : []), 'pcs', 'Skincare', ...(showStock ? [10] : []), ...(showComposition ? [''] : [])],
-      ['Serum Vitamin C 20ml', 'BTY-002', '8993001002', 35000, 85000, ...(showStock ? [30] : []), 'pcs', 'Skincare', ...(showStock ? [10] : []), ...(showComposition ? [''] : [])],
+      // ── TOKO KELONTONG / MINIMARKET ──
+      ['Aqua 600ml', 'KL-001', '8992775100219', 2000, 3500, ...(showStock ? [240] : []), 'pcs', 'Minuman', ...(showStock ? [48] : []), ...(showComposition ? [''] : [])],
+      ['Indomie Goreng Special', 'KL-002', '8996001100103', 1450, 3000, ...(showStock ? [500] : []), 'pcs', 'Mie Instan', ...(showStock ? [100] : []), ...(showComposition ? [''] : [])],
+      ['Minyak Goreng Bimoli 2L', 'KL-003', '8999999010123', 22000, 28000, ...(showStock ? [72] : []), 'pcs', 'Sembako', ...(showStock ? [15] : []), ...(showComposition ? [''] : [])],
+      ['Beras Premium 5kg', 'KL-004', '', 65000, 75000, ...(showStock ? [40] : []), 'karung', 'Sembako', ...(showStock ? [8] : []), ...(showComposition ? [''] : [])],
+      ['Gula Pasir 1kg', 'KL-005', '', 14000, 16500, ...(showStock ? [100] : []), 'pcs', 'Sembako', ...(showStock ? [25] : []), ...(showComposition ? [''] : [])],
+      ['Kecap Manis Bango 275ml', 'KL-006', '8999999022345', 8500, 12000, ...(showStock ? [80] : []), 'botol', 'Bumbu Dapur', ...(showStock ? [20] : []), ...(showComposition ? [''] : [])],
+      ['Tisu Supreme 250gr', 'KL-007', '8991100111223', 5500, 8500, ...(showStock ? [60] : []), 'pcs', 'Kebersihan', ...(showStock ? [15] : []), ...(showComposition ? [''] : [])],
+      ['Sabun Mandi Lifebuoy 250ml', 'KL-008', '8999999034567', 4500, 7000, ...(showStock ? [120] : []), 'pcs', 'Kebersihan', ...(showStock ? [30] : []), ...(showComposition ? [''] : [])],
 
-      // ── Elektronik / Gadget ──
-      ['Charger HP 20W', 'ELK-001', '8996001001', 15000, 35000, ...(showStock ? [30] : []), 'pcs', 'Aksesoris HP', ...(showStock ? [5] : []), ...(showComposition ? [''] : [])],
-      ['Kabel Data USB-C', 'ELK-002', '8996001002', 8000, 18000, ...(showStock ? [50] : []), 'pcs', 'Aksesoris HP', ...(showStock ? [10] : []), ...(showComposition ? [''] : [])],
+      // ── FASHION & PAKAIAN ──
+      ['Kaos Polos Cotton Combed 30s', 'FSH-001', '', 35000, 55000, ...(showStock ? [80] : []), 'pcs', 'Atasan', ...(showStock ? [16] : []), ...(showComposition ? [''] : [])],
+      ['Kemeja Flanel Unisex', 'FSH-002', '', 85000, 135000, ...(showStock ? [35] : []), 'pcs', 'Atasan', ...(showStock ? [10] : []), ...(showComposition ? [''] : [])],
+      ['Celana Jeans Slim Fit', 'FSH-003', '', 125000, 195000, ...(showStock ? [25] : []), 'pcs', 'Bawahan', ...(showStock ? [8] : []), ...(showComposition ? [''] : [])],
+      ['Hijab Segi Empat 45x115cm', 'FSH-004', '', 18000, 32000, ...(showStock ? [150] : []), 'pcs', 'Hijab', ...(showStock ? [30] : []), ...(showComposition ? [''] : [])],
+      ['Pashmina Voal Motif', 'FSH-005', '', 45000, 75000, ...(showStock ? [45] : []), 'pcs', 'Hijab', ...(showStock ? [12] : []), ...(showComposition ? [''] : [])],
+      ['Gamis Katun Jepang', 'FSH-006', '', 185000, 285000, ...(showStock ? [18] : []), 'pcs', 'Dress/Gamis', ...(showStock ? [5] : []), ...(showComposition ? [''] : [])],
+      ['Jaket Bomber Waterproof', 'FSH-007', '', 165000, 255000, ...(showStock ? [22] : []), 'pcs', 'Outerwear', ...(showStock ? [6] : []), ...(showComposition ? [''] : [])],
+      ['Tas Selempang Canvas', 'FSH-008', '', 75000, 125000, ...(showStock ? [40] : []), 'pcs', 'Tas/Aksesoris', ...(showStock ? [10] : []), ...(showComposition ? [''] : [])],
+      ['Dompet Kulit Pria', 'FSH-009', '', 55000, 95000, ...(showStock ? [30] : []), 'pcs', 'Tas/Aksesoris', ...(showStock ? [8] : []), ...(showComposition ? [''] : [])],
 
-      // ── Farmasi / Kesehatan ──
-      ['Paracetamol 500mg', 'FRM-001', '8995001001', 3500, 7000, ...(showStock ? [200] : []), 'strip', 'Obat Bebas', ...(showStock ? [50] : []), ...(showComposition ? [''] : [])],
-      ['Masker Medis 3ply', 'FRM-003', '8995001003', 800, 2000, ...(showStock ? [500] : []), 'pcs', 'Alat Kesehatan', ...(showStock ? [100] : []), ...(showComposition ? [''] : [])],
+      // ── BEAUTY & SKINCARE ──
+      ['Wardah Lightening Day Cream', 'BTY-001', '8999999011001', 42000, 68000, ...(showStock ? [55] : []), 'pcs', 'Skincare Wajah', ...(showStock ? [14] : []), ...(showComposition ? [''] : [])],
+      ['Serum Niacinamide 30ml', 'BTY-002', '', 85000, 145000, ...(showStock ? [38] : []), 'pcs', 'Serum', ...(showStock ? [10] : []), ...(showComposition ? [''] : [])],
+      ['Sunscreen SPF50 PA++++ 50ml', 'BTY-003', '', 65000, 105000, ...(showStock ? [42] : []), 'pcs', 'Sun Care', ...(showStock ? [12] : []), ...(showComposition ? [''] : [])],
+      ['Lip Matte Creamy', 'BTY-004', '', 48000, 78000, ...(showStock ? [65] : []), 'pcs', 'Makeup Bibir', ...(showStock ? [16] : []), ...(showComposition ? [''] : [])],
+      ['Cushion Foundation Natural', 'BTY-005', '', 155000, 225000, ...(showStock ? [28] : []), 'pcs', 'Makeup Base', ...(showStock ? [8] : []), ...(showComposition ? [''] : [])],
+      ['Bedak Tabur Two Way Cake', 'BTY-006', '', 72000, 115000, ...(showStock ? [48] : []), 'pcs', 'Makeup Wajah', ...(showStock ? [12] : []), ...(showComposition ? [''] : [])],
+      ['Parfum Eau De Parfum 100ml', 'BTY-007', '', 185000, 295000, ...(showStock ? [32] : []), 'botol', 'Parfum', ...(showStock ? [8] : []), ...(showComposition ? [''] : [])],
+      ['Eyeshadow Palette Nude', 'BTY-008', '', 125000, 195000, ...(showStock ? [24] : []), 'pcs', 'Makeup Mata', ...(showStock ? [6] : []), ...(showComposition ? [''] : [])],
 
-      // ── Fashion / Reseller ──
-      ['Kaos Polos Cotton 30s', 'FSH-001', '8994001001', 35000, 65000, ...(showStock ? [100] : []), 'pcs', 'Atasan', ...(showStock ? [15] : []), ...(showComposition ? [''] : [])],
-      ['Hijab Segi Empat', 'FSH-003', '8994001003', 15000, 35000, ...(showStock ? [200] : []), 'pcs', 'Hijab', ...(showStock ? [20] : []), ...(showComposition ? [''] : [])],
+      // ── ELEKTRONIK & GADGET ──
+      ['Charger Fast Charging 20W', 'ELK-001', '', 18000, 35000, ...(showStock ? [65] : []), 'pcs', 'Charger', ...(showStock ? [13] : []), ...(showComposition ? [''] : [])],
+      ['Kabel Data USB-C 1.2m', 'ELK-002', '', 12000, 23000, ...(showStock ? [95] : []), 'pcs', 'Kabel', ...(showStock ? [19] : []), ...(showComposition ? [''] : [])],
+      ['Powerbank 10000mAh', 'ELK-003', '', 95000, 165000, ...(showStock ? [42] : []), 'pcs', 'Powerbank', ...(showStock ? [10] : []), ...(showComposition ? [''] : [])],
+      ['Earphone Bluetooth TWS', 'ELK-004', '', 145000, 245000, ...(showStock ? [35] : []), 'pcs', 'Audio', ...(showStock ? [8] : []), ...(showComposition ? [''] : [])],
+      ['Casing HP iPhone 15 Pro', 'ELK-005', '', 25000, 45000, ...(showStock ? [55] : []), 'pcs', 'Casing HP', ...(showStock ? [11] : []), ...(showComposition ? [''] : [])],
+      ['Casing HP Samsung S24 Ultra', 'ELK-006', '', 25000, 45000, ...(showStock ? [48] : []), 'pcs', 'Casing HP', ...(showStock ? [10] : []), ...(showComposition ? [''] : [])],
+      ['Ring Stand Phone Holder', 'ELK-007', '', 8000, 18000, ...(showStock ? [78] : []), 'pcs', 'Aksesoris HP', ...(showStock ? [16] : []), ...(showComposition ? [''] : [])],
+      ['Screen Protector Tempered Glass', 'ELK-008', '', 5000, 12000, ...(showStock ? [120] : []), 'pcs', 'Screen Guard', ...(showStock ? [24] : []), ...(showComposition ? [''] : [])],
 
-      // ── F&B ──
-      ['Kopi Susu Gula Aren', 'FNB-001', '8991001001', 8000, 18000, ...(showStock ? [100] : []), 'gelas', 'Minuman', ...(showStock ? [20] : []), ...(showComposition ? [''] : [])],
-      ['Roti Bakar Coklat', 'FNB-002', '8991001002', 5000, 12000, ...(showStock ? [60] : []), 'pcs', 'Makanan', ...(showStock ? [10] : []), ...(showComposition ? [''] : [])],
+      // ── FARMASI & KESEHATAN ──
+      ['Paracetamol 500mg 10 kaplet', 'FRM-001', '', 1200, 3000, ...(showStock ? [300] : []), 'strip', 'Obat Sakit Kepala', ...(showStock ? [75] : []), ...(showComposition ? [''] : [])],
+      ['Vitamin C 1000mg 10 tablet', 'FRM-002', '', 3500, 8000, ...(showStock ? [180] : []), 'strip', 'Vitamin', ...(showStock ? [36] : []), ...(showComposition ? [''] : [])],
+      ['Masker Medis 3ply 1 box', 'FRM-003', '', 25000, 45000, ...(showStock ? [60] : []), 'box', 'Alat Kesehatan', ...(showStock ? [12] : []), ...(showComposition ? [''] : [])],
+      ['Hand Sanitizer 500ml', 'FRM-004', '', 18000, 28000, ...(showStock ? [85] : []), 'botol', 'Sanitizer', ...(showStock ? [17] : []), ...(showComposition ? [''] : [])],
+      ['OBH Combat 120ml', 'FRM-005', '', 22000, 35000, ...(showStock ? [70] : []), 'botol', 'Obat Batuk', ...(showStock ? [14] : []), ...(showComposition ? [''] : [])],
+      ['Antiseptic Betadine 100ml', 'FRM-006', '', 38000, 52000, ...(showStock ? [45] : []), 'botol', 'Luka', ...(showStock ? [10] : []), ...(showComposition ? [''] : [])],
 
-      // ── Jasa ──
-      ['Cuci Motor', 'JSA-001', '', 5000, 15000, ...(showStock ? [0] : []), 'pcs', 'Jasa Cuci', ...(showStock ? [0] : []), ...(showComposition ? [''] : [])],
-      ['Potong Rambut Pria', 'JSA-002', '', 3000, 25000, ...(showStock ? [0] : []), 'pcs', 'Jasa Salon', ...(showStock ? [0] : []), ...(showComposition ? [''] : [])],
-      ['Setrika Kaos / pcs', 'JSA-003', '', 1000, 3000, ...(showStock ? [0] : []), 'pcs', 'Laundry', ...(showStock ? [0] : []), ...(showComposition ? [''] : [])],
+      // ── F&B JUAL LANGSUNG (Cafe/Warung) ──
+      ['Kopi Susu Gula Aren', 'FNB-001', '', 6500, 18000, ...(showStock ? [0] : []), 'gelas', 'Minuman', ...(showStock ? [0] : []), ...(showComposition ? [''] : [])],
+      ['Es Teh Tarik', 'FNB-002', '', 4000, 10000, ...(showStock ? [0] : []), 'gelas', 'Minuman', ...(showStock ? [0] : []), ...(showComposition ? [''] : [])],
+      ['Nasi Goreng Spesial', 'FNB-003', '', 10000, 22000, ...(showStock ? [0] : []), 'porsi', 'Makanan', ...(showStock ? [0] : []), ...(showComposition ? [''] : [])],
+      ['Mie Ayam Bakso', 'FNB-004', '', 12000, 20000, ...(showStock ? [0] : []), 'porsi', 'Makanan', ...(showStock ? [0] : []), ...(showComposition ? [''] : [])],
+      ['Roti Bakar Coklat Keju', 'FNB-005', '', 8000, 16000, ...(showStock ? [0] : []), 'pcs', 'Snack', ...(showStock ? [0] : []), ...(showComposition ? [''] : [])],
 
       // ── Mode 3 examples (with composition) ──
       ...(showComposition ? [
@@ -119,22 +151,58 @@ export async function GET(request: NextRequest) {
     ]
 
     const variantData: (string | number)[][] = [
-      ['Kopi Susu', 'VAR-FNB-001', '', 0, 0, 'Minuman', 'Small 200ml', 'VAR-FNB-001-S', '', 3500, 12000, ...(showStock ? [50] : []), ...(showComposition ? [''] : [])],
-      ['', '', '', '', '', '', 'Regular 300ml', 'VAR-FNB-001-R', '', 5000, 16000, ...(showStock ? [40] : []), ...(showComposition ? [''] : [])],
-      ['', '', '', '', '', '', 'Large 400ml', 'VAR-FNB-001-L', '', 6500, 20000, ...(showStock ? [30] : []), ...(showComposition ? [''] : [])],
+      // ════════════════════════════════════════════════════════
+      // CONTOH VARIAN UNTUK BISNIS RITEL 1:1
+      // Setiap varian punya stok sendiri (auto-linked ke gudang)
+      // ════════════════════════════════════════════════════════
 
-      ['Kaos Polos Premium', 'VAR-FSH-001', '', 0, 0, 'Atasan', 'S', 'VAR-FSH-001-S', '', 35000, 65000, ...(showStock ? [40] : []), ...(showComposition ? [''] : [])],
-      ['', '', '', '', '', '', 'M', 'VAR-FSH-001-M', '', 38000, 68000, ...(showStock ? [50] : []), ...(showComposition ? [''] : [])],
-      ['', '', '', '', '', '', 'L', 'VAR-FSH-001-L', '', 40000, 70000, ...(showStock ? [40] : []), ...(showComposition ? [''] : [])],
-      ['', '', '', '', '', '', 'XL', 'VAR-FSH-001-XL', '', 43000, 75000, ...(showStock ? [25] : []), ...(showComposition ? [''] : [])],
+      // ── FASHION: Kaos dengan Ukuran S/M/L/XL ──
+      ['Kaos Polos Cotton Combed', 'VAR-FSH-001', '', 0, 55000, 'Atasan', 'Size S', 'VAR-FSH-001-S', '', 35000, 55000, ...(showStock ? [20] : []), ...(showComposition ? [''] : [])],
+      ['', '', '', '', '', '', 'Size M', 'VAR-FSH-001-M', '', 35000, 55000, ...(showStock ? [25] : []), ...(showComposition ? [''] : [])],
+      ['', '', '', '', '', '', 'Size L', 'VAR-FSH-001-L', '', 35000, 55000, ...(showStock ? [22] : []), ...(showComposition ? [''] : [])],
+      ['', '', '', '', '', '', 'Size XL', 'VAR-FSH-001-XL', '', 38000, 58000, ...(showStock ? [15] : []), ...(showComposition ? [''] : [])],
 
-      ['Bedak Tabur', 'VAR-BTY-001', '', 0, 0, 'Makeup', 'Natural', 'VAR-BTY-001-N', '', 15000, 45000, ...(showStock ? [40] : []), ...(showComposition ? [''] : [])],
-      ['', '', '', '', '', '', 'Warm', 'VAR-BTY-001-W', '', 15000, 45000, ...(showStock ? [40] : []), ...(showComposition ? [''] : [])],
-      ['', '', '', '', '', '', 'Cool', 'VAR-BTY-001-C', '', 15000, 45000, ...(showStock ? [30] : []), ...(showComposition ? [''] : [])],
+      // ── FASHION: Celana Jeans dengan Ukuran & Warna ──
+      ['Celana Jeans Slim Fit Pria', 'VAR-FSH-002', '', 0, 195000, 'Bawahan', '28 Hitam', 'VAR-FSH-002-28H', '', 125000, 195000, ...(showStock ? [12] : []), ...(showComposition ? [''] : [])],
+      ['', '', '', '', '', '', '30 Biru Tua', 'VAR-FSH-002-30B', '', 125000, 195000, ...(showStock ? [15] : []), ...(showComposition ? [''] : [])],
+      ['', '', '', '', '', '', '32 Biru Muda', 'VAR-FSH-002-32BM', '', 125000, 195000, ...(showStock ? [10] : []), ...(showComposition ? [''] : [])],
+      ['', '', '', '', '', '', '34 Hitam', 'VAR-FSH-002-34H', '', 130000, 200000, ...(showStock ? [8] : []), ...(showComposition ? [''] : [])],
+      ['', '', '', '', '', '', '36 Biru Tua', 'VAR-FSH-002-36B', '', 130000, 200000, ...(showStock ? [6] : []), ...(showComposition ? [''] : [])],
 
-      ['Casing HP Silicone', 'VAR-ELK-001', '', 0, 0, 'Aksesoris HP', 'iPhone 15', 'VAR-ELK-001-IP', '', 8000, 25000, ...(showStock ? [60] : []), ...(showComposition ? [''] : [])],
-      ['', '', '', '', '', '', 'Samsung S24', 'VAR-ELK-001-SS', '', 8000, 25000, ...(showStock ? [50] : []), ...(showComposition ? [''] : [])],
-      ['', '', '', '', '', '', 'Xiaomi 14', 'VAR-ELK-001-XM', '', 8000, 25000, ...(showStock ? [40] : []), ...(showComposition ? [''] : [])],
+      // ── BEAUTY: Bedak/Foundation dengan Shade ──
+      ['Cushion Foundation', 'VAR-BTY-001', '', 0, 225000, 'Makeup Base', 'Shade 10 Light', 'VAR-BTY-001-10', '', 155000, 225000, ...(showStock ? [18] : []), ...(showComposition ? [''] : [])],
+      ['', '', '', '', '', '', 'Shade 20 Warm', 'VAR-BTY-001-20', '', 155000, 225000, ...(showStock ? [15] : []), ...(showComposition ? [''] : [])],
+      ['', '', '', '', '', '', 'Shade 30 Natural', 'VAR-BTY-001-30', '', 155000, 225000, ...(showStock ? [12] : []), ...(showComposition ? [''] : [])],
+      ['', '', '', '', '', '', 'Shade 40 Sand', 'VAR-BTY-001-40', '', 155000, 225000, ...(showStock ? [10] : []), ...(showComposition ? [''] : [])],
+
+      // ── BEAUTY: Lip Cream dengan Warna ──
+      ['Lip Matte Creamy', 'VAR-BTY-002', '', 0, 78000, 'Makeup Bibir', 'Cherry Red', 'VAR-BTY-002-CR', '', 48000, 78000, ...(showStock ? [25] : []), ...(showComposition ? [''] : [])],
+      ['', '', '', '', '', '', 'Coral Pink', 'VAR-BTY-002-CP', '', 48000, 78000, ...(showStock ? [30] : []), ...(showComposition ? [''] : [])],
+      ['', '', '', '', '', '', 'Nude Brown', 'VAR-BTY-002-NB', '', 48000, 78000, ...(showStock ? [28] : []), ...(showComposition ? [''] : [])],
+      ['', '', '', '', '', '', 'Mauve Dusty', 'VAR-BTY-002-MD', '', 48000, 78000, ...(showStock ? [22] : []), ...(showComposition ? [''] : [])],
+
+      // ── ELEKTRONIK: Casing HP per Model ──
+      ['Casing Silicone Premium', 'VAR-ELK-001', '', 0, 45000, 'Casing HP', 'iPhone 15 Pro', 'VAR-ELK-001-I15P', '', 25000, 45000, ...(showStock ? [35] : []), ...(showComposition ? [''] : [])],
+      ['', '', '', '', '', '', 'iPhone 14 Pro', 'VAR-ELK-001-I14P', '', 25000, 45000, ...(showStock ? [28] : []), ...(showComposition ? [''] : [])],
+      ['', '', '', '', '', '', 'Samsung S24 Ultra', 'VAR-ELK-001-S24U', '', 25000, 45000, ...(showStock ? [32] : []), ...(showComposition ? [''] : [])],
+      ['', '', '', '', '', '', 'Samsung A54', 'VAR-ELK-001-A54', '', 25000, 45000, ...(showStock ? [25] : []), ...(showComposition ? [''] : [])],
+      ['', '', '', '', '', '', 'Xiaomi 14', 'VAR-ELK-001-X14', '', 25000, 45000, ...(showStock ? [20] : []), ...(showComposition ? [''] : [])],
+      ['', '', '', '', '', '', 'OPPO Find X5', 'VAR-ELK-001-OFX5', '', 25000, 45000, ...(showStock ? [18] : []), ...(showComposition ? [''] : [])],
+
+      // ── ELEKTRONIK: Charger dengan Kapasitas ──
+      ['Fast Charging Adapter', 'VAR-ELK-002', '', 0, 35000, 'Charger', '20W Single Port', 'VAR-ELK-002-20W', '', 18000, 35000, ...(showStock ? [40] : []), ...(showComposition ? [''] : [])],
+      ['', '', '', '', '', '', '30W Dual Port', 'VAR-ELK-002-30W', '', 28000, 48000, ...(showStock ? [32] : []), ...(showComposition ? [''] : [])],
+      ['', '', '', '', '', '', '65W GaN', 'VAR-ELK-002-65W', '', 65000, 95000, ...(showStock ? [18] : []), ...(showComposition ? [''] : [])],
+
+      // ── FARMASI: Vitamin dengan Varian ──
+      ['Vitamin C Supplement', 'VAR-FRM-001', '', 0, 8000, 'Vitamin', '500mg Tablet', 'VAR-FRM-001-T', '', 3500, 8000, ...(showStock ? [100] : []), ...(showComposition ? [''] : [])],
+      ['', '', '', '', '', '', '1000mg Tablet', 'VAR-FRM-001-T1', '', 5500, 12000, ...(showStock ? [80] : []), ...(showComposition ? [''] : [])],
+      ['', '', '', '', '', '', '1000mg Effervescent', 'VAR-FRM-001-E', '', 7500, 15000, ...(showStock ? [60] : []), ...(showComposition ? [''] : [])],
+
+      // ── KELONTONG: Minyak Goreng dengan Ukuran ──
+      ['Minyak Goreng Bimoli', 'VAR-KL-001', '', 0, 28000, 'Sembako', '1 Liter', 'VAR-KL-001-1L', '', 22000, 28000, ...(showStock ? [50] : []), ...(showComposition ? [''] : [])],
+      ['', '', '', '', '', '', '2 Liter', 'VAR-KL-001-2L', '', 42000, 52000, ...(showStock ? [35] : []), ...(showComposition ? [''] : [])],
+      ['', '', '', '', '', '', '5 Liter', 'VAR-KL-001-5L', '', 95000, 115000, ...(showStock ? [18] : []), ...(showComposition ? [''] : [])],
     ]
 
     const wsVariant = XLSX.utils.aoa_to_sheet([variantHeader, ...variantData])
@@ -300,28 +368,68 @@ function getGuideData(mode: TemplateMode): (string)[][] {
 
   if (mode === 'product_stock') {
     lines.push(
+      ['═══════════════════════════════════════════════════'],
+      ['MODE 2: PRODUK + STOK GUDANG (1:1)'],
+      ['Untuk Bisnis RITEL — Stok = Produk yang Dijual'],
+      ['═══════════════════════════════════════════════════'],
+      [''],
       ['Mode ini untuk bisnis RITEL di mana stok = produk yang dijual.'],
-      ['Setiap produk OTOMATIS terhubung ke stok gudang (1:1).'],
-      ['Stok berkurang otomatis saat produk terjual di kasir.'],
+      ['Setiap produk OTOMATIS terhubung ke stok gudang (hubungan 1:1).'],
+      ['Stok berkurang otomatis saat produk terjual di kasir/POS.'],
+      ['Tidak perlu mengisi bahan baku atau resep — cukup produk + stok!'],
       [''],
-      ['CONTOH BISNIS:'],
-      ['  • Retail / Minimarket — Air Mineral, Minyak Goreng, Indomie'],
-      ['  • Elektronik — Charger, Kabel, Earphone, Casing HP'],
-      ['  • Farmasi — Paracetamol, Masker, Vitamin'],
-      ['  • Fashion Reseller — Kaos, Celana, Hijab'],
-      ['  • Beauty — Cream, Serum, Lipstik'],
-      ['  • F&B jual langsung — Kopi Susu, Roti Bakar'],
+      ['✦ CONTOH BISNIS YANG COCOK:'],
       [''],
-      ['CARA ISI:'],
-      ['  1. Sheet "Produk Non-Varian" — isi produk + kolom STOK AWAL'],
-      ['  2. Sheet "Produk Varian" — jika ada varian + STOK AWAL VARIAN'],
-      ['  3. Ganti contoh data dengan data asli Anda'],
-      ['  4. Upload file ini di aplikasi'],
+      ['  🏪 TOKO KELONTONG / MINIMARKET'],
+      ['     Aqua, Indomie, Minyak Goreng, Beras, Gula, Kecap, Tisu, Sabun'],
       [''],
-      ['PENTING:'],
-      ['  • Isi kolom STOK AWAL dengan jumlah stok saat ini'],
-      ['  • Stok gudang akan OTOMATIS dibuat dari data ini'],
-      ['  • Tidak perlu mengisi bahan baku / resep terpisah'],
+      ['  👗 FASHION & PAKAIAN (Offline/Online Shop)'],
+      ['     Kaos, Kemeja, Celana Jeans, Hijab/Pashmina, Gamis, Jaket, Tas, Dompet'],
+      [''],
+      ['  💄 BEAUTY & SKINCARE (Cosmetic Shop)'],
+      ['     Cream Wajah, Serum, Sunscreen, Lip Matte, Foundation, Parfum, Eyeshadow'],
+      [''],
+      ['  📱 ELEKTRONIK & GADGET STORE'],
+      ['     Charger, Kabel Data, Powerbank, Earphone TWS, Casing HP, Screen Protector'],
+      [''],
+      ['  💊 FARMASI / APOTEK / TOKO OBAT'],
+      ['     Paracetamol, Vitamin C, Masker Medis, Hand Sanitizer, OBH, Betadine'],
+      [''],
+      ['  ☕ CAFE / WARUNG (Jual Langsung)'],
+      ['     Kopi Susu, Es Teh, Nasi Goreng, Mie Ayam, Roti Bakar (stok=0 untuk jasa)'],
+      [''],
+      ['─────────────────────────────────────────────────'],
+      ['CARA ISI TEMPLATE:'],
+      ['─────────────────────────────────────────────────'],
+      [''],
+      ['  1️⃣  SHEET "Produk Non-Varian"'],
+      ['      • Isi semua produk tanpa varian (ukuran/warna tetap)'],
+      ['      • Kolom WAJIB: NAMA PRODUK*, HARGA JUAL*, STOK AWAL'],
+      ['      • Kolom opsional: SKU, Barcode, HPP, Satuan, Kategori, Low Stock Alert'],
+      ['      • STOK AWAL = jumlah stok fisik saat ini di gudang/rak'],
+      [''],
+      ['  2️⃣  SHEET "Produk Varian" (jika ada produk dengan ukuran/warna)'],
+      ['      • Baris pertama = Nama Produk Induk (hanya isi sekali)'],
+      ['      • Baris berikutnya = Varian (Size S/M/L/XL, Shade, Model HP, dll)'],
+      ['      • Setiap varian punya HPP dan harga jual sendiri'],
+      ['      • Setiap varian punya STOK AWAL VARIAN sendiri'],
+      [''],
+      ['  3️⃣  GANTI CONTOH DATA dengan data asli Anda'],
+      ['      • Hapus baris contoh yang tidak perlu'],
+      ['      • Sesuaikan format dengan data Anda'],
+      [''],
+      ['  4️⃣  UPLOAD file ini di aplikasi → Migration Wizard'],
+      [''],
+      ['─────────────────────────────────────────────────'],
+      ['PENTING DIINGAT:'],
+      ['─────────────────────────────────────────────────'],
+      [''],
+      ['  ✅ Isi kolom STOK AWAL dengan jumlah stok SAAT INI'],
+      ['  ✅ Stok gudang OTOMATIS dibuat (tidak manual)'],
+      ['  ✅ Setiap produk TERHUBUNG ke inventory (1:1)'],
+      ['  ✅ Stok otomatis BERKURANG saat terjual di POS'],
+      ['  ❌ Tidak perlu Sheet "Bahan Baku" atau "Komposisi"'],
+      ['  ❌ Tidak perlu resep/bahan mentah (gunakan Mode 3 jika perlu)'],
       [''],
     )
   }
