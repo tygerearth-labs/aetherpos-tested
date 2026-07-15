@@ -9,6 +9,7 @@ import {
   FileSearch, ClipboardCheck, ArrowRightLeft, Cpu, Database,
   CircleCheck, CircleAlert, Copy, GitBranch, Tags, ScanBarcode,
   FlaskConical, TrendingUp, Link2, AlertTriangle,
+  RefreshCw, Info,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -173,8 +174,11 @@ export function MigrationWizard({
           barcodeCount: data.barcodeCount,
           mode,
           errors: data.errors || [],
+          warnings: data.warnings || [],
           inventoryItemsCreated: data.inventoryItemsCreated,
           inventoryItemsSkipped: data.inventoryItemsSkipped,
+          inventoryItemsUpdated: data.inventoryItemsUpdated,
+          migrationDataCleaned: data.migrationDataCleaned,
           compositionsCreated: data.compositionsCreated,
           totalStock: data.totalStock,
           totalModalValue: data.totalModalValue,
@@ -200,6 +204,8 @@ export function MigrationWizard({
   const totalItems = (result?.productsCreated ?? 0) + (result?.variantsCreated ?? 0)
   const hasErrors = result && result.errors.length > 0
   const hasSkipped = result && result.productsSkipped > 0
+  const hasWarnings = result && result.warnings && result.warnings.length > 0
+  const hasRemigration = result && ((result.inventoryItemsUpdated ?? 0) > 0 || (result.migrationDataCleaned ?? 0) > 0)
 
   return (
     <div className="relative flex flex-col max-h-[80vh]">
@@ -627,6 +633,64 @@ export function MigrationWizard({
                       </span>
                     </div>
                   ) : null}
+                </motion.div>
+              )}
+
+              {/* Re-Migration Info: Items updated/cleaned during re-migration */}
+              {hasRemigration && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.6 }}
+                  className="rounded-xl bg-emerald-500/[0.06] border border-emerald-500/15 p-3 space-y-2.5"
+                >
+                  <div className="flex items-center gap-2">
+                    <RefreshCw className="h-3.5 w-3.5 text-emerald-400" />
+                    <span className="text-xs font-semibold text-emerald-300">
+                      Re-Migrasi: Data Diperbarui
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(result.inventoryItemsUpdated ?? 0) > 0 && (
+                      <div className="rounded-md bg-emerald-500/[0.08] px-2 py-1.5 text-center">
+                        <p className="text-sm font-bold text-emerald-300">{formatNumber(result.inventoryItemsUpdated)}</p>
+                        <p className="text-[9px] text-slate-500">Item Di-update</p>
+                      </div>
+                    )}
+                    {(result.migrationDataCleaned ?? 0) > 0 && (
+                      <div className="rounded-md bg-cyan-500/[0.08] px-2 py-1.5 text-center">
+                        <p className="text-sm font-bold text-cyan-300">{formatNumber(result.migrationDataCleaned ?? 0)}</p>
+                        <p className="text-[9px] text-slate-500">Data Lama Dibersihkan</p>
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-slate-500 leading-relaxed">
+                    Item yang hanya memiliki data migrasi (stok awal testing) telah di-replace dengan data baru.
+                  </p>
+                </motion.div>
+              )}
+
+              {/* Warnings from re-migration (skipped items with real history) */}
+              {hasWarnings && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.65 }}
+                  className="rounded-xl bg-blue-500/[0.06] border border-blue-500/15 p-3 space-y-2.5"
+                >
+                  <div className="flex items-center gap-2">
+                    <Info className="h-3.5 w-3.5 text-blue-400" />
+                    <span className="text-xs font-semibold text-blue-300">
+                      {result.warnings!.length} Info Migrasi
+                    </span>
+                  </div>
+                  <div className="max-h-24 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
+                    {result.warnings!.map((warn, i) => (
+                      <p key={i} className="text-[11px] text-slate-400 leading-relaxed pl-5.5 relative before:content-['·'] before:absolute before:left-1.5 before:text-blue-500/60 before:font-bold">
+                        {warn}
+                      </p>
+                    ))}
+                  </div>
                 </motion.div>
               )}
 

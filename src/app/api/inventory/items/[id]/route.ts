@@ -31,8 +31,6 @@ export async function GET(
     }
 
     // Fetch linked products (products that use this inventory item in composition)
-    // Use select-only approach to avoid Prisma crash on orphaned compositions
-    // (product deleted but composition row remains due to SQLite cascade issues)
     let linkedProducts: Array<{
       id: string; productId: string; productName: string; productSku: string | null;
       productImage: string | null; productPrice: number; productStock: number;
@@ -47,7 +45,6 @@ export async function GET(
         orderBy: { createdAt: 'desc' },
       })
 
-      // Clean up orphaned compositions (product was deleted but row remained)
       const productIds = [...new Set(allComps.map((c) => c.productId))]
       const variantIds = [...new Set(allComps.filter((c) => c.variantId).map((c) => c.variantId!))]
 
@@ -78,7 +75,6 @@ export async function GET(
         if (freshItem) item._count.compositions = freshItem._count.compositions
       }
 
-      // Map valid compositions to linked products
       linkedProducts = allComps
         .filter((c) => productMap.has(c.productId))
         .map((c) => {
@@ -170,7 +166,6 @@ export async function PUT(
     const body = await request.json()
     const { name, sku, baseUnit, lowStockAlert, categoryId } = body
 
-    // Validate categoryId if provided
     if (categoryId) {
       const category = await db.inventoryCategory.findFirst({
         where: { id: categoryId, outletId: user.outletId },
@@ -203,7 +198,6 @@ export async function PUT(
 }
 
 // PATCH /api/inventory/items/[id] — archive or restore inventory item
-// Body: { action: 'archive' | 'restore' }
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -243,7 +237,6 @@ export async function PATCH(
       data: { status: newStatus },
     })
 
-    // Audit log
     await safeAuditLog({
       action: action === 'archive' ? 'ARCHIVE' : 'RESTORE',
       entityType: 'INVENTORY_ITEM',
@@ -267,13 +260,15 @@ export async function PATCH(
 }
 
 // DELETE /api/inventory/items/[id] — hard delete inventory item
-// BUSINESS POLICY: Only allowed if item has ZERO business history:
-//   - No TransactionConsumption (penjualan)
-//   - No InventoryMovement (stok masuk/keluar)
-//   - No PurchaseOrderItem (pembelian)
-//   - No InventoryTransferItem (transfer)
-//   - No ProductComposition (komposisi)
-// Items with history should be ARCHIVED instead (PATCH action=archive)
+//
+// SMART DELETE LOGIC:
+//   ✅ ALLOWED: No history at all
+//   ✅ ALLOWED: Only MIGRATION data (initial stock from upload template)
+//   ❌ BLOCKED: Real business history (purchases, sales, transfers, manual adjustments)
+//
+// Migration data that gets cleaned up on delete:
+//   - InventoryMovement with referenceType='MIGRATION'
+//   - Auto 1:1 ProductComposition from product_stock mode
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -304,68 +299,177 @@ export async function DELETE(
     }
 
     const counts = existing._count
-    const totalHistory = counts.compositions + counts.purchaseItems + counts.movements
+    const totalRelations = counts.compositions + counts.purchaseItems + counts.movements
       + counts.inventoryTransferItems + counts.consumptionSnapshots
 
-    // Business policy: reject delete if any business history exists
-    if (totalHistory > 0) {
-      // Build detailed list of what's blocking
-      const blockers: string[] = []
-      if (counts.compositions > 0) blockers.push(`${counts.compositions} komposisi produk`)
-      if (counts.purchaseItems > 0) blockers.push(`${counts.purchaseItems} riwayat pembelian`)
-      if (counts.movements > 0) blockers.push(`${counts.movements} riwayat stok`)
-      if (counts.inventoryTransferItems > 0) blockers.push(`${counts.inventoryTransferItems} riwayat transfer`)
-      if (counts.consumptionSnapshots > 0) blockers.push(`${counts.consumptionSnapshots} riwayat konsumsi`)
+    // Quick path: no relations at all → safe to delete
+    if (totalRelations === 0) {
+      await db.$transaction(async (tx) => {
+        await tx.auditLog.create({
+          data: {
+            action: 'DELETE',
+            entityType: 'INVENTORY_ITEM',
+            entityId: id,
+            details: JSON.stringify({
+              itemName: existing.name,
+              sku: existing.sku,
+              reason: 'NO_HISTORY',
+            }),
+            outletId,
+            userId,
+          },
+        })
+        await tx.inventoryItem.delete({ where: { id } })
+      }, { timeout: 10000 })
 
-      // Fetch linked products (same logic as GET endpoint)
-      let linkedProducts: Array<{ productId: string; productName: string; variantName: string | null; qty: number; baseUnit: string }> = []
-      if (counts.compositions > 0) {
-        try {
-          const allComps = await db.productComposition.findMany({
-            where: { inventoryItemId: id },
-            select: { productId: true, variantId: true, qty: true, baseUnit: true },
-          })
-          const productIds = [...new Set(allComps.map(c => c.productId))]
-          const variantIds = [...new Set(allComps.filter(c => c.variantId).map(c => c.variantId!))]
+      return safeJson({ success: true, message: 'Item dihapus (tidak ada histori)' })
+    }
 
-          const [existingProducts, existingVariants] = await Promise.all([
-            db.product.findMany({ where: { id: { in: productIds } }, select: { id: true, name: true } }),
-            variantIds.length > 0
-              ? db.productVariant.findMany({ where: { id: { in: variantIds } }, select: { id: true, name: true } })
-              : Promise.resolve([]),
-          ])
-          const productMap = new Map(existingProducts.map(p => [p.id, p]))
-          const variantMap = new Map(existingVariants.map(v => [v.id, v]))
+    // === DETAILED ANALYSIS FOR ITEMS WITH RELATIONS ===
+    
+    const analysis = {
+      hasRealHistory: false,
+      hasOnlyMigrationData: false,
+      blockers: [] as string[],
+      migrationData: [] as string[],
+      details: {
+        migrationMovements: 0,
+        realMovements: 0,
+        autoCompositions: 0,
+        realCompositions: 0,
+      },
+    }
 
-          linkedProducts = allComps
-            .filter(c => productMap.has(c.productId))
-            .map(c => ({
-              productId: c.productId,
-              productName: productMap.get(c.productId)!.name,
-              variantName: c.variantId ? variantMap.get(c.variantId)?.name || null : null,
-              qty: c.qty,
-              baseUnit: c.baseUnit,
-            }))
-        } catch {
-          // Non-critical: linked products list is informational only
+    // 1. Purchase Items: ALWAYS real history
+    if (counts.purchaseItems > 0) {
+      analysis.hasRealHistory = true
+      analysis.blockers.push(`${counts.purchaseItems} riwayat pembelian`)
+    }
+
+    // 2. Transfer Items: ALWAYS real history
+    if (counts.inventoryTransferItems > 0) {
+      analysis.hasRealHistory = true
+      analysis.blockers.push(`${counts.inventoryTransferItems} riwayat transfer`)
+    }
+
+    // 3. Consumption Snapshots: ALWAYS real history (from actual sales)
+    if (counts.consumptionSnapshots > 0) {
+      analysis.hasRealHistory = true
+      analysis.blockers.push(`${counts.consumptionSnapshots} riwayat konsumsi penjualan`)
+    }
+
+    // 4. Movements: Check types (MIGRATION vs real business)
+    if (counts.movements > 0) {
+      const movementTypes = await db.inventoryMovement.groupBy({
+        by: ['referenceType'],
+        where: {
+          inventoryItemId: id,
+          outletId,
+        },
+        _count: true,
+      })
+
+      const migrationMovements = movementTypes.find(m => m.referenceType === 'MIGRATION')?._count || 0
+      const realMovements = counts.movements - migrationMovements
+
+      analysis.details.migrationMovements = migrationMovements
+      analysis.details.realMovements = realMovements
+
+      if (realMovements > 0) {
+        analysis.hasRealHistory = true
+        analysis.blockers.push(`${realMovements} pergerakan stok bisnis`)
+      }
+      if (migrationMovements > 0) {
+        analysis.migrationData.push(`${migrationMovements} catatan stok awal migrasi`)
+      }
+    }
+
+    // 5. Compositions: Check if auto 1:1 or manual BOM
+    if (counts.compositions > 0) {
+      const compositions = await db.productComposition.findMany({
+        where: {
+          OR: [
+            { inventoryItemId: id },
+            { ingredientId: id },
+          ],
+        },
+        select: {
+          id: true,
+          qty: true,
+          baseUnit: true,
+        },
+      })
+
+      let autoCount = 0
+      let realCount = 0
+
+      for (const comp of compositions) {
+        // Auto 1:1 links have qty=1 and valid baseUnit
+        const isAutoLink = comp.qty === 1 && comp.baseUnit !== null
+        
+        if (isAutoLink) {
+          autoCount++
+        } else {
+          realCount++
         }
       }
 
+      analysis.details.autoCompositions = autoCount
+      analysis.details.realCompositions = realCount
+
+      if (realCount > 0) {
+        analysis.hasRealHistory = true
+        analysis.blockers.push(`${realCount} komposisi/resep produk`)
+      }
+      if (autoCount > 0) {
+        analysis.migrationData.push(`${autoCount} link otomatis produk↔inventori`)
+      }
+    }
+
+    // FINAL DECISION
+    if (analysis.hasRealHistory) {
+      // Has real business history → CANNOT delete
       return safeJson({
         blocked: true,
-        blockType: 'hasHistory',
+        blockType: 'hasRealHistory',
         message: 'Item ini memiliki histori bisnis dan tidak dapat dihapus',
-        blockers,
-        totalHistory,
-        counts,
-        linkedProducts,
+        blockers: analysis.blockers,
+        migrationInfo: analysis.migrationData.length > 0 ? analysis.migrationData : undefined,
         suggestion: 'Gunakan "Nonaktifkan" untuk menyembunyikan item tanpa menghapus data.',
+        analysis,
       })
     }
 
-    // Safe to delete — no business history whatsoever
+    // Only has migration/system data → ALLOW delete with cleanup
     await db.$transaction(async (tx) => {
-      // Audit log
+      // 1. Clean up migration movements
+      if (analysis.details.migrationMovements > 0) {
+        await tx.inventoryMovement.deleteMany({
+          where: {
+            inventoryItemId: id,
+            referenceType: 'MIGRATION',
+            outletId,
+          },
+        })
+      }
+
+      // 2. Clean up compositions (auto 1:1 links)
+      await tx.productComposition.deleteMany({
+        where: {
+          OR: [
+            { inventoryItemId: id },
+            { ingredientId: id },
+            { productId: id },
+          ],
+        },
+      })
+
+      // 3. Clean up batches
+      await tx.inventoryBatch.deleteMany({
+        where: { inventoryItemId: id },
+      })
+
+      // 4. Audit log before deletion
       await tx.auditLog.create({
         data: {
           action: 'DELETE',
@@ -376,18 +480,23 @@ export async function DELETE(
             sku: existing.sku,
             stock: existing.stock,
             avgCost: existing.avgCost,
-            baseUnit: existing.baseUnit,
-            reason: 'NO_HISTORY',
+            reason: 'MIGRATION_DATA_ONLY',
+            cleanedUp: analysis.migrationData,
           }),
           outletId,
           userId,
         },
       })
 
+      // 5. Finally delete the item
       await tx.inventoryItem.delete({ where: { id } })
     }, { timeout: 10000 })
 
-    return safeJson({ success: true })
+    return safeJson({ 
+      success: true, 
+      message: `Item dihapus. Data sistem telah dibersihkan: ${analysis.migrationData.join(', ')}`,
+      cleanedUp: analysis.migrationData,
+    })
   } catch (error) {
     console.error('Inventory item DELETE error:', error)
     const msg = error instanceof Error ? error.message : 'Failed to delete inventory item'

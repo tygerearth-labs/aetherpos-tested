@@ -383,10 +383,10 @@ export default function PurchasePage() {
   // ── Tab ──
   const [tab, setTab] = useState<string>('purchase')
 
-  // ── Guide panels ──
-  const [showPurchaseGuide, setShowPurchaseGuide] = useState(true)
-  const [showPurchaseDialogGuide, setShowPurchaseDialogGuide] = useState(true)
-  const [showInventoryGuide, setShowInventoryGuide] = useState(true)
+  // ── Guide panels (default hidden, with pulse highlight) ──
+  const [showPurchaseGuide, setShowPurchaseGuide] = useState(false)
+  const [showPurchaseDialogGuide, setShowPurchaseDialogGuide] = useState(false)
+  const [showInventoryGuide, setShowInventoryGuide] = useState(false)
 
   // ══════════════════════════════════════════════════════════
   // TAB 1: PEMBELIAN (Purchase Orders)
@@ -2640,17 +2640,45 @@ export default function PurchasePage() {
               </div>
             )}
 
-            {/* Panduan Alur Pembelian */}
-            <div className="rounded-xl bg-white/[0.02] border border-white/[0.04] overflow-hidden">
+            {/* Panduan Alur Pembelian - dengan Pulse Highlight */}
+            <div className={cn(
+              "rounded-xl border overflow-hidden transition-all duration-300",
+              showPurchaseGuide 
+                ? "bg-white/[0.02] border-white/[0.06]" 
+                : "bg-gradient-to-r from-amber-500/[0.08] via-orange-500/[0.05] to-yellow-500/[0.08] border-amber-500/30 shadow-lg shadow-amber-500/5"
+            )}>
               <button
-                className="w-full flex items-center justify-between gap-2 p-3 text-left hover:bg-white/[0.02] transition-colors"
+                className="w-full flex items-center justify-between gap-2 p-3 text-left hover:bg-white/[0.03] transition-colors relative"
                 onClick={() => setShowPurchaseGuide(prev => !prev)}
               >
+                {/* Pulse indicator when closed */}
+                {!showPurchaseGuide && (
+                  <span className="absolute top-2 right-2 flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                  </span>
+                )}
                 <div className="flex items-center gap-2">
-                  <Info className="h-3.5 w-3.5 text-slate-500 shrink-0" />
-                  <span className="text-[11px] text-slate-400 font-medium">Panduan Pembelian & Inventory</span>
+                  <div className={cn(
+                    "flex items-center justify-center w-6 h-6 rounded-md transition-colors",
+                    showPurchaseGuide ? "bg-emerald-500/10" : "bg-amber-500/15 animate-pulse"
+                  )}>
+                    <Info className={cn(
+                      "h-3.5 w-3.5 shrink-0 transition-colors",
+                      showPurchaseGuide ? "text-emerald-400" : "text-amber-400"
+                    )} />
+                  </div>
+                  <span className={cn(
+                    "text-[11px] font-medium transition-colors",
+                    showPurchaseGuide ? "text-slate-300" : "text-amber-300"
+                  )}>Panduan Pembelian & Inventory</span>
+                  {!showPurchaseGuide && (
+                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-medium animate-pulse">
+                      NEW
+                    </span>
+                  )}
                 </div>
-                <ChevronDown className={cn('h-3 w-3 text-slate-600 transition-transform duration-200', showPurchaseGuide && 'rotate-180')} />
+                <ChevronDown className={cn('h-3.5 w-3.5 text-slate-500 transition-transform duration-200', showPurchaseGuide && 'rotate-180')} />
               </button>
               {showPurchaseGuide && (
                 <div className="px-3 pb-3 space-y-3 border-t border-white/[0.04] pt-3">
@@ -3169,17 +3197,45 @@ export default function PurchasePage() {
               </div>
             </div>
 
-            {/* Panduan Alur Inventory */}
-            <div className="rounded-xl bg-white/[0.02] border border-white/[0.04] overflow-hidden">
+            {/* Panduan Alur Inventory - dengan Pulse Highlight */}
+            <div className={cn(
+              "rounded-xl border overflow-hidden transition-all duration-300",
+              showInventoryGuide 
+                ? "bg-white/[0.02] border-white/[0.06]" 
+                : "bg-gradient-to-r from-cyan-500/[0.08] via-blue-500/[0.05] to-teal-500/[0.08] border-cyan-500/30 shadow-lg shadow-cyan-500/5"
+            )}>
               <button
-                className="w-full flex items-center justify-between gap-2 p-3 text-left hover:bg-white/[0.02] transition-colors"
+                className="w-full flex items-center justify-between gap-2 p-3 text-left hover:bg-white/[0.03] transition-colors relative"
                 onClick={() => setShowInventoryGuide(prev => !prev)}
               >
+                {/* Pulse indicator when closed */}
+                {!showInventoryGuide && (
+                  <span className="absolute top-2 right-2 flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-500"></span>
+                  </span>
+                )}
                 <div className="flex items-center gap-2">
-                  <Info className="h-3.5 w-3.5 text-slate-500 shrink-0" />
-                  <span className="text-[11px] text-slate-400 font-medium">Panduan Inventory &amp; Produk</span>
+                  <div className={cn(
+                    "flex items-center justify-center w-6 h-6 rounded-md transition-colors",
+                    showInventoryGuide ? "bg-emerald-500/10" : "bg-cyan-500/15 animate-pulse"
+                  )}>
+                    <Info className={cn(
+                      "h-3.5 w-3.5 shrink-0 transition-colors",
+                      showInventoryGuide ? "text-emerald-400" : "text-cyan-400"
+                    )} />
+                  </div>
+                  <span className={cn(
+                    "text-[11px] font-medium transition-colors",
+                    showInventoryGuide ? "text-slate-300" : "text-cyan-300"
+                  )}>Panduan Inventory &amp; Produk</span>
+                  {!showInventoryGuide && (
+                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-medium animate-pulse">
+                      NEW
+                    </span>
+                  )}
                 </div>
-                <ChevronDown className={cn('h-3 w-3 text-slate-600 transition-transform duration-200', showInventoryGuide && 'rotate-180')} />
+                <ChevronDown className={cn('h-3.5 w-3.5 text-slate-500 transition-transform duration-200', showInventoryGuide && 'rotate-180')} />
               </button>
               {showInventoryGuide && (
                 <div className="px-3 pb-3 space-y-3 border-t border-white/[0.04] pt-3">
@@ -3241,13 +3297,38 @@ export default function PurchasePage() {
                       </p>
                     </div>
                   </div>
+                  {/* Kebijakan Hapus vs Nonaktifkan */}
+                  <div className="rounded-md bg-gradient-to-r from-violet-500/[0.06] to-purple-500/[0.04] border border-violet-500/15 px-2.5 py-2">
+                    <p className="text-[10px] text-violet-300 mb-1.5 font-medium uppercase tracking-wider flex items-center gap-1">
+                      <Trash2 className="h-3 w-3" /> Kebijakan Hapus & Nonaktifkan
+                    </p>
+                    <div className="space-y-2">
+                      <div className="rounded-md bg-emerald-500/[0.06] border border-emerald-500/15 px-2 py-1.5">
+                        <p className="text-[10px] text-emerald-400 font-medium mb-0.5">✅ Bisa DIHAPUS</p>
+                        <ul className="text-[9px] text-slate-400 space-y-0.5">
+                          <li>• Item baru tanpa histori sama sekali</li>
+                          <li>• Item yang hanya punya <span className="text-emerald-300">stok awal migrasi</span> (belum ada transaksi)</li>
+                          <li>• Data stok awal & link otomatis akan dibersihkan</li>
+                        </ul>
+                      </div>
+                      <div className="rounded-md bg-red-500/[0.06] border border-red-500/15 px-2 py-1.5">
+                        <p className="text-[10px] text-red-400 font-medium mb-0.5">❌ Harus NONAKTIFKAN</p>
+                        <ul className="text-[9px] text-slate-400 space-y-0.5">
+                          <li>• Item dengan <span className="text-red-300">riwayat pembelian</span> dari supplier</li>
+                          <li>• Item yang sudah <span className="text-red-300">terjual / terkonsumsi</span></li>
+                          <li>• Item dengan <span className="text-red-300">riwayat transfer</span> antar outlet</li>
+                          <li>• Item dengan <span className="text-red-300">komposisi/resep</span> manual (BOM)</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
                   {/* Catatan */}
                   <div className="rounded-md bg-white/[0.02] border border-white/[0.04] px-2.5 py-2">
-                    <p className="text-[10px] text-slate-600 mb-1 font-medium uppercase tracking-wider">Catatan Penting</p>
+                    <p className="text-[10px] text-slate-600 mb-1 font-medium uppercase tracking-wider">Catatan</p>
                     <ul className="text-[10px] text-slate-500 space-y-0.5">
-                      <li>• Kolom <span className="text-white">Digunakan</span> menunjukkan berapa komposisi produk yang memakai item ini</li>
-                      <li>• Item yang sudah dipakai di komposisi <span className="text-amber-400">tidak bisa dihapus</span> (harus hapus komposisi dulu)</li>
-                      <li>• HPP selalu dihitung otomatis dari pembelian — tidak bisa di-edit manual</li>
+                      <li>• Kolom <span className="text-white">Digunakan</span> = jumlah produk yang memakai item ini</li>
+                      <li>• HPP selalu dihitung otomatis — tidak bisa di-edit manual</li>
+                      <li>• Item nonaktif tetap muncul di laporan tapi <span className="text-slate-400">tersembunyi</span> di tabel utama</li>
                     </ul>
                   </div>
                 </div>
@@ -4056,19 +4137,45 @@ n                            {/* Action Buttons */}
             {/* ══════════════════════════════════════════════════════ */}
             {/* STEP-BY-STEP GUIDE (collapsible)                      */}
             {/* ══════════════════════════════════════════════════════ */}
-            <div className="rounded-xl bg-white/[0.02] border border-white/[0.04] overflow-hidden">
+            <div className={cn(
+              "rounded-xl border overflow-hidden transition-all duration-300",
+              showPurchaseDialogGuide 
+                ? "bg-white/[0.02] border-white/[0.06]" 
+                : "bg-gradient-to-r from-violet-500/[0.08] via-purple-500/[0.05] to-fuchsia-500/[0.08] border-violet-500/30 shadow-lg shadow-violet-500/5"
+            )}>
               <button
                 type="button"
-                className="w-full flex items-center justify-between gap-2 px-3.5 py-2.5 text-left hover:bg-white/[0.02] transition-colors"
+                className="w-full flex items-center justify-between gap-2 px-3.5 py-2.5 text-left hover:bg-white/[0.03] transition-colors relative"
                 onClick={() => setShowPurchaseDialogGuide(prev => !prev)}
               >
+                {/* Pulse indicator when closed */}
+                {!showPurchaseDialogGuide && (
+                  <span className="absolute top-2 right-2 flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-violet-500"></span>
+                  </span>
+                )}
                 <div className="flex items-center gap-2">
-                  <div className="w-5 h-5 rounded-md bg-emerald-500/10 flex items-center justify-center shrink-0">
-                    <Info className="h-3 w-3 text-emerald-400" />
+                  <div className={cn(
+                    "w-5 h-5 rounded-md flex items-center justify-center shrink-0 transition-colors",
+                    showPurchaseDialogGuide ? "bg-emerald-500/10" : "bg-violet-500/15 animate-pulse"
+                  )}>
+                    <Info className={cn(
+                      "h-3 w-3 transition-colors",
+                      showPurchaseDialogGuide ? "text-emerald-400" : "text-violet-400"
+                    )} />
                   </div>
-                  <span className="text-[11px] text-slate-400 font-medium">Panduan 3 Langkah</span>
+                  <span className={cn(
+                    "text-[11px] font-medium transition-colors",
+                    showPurchaseDialogGuide ? "text-slate-400" : "text-violet-300"
+                  )}>Panduan 3 Langkah</span>
+                  {!showPurchaseDialogGuide && (
+                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-violet-500/20 text-violet-300 font-medium animate-pulse">
+                      TIPS
+                    </span>
+                  )}
                 </div>
-                <ChevronDown className={cn('h-3.5 w-3.5 text-slate-600 transition-transform duration-200', showPurchaseDialogGuide && 'rotate-180')} />
+                <ChevronDown className={cn("h-3.5 w-3.5 text-slate-500 transition-transform duration-200", showPurchaseDialogGuide && 'rotate-180')} />
               </button>
 
               {showPurchaseDialogGuide && (

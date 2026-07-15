@@ -21,8 +21,11 @@ export interface ImportResult {
   barcodeCount: number
   mode: ImportMode
   errors: string[]
+  warnings?: string[]           // Re-migration warnings (updated, skipped items)
   inventoryItemsCreated?: number
   inventoryItemsSkipped?: number
+  inventoryItemsUpdated?: number   // Items replaced during re-migration
+  migrationDataCleaned?: number    // Count of cleaned migration data
   compositionsCreated?: number
   totalStock?: number
   totalModalValue?: number

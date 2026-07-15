@@ -124,6 +124,215 @@ function detectSheetType(sheetName: string): SheetType {
   return 'unknown'
 }
 
+// ==================== SMART RE-MIGRATION HELPERS ====================
+
+/**
+ * Result of analyzing an existing inventory item for re-migration
+ */
+interface RemigrationAnalysis {
+  canReplace: boolean        // Safe to replace (only has migration data)
+  reason: string             // Human-readable explanation
+  hasRealHistory: boolean    // Has actual business transactions
+  migrationOnlyData: {
+    movements: number        // Count of MIGRATION-type movements
+    compositions: number     // Count of auto 1:1 compositions
+  }
+}
+
+/**
+ * Analyze if an existing inventory item can be safely replaced during re-migration
+ * 
+ * CAN REPLACE (migration-only data):
+ * - Only MIGRATION type movements (initial stock from previous upload)
+ * - Auto 1:1 product compositions (from product_stock mode)
+ * - No real purchases, sales, transfers, or manual adjustments
+ * 
+ * CANNOT REPLACE (real business data):
+ * - PurchaseOrderItem records
+ * - Non-MIGRATION movements (RESTOCK, ADJUSTMENT, CONSUMPTION, TRANSFER)
+ * - InventoryTransferItem records  
+ * - TransactionConsumptionSnapshot records
+ * - Manual BOM compositions (qty != 1)
+ */
+async function analyzeExistingInventoryForRemigration(
+  inventoryItemId: string,
+  outletId: string
+): Promise<RemigrationAnalysis> {
+  const result: RemigrationAnalysis = {
+    canReplace: false,
+    reason: '',
+    hasRealHistory: false,
+    migrationOnlyData: { movements: 0, compositions: 0 },
+  }
+
+  try {
+    // Get counts of all relations
+    const item = await db.inventoryItem.findFirst({
+      where: { id: inventoryItemId, outletId },
+      include: {
+        _count: {
+          select: {
+            compositions: true,
+            purchaseItems: true,
+            movements: true,
+            inventoryTransferItems: true,
+            consumptionSnapshots: true,
+          },
+        },
+      },
+    })
+
+    if (!item) {
+      result.canReplace = true  // Item doesn't exist anymore (edge case)
+      result.reason = 'Item tidak ditemukan (mungkin sudah dihapus)'
+      return result
+    }
+
+    const c = item._count
+    const totalRelations = c.compositions + c.purchaseItems + c.movements 
+      + c.inventoryTransferItems + c.consumptionSnapshots
+
+    // No relations at all → safe to replace
+    if (totalRelations === 0) {
+      result.canReplace = true
+      result.reason = 'Tidak ada histori sama sekali'
+      return result
+    }
+
+    // Check for REAL business history (blocks replacement)
+    // 1. Purchase items always indicate real history
+    if (c.purchaseItems > 0) {
+      result.hasRealHistory = true
+      result.reason = `${c.purchaseItems} riwayat pembelian`
+      return result
+    }
+
+    // 2. Transfer items always indicate real history
+    if (c.inventoryTransferItems > 0) {
+      result.hasRealHistory = true
+      result.reason = `${c.inventoryTransferItems} riwayat transfer`
+      return result
+    }
+
+    // 3. Consumption snapshots always indicate real history
+    if (c.consumptionSnapshots > 0) {
+      result.hasRealHistory = true
+      result.reason = `${c.consumptionSnapshots} riwayat konsumsi penjualan`
+      return result
+    }
+
+    // 4. Movements - need to check types
+    if (c.movements > 0) {
+      const movementTypes = await db.inventoryMovement.groupBy({
+        by: ['referenceType'],
+        where: { inventoryItemId: inventoryItemId, outletId },
+        _count: true,
+      })
+
+      const migrationMovements = movementTypes.find(m => m.referenceType === 'MIGRATION')?._count || 0
+      const realMovements = c.movements - migrationMovements
+
+      result.migrationOnlyData.movements = migrationMovements
+
+      if (realMovements > 0) {
+        result.hasRealHistory = true
+        result.reason = `${realMovements} pergerakan stok bisnis (+${migrationMovements} stok awal migrasi)`
+        return result
+      }
+    }
+
+    // 5. Compositions - check if all are auto 1:1 links
+    if (c.compositions > 0) {
+      const compositions = await db.productComposition.findMany({
+        where: {
+          OR: [
+            { inventoryItemId: inventoryItemId },
+            { ingredientId: inventoryItemId },
+          ],
+        },
+        select: { id: true, qty: true, baseUnit: true },
+      })
+
+      let autoCount = 0
+      let realCount = 0
+
+      for (const comp of compositions) {
+        // Auto 1:1 links have qty=1 and valid baseUnit
+        if (comp.qty === 1 && comp.baseUnit !== null) {
+          autoCount++
+        } else {
+          realCount++
+        }
+      }
+
+      result.migrationOnlyData.compositions = autoCount
+
+      if (realCount > 0) {
+        result.hasRealHistory = true
+        result.reason = `${realCount} komposisi/resep manual (+${autoCount} link otomatis)`
+        return result
+      }
+    }
+
+    // All data is migration-only → SAFE TO REPLACE
+    result.canReplace = true
+    const parts: string[] = []
+    if (result.migrationOnlyData.movements > 0) parts.push(`${result.migrationOnlyData.movements} stok awal migrasi`)
+    if (result.migrationOnlyData.compositions > 0) parts.push(`${result.migrationOnlyData.compositions} link otomatis`)
+    result.reason = `Hanya data migrasi: ${parts.join(', ')} → akan di-replace`
+
+  } catch (error) {
+    console.warn('[migration] Error analyzing existing inventory:', error)
+    // On error, default to NOT replacing to be safe
+    result.hasRealHistory = true
+    result.reason = 'Gagal menganalisis (default: skip untuk keamanan)'
+  }
+
+  return result
+}
+
+/**
+ * Clean up migration-only data from an inventory item before re-migrating
+ * This removes old MIGRATION movements and auto compositions so fresh data can be written
+ */
+async function cleanupMigrationData(
+  inventoryItemId: string,
+  outletId: string
+): Promise<{ movementsDeleted: number; compositionsDeleted: number }> {
+  let movementsDeleted = 0
+  let compositionsDeleted = 0
+
+  try {
+    // Delete MIGRATION-type movements
+    const movResult = await db.inventoryMovement.deleteMany({
+      where: {
+        inventoryItemId: inventoryItemId,
+        referenceType: 'MIGRATION',
+        outletId,
+      },
+    })
+    movementsDeleted = movResult.count
+
+    // Delete auto 1:1 compositions linked to this inventory item
+    // These are compositions with qty=1 that were created by product_stock mode
+    const compResult = await db.productComposition.deleteMany({
+      where: {
+        OR: [
+          { inventoryItemId: inventoryItemId, qty: 1 },
+          { ingredientId: inventoryItemId, qty: 1 },
+        ],
+      },
+    })
+    compositionsDeleted = compResult.count
+
+    console.log(`[migration] Cleaned up migration data for item ${inventoryItemId}: ${movementsDeleted} movements, ${compositionsDeleted} compositions`)
+  } catch (error) {
+    console.error('[migration] Error cleaning up migration data:', error)
+  }
+
+  return { movementsDeleted, compositionsDeleted }
+}
+
 // ==================== MAIN ROUTE ====================
 
 export async function POST(request: NextRequest) {
@@ -190,10 +399,13 @@ export async function POST(request: NextRequest) {
     let barcodeCount = 0
     let inventoryItemsCreated = 0
     let inventoryItemsSkipped = 0
+    let inventoryItemsUpdated = 0       // Re-migration: items replaced with new data
+    let migrationDataCleaned = 0        // Count of items where old migration data was cleaned
     let compositionsCreated = 0
     let totalStock = 0
     let totalModalValue = 0
     const errors: string[] = []
+    const warnings: string[] = []        // Warnings for re-migration events
 
     // ==================== CACHES ====================
     const categoryCache = new Map<string, string | null>()
@@ -447,6 +659,7 @@ export async function POST(request: NextRequest) {
               })
 
               if (!existingInv) {
+                // ── NEW ITEM: Create fresh ──
                 const invItem = await db.inventoryItem.create({
                   data: {
                     name,
@@ -486,6 +699,62 @@ export async function POST(request: NextRequest) {
                   errors.push(`Warning: Gagal catat pergerakan stok untuk "${name}"`)
                 }
               } else {
+                // ── EXISTING ITEM: Smart re-migration handling ──
+                console.log(`[migration] includeInventory: Found existing item "${name}" (id=${existingInv.id}), analyzing...`)
+                
+                const analysis = await analyzeExistingInventoryForRemigration(existingInv.id, outletId)
+                
+                if (analysis.canReplace) {
+                  // Safe to replace: clean up old migration data and update
+                  console.log(`[migration] includeInventory: REplacing "${name}" - ${analysis.reason}`)
+                  
+                  const cleaned = await cleanupMigrationData(existingInv.id, outletId)
+                  
+                  // Update the inventory item with new values
+                  await db.inventoryItem.update({
+                    where: { id: existingInv.id },
+                    data: {
+                      sku: finalSku || existingInv.sku,
+                      baseUnit: unit,
+                      stock: stock,
+                      avgCost: hpp > 0 ? hpp : 0,
+                      lowStockAlert: lowStockAlert > 0 ? lowStockAlert : 0,
+                      status: 'ACTIVE',
+                    },
+                  })
+                  
+                  // Create new opening balance movement
+                  try {
+                    await db.inventoryMovement.create({
+                      data: {
+                        type: 'PURCHASE',
+                        quantity: stock,
+                        previousStock: 0,
+                        newStock: stock,
+                        referenceType: 'MIGRATION',
+                        notes: `Saldo awal migrasi (re-migrate) dari ${file.name}`,
+                        outletId,
+                        inventoryItemId: existingInv.id,
+                        userId,
+                      },
+                    })
+                  } catch (movErr) {
+                    console.warn(`[migration] Failed to create re-migration movement for ${name}:`, movErr)
+                  }
+                  
+                  inventoryItemsUpdated++
+                  migrationDataCleaned++
+                  totalStock += stock
+                  totalModalValue += hpp * stock
+                  
+                  warnings.push(`🔄 "${name}": di-update (data migrasi lama dibersihkan: ${cleaned.movementsDeleted} stok, ${cleaned.compositionsDeleted} link)`)
+                } else {
+                  // Has real history: skip with warning
+                  console.log(`[migration] includeInventory: SKIP "${name}" - ${analysis.reason}`)
+                  inventoryItemsSkipped++
+                  warnings.push(`⚠️ "${name}" dilewati: ${analysis.reason}`)
+                }
+                
                 inventoryItemCache.set(name, existingInv.id)
               }
             } catch (invErr) {
@@ -505,6 +774,7 @@ export async function POST(request: NextRequest) {
 
               let invItemId: string
               if (!existingInv) {
+                // ── NEW ITEM: Create fresh ──
                 console.log(`[migration] product_stock: Creating NEW inventory for "${name}"`)
                 // Create InventoryItem with proper error handling
                 const invItem = await db.inventoryItem.create({
@@ -547,8 +817,64 @@ export async function POST(request: NextRequest) {
                   errors.push(`Warning: Gagal catat pergerakan stok untuk "${name}" (stok tetap tersimpan)`)
                 }
               } else {
-                console.log(`[migration] product_stock: Using EXISTING inventory for "${name}" (id=${existingInv.id})`)
-                invItemId = existingInv.id
+                // ── EXISTING ITEM: Smart re-migration handling ──
+                console.log(`[migration] product_stock: Found existing inventory "${name}" (id=${existingInv.id}), analyzing...`)
+                
+                const analysis = await analyzeExistingInventoryForRemigration(existingInv.id, outletId)
+                
+                if (analysis.canReplace) {
+                  // Safe to replace: clean up old migration data and update
+                  console.log(`[migration] product_stock: REplacing "${name}" - ${analysis.reason}`)
+                  
+                  const cleaned = await cleanupMigrationData(existingInv.id, outletId)
+                  
+                  // Update the inventory item with new values
+                  await db.inventoryItem.update({
+                    where: { id: existingInv.id },
+                    data: {
+                      sku: finalSku || existingInv.sku,
+                      baseUnit: unit,
+                      stock: stock,
+                      avgCost: hpp > 0 ? hpp : 0,
+                      lowStockAlert: lowStockAlert > 0 ? lowStockAlert : 0,
+                      status: 'ACTIVE',
+                    },
+                  })
+                  
+                  // Create new opening balance movement
+                  try {
+                    await db.inventoryMovement.create({
+                      data: {
+                        type: 'PURCHASE',
+                        quantity: stock,
+                        previousStock: 0,
+                        newStock: stock,
+                        referenceType: 'MIGRATION',
+                        notes: `Saldo awal stok gudang (re-migrate) dari ${file.name}`,
+                        outletId,
+                        inventoryItemId: existingInv.id,
+                        userId,
+                      },
+                    })
+                  } catch (movErr) {
+                    console.warn(`[migration] Failed to create re-migration movement for ${name}:`, movErr)
+                  }
+                  
+                  invItemId = existingInv.id
+                  inventoryItemsUpdated++
+                  migrationDataCleaned++
+                  totalStock += stock
+                  totalModalValue += hpp * stock
+                  
+                  warnings.push(`🔄 "${name}": di-update (data migrasi lama dibersihkan: ${cleaned.movementsDeleted} stok, ${cleaned.compositionsDeleted} link)`)
+                } else {
+                  // Has real history: use existing but warn
+                  console.log(`[migration] product_stock: Using EXISTING "${name}" (not replaced - ${analysis.reason})`)
+                  invItemId = existingInv.id
+                  inventoryItemsSkipped++
+                  warnings.push(`⚠️ "${name}" menggunakan data existing: ${analysis.reason}`)
+                }
+                
                 inventoryItemCache.set(name, existingInv.id)
               }
 
@@ -761,20 +1087,82 @@ export async function POST(request: NextRequest) {
 
           const baseUnit = VALID_UNITS.includes(baseUnitRaw) ? baseUnitRaw : 'pcs'
 
-          // Skip duplicates
+          // Smart handling for existing inventory items (re-migration support)
           const existing = await db.inventoryItem.findFirst({
             where: { name, outletId },
           })
+          
           if (existing) {
+            // ── EXISTING ITEM: Smart re-migration handling ──
+            console.log(`[migration] sheet3_inventory: Found existing item "${name}" (id=${existing.id}), analyzing...`)
+            
+            const analysis = await analyzeExistingInventoryForRemigration(existing.id, outletId)
+            
+            if (analysis.canReplace) {
+              // Safe to replace: clean up old migration data and update
+              console.log(`[migration] sheet3_inventory: REplacing "${name}" - ${analysis.reason}`)
+              
+              const cleaned = await cleanupMigrationData(existing.id, outletId)
+              
+              // Inventory category
+              const invCategoryId = categoryRaw ? await getOrCreateInventoryCategory(categoryRaw) : null
+              
+              // Update the inventory item with new values
+              await db.inventoryItem.update({
+                where: { id: existing.id },
+                data: {
+                  sku: sku || existing.sku,
+                  baseUnit,
+                  stock,
+                  avgCost,
+                  lowStockAlert,
+                  status: 'ACTIVE',
+                  categoryId: invCategoryId,
+                },
+              })
+              
+              // Create new opening balance movement if stock > 0
+              if (stock > 0) {
+                try {
+                  await db.inventoryMovement.create({
+                    data: {
+                      type: 'PURCHASE',
+                      quantity: stock,
+                      previousStock: 0,
+                      newStock: stock,
+                      referenceType: 'MIGRATION',
+                      notes: `Saldo awal migrasi (re-migrate) dari ${file.name}`,
+                      outletId,
+                      inventoryItemId: existing.id,
+                      userId,
+                    },
+                  })
+                } catch (movErr) {
+                  console.warn(`[migration] Failed to create re-migration movement for ${name}:`, movErr)
+                }
+              }
+              
+              inventoryItemsUpdated++
+              migrationDataCleaned++
+              totalStock += stock
+              totalModalValue += avgCost * stock
+              
+              warnings.push(`🔄 "${name}": di-update (data migrasi lama dibersihkan: ${cleaned.movementsDeleted} stok, ${cleaned.compositionsDeleted} link)`)
+            } else {
+              // Has real history: skip with warning
+              console.log(`[migration] sheet3_inventory: SKIP "${name}" - ${analysis.reason}`)
+              inventoryItemsSkipped++
+              warnings.push(`⚠️ "${name}" dilewati: ${analysis.reason}`)
+            }
+            
             inventoryItemCache.set(name, existing.id)
-            inventoryItemsSkipped++
             continue
           }
 
           // Inventory category
           const invCategoryId = categoryRaw ? await getOrCreateInventoryCategory(categoryRaw) : null
 
-          // Create InventoryItem
+          // Create InventoryItem (new item)
           const invItem = await db.inventoryItem.create({
             data: {
               name,
@@ -984,10 +1372,13 @@ export async function POST(request: NextRequest) {
           barcodeCount,
           inventoryItemsCreated: hasInventory ? inventoryItemsCreated : 0,
           inventoryItemsSkipped: hasInventory ? inventoryItemsSkipped : 0,
+          inventoryItemsUpdated: hasInventory ? inventoryItemsUpdated : 0,
+          migrationDataCleaned: hasInventory ? migrationDataCleaned : 0,
           compositionsCreated: includeInventory ? compositionsCreated : 0,
           totalStock: hasInventory ? totalStock : 0,
           totalModalValue: hasInventory ? totalModalValue : 0,
           errors: errors.length,
+          warnings: warnings.length,
           fileName: file.name,
         }),
         outletId,
@@ -1003,10 +1394,13 @@ export async function POST(request: NextRequest) {
       barcodeCount,
       inventoryItemsCreated,
       inventoryItemsSkipped,
+      inventoryItemsUpdated,
+      migrationDataCleaned,
       compositionsCreated,
       totalStock,
       totalModalValue,
       errors,
+      warnings,
       mode,
       totalCategories: await db.category.count({ where: { outletId } }),
     })
