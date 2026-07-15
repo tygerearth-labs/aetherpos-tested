@@ -118,7 +118,7 @@ function detectSheetType(sheetName: string): SheetType {
   const lower = sheetName.toLowerCase()
   if (lower.includes('non-varian') || lower.includes('non varian')) return 'non_varian'
   if (lower.includes('varian') && !lower.includes('non')) return 'varian'
-  if (lower.includes('inventory') || lower.includes('bahan') || lower.includes('bahan baku')) return 'inventory'
+  if (lower.includes('inventory') || lower.includes('bahan') || lower.includes('stok gudang')) return 'inventory'
   if (lower.includes('komposisi') || lower.includes('resep') || lower.includes('bom')) return 'komposisi'
   if (lower.includes('panduan') || lower.includes('guide') || lower.includes('petunjuk')) return 'guide'
   return 'unknown'
@@ -149,7 +149,7 @@ export async function POST(request: NextRequest) {
     // Parse form data
     const formData = await request.formData()
     const file = formData.get('file') as File | null
-    const mode = String(formData.get('mode') || 'product_only') // 'product_only' | 'product_inventory'
+    const mode = String(formData.get('mode') || 'product_only') // 'product_only' | 'product_stock' | 'product_inventory'
 
     if (!file) {
       return safeJsonError('File tidak ditemukan', 400)
@@ -179,6 +179,8 @@ export async function POST(request: NextRequest) {
     }
 
     const includeInventory = mode === 'product_inventory'
+    const isStockMode = mode === 'product_stock'
+    const hasInventory = includeInventory || isStockMode
 
     // ==================== STATS ====================
     let productsCreated = 0
@@ -437,7 +439,7 @@ export async function POST(request: NextRequest) {
             }
           }
 
-          // === If inventory mode + stock > 0: create InventoryItem + Opening Balance ===
+          // === If inventory/bahan mode + stock > 0: create InventoryItem + Opening Balance ===
           if (includeInventory && stock > 0) {
             const existingInv = await db.inventoryItem.findFirst({
               where: { name, outletId },
@@ -479,6 +481,70 @@ export async function POST(request: NextRequest) {
               })
             } else {
               inventoryItemCache.set(name, existingInv.id)
+            }
+          }
+
+          // === product_stock mode: create 1:1 InventoryItem + Composition (product↔stock) ===
+          if (isStockMode && stock > 0) {
+            const existingInv = await db.inventoryItem.findFirst({
+              where: { name, outletId },
+            })
+
+            let invItemId: string
+            if (!existingInv) {
+              const invItem = await db.inventoryItem.create({
+                data: {
+                  name,
+                  sku: finalSku,
+                  baseUnit: unit,
+                  stock: stock,
+                  avgCost: hpp > 0 ? hpp : 0,
+                  lowStockAlert: lowStockAlert > 0 ? lowStockAlert : 0,
+                  status: 'ACTIVE',
+                  outletId,
+                  categoryId: null,
+                },
+              })
+
+              invItemId = invItem.id
+              inventoryItemsCreated++
+              totalStock += stock
+              totalModalValue += hpp * stock
+              inventoryItemCache.set(name, invItem.id)
+
+              // Create opening balance movement
+              await db.inventoryMovement.create({
+                data: {
+                  type: 'PURCHASE',
+                  quantity: stock,
+                  previousStock: 0,
+                  newStock: stock,
+                  referenceType: 'MIGRATION',
+                  notes: `Saldo awal stok gudang migrasi dari ${file.name}`,
+                  outletId,
+                  inventoryItemId: invItem.id,
+                  userId,
+                },
+              })
+            } else {
+              invItemId = existingInv.id
+              inventoryItemCache.set(name, existingInv.id)
+            }
+
+            // Create 1:1 composition: 1 unit of product uses 1 unit of inventory
+            try {
+              await db.productComposition.create({
+                data: {
+                  productId: product.id,
+                  inventoryItemId: invItemId,
+                  quantity: 1,
+                  unit: unit,
+                },
+              })
+              compositionsCreated++
+            } catch (e) {
+              console.warn(`[migration] Failed to create 1:1 composition for ${name}:`, e)
+              errors.push(`Gagal menghubungkan stok untuk "${name}"`)
             }
           }
 
@@ -651,7 +717,7 @@ export async function POST(request: NextRequest) {
           const row = rows[i]
           const rowNum = i + 2
 
-          const name = String(findColumn(row, ['NAMA BAHAN*', 'NAMA BAHAN', 'Nama Bahan', 'nama bahan', 'Bahan', 'BAHAN', 'name', 'Nama']) || '').trim()
+          const name = String(findColumn(row, ['NAMA ITEM*', 'NAMA ITEM', 'NAMA BAHAN*', 'NAMA BAHAN', 'Nama Bahan', 'nama bahan', 'Bahan', 'BAHAN', 'name', 'Nama']) || '').trim()
           const sku = String(findColumn(row, ['SKU', 'sku', 'Kode']) || '').trim() || null
           const baseUnitRaw = String(findColumn(row, ['SATUAN DASAR*', 'SATUAN DASAR', 'Satuan Dasar', 'satuan dasar', 'Satuan', 'satuan', 'Unit', 'unit']) || 'pcs').trim().toLowerCase()
           const stock = sanitizeNumber(findColumn(row, ['STOK AWAL', 'STOK', 'QTY', 'qty', 'Stok', 'stok', 'Stock', 'stock', 'Jumlah']))
@@ -660,7 +726,7 @@ export async function POST(request: NextRequest) {
           const lowStockAlert = sanitizeNumber(findColumn(row, ['LOW STOCK ALERT', 'Low Stock Alert', 'low stock alert', 'Low Stock', 'LOW STOCK', 'Stock Alert', 'STOK MINIMUM']))
 
           if (!name) {
-            errors.push(`Baris ${rowNum}: Nama bahan wajib diisi`)
+            errors.push(`Baris ${rowNum}: Nama item stok wajib diisi`)
             continue
           }
 
@@ -881,11 +947,11 @@ export async function POST(request: NextRequest) {
           productsSkipped,
           categoriesCreated,
           barcodeCount,
-          inventoryItemsCreated: includeInventory ? inventoryItemsCreated : 0,
-          inventoryItemsSkipped: includeInventory ? inventoryItemsSkipped : 0,
+          inventoryItemsCreated: hasInventory ? inventoryItemsCreated : 0,
+          inventoryItemsSkipped: hasInventory ? inventoryItemsSkipped : 0,
           compositionsCreated: includeInventory ? compositionsCreated : 0,
-          totalStock: includeInventory ? totalStock : 0,
-          totalModalValue: includeInventory ? totalModalValue : 0,
+          totalStock: hasInventory ? totalStock : 0,
+          totalModalValue: hasInventory ? totalModalValue : 0,
           errors: errors.length,
           fileName: file.name,
         }),

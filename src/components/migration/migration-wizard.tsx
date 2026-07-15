@@ -4,14 +4,16 @@ import { useState, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Upload, FileSpreadsheet, Check, Loader2,
-  PartyPopper, ArrowRight,
+  PartyPopper, ArrowRight, Download,
   Package, Boxes, X,
   FileSearch, ClipboardCheck, ArrowRightLeft, Cpu, Database,
   CircleCheck, CircleAlert, Copy, GitBranch, Tags, ScanBarcode,
-  FlaskConical, TrendingUp,
+  FlaskConical, TrendingUp, Link2,
 } from 'lucide-react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
+import { cn } from '@/lib/utils'
 import { formatCurrency, formatNumber } from '@/lib/format'
 import type { ImportMode, ImportResult } from './migration-banner'
 
@@ -54,6 +56,8 @@ export function MigrationWizard({
   const stepsRef = useRef<ProcessingStep[]>([])
 
   const isInventory = mode === 'product_inventory'
+  const isStockMode = mode === 'product_stock'
+  const hasInventory = isInventory || isStockMode
 
   const baseSteps: ProcessingStep[] = [
     { id: 'reading', label: 'Membaca file', icon: FileSearch, status: 'pending' },
@@ -62,8 +66,8 @@ export function MigrationWizard({
     { id: 'creating_product', label: 'Membuat Product', icon: Cpu, status: 'pending' },
   ]
 
-  if (isInventory) {
-    baseSteps.push({ id: 'creating_inventory', label: 'Membuat Inventory', icon: Database, status: 'pending' })
+  if (hasInventory) {
+    baseSteps.push({ id: 'creating_inventory', label: isStockMode ? 'Membuat Stok Gudang' : 'Membuat Inventory', icon: Database, status: 'pending' })
   }
 
   const handleFileSelect = useCallback((file: File) => {
@@ -97,7 +101,7 @@ export function MigrationWizard({
   }, [])
 
   const simulateProcessing = useCallback((steps: ProcessingStep[]) => {
-    const durations = [600, 800, 600, 1200, ...(isInventory ? [1000] : [])]
+    const durations = [600, 800, 600, 1200, ...(hasInventory ? [1000] : [])]
     let stepIndex = 0
 
     // Store a mutable copy in the ref so each tick builds on the previous state
@@ -127,7 +131,7 @@ export function MigrationWizard({
 
     // Small delay before starting
     setTimeout(runStep, 300)
-  }, [isInventory, onStateChange])
+  }, [hasInventory, onStateChange])
 
   const handleUpload = useCallback(async () => {
     if (!selectedFile) return
@@ -255,9 +259,42 @@ export function MigrationWizard({
               <div className="text-center space-y-1">
                 <h3 className="text-sm font-bold text-white">Upload File Excel</h3>
                 <p className="text-xs text-slate-400">
-                  Gunakan template migrasi atau file Excel dari POS lama Anda
+                  {isInventory
+                    ? 'Isi Sheet 1–4 (produk, bahan baku, dan resep/BOM)'
+                    : isStockMode
+                      ? 'Isi STOK AWAL di Sheet 1 & 2 — stok gudang otomatis terbuat'
+                      : 'Gunakan template migrasi atau file Excel dari POS lama Anda'
+                  }
                 </p>
               </div>
+
+              {/* Download template link */}
+              <button
+                type="button"
+                onClick={async (e) => {
+                  e.stopPropagation()
+                  try {
+                    const res = await fetch(`/api/migration/template?mode=${mode}`)
+                    if (!res.ok) throw new Error()
+                    const blob = await res.blob()
+                    const url = URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = url
+                    a.download = `template-migrasi-${mode}.xlsx`
+                    document.body.appendChild(a)
+                    a.click()
+                    a.remove()
+                    setTimeout(() => URL.revokeObjectURL(url), 1000)
+                    toast.success('Template berhasil diunduh')
+                  } catch {
+                    toast.error('Gagal mengunduh template')
+                  }
+                }}
+                className="mx-auto flex items-center gap-1.5 text-[11px] text-emerald-400 hover:text-emerald-300 transition-colors"
+              >
+                <Download className="h-3 w-3" />
+                Belum punya file? Download template untuk mode ini
+              </button>
 
               {/* Drop zone */}
               <div
@@ -326,9 +363,11 @@ export function MigrationWizard({
                 <span className={`inline-flex items-center px-2 py-0.5 text-[10px] font-semibold rounded-md ${
                   isInventory
                     ? 'text-violet-300 bg-violet-500/15 border border-violet-500/20'
-                    : 'text-emerald-300 bg-emerald-500/15 border border-emerald-500/20'
+                    : isStockMode
+                      ? 'text-cyan-300 bg-cyan-500/15 border border-cyan-500/20'
+                      : 'text-emerald-300 bg-emerald-500/15 border border-emerald-500/20'
                 }`}>
-                  {isInventory ? 'Produk + Inventory' : 'Produk Saja'}
+                  {isInventory ? 'Produk + Bahan Baku + Resep' : isStockMode ? 'Produk + Stok Gudang' : 'Produk Saja'}
                 </span>
               </div>
 
@@ -531,22 +570,29 @@ export function MigrationWizard({
                 </div>
               </motion.div>
 
-              {/* Inventory stats (only for product_inventory mode) */}
-              {isInventory && (result.inventoryItemsCreated !== undefined || result.compositionsCreated !== undefined) && (
+              {/* Inventory stats (product_stock and product_inventory modes) */}
+              {hasInventory && (result.inventoryItemsCreated !== undefined || result.compositionsCreated !== undefined) && (
                 <motion.div
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.55 }}
-                  className="rounded-xl bg-violet-500/[0.06] border border-violet-500/15 p-4 space-y-3"
+                  className={cn(
+                    'rounded-xl border p-4 space-y-3',
+                    isStockMode
+                      ? 'bg-cyan-500/[0.06] border-cyan-500/15'
+                      : 'bg-violet-500/[0.06] border-violet-500/15',
+                  )}
                 >
                   <div className="flex items-center gap-2 mb-2">
-                    <Boxes className="h-3.5 w-3.5 text-violet-400" />
-                    <span className="text-xs font-semibold text-violet-300">Inventory</span>
+                    <Boxes className={cn('h-3.5 w-3.5', isStockMode ? 'text-cyan-400' : 'text-violet-400')} />
+                    <span className={cn('text-xs font-semibold', isStockMode ? 'text-cyan-300' : 'text-violet-300')}>
+                      {isStockMode ? 'Stok Gudang' : 'Inventory Bahan Baku'}
+                    </span>
                   </div>
                   <div className="grid grid-cols-3 gap-2">
                     <div className="text-center">
                       <p className="text-base font-bold text-white">{formatNumber(result.inventoryItemsCreated)}</p>
-                      <p className="text-[10px] text-slate-500">Item</p>
+                      <p className="text-[10px] text-slate-500">{isStockMode ? 'Item Stok' : 'Item'}</p>
                     </div>
                     <div className="text-center">
                       <p className="text-base font-bold text-white">{formatNumber(result.totalStock)}</p>
@@ -557,14 +603,21 @@ export function MigrationWizard({
                       <p className="text-[10px] text-slate-500">Nilai Modal</p>
                     </div>
                   </div>
-                  {result.compositionsCreated !== undefined && result.compositionsCreated > 0 && (
+                  {isStockMode ? (
+                    <div className="flex items-center gap-2 pt-2 border-t border-cyan-500/10">
+                      <Link2 className="h-3 w-3 text-cyan-400/70 shrink-0" />
+                      <span className="text-[11px] text-slate-400">
+                        Produk otomatis terhubung ke stok gudang
+                      </span>
+                    </div>
+                  ) : result.compositionsCreated !== undefined && result.compositionsCreated > 0 ? (
                     <div className="flex items-center gap-2 pt-2 border-t border-violet-500/10">
                       <FlaskConical className="h-3 w-3 text-violet-400/70 shrink-0" />
                       <span className="text-[11px] text-slate-400">
                         <span className="text-violet-300 font-semibold">{formatNumber(result.compositionsCreated)}</span> komposisi resep terbuat
                       </span>
                     </div>
-                  )}
+                  ) : null}
                 </motion.div>
               )}
 
