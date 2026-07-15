@@ -1719,7 +1719,8 @@ export default function PurchasePage() {
   // ══════════════════════════════════════════════════════════
   // Purchase Order: Delete
   // ══════════════════════════════════════════════════════════
-  const handleDeletePo = async () => {
+  const handleDeletePo = async (e?: React.MouseEvent) => {
+    if (e) e.preventDefault() // Prevent AlertDialogAction from auto-closing
     if (!deletePoId) return
     setDeletingPo(true)
     try {
@@ -1731,7 +1732,7 @@ export default function PurchasePage() {
         void fetchPurchaseOrders()
         void fetchInventoryItems()
       } else {
-        const data = await res.json()
+        const data = await res.json().catch(() => ({}))
         toast.error(data.error || 'Gagal menghapus pembelian')
       }
     } catch {

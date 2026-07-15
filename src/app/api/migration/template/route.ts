@@ -252,7 +252,7 @@ function getGuideData(mode: TemplateMode): (string)[][] {
   const modeInfo = {
     product_only: { label: 'PRODUK SAJA', color: 'Mode 1', desc: 'Tanpa tracking stok' },
     product_stock: { label: 'PRODUK + STOK GUDANG', color: 'Mode 2', desc: 'Stok = produk yang dijual (Paling Umum)' },
-    product_inventory: { label: 'PRODUK + BAHAN BAKU + RESEP', color: 'Mode 3', desc: 'Manufaktur / produksi dari bahan' },
+    product_inventory: { label: 'PRODUK + KOMPOSISI', color: 'Mode 3', desc: 'Manufaktur / produksi dari bahan' },
   }[mode]
 
   const lines: string[][] = [

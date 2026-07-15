@@ -202,9 +202,9 @@ export function MigrationWizard({
   const hasSkipped = result && result.productsSkipped > 0
 
   return (
-    <div className="relative">
+    <div className="relative flex flex-col max-h-[80vh]">
       {/* Step indicator */}
-      <div className="px-6 pt-5 pb-3">
+      <div className="px-6 pt-5 pb-3 shrink-0">
         <div className="flex items-center gap-2 mb-3">
           {['Upload', 'Proses', 'Selesai'].map((label, i) => {
             const stepOrder = ['upload', 'processing', 'success'] as const
@@ -244,7 +244,7 @@ export function MigrationWizard({
         )}
       </div>
 
-      <div className="px-6 pb-6">
+      <div className="px-6 pb-6 flex-1 overflow-y-auto custom-scrollbar">
         <AnimatePresence mode="wait">
           {/* ═══════ STEP 1: UPLOAD ═══════ */}
           {wizardStep === 'upload' && (
@@ -260,7 +260,7 @@ export function MigrationWizard({
                 <h3 className="text-sm font-bold text-white">Upload File Excel</h3>
                 <p className="text-xs text-slate-400">
                   {isInventory
-                    ? 'Isi Sheet 1–4 (produk, bahan baku, dan resep/BOM)'
+                    ? 'Isi Sheet 1–4 (produk, bahan baku & komposisi/BOM)'
                     : isStockMode
                       ? 'Isi STOK AWAL di Sheet 1 & 2 — stok gudang otomatis terbuat'
                       : 'Gunakan template migrasi atau file Excel dari POS lama Anda'
@@ -367,7 +367,7 @@ export function MigrationWizard({
                       ? 'text-cyan-300 bg-cyan-500/15 border border-cyan-500/20'
                       : 'text-emerald-300 bg-emerald-500/15 border border-emerald-500/20'
                 }`}>
-                  {isInventory ? 'Produk + Bahan Baku + Resep' : isStockMode ? 'Produk + Stok Gudang' : 'Produk Saja'}
+                  {isInventory ? 'Produk + Komposisi' : isStockMode ? 'Produk + Stok Gudang' : 'Produk Saja'}
                 </span>
               </div>
 

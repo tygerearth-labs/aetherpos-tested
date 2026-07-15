@@ -553,11 +553,7 @@ export async function DELETE(
 
         // Skip stock reversal if inventory item was already deleted (orphaned PO item)
         if (!invItem) {
-          // Clean up orphaned PO item reference
-          await tx.purchaseOrderItem.updateMany({
-            where: { id: item.id },
-            data: { inventoryItemId: '' },
-          })
+          console.warn(`[PO DELETE] Skipping orphaned PO item "${item.name}" (inventoryItemId=${item.inventoryItemId} no longer exists)`)
           continue
         }
 
@@ -645,9 +641,16 @@ export async function DELETE(
     return safeJson({ success: true })
   } catch (error) {
     console.error('Purchase order DELETE error:', error)
-    if (error instanceof Error && (error.message.includes('tidak mencukupi') || error.message.includes('stok'))) {
-      return safeJsonError(error.message, 400)
+    if (error instanceof Error) {
+      if (error.message.includes('tidak mencukupi') || error.message.includes('stok')) {
+        return safeJsonError(error.message, 400)
+      }
+      if (error.message.includes('sudah terpakai')) {
+        return safeJsonError(error.message, 400)
+      }
+      // Return actual error detail for debugging instead of generic message
+      return safeJsonError(`Gagal menghapus pembelian: ${error.message}`)
     }
-    return safeJsonError('Failed to delete purchase order')
+    return safeJsonError('Gagal menghapus pembelian. Coba lagi beberapa saat.')
   }
 }

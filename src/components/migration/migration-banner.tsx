@@ -3,16 +3,14 @@
 import { useState, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
-import { PackagePlus, Download, X, Sparkles, Zap, Package, ChevronRight } from 'lucide-react'
+import { PackagePlus, Sparkles, Zap, Package, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
-import { Card, CardContent } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
+
 import { ImportModeDialog } from './import-mode-dialog'
 import { MigrationWizard } from './migration-wizard'
-import { toast } from 'sonner'
 
-export type ImportMode = 'product_only' | 'product_inventory'
+export type ImportMode = 'product_only' | 'product_stock' | 'product_inventory'
 export type WizardState = 'idle' | 'choosing_mode' | 'uploading' | 'processing' | 'success'
 
 export interface ImportResult {
@@ -56,29 +54,6 @@ export function MigrationBanner({ showBanner: shouldShowBanner }: MigrationBanne
     setWizardState('idle')
     setSelectedMode('product_only')
     setImportResult(null)
-  }, [])
-
-  const handleDownloadTemplate = useCallback(async () => {
-    try {
-      const res = await fetch('/api/migration/template')
-      if (!res.ok) {
-        const data = await res.json().catch(() => null)
-        throw new Error(data?.error || `HTTP ${res.status}`)
-      }
-      const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = 'template-migrasi-aether-pos.xlsx'
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
-      toast.success('Template berhasil diunduh')
-    } catch (err) {
-      console.error('Download template error:', err)
-      toast.error('Gagal mengunduh template. Silakan coba lagi.')
-    }
   }, [])
 
   const handleImportSuccess = useCallback((result: ImportResult) => {
@@ -164,15 +139,6 @@ export function MigrationBanner({ showBanner: shouldShowBanner }: MigrationBanne
               {/* Right actions */}
               <div className="flex items-center gap-2.5 sm:shrink-0">
                 <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleDownloadTemplate}
-                  className="text-xs text-slate-400 hover:text-white hover:bg-white/5 gap-1.5 h-8 px-3"
-                >
-                  <Download className="h-3.5 w-3.5" />
-                  Template
-                </Button>
-                <Button
                   onClick={() => setWizardState('choosing_mode')}
                   className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold h-9 px-4 gap-2 shadow-lg shadow-emerald-500/20 transition-all hover:shadow-emerald-500/30"
                 >
@@ -194,7 +160,7 @@ export function MigrationBanner({ showBanner: shouldShowBanner }: MigrationBanne
         open={wizardState === 'choosing_mode'}
         onOpenChange={(open) => { if (!open) handleDismiss() }}
       >
-        <DialogContent className="sm:max-w-[520px] bg-nebula border-stellar-border p-0 overflow-hidden">
+        <DialogContent className="sm:max-w-[520px] max-h-[85vh] bg-nebula border-stellar-border p-0 overflow-hidden flex flex-col">
           <div className="px-6 pt-6 pb-2">
             <DialogHeader>
               <DialogTitle className="text-lg font-bold text-white flex items-center gap-2">
@@ -207,7 +173,7 @@ export function MigrationBanner({ showBanner: shouldShowBanner }: MigrationBanne
             </DialogHeader>
           </div>
 
-          <div className="px-6 pb-6 space-y-3 mt-2">
+          <div className="px-6 pb-6 space-y-3 mt-2 overflow-y-auto flex-1 custom-scrollbar">
             <ImportModeDialog
               selected={selectedMode}
               onSelect={(mode) => {
@@ -228,7 +194,7 @@ export function MigrationBanner({ showBanner: shouldShowBanner }: MigrationBanne
           if (!open && wizardState !== 'processing') handleDismiss()
         }}
       >
-        <DialogContent className="sm:max-w-[480px] bg-nebula border-stellar-border p-0 overflow-hidden">
+        <DialogContent className="sm:max-w-[480px] max-h-[85vh] bg-nebula border-stellar-border p-0 overflow-hidden flex flex-col">
           <MigrationWizard
             mode={selectedMode}
             state={wizardState}
