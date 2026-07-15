@@ -875,10 +875,10 @@ export default function PurchasePage() {
       baseUnit: item.baseUnit,
       qty: String(item.purchaseQty),
       unit: item.purchaseUnit,
-      // Derive baseQty: baseQty = totalBaseQty / purchaseQty if possible
-      baseQty: item.purchaseQty > 0 ? String(item.baseQty / item.purchaseQty) : String(item.baseQty),
+      // Derive baseQty: baseQty = totalBaseQty / purchaseQty if possible (with rounding to avoid floating point issues)
+      baseQty: item.purchaseQty > 0 ? String(Math.round((item.baseQty / item.purchaseQty) * 10000) / 10000) : String(item.baseQty),
       // Derive pricePerItem: totalCost / purchaseQty
-      pricePerItem: item.purchaseQty > 0 ? String(item.totalCost / item.purchaseQty) : String(item.unitCost * item.baseQty),
+      pricePerItem: item.purchaseQty > 0 ? String(Math.round((item.totalCost / item.purchaseQty) * 100) / 100) : String(item.unitCost * item.baseQty),
       batch: item.batch || '',
       expiredDate: item.expiredDate ? item.expiredDate.split('T')[0] : '',
     }))
@@ -2834,7 +2834,15 @@ export default function PurchasePage() {
                                     ? "opacity-50 cursor-not-allowed text-red-400/50" 
                                     : "text-red-400"
                                 )}
-                                onClick={() => setDeletePoId(po.id)}
+                                onClick={() => {
+                                  if (po.hasLinkedItems || po.hasUsageHistory) {
+                                    toast.error(po.hasUsageHistory
+                                      ? 'Item sudah terpakai dalam transaksi — tidak bisa dihapus'
+                                      : 'Item terkait produk — hapus pembelian bisa mengubah komposisi')
+                                    return
+                                  }
+                                  setDeletePoId(po.id)
+                                }}
                                 disabled={po.hasLinkedItems || po.hasUsageHistory}
                                 title={
                                   po.hasUsageHistory

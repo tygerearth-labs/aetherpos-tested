@@ -275,8 +275,15 @@ export function MigrationWizard({
                   e.stopPropagation()
                   try {
                     const res = await fetch(`/api/migration/template?mode=${mode}`)
-                    if (!res.ok) throw new Error()
+                    if (!res.ok) {
+                      // Try to parse error message from server
+                      const errData = await res.json().catch(() => null)
+                      throw new Error(errData?.error || `Server error (${res.status})`)
+                    }
                     const blob = await res.blob()
+                    if (blob.size === 0) {
+                      throw new Error('File kosong — coba lagi')
+                    }
                     const url = URL.createObjectURL(blob)
                     const a = document.createElement('a')
                     a.href = url
@@ -286,8 +293,10 @@ export function MigrationWizard({
                     a.remove()
                     setTimeout(() => URL.revokeObjectURL(url), 1000)
                     toast.success('Template berhasil diunduh')
-                  } catch {
-                    toast.error('Gagal mengunduh template')
+                  } catch (err) {
+                    const msg = err instanceof Error ? err.message : 'Gagal mengunduh template'
+                    console.error('[Migration Template] Download failed:', msg)
+                    toast.error(msg)
                   }
                 }}
                 className="mx-auto flex items-center gap-1.5 text-[11px] text-emerald-400 hover:text-emerald-300 transition-colors"
