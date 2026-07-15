@@ -113,7 +113,25 @@ export async function POST(request: NextRequest) {
       if (item.sku) skuMap.set(item.sku.toLowerCase(), item)
     }
 
-    console.log(`[Purchase Import] Pre-loaded ${existingItems.length} items in ${Date.now() - preLoadStart}ms`)
+    // ══════════════════════════════════════════════════════════════════
+    // OPTIMIZATION #2: PRE-LOAD EXISTING BATCHES FOR DUPLICATE CHECK
+    // Prevent duplicate batchNumber errors during PO creation
+    // ══════════════════════════════════════════════════════════════════
+    
+    const existingBatches = await db.inventoryBatch.findMany({
+      where: { outletId },
+      select: { batchNumber: true, inventoryItemId: true, expiredDate: true },
+    })
+    
+    const batchSet = new Set<string>() // For DB duplicate check
+    for (const b of existingBatches) {
+      batchSet.add(b.batchNumber.toLowerCase())
+    }
+    
+    // For INTRA-FILE duplicate tracking (batch seen within this upload)
+    const seenBatchesInFile = new Map<string, number>() // batchLower → first row number
+
+    console.log(`[Purchase Import] Pre-loaded ${existingItems.length} items + ${existingBatches.length} batches in ${Date.now() - preLoadStart}ms`)
 
     // Parse rows with validation (Safety Net preserved)
     const parsedItems: Array<{
@@ -132,8 +150,18 @@ export async function POST(request: NextRequest) {
       matchedItemSku: string | null
       matchedItemUnit: string | null
       isNew: boolean
+      isExpired?: boolean  // NEW: Track if already expired
+      isDuplicateBatch?: boolean  // NEW: Track if batch exists in DB
       error?: string
+      warning?: string  // NEW: Warnings (non-blocking)
     }> = []
+    
+    // Stats tracking
+    let itemsWithBatch = 0
+    let itemsWithExpiry = 0
+    let expiredItemsCount = 0
+    let duplicateBatchCount = 0
+    let intraFileDuplicateCount = 0
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i]
@@ -211,6 +239,7 @@ export async function POST(request: NextRequest) {
 
       // ── SAFETY NET: Validation ──
       const errors: string[] = []
+      const warnings: string[] = []  // Non-blocking warnings
       if (!name) errors.push('Nama barang wajib diisi')
       
       // Block negative quantity
@@ -218,6 +247,52 @@ export async function POST(request: NextRequest) {
       
       // Block negative price
       if (pricePerUnit < 0) errors.push('Harga tidak boleh negatif')
+
+      // ══════════════════════════════════════════════════════════════════
+      // BATCH & EXPIRED DATE SAFETY NETS
+      // ══════════════════════════════════════════════════════════════════
+
+      let isExpired = false
+      let isDuplicateBatch = false
+
+      // ── Batch validation ──
+      if (batch) {
+        itemsWithBatch++
+        
+        const batchLower = batch.toLowerCase()
+        
+        // Check 1: INTRA-FILE duplicate (same batch appears multiple times in THIS file)
+        if (seenBatchesInFile.has(batchLower)) {
+          const firstSeenRow = seenBatchesInFile.get(batchLower)!
+          isDuplicateBatch = true
+          intraFileDuplicateCount++
+          warnings.push(`Batch "${batch}" duplikat dalam file ini (pertama di baris ${firstSeenRow})`)
+        } else {
+          // First time seeing this batch in file - track it
+          seenBatchesInFile.set(batchLower, rowNum)
+        }
+        
+        // Check 2: DB duplicate (batch already exists in database)
+        if (batchSet.has(batchLower)) {
+          isDuplicateBatch = true
+          duplicateBatchCount++
+          warnings.push(`Batch "${batch}" sudah ada di database`)
+        }
+      }
+
+      // ── Expired date validation (WARNING only, not blocking) ──
+      if (expiredDate) {
+        itemsWithExpiry++
+        const expDate = new Date(expiredDate)
+        const today = new Date()
+        today.setHours(0, 0, 0, 0) // Start of today
+        
+        if (expDate < today) {
+          isExpired = true
+          expiredItemsCount++
+          warnings.push(`Tanggal kadaluarsa (${expiredDate}) sudah lewat`)
+        }
+      }
 
       // Try to match to existing inventory item (case-insensitive) - O(1) lookup
       let matchedItem: typeof existingItems[number] | null = null
@@ -253,7 +328,10 @@ export async function POST(request: NextRequest) {
           matchedItemSku: null,
           matchedItemUnit: null,
           isNew: false,
+          isExpired,
+          isDuplicateBatch,
           error: errors.join('; '),
+          warning: warnings.length > 0 ? warnings.join('; ') : undefined,
         })
         parseStats.errorRows++
         continue
@@ -282,6 +360,9 @@ export async function POST(request: NextRequest) {
         matchedItemSku: matchedItem?.sku || null,
         matchedItemUnit: matchedItem?.baseUnit || null,
         isNew,
+        isExpired,
+        isDuplicateBatch,
+        warning: warnings.length > 0 ? warnings.join('; ') : undefined,
       })
     }
 
@@ -299,6 +380,15 @@ export async function POST(request: NextRequest) {
       newItems: parseStats.newItems,
       errors: parseStats.errorRows,
       existingDbItems: existingItems.length,
+      existingBatches: existingBatches.length,
+      // Batch & Expiry stats
+      _batchExpiry: {
+        itemsWithBatch,
+        itemsWithExpiry,
+        expiredItems: expiredItemsCount,
+        duplicateBatches: duplicateBatchCount,
+        intraFileDuplicates: intraFileDuplicateCount,  // NEW
+      },
     })
 
     return safeJson({
@@ -313,6 +403,15 @@ export async function POST(request: NextRequest) {
         newItems: parseStats.newItems,
         errorRows: parseStats.errorRows,
         processingTimeMs: totalTime,
+        // NEW: Batch & Expiry summary for frontend
+        batchSummary: {
+          itemsWithBatch,
+          itemsWithExpiry,
+          expiredItems: expiredItemsCount,
+          duplicateBatches: duplicateBatchCount,
+          intraFileDuplicates: intraFileDuplicateCount,  // NEW
+          hasWarnings: expiredItemsCount > 0 || duplicateBatchCount > 0 || intraFileDuplicateCount > 0,
+        },
       },
     })
   } catch (error) {
