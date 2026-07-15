@@ -71,6 +71,8 @@ export async function GET(request: NextRequest) {
           select: {
             productName: true,
             variantName: true,
+            productSku: true,    // Fix Bug #6: Include SKU fields
+            variantSku: true,    // Fix Bug #6: Include SKU fields
             price: true,
             qty: true,
             subtotal: true,
@@ -101,8 +103,9 @@ export async function GET(request: NextRequest) {
     const detailRows: Record<string, unknown>[] = []
     for (const t of transactions) {
       for (const item of t.items) {
-        const itemHpp = (item as any).hpp ?? 0
-        const itemPrice = (item as any).price ?? 0
+        // Fix Bug #6: Use typed access now that fields are properly selected
+        const itemHpp = item.hpp ?? 0
+        const itemPrice = item.price ?? 0
         const itemProfit = (itemPrice - itemHpp) * (item.qty ?? 1)
         detailRows.push({
           'No': detailRows.length + 1,
@@ -112,8 +115,8 @@ export async function GET(request: NextRequest) {
           'Customer': t.customer?.name || 'Walk-in',
           'Nama Produk': item.productName,
           'Varian': item.variantName || '-',
-          'SKU Produk': (item as any).productSku || '-',
-          'SKU Varian': (item as any).variantSku || '-',
+          'SKU Produk': item.productSku || '-',       // Fix Bug #6: Now properly typed
+          'SKU Varian': item.variantSku || '-',        // Fix Bug #6: Now properly typed
           'QTY': item.qty,
           'Harga Satuan': item.price,
           'HPP (Snapshot)': itemHpp,

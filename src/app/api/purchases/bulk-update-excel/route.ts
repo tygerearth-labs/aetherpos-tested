@@ -5,61 +5,36 @@ import { getOutletPlan } from '@/lib/config/plan-config'
 import * as XLSX from 'xlsx'
 import { safeAuditLog } from '@/lib/safe-audit'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
+// Shared Excel utilities (fixes: inconsistent sanitizeNumber, code duplication, date parsing)
+import {
+  sanitizeNumber,
+  normalizeHeader,
+  findColumn,
+  parseExcelDate,
+} from '@/lib/excel-utils'
 
 export const maxDuration = 60
 
 const MAX_ROWS = 500
 
-function sanitizeNumber(val: unknown): number {
-  if (typeof val === 'number') return val
-  if (val === null || val === undefined) return 0
-  const str = String(val).trim()
-  if (!str) return 0
-  let cleaned = str.replace(/[Rp\s$€¥£.,\-]/g, (match) => {
-    if (match === '.' || match === ',') return match
-    return ''
-  }).trim()
-  const lastDot = cleaned.lastIndexOf('.')
-  const lastComma = cleaned.lastIndexOf(',')
-  if (lastDot > -1 && lastComma > -1) {
-    if (lastDot > lastComma) cleaned = cleaned.replace(/\./g, '').replace(',', '.')
-    else cleaned = cleaned.replace(/,/g, '')
-  } else if (lastDot > -1) {
-    const parts = cleaned.split('.')
-    if (parts.length > 1 && parts[parts.length - 1].length === 3) cleaned = cleaned.replace(/\./g, '')
-  } else if (lastComma > -1) {
-    const parts = cleaned.split(',')
-    if (parts.length > 1 && parts[parts.length - 1].length === 3) cleaned = cleaned.replace(/,/g, '')
-    else cleaned = cleaned.replace(',', '.')
-  }
-  return isNaN(Number(cleaned)) ? 0 : Number(cleaned)
-}
-
-function normalizeHeader(key: string): string {
-  return key.replace(/[^a-zA-Z0-9\s]/g, '').trim().toLowerCase()
-}
-
-function findColumn(row: Record<string, unknown>, aliases: string[]): unknown {
-  const normalizedMap = new Map<string, string>()
-  for (const key of Object.keys(row)) {
-    normalizedMap.set(normalizeHeader(key), key)
-  }
-  for (const alias of aliases) {
-    const norm = normalizeHeader(alias)
-    if (normalizedMap.has(norm)) return row[normalizedMap.get(norm)!]
-    for (const [normKey, actualKey] of normalizedMap) {
-      if (normKey.includes(norm) || norm.includes(normKey)) return row[actualKey]
-    }
-  }
-  return undefined
-}
-
 /**
  * POST /api/purchases/bulk-update-excel
  * Bulk update purchase order items from uploaded Excel (Pro & Enterprise only).
  * Only allows updating: Tanggal Expired (per item).
+ * 
+ * Fix Bug #5: Now supports matching by:
+ * - NO PO + Nama Item (original, but warns if duplicates exist)
+ * - NO PO + Row Number (recommended for POs with duplicate items)
  */
 export async function POST(request: NextRequest) {
+  // Result containers
+  const result = {
+    updated: 0,
+    notFound: 0,
+    warnings: [] as string[],
+    errors: [] as string[],
+  }
+
   try {
     const user = await getAuthUser(request)
     if (!user) return unauthorized()
@@ -98,6 +73,7 @@ export async function POST(request: NextRequest) {
       (s) => normalizeHeader(s).includes('detail item po') || normalizeHeader(s).includes('detail item')
     )
     if (!sheetName) return safeJsonError('Sheet "Detail Item PO" tidak ditemukan dalam file', 400)
+    
     const sheet = workbook.Sheets[sheetName]
     const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' })
 
@@ -106,115 +82,124 @@ export async function POST(request: NextRequest) {
       return safeJsonError(`Maksimal ${MAX_ROWS} baris per upload. File Anda memiliki ${rows.length} baris.`, 400)
     }
 
-    let updated = 0
-    let notFound = 0
-    const errors: string[] = []
+    // ══════════════════════════════════════════════════════════════════
+    // WRAP IN TRANSACTION for atomicity (Fix Bug #1)
+    // ══════════════════════════════════════════════════════════════════
+    await db.$transaction(async (tx) => {
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i]
+        const rowNum = i + 2
 
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i]
-      const rowNum = i + 2
+        // Find the PO number and item name to locate the correct PurchaseOrderItem
+        const poNumber = String(findColumn(row, ['NO PO', 'No PO', 'No. PO', 'no po', 'po number', 'PO Number', 'orderNumber']) || '').trim()
+        const itemName = String(findColumn(row, ['NAMA ITEM', 'Nama Item', 'nama item', 'Item', 'item', 'name']) || '').trim()
+        
+        // Optional: Row sequence number for disambiguation (Fix Bug #5)
+        const rowSequence = sanitizeNumber(findColumn(row, ['NO', 'No', 'No.', 'ROW', 'Row', 'BARIS', 'Baris']))
 
-      // Find the PO number and item name to locate the correct PurchaseOrderItem
-      const poNumber = String(findColumn(row, ['NO PO', 'No PO', 'No. PO', 'no po', 'po number', 'PO Number', 'orderNumber']) || '').trim()
-      const itemName = String(findColumn(row, ['NAMA ITEM', 'Nama Item', 'nama item', 'Item', 'item', 'name']) || '').trim()
+        if (!poNumber) {
+          result.errors.push(`Baris ${rowNum}: No. PO wajib diisi`)
+          continue
+        }
+        if (!itemName) {
+          result.errors.push(`Baris ${rowNum}: Nama Item wajib diisi`)
+          continue
+        }
 
-      if (!poNumber) {
-        errors.push(`Baris ${rowNum}: No. PO wajib diisi`)
-        continue
-      }
-      if (!itemName) {
-        errors.push(`Baris ${rowNum}: Nama Item wajib diisi`)
-        continue
-      }
+        // Find the PurchaseOrder by orderNumber using transaction client
+        const purchaseOrder = await tx.purchaseOrder.findFirst({
+          where: { orderNumber: poNumber, outletId },
+        })
+        if (!purchaseOrder) {
+          result.errors.push(`Baris ${rowNum}: PO "${poNumber}" tidak ditemukan`)
+          result.notFound++
+          continue
+        }
 
-      // Find the PurchaseOrder by orderNumber
-      const purchaseOrder = await db.purchaseOrder.findFirst({
-        where: { orderNumber: poNumber, outletId },
-      })
-      if (!purchaseOrder) {
-        errors.push(`Baris ${rowNum}: PO "${poNumber}" tidak ditemukan`)
-        notFound++
-        continue
-      }
+        // Find ALL matching items (Fix Bug #5: Handle duplicate names properly)
+        const matchingItems = await tx.purchaseOrderItem.findMany({
+          where: {
+            purchaseOrderId: purchaseOrder.id,
+            name: itemName,
+            outletId,
+          },
+          orderBy: { createdAt: 'asc' }, // Consistent ordering
+        })
 
-      // Find the PurchaseOrderItem by PO id and item name
-      const item = await db.purchaseOrderItem.findFirst({
-        where: {
-          purchaseOrderId: purchaseOrder.id,
-          name: itemName,
-          outletId,
-        },
-      })
-      if (!item) {
-        errors.push(`Baris ${rowNum}: Item "${itemName}" tidak ditemukan di PO "${poNumber}"`)
-        notFound++
-        continue
-      }
+        if (matchingItems.length === 0) {
+          result.errors.push(`Baris ${rowNum}: Item "${itemName}" tidak ditemukan di PO "${poNumber}"`)
+          result.notFound++
+          continue
+        }
 
-      // Parse Tanggal Expired
-      const expiredDateRaw = findColumn(row, ['TANGGAL EXPIRED', 'Tanggal Expired', 'tanggal expired', 'expired date', 'Expired Date', 'expired'])
-      let expiredDate: Date | null = null
-      if (expiredDateRaw !== undefined && expiredDateRaw !== null && expiredDateRaw !== '') {
-        if (typeof expiredDateRaw === 'number') {
-          // Excel serial date
-          const date = XLSX.SSF.parse_date_code(expiredDateRaw)
-          if (date) {
-            expiredDate = new Date(date.y, date.m - 1, date.d)
+        // If multiple items with same name, use row sequence to pick the right one
+        let targetItem: typeof matchingItems[0]
+        if (matchingItems.length > 1) {
+          if (rowSequence > 0 && rowSequence <= matchingItems.length) {
+            // User provided row/sequence number — use it to pick the right item
+            targetItem = matchingItems[rowSequence - 1] // 1-indexed
+            result.warnings.push(`Baris ${rowNum}: Item "${itemName}" di PO "${poNumber}" ada ${matchingItems.length} duplikat. Menggunakan urutan ke-${rowSequence}`)
+          } else {
+            // No sequence number — warn and use first match
+            targetItem = matchingItems[0]
+            result.warnings.push(`Baris ${rowNum}: Item "${itemName}" di PO "${poNumber}" ada ${matchingItems.length} duplikat. Menggunakan yang pertama. Tambahkan kolom "NO" untuk memilih yang tepat.`)
           }
         } else {
-          const parsed = new Date(String(expiredDateRaw))
-          if (!isNaN(parsed.getTime())) {
-            expiredDate = parsed
+          targetItem = matchingItems[0]
+        }
+
+        // Parse Tanggal Expired using shared utility (Fix Bug #9: Consistent date parsing)
+        const expiredDateRaw = findColumn(row, ['TANGGAL EXPIRED', 'Tanggal Expired', 'tanggal expired', 'expired date', 'Expired Date', 'expired'])
+        const expiredDateStr = parseExcelDate(expiredDateRaw)
+
+        const updateData: Record<string, unknown> = {}
+        const changes: Record<string, { from: string | null; to: string | null }> = {}
+
+        if (expiredDateStr) {
+          const prev = targetItem.expiredDate ? new Date(targetItem.expiredDate).toISOString().split('T')[0] : null
+          if (prev !== expiredDateStr) {
+            updateData.expiredDate = new Date(expiredDateStr)
+            changes.expiredDate = { from: prev, to: expiredDateStr }
           }
         }
+
+        if (Object.keys(updateData).length === 0) continue
+
+        await tx.purchaseOrderItem.update({
+          where: { id: targetItem.id },
+          data: updateData,
+        })
+
+        await safeAuditLog({
+          action: 'BULK_UPDATE',
+          entityType: 'PURCHASE_ORDER_ITEM',
+          entityId: targetItem.id,
+          details: JSON.stringify({
+            bulkUpdateExcel: true,
+            poNumber,
+            itemName,
+            changes,
+            fileName: file.name,
+          }),
+          outletId,
+          userId,
+        })
+
+        result.updated++
       }
+    }) // End of transaction
 
-      const updateData: Record<string, unknown> = {}
-      const changes: Record<string, { from: string | null; to: string | null }> = {}
-
-      if (expiredDate) {
-        const prev = item.expiredDate ? item.expiredDate.toISOString().split('T')[0] : null
-        const next = expiredDate.toISOString().split('T')[0]
-        if (prev !== next) {
-          updateData.expiredDate = expiredDate
-          changes.expiredDate = { from: prev, to: next }
-        }
-      }
-
-      if (Object.keys(updateData).length === 0) continue
-
-      await db.purchaseOrderItem.update({
-        where: { id: item.id },
-        data: updateData,
-      })
-
-      await safeAuditLog({
-        action: 'BULK_UPDATE',
-        entityType: 'PURCHASE_ORDER_ITEM',
-        entityId: item.id,
-        details: JSON.stringify({
-          bulkUpdateExcel: true,
-          poNumber,
-          itemName,
-          changes,
-          fileName: file.name,
-        }),
-        outletId,
-        userId,
-      })
-
-      updated++
-    }
-
-    if (updated > 0) {
+    // Audit log summary (Fix Bug #14)
+    if (result.updated > 0 || result.notFound > 0) {
       await safeAuditLog({
         action: 'BULK_UPDATE',
         entityType: 'PURCHASE_ORDER_ITEM',
         details: JSON.stringify({
           bulkUpdateExcel: true,
-          updated,
-          notFound,
-          errors: errors.length,
+          updated: result.updated,
+          notFound: result.notFound,
+          warnings: result.warnings.length,
+          errors: result.errors.length,
           fileName: file.name,
         }),
         outletId,
@@ -222,7 +207,7 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    return safeJson({ updated, notFound, errors })
+    return safeJson({ ...result })
   } catch (error) {
     console.error('Purchase bulk update excel error:', error)
     const message = error instanceof Error ? error.message : 'Unknown error'

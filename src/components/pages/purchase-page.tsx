@@ -1219,7 +1219,8 @@ export default function PurchasePage() {
         }
       } else {
         const data = await res.json()
-        toast.error(data.error || 'Gagal membaca file')
+        // Fix Bug #11: Show details message for better debugging
+        toast.error(data.details || data.error || 'Gagal membaca file')
         setShowImportPreview(false)
       }
     } catch {
@@ -2035,7 +2036,8 @@ export default function PurchasePage() {
         setInvEditExcelResult({ updated: data.updated || 0, notFound: data.notFound || 0, errors: data.errors || [] })
         void fetchInventoryItems()
       } else {
-        toast.error(data.error || 'Gagal mengupdate inventory')
+        // Fix Bug #11: Show details message for better debugging
+        toast.error(data.details || data.error || 'Gagal mengupdate inventory')
       }
     } catch {
       toast.error('Gagal mengupdate inventory')

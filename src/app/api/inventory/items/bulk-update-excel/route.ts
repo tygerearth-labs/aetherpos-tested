@@ -5,67 +5,31 @@ import { getOutletPlan } from '@/lib/config/plan-config'
 import * as XLSX from 'xlsx'
 import { safeAuditLog } from '@/lib/safe-audit'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
+// Shared Excel utilities (fixes: inconsistent sanitizeNumber, code duplication, negative number handling)
+import {
+  sanitizeNumber,
+  normalizeHeader,
+  findColumn,
+  isNonEmpty,
+  validateUnit,
+} from '@/lib/excel-utils'
 
 export const maxDuration = 60
 
 const MAX_ROWS = 500
-
-function sanitizeNumber(val: unknown): number {
-  if (typeof val === 'number') return val
-  if (val === null || val === undefined) return 0
-  const str = String(val).trim()
-  if (!str) return 0
-  let cleaned = str.replace(/[Rp\s$€¥£.,\-]/g, (match) => {
-    if (match === '.' || match === ',') return match
-    return ''
-  }).trim()
-  const lastDot = cleaned.lastIndexOf('.')
-  const lastComma = cleaned.lastIndexOf(',')
-  if (lastDot > -1 && lastComma > -1) {
-    if (lastDot > lastComma) cleaned = cleaned.replace(/\./g, '').replace(',', '.')
-    else cleaned = cleaned.replace(/,/g, '')
-  } else if (lastDot > -1) {
-    const parts = cleaned.split('.')
-    if (parts.length > 1 && parts[parts.length - 1].length === 3) cleaned = cleaned.replace(/\./g, '')
-  } else if (lastComma > -1) {
-    const parts = cleaned.split(',')
-    if (parts.length > 1 && parts[parts.length - 1].length === 3) cleaned = cleaned.replace(/,/g, '')
-    else cleaned = cleaned.replace(',', '.')
-  }
-  return isNaN(Number(cleaned)) ? 0 : Number(cleaned)
-}
-
-function normalizeHeader(key: string): string {
-  return key.replace(/[^a-zA-Z0-9\s]/g, '').trim().toLowerCase()
-}
-
-function findColumn(row: Record<string, unknown>, aliases: string[]): unknown {
-  const normalizedMap = new Map<string, string>()
-  for (const key of Object.keys(row)) {
-    normalizedMap.set(normalizeHeader(key), key)
-  }
-  for (const alias of aliases) {
-    const norm = normalizeHeader(alias)
-    if (normalizedMap.has(norm)) return row[normalizedMap.get(norm)!]
-    for (const [normKey, actualKey] of normalizedMap) {
-      if (normKey.includes(norm) || norm.includes(normKey)) return row[actualKey]
-    }
-  }
-  return undefined
-}
-
-function isNonEmpty(val: unknown): boolean {
-  if (val === null || val === undefined) return false
-  if (typeof val === 'string') return val.trim().length > 0
-  if (typeof val === 'number') return val !== 0
-  return true
-}
 
 /**
  * POST /api/inventory/items/bulk-update-excel
  * Bulk update inventory items from uploaded Excel (Pro & Enterprise only).
  */
 export async function POST(request: NextRequest) {
+  // Result containers
+  const result = {
+    updated: 0,
+    notFound: 0,
+    errors: [] as string[],
+  }
+
   try {
     const user = await getAuthUser(request)
     if (!user) return unauthorized()
@@ -101,6 +65,7 @@ export async function POST(request: NextRequest) {
 
     const sheetName = workbook.SheetNames[0]
     if (!sheetName) return safeJsonError('File Excel kosong', 400)
+    
     const sheet = workbook.Sheets[sheetName]
     const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' })
 
@@ -109,152 +74,165 @@ export async function POST(request: NextRequest) {
       return safeJsonError(`Maksimal ${MAX_ROWS} baris per upload. File Anda memiliki ${rows.length} baris.`, 400)
     }
 
-    let updated = 0
-    let notFound = 0
-    const errors: string[] = []
+    // ══════════════════════════════════════════════════════════════════
+    // WRAP IN TRANSACTION for atomicity (Fix Bug #1)
+    // ══════════════════════════════════════════════════════════════════
+    await db.$transaction(async (tx) => {
+      // Cache inventory categories
+      const categoryCache = new Map<string, string | null>()
 
-    // Cache inventory categories
-    const categoryCache = new Map<string, string | null>()
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i]
+        const rowNum = i + 2
 
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i]
-      const rowNum = i + 2
+        const itemId = String(findColumn(row, ['ID*', 'ID', 'id', 'Id']) || '').trim()
+        if (!itemId) {
+          result.errors.push(`Baris ${rowNum}: ID item wajib diisi`)
+          continue
+        }
 
-      const itemId = String(findColumn(row, ['ID*', 'ID', 'id', 'Id']) || '').trim()
-      if (!itemId) {
-        errors.push(`Baris ${rowNum}: ID item wajib diisi`)
-        continue
-      }
+        const existing = await tx.inventoryItem.findFirst({
+          where: { id: itemId, outletId },
+        })
+        if (!existing) {
+          result.errors.push(`Baris ${rowNum}: Item dengan ID "${itemId}" tidak ditemukan`)
+          result.notFound++
+          continue
+        }
 
-      const existing = await db.inventoryItem.findFirst({
-        where: { id: itemId, outletId },
-      })
-      if (!existing) {
-        errors.push(`Baris ${rowNum}: Item dengan ID "${itemId}" tidak ditemukan`)
-        notFound++
-        continue
-      }
+        const updateData: Record<string, unknown> = {}
+        const changes: Record<string, { from: number | string | null; to: number | string }> = {}
 
-      const updateData: Record<string, unknown> = {}
-      const changes: Record<string, { from: number | string | null; to: number | string }> = {}
+        // Name
+        const name = String(findColumn(row, ['NAMA ITEM*', 'NAMA ITEM', 'Nama Item', 'Nama', 'NAME', 'name']) || '').trim()
+        if (isNonEmpty(name) && name !== existing.name) {
+          updateData.name = name
+          changes.name = { from: existing.name, to: name }
+        }
 
-      // Name
-      const name = String(findColumn(row, ['NAMA ITEM*', 'NAMA ITEM', 'Nama Item', 'Nama', 'NAME', 'name']) || '').trim()
-      if (isNonEmpty(name) && name !== existing.name) {
-        updateData.name = name
-        changes.name = { from: existing.name, to: name }
-      }
+        // SKU
+        const sku = String(findColumn(row, ['SKU', 'sku', 'Kode']) || '').trim()
+        if (isNonEmpty(sku)) {
+          updateData.sku = sku || null
+          if (sku !== (existing.sku || '')) changes.sku = { from: existing.sku || '', to: sku }
+        }
 
-      // SKU
-      const sku = String(findColumn(row, ['SKU', 'sku', 'Kode']) || '').trim()
-      if (isNonEmpty(sku)) {
-        updateData.sku = sku || null
-        if (sku !== (existing.sku || '')) changes.sku = { from: existing.sku || '', to: sku }
-      }
+        // Base Unit with validation
+        const baseUnit = String(findColumn(row, ['SATUAN DASAR', 'Satuan Dasar', 'SATUAN', 'Satuan', 'satuan', 'Unit', 'unit', 'Base Unit']) || '').trim().toLowerCase()
+        if (isNonEmpty(baseUnit)) {
+          const validatedUnit = validateUnit(baseUnit)
+          updateData.baseUnit = validatedUnit
+          if (validatedUnit !== existing.baseUnit) changes.baseUnit = { from: existing.baseUnit, to: validatedUnit }
+        }
 
-      // Base Unit
-      const baseUnit = String(findColumn(row, ['SATUAN DASAR', 'Satuan Dasar', 'SATUAN', 'Satuan', 'satuan', 'Unit', 'unit', 'Base Unit']) || '').trim().toLowerCase()
-      const validUnits = ['pcs', 'ml', 'lt', 'gr', 'kg', 'box', 'pack', 'botol', 'gelas', 'mangkuk', 'porsi', 'bungkus', 'sachet', 'dus', 'rim', 'lembar', 'meter', 'cm', 'ons', 'roll', 'strip', 'ekor']
-      if (isNonEmpty(baseUnit) && validUnits.includes(baseUnit)) {
-        updateData.baseUnit = baseUnit
-        if (baseUnit !== existing.baseUnit) changes.baseUnit = { from: existing.baseUnit, to: baseUnit }
-      }
+        // Stock with negative validation (Fix Bug #7)
+        const stock = sanitizeNumber(findColumn(row, ['STOK', 'Stok', 'stok', 'Stock', 'stock', 'QTY', 'qty']))
+        if (isNonEmpty(findColumn(row, ['STOK', 'Stok', 'stok', 'Stock', 'stock', 'QTY', 'qty']))) {
+          if (stock < 0) {
+            result.errors.push(`Baris ${rowNum}: Stok tidak boleh negatif (Item: ${existing.name}, Stok: ${stock})`)
+            continue
+          }
+          updateData.stock = stock
+          if (stock !== existing.stock) changes.stock = { from: existing.stock, to: stock }
+        }
 
-      // Stock
-      const stock = sanitizeNumber(findColumn(row, ['STOK', 'Stok', 'stok', 'Stock', 'stock', 'QTY', 'qty']))
-      if (isNonEmpty(findColumn(row, ['STOK', 'Stok', 'stok', 'Stock', 'stock', 'QTY', 'qty']))) {
-        updateData.stock = stock
-        if (stock !== existing.stock) changes.stock = { from: existing.stock, to: stock }
-      }
+        // Avg Cost with negative validation
+        const avgCost = sanitizeNumber(findColumn(row, ['HPP RATA-RATA (RP)', 'HPP RATA-RATA', 'HPP', 'Avg Cost', 'hpp', 'avgCost', 'Harga Pokok', 'Modal']))
+        if (isNonEmpty(findColumn(row, ['HPP RATA-RATA (RP)', 'HPP RATA-RATA', 'HPP', 'Avg Cost', 'hpp', 'avgCost', 'Harga Pokok', 'Modal']))) {
+          if (avgCost < 0) {
+            result.errors.push(`Baris ${rowNum}: HPP rata-rata tidak boleh negatif (Item: ${existing.name})`)
+            continue
+          }
+          updateData.avgCost = avgCost
+          if (avgCost !== existing.avgCost) changes.avgCost = { from: existing.avgCost, to: avgCost }
+        }
 
-      // Avg Cost
-      const avgCost = sanitizeNumber(findColumn(row, ['HPP RATA-RATA (RP)', 'HPP RATA-RATA', 'HPP', 'Avg Cost', 'hpp', 'avgCost', 'Harga Pokok', 'Modal']))
-      if (isNonEmpty(findColumn(row, ['HPP RATA-RATA (RP)', 'HPP RATA-RATA', 'HPP', 'Avg Cost', 'hpp', 'avgCost', 'Harga Pokok', 'Modal']))) {
-        updateData.avgCost = avgCost
-        if (avgCost !== existing.avgCost) changes.avgCost = { from: existing.avgCost, to: avgCost }
-      }
+        // Low Stock Alert
+        const lowStockAlert = sanitizeNumber(findColumn(row, ['LOW STOCK ALERT', 'Low Stock Alert', 'low_stock_alert', 'Low Stock', 'Alert Stok']))
+        if (isNonEmpty(findColumn(row, ['LOW STOCK ALERT', 'Low Stock Alert', 'low_stock_alert', 'Low Stock', 'Alert Stok']))) {
+          if (lowStockAlert < 0) {
+            result.errors.push(`Baris ${rowNum}: Low Stock Alert tidak boleh negatif (Item: ${existing.name})`)
+            continue
+          }
+          updateData.lowStockAlert = lowStockAlert
+          if (lowStockAlert !== existing.lowStockAlert) changes.lowStockAlert = { from: existing.lowStockAlert, to: lowStockAlert }
+        }
 
-      // Low Stock Alert
-      const lowStockAlert = sanitizeNumber(findColumn(row, ['LOW STOCK ALERT', 'Low Stock Alert', 'low_stock_alert', 'Low Stock', 'Alert Stok']))
-      if (isNonEmpty(findColumn(row, ['LOW STOCK ALERT', 'Low Stock Alert', 'low_stock_alert', 'Low Stock', 'Alert Stok']))) {
-        updateData.lowStockAlert = lowStockAlert
-        if (lowStockAlert !== existing.lowStockAlert) changes.lowStockAlert = { from: existing.lowStockAlert, to: lowStockAlert }
-      }
+        // Status
+        const status = String(findColumn(row, ['STATUS', 'Status', 'status']) || '').trim().toUpperCase()
+        if (isNonEmpty(status) && ['ACTIVE', 'ARCHIVED'].includes(status)) {
+          updateData.status = status
+          if (status !== existing.status) changes.status = { from: existing.status, to: status }
+        }
 
-      // Status
-      const status = String(findColumn(row, ['STATUS', 'Status', 'status']) || '').trim().toUpperCase()
-      if (isNonEmpty(status) && ['ACTIVE', 'ARCHIVED'].includes(status)) {
-        updateData.status = status
-        if (status !== existing.status) changes.status = { from: existing.status, to: status }
-      }
-
-      // Category
-      const categoryRaw = String(findColumn(row, ['KATEGORI INVENTORY', 'KATEGORI', 'Kategori', 'kategori', 'Category', 'category']) || '').trim()
-      if (isNonEmpty(categoryRaw)) {
-        let categoryId: string | null = null
-        if (categoryCache.has(categoryRaw)) {
-          categoryId = categoryCache.get(categoryRaw)!
-        } else {
-          const existingCat = await db.inventoryCategory.findFirst({
-            where: { name: categoryRaw, outletId },
-          })
-          if (existingCat) {
-            categoryId = existingCat.id
-            categoryCache.set(categoryRaw, categoryId)
+        // Category
+        const categoryRaw = String(findColumn(row, ['KATEGORI INVENTORY', 'KATEGORI', 'Kategori', 'kategori', 'Category', 'category']) || '').trim()
+        if (isNonEmpty(categoryRaw)) {
+          let categoryId: string | null = null
+          if (categoryCache.has(categoryRaw)) {
+            categoryId = categoryCache.get(categoryRaw)!
           } else {
-            const newCat = await db.inventoryCategory.create({
-              data: { name: categoryRaw, outletId, color: 'zinc' },
+            const existingCat = await tx.inventoryCategory.findFirst({
+              where: { name: categoryRaw, outletId },
             })
-            categoryId = newCat.id
-            categoryCache.set(categoryRaw, categoryId)
+            if (existingCat) {
+              categoryId = existingCat.id
+              categoryCache.set(categoryRaw, categoryId)
+            } else {
+              const newCat = await tx.inventoryCategory.create({
+                data: { name: categoryRaw, outletId, color: 'zinc' },
+              })
+              categoryId = newCat.id
+              categoryCache.set(categoryRaw, categoryId)
+            }
+          }
+          updateData.categoryId = categoryId
+          if (categoryId !== existing.categoryId) {
+            changes.categoryId = { from: existing.categoryId || '', to: categoryId }
           }
         }
-        updateData.categoryId = categoryId
-        if (categoryId !== existing.categoryId) {
-          changes.categoryId = { from: existing.categoryId || '', to: categoryId }
-        }
+
+        if (Object.keys(updateData).length === 0) continue
+
+        await tx.inventoryItem.update({
+          where: { id: itemId },
+          data: updateData,
+        })
+
+        await safeAuditLog({
+          action: 'BULK_UPDATE',
+          entityType: 'INVENTORY_ITEM',
+          entityId: itemId,
+          details: JSON.stringify({
+            bulkUpdateExcel: true,
+            changes,
+            fileName: file.name,
+          }),
+          outletId,
+          userId,
+        })
+
+        result.updated++
       }
+    }) // End of transaction
 
-      if (Object.keys(updateData).length === 0) continue
+    // Audit log summary (Fix Bug #14)
+    await safeAuditLog({
+      action: result.updated > 0 ? 'BULK_UPDATE' : 'UPDATE_ATTEMPT',
+      entityType: 'INVENTORY_ITEM',
+      details: JSON.stringify({
+        bulkUpdateExcel: true,
+        updated: result.updated,
+        notFound: result.notFound,
+        errors: result.errors.length,
+        fileName: file.name,
+        success: result.updated > 0,
+      }),
+      outletId,
+      userId,
+    })
 
-      await db.inventoryItem.update({
-        where: { id: itemId },
-        data: updateData,
-      })
-
-      await safeAuditLog({
-        action: 'BULK_UPDATE',
-        entityType: 'INVENTORY_ITEM',
-        entityId: itemId,
-        details: JSON.stringify({
-          bulkUpdateExcel: true,
-          changes,
-          fileName: file.name,
-        }),
-        outletId,
-        userId,
-      })
-
-      updated++
-    }
-
-    if (updated > 0) {
-      await safeAuditLog({
-        action: 'BULK_UPDATE',
-        entityType: 'INVENTORY_ITEM',
-        details: JSON.stringify({
-          bulkUpdateExcel: true,
-          updated,
-          notFound,
-          errors: errors.length,
-          fileName: file.name,
-        }),
-        outletId,
-        userId,
-      })
-    }
-
-    return safeJson({ updated, notFound, errors })
+    return safeJson({ ...result })
   } catch (error) {
     console.error('Inventory bulk update excel error:', error)
     const message = error instanceof Error ? error.message : 'Unknown error'

@@ -4,63 +4,16 @@ import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { getOutletPlan } from '@/lib/config/plan-config'
 import * as XLSX from 'xlsx'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
+// Shared Excel utilities (fixes: inconsistent sanitizeNumber, code duplication, date parsing)
+import {
+  sanitizeNumber,
+  normalizeHeader,
+  findColumn,
+  parseExcelDate,
+} from '@/lib/excel-utils'
 
 export const maxDuration = 30
 const MAX_ROWS = 200
-
-// ── Number sanitization (Indonesian & standard formats) ──
-function sanitizeNumber(val: unknown): number {
-  if (typeof val === 'number') return val
-  if (val === null || val === undefined) return 0
-  const str = String(val).trim()
-  if (!str) return 0
-
-  let cleaned = str.replace(/[Rp\s$€¥£]/g, '').trim()
-
-  const lastDot = cleaned.lastIndexOf('.')
-  const lastComma = cleaned.lastIndexOf(',')
-
-  if (lastDot > -1 && lastComma > -1) {
-    cleaned = lastDot > lastComma
-      ? cleaned.replace(/\./g, '').replace(',', '.')
-      : cleaned.replace(/,/g, '')
-  } else if (lastDot > -1) {
-    const parts = cleaned.split('.')
-    if (parts.length > 1 && parts[parts.length - 1].length === 3) {
-      cleaned = cleaned.replace(/\./g, '')
-    }
-  } else if (lastComma > -1) {
-    const parts = cleaned.split(',')
-    if (parts.length > 1 && parts[parts.length - 1].length === 3) {
-      cleaned = cleaned.replace(/,/g, '')
-    } else {
-      cleaned = cleaned.replace(',', '.')
-    }
-  }
-
-  const num = Number(cleaned)
-  return isNaN(num) ? 0 : num
-}
-
-// ── Flexible header matching ──
-function normalizeHeader(key: string): string {
-  return key.replace(/[^a-zA-Z0-9\s]/g, '').trim().toLowerCase()
-}
-
-function findColumn(row: Record<string, unknown>, aliases: string[]): unknown {
-  const normalizedMap = new Map<string, string>()
-  for (const key of Object.keys(row)) {
-    normalizedMap.set(normalizeHeader(key), key)
-  }
-  for (const alias of aliases) {
-    const norm = normalizeHeader(alias)
-    if (normalizedMap.has(norm)) return row[normalizedMap.get(norm)!]
-    for (const [normKey, actualKey] of normalizedMap) {
-      if (normKey.includes(norm) || norm.includes(normKey)) return row[actualKey]
-    }
-  }
-  return undefined
-}
 
 /**
  * POST /api/purchases/import-excel
@@ -217,8 +170,7 @@ export async function POST(request: NextRequest) {
       ])
       const batch = batchRaw ? String(batchRaw).trim() || null : null
 
-      // Parse expired date (optional)
-      // Supports: date objects from Excel, ISO strings, DD/MM/YYYY, DD-MM-YYYY, YYYY-MM-DD
+      // Parse expired date using shared utility (Fix Bug #9: Consistent date parsing)
       const expiredRaw = findColumn(row, [
         'EXPIRED', 'Expired', 'expired', 'EXP DATE', 'Exp Date',
         'EXPIRY DATE', 'Expiry Date', 'EXPIRY', 'Expiry',
@@ -227,42 +179,13 @@ export async function POST(request: NextRequest) {
         'TANGGAL KADALUARSA', 'EXP', 'Exp', 'BEST BEFORE', 'USE BY',
         'TANGGAL EXPIRY', 'Tanggal Expiry',
       ])
-      let expiredDate: string | null = null
-      if (expiredRaw) {
-        if (expiredRaw instanceof Date) {
-          // Excel date object — convert to ISO string
-          if (!isNaN(expiredRaw.getTime())) {
-            expiredDate = expiredRaw.toISOString().split('T')[0]
-          }
-        } else {
-          const strVal = String(expiredRaw).trim()
-          if (strVal) {
-            // Try parsing DD/MM/YYYY or DD-MM-YYYY
-            const dmyMatch = strVal.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/)
-            if (dmyMatch) {
-              const [, d, m, y] = dmyMatch
-              const parsed = new Date(Number(y), Number(m) - 1, Number(d))
-              if (!isNaN(parsed.getTime())) {
-                expiredDate = parsed.toISOString().split('T')[0]
-              }
-            } else {
-              // Try YYYY-MM-DD or ISO format
-              const parsed = new Date(strVal)
-              if (!isNaN(parsed.getTime())) {
-                expiredDate = parsed.toISOString().split('T')[0]
-              }
-            }
-          }
-        }
-      }
+      const expiredDate = parseExcelDate(expiredRaw)
 
       // Auto-infer baseQty/baseUnit when not specified (1:1 conversion)
-      // e.g. "5 kg gula" → baseQty=1, baseUnit="kg" (1 kg = 1 kg)
       if (baseQty <= 0 && !baseUnit) {
         baseQty = 1
         baseUnit = purchaseUnit || ''
       } else if (baseQty <= 0 && baseUnit) {
-        // baseUnit specified but no conversion ratio → assume 1:1
         baseQty = 1
       }
 

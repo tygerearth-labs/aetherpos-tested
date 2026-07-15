@@ -6,111 +6,32 @@ import * as XLSX from 'xlsx'
 import { safeAuditLog } from '@/lib/safe-audit'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 import { generateUniqueSKU, generateVariantSKU } from '@/lib/sku-generator'
+// Shared Excel utilities (fixes: inconsistent sanitizeNumber, code duplication)
+import {
+  sanitizeNumber,
+  normalizeHeader,
+  findColumn,
+  validateUnit,
+  VALID_UNITS,
+} from '@/lib/excel-utils'
 
 // Vercel serverless function timeout: 60s (default is 10s on Hobby plan)
 export const maxDuration = 60
 
 const MAX_ROWS = 500
 
-const VALID_UNITS = ['pcs', 'ml', 'lt', 'gr', 'kg', 'box', 'pack', 'botol', 'gelas', 'mangkuk', 'porsi', 'bungkus', 'sachet', 'dus', 'rim', 'lembar', 'meter', 'cm', 'ons']
-
-/**
- * Sanitize numeric values from Excel — handles:
- * - "Rp 25.000" → 25000
- * - "Rp25000" → 25000
- * - "25.000" (Indonesian thousands) → 25000
- * - "25,000" (comma thousands) → 25000
- * - "25.500,00" (Indonesian decimal) → 25500
- * - 25000 (number) → 25000
- * - "" / empty → 0
- */
-function sanitizeNumber(val: unknown): number {
-  if (typeof val === 'number') return val
-  if (val === null || val === undefined) return 0
-  const str = String(val).trim()
-  if (!str) return 0
-
-  // Detect leading negative sign before stripping
-  let isNegative = false
-  let trimmed = str
-  if (trimmed.startsWith('-') || trimmed.startsWith('−')) { // also handle unicode minus
-    isNegative = true
-    trimmed = trimmed.slice(1)
-  }
-
-  // Remove currency symbols & whitespace (keep dots, commas, digits)
-  let cleaned = trimmed.replace(/[Rp\s$€¥£.,]/g, (match) => {
-    if (match === '.' || match === ',') return match
-    return ''
-  }).trim()
-
-  // Detect format: if we have both dots and commas, the LAST separator is the decimal
-  const lastDot = cleaned.lastIndexOf('.')
-  const lastComma = cleaned.lastIndexOf(',')
-
-  if (lastDot > -1 && lastComma > -1) {
-    if (lastDot > lastComma) {
-      // Format: 25.000,50 → Indonesian (dot=thousands, comma=decimal)
-      cleaned = cleaned.replace(/\./g, '').replace(',', '.')
-    } else {
-      // Format: 25,000.50 → English (comma=thousands, dot=decimal)
-      cleaned = cleaned.replace(/,/g, '')
-    }
-  } else if (lastDot > -1 && lastComma === -1) {
-    // Only dots: check if it looks like thousands separator (25.000) or decimal (25.50)
-    const parts = cleaned.split('.')
-    if (parts.length > 1 && parts[parts.length - 1].length === 3) {
-      // Likely thousands separator: 25.000 → 25000
-      cleaned = cleaned.replace(/\./g, '')
-    }
-    // else it's already a valid decimal like 25.50
-  } else if (lastComma > -1 && lastDot === -1) {
-    // Only commas: check if thousands or decimal
-    const parts = cleaned.split(',')
-    if (parts.length > 1 && parts[parts.length - 1].length === 3) {
-      // Likely thousands: 25,000 → 25000
-      cleaned = cleaned.replace(/,/g, '')
-    } else {
-      // Likely decimal: 25,50 → 25.50
-      cleaned = cleaned.replace(',', '.')
-    }
-  }
-
-  const num = Number(cleaned)
-  return isNaN(num) ? 0 : (isNegative ? -Math.abs(num) : num)
-}
-
-/** Normalize header key for flexible matching */
-function normalizeHeader(key: string): string {
-  return key.replace(/[^a-zA-Z0-9\s]/g, '').trim().toLowerCase()
-}
-
-/** Find matching column from row by trying normalized header aliases */
-function findColumn(row: Record<string, unknown>, aliases: string[]): unknown {
-  // Build a map of normalized headers → actual keys
-  const normalizedMap = new Map<string, string>()
-  for (const key of Object.keys(row)) {
-    const norm = normalizeHeader(key)
-    normalizedMap.set(norm, key)
-  }
-
-  for (const alias of aliases) {
-    const norm = normalizeHeader(alias)
-    // Try exact normalized match first
-    if (normalizedMap.has(norm)) {
-      return row[normalizedMap.get(norm)!]
-    }
-    // Try contains match (e.g., 'harga jual' matches 'HARGA JUAL* (Rp)')
-    for (const [normKey, actualKey] of normalizedMap) {
-      if (normKey.includes(norm) || norm.includes(normKey)) {
-        return row[actualKey]
-      }
-    }
-  }
-  return undefined
-}
-
 export async function POST(request: NextRequest) {
+  // Result containers (used inside and outside transaction)
+  const result = {
+    created: 0,
+    skipped: 0,
+    variantsCreated: 0,
+    variantsSkipped: 0,
+    compCreated: 0,
+    compSkipped: 0,
+    errors: [] as string[],
+  }
+
   try {
     const user = await getAuthUser(request)
     if (!user) {
@@ -180,381 +101,392 @@ export async function POST(request: NextRequest) {
     const detectedHeaders = Object.keys(rows[0])
     console.log('[Bulk Upload] Detected headers:', detectedHeaders)
 
-    // Check product limit
-    if (!isUnlimited(outletPlan.features.maxProducts)) {
-      const currentCount = await db.product.count({ where: { outletId } })
-      if (currentCount >= outletPlan.features.maxProducts) {
-        return safeJsonError(`Batas produk untuk paket ${outletPlan.plan} sudah tercapai (${outletPlan.features.maxProducts}).`, 400)
-      }
-    }
-
-    // Process rows
-    let created = 0
-    let skipped = 0
-    const errors: string[] = []
-
-    // Cache categories to reduce DB queries
-    const categoryCache = new Map<string, string | null>()
-
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i]
-      const rowNum = i + 2 // Excel rows start at 1, header is row 1
-
-      // Map column names using flexible header matching (supports any format)
-      const name = String(findColumn(row, ['NAMA PRODUK*', 'NAMA PRODUK', 'Nama Produk', 'Nama', 'NAME', 'name', 'Product Name', 'Produk']) || '').trim()
-      const sku = String(findColumn(row, ['SKU', 'sku', 'Kode']) || '').trim() || null
-      const barcode = String(findColumn(row, ['BARCODE', 'Barcode', 'barcode', 'BAR CODE', 'Bar Code']) || '').trim() || null
-      const hpp = sanitizeNumber(findColumn(row, ['HPP (Rp)', 'HPP', 'Harga Pokok', 'harga_pokok', 'Cost', 'Modal']))
-      const price = sanitizeNumber(findColumn(row, ['HARGA JUAL* (Rp)', 'HARGA JUAL (Rp)', 'HARGA JUAL', 'Harga Jual', 'Harga', 'Price', 'harga_jual', 'harga', 'price', 'Sell Price', 'Jual']))
-      const stock = sanitizeNumber(findColumn(row, ['QTY / STOK', 'QTY', 'qty', 'Stok', 'stok', 'Stock', 'stock', 'Quantity', 'Jumlah']))
-      const unitRaw = String(findColumn(row, ['SATUAN', 'Satuan', 'satuan', 'Unit', 'unit', 'Sat']) || 'pcs').trim().toLowerCase()
-      const categoryRaw = String(findColumn(row, ['KATEGORI', 'Kategori', 'kategori', 'Category', 'category', 'Kat']) || '').trim()
-      const hasVariantsRaw = String(findColumn(row, ['PUNYA VARIAN', 'Punya Varian', 'Has Variants', 'hasVariants', 'Variants', 'Varian']) || '').trim().toLowerCase()
-      const hasVariants = hasVariantsRaw === 'ya' || hasVariantsRaw === 'yes' || hasVariantsRaw === 'true'
-
-      // Validate required fields
-      if (!name) {
-        errors.push(`Baris ${rowNum}: Nama produk wajib diisi`)
-        continue
-      }
-
-      if (!price || price < 0) {
-        errors.push(`Baris ${rowNum}: Harga Jual tidak boleh negatif (Nama: ${name})`)
-        continue
-      }
-
-      // Variant parent products must have price > 0 (price=0 only allowed for products WITH variants)
-      if (price <= 0 && !hasVariants) {
-        errors.push(`Baris ${rowNum}: Harga Jual harus lebih dari 0 (Nama: ${name})`)
-        continue
-      }
-
-      const unit = VALID_UNITS.includes(unitRaw) ? unitRaw : 'pcs'
-
-      // Check product limit before each creation
+    // ══════════════════════════════════════════════════════════════════
+    // WRAP IN TRANSACTION for atomicity (Fix Bug #1: No Transaction)
+    // If any error occurs, ALL changes are rolled back
+    // ══════════════════════════════════════════════════════════════════
+    await db.$transaction(async (tx) => {
+      // Check product limit INSIDE transaction (Fix Bug #2: Race Condition)
+      // This ensures atomic check-and-create
       if (!isUnlimited(outletPlan.features.maxProducts)) {
-        const currentCount = await db.product.count({ where: { outletId } })
+        const currentCount = await tx.product.count({ where: { outletId } })
         if (currentCount >= outletPlan.features.maxProducts) {
-          errors.push(`Baris ${rowNum}: Batas produk sudah tercapai, sisa produk dihentikan`)
-          break
+          throw new Error(`Batas produk untuk paket ${outletPlan.plan} sudah tercapai (${outletPlan.features.maxProducts}).`)
+        }
+        // Calculate how many new products we can create
+        const remainingSlots = outletPlan.features.maxProducts - currentCount
+        if (rows.length > remainingSlots) {
+          result.errors.push(`Hanya bisa menambah ${remainingSlots} produk lagi. File memiliki ${rows.length} baris.`)
         }
       }
 
-      // Skip duplicates (by name + outletId)
-      const existing = await db.product.findFirst({
-        where: { name, outletId },
-      })
-      if (existing) {
-        skipped++
-        continue
+      // Cache categories to reduce DB queries
+      const categoryCache = new Map<string, string | null>()
+
+      // === Process Main Product Sheet ===
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i]
+        const rowNum = i + 2 // Excel rows start at 1, header is row 1
+
+        // Map column names using flexible header matching (supports any format)
+        const name = String(findColumn(row, ['NAMA PRODUK*', 'NAMA PRODUK', 'Nama Produk', 'Nama', 'NAME', 'name', 'Product Name', 'Produk']) || '').trim()
+        const sku = String(findColumn(row, ['SKU', 'sku', 'Kode']) || '').trim() || null
+        const barcode = String(findColumn(row, ['BARCODE', 'Barcode', 'barcode', 'BAR CODE', 'Bar Code']) || '').trim() || null
+        const hpp = sanitizeNumber(findColumn(row, ['HPP (Rp)', 'HPP', 'Harga Pokok', 'harga_pokok', 'Cost', 'Modal']))
+        const price = sanitizeNumber(findColumn(row, ['HARGA JUAL* (Rp)', 'HARGA JUAL (Rp)', 'HARGA JUAL', 'Harga Jual', 'Harga', 'Price', 'harga_jual', 'harga', 'price', 'Sell Price', 'Jual']))
+        const stock = sanitizeNumber(findColumn(row, ['QTY / STOK', 'QTY', 'qty', 'Stok', 'stok', 'Stock', 'stock', 'Quantity', 'Jumlah']))
+        const unitRaw = String(findColumn(row, ['SATUAN', 'Satuan', 'satuan', 'Unit', 'unit', 'Sat']) || 'pcs').trim().toLowerCase()
+        const categoryRaw = String(findColumn(row, ['KATEGORI', 'Kategori', 'kategori', 'Category', 'category', 'Kat']) || '').trim()
+        const hasVariantsRaw = String(findColumn(row, ['PUNYA VARIAN', 'Punya Varian', 'Has Variants', 'hasVariants', 'Variants', 'Varian']) || '').trim().toLowerCase()
+        const hasVariants = hasVariantsRaw === 'ya' || hasVariantsRaw === 'yes' || hasVariantsRaw === 'true'
+
+        // Validate required fields
+        if (!name) {
+          result.errors.push(`Baris ${rowNum}: Nama produk wajib diisi`)
+          continue
+        }
+
+        if (price < 0) {
+          result.errors.push(`Baris ${rowNum}: Harga Jual tidak boleh negatif (Nama: ${name})`)
+          continue
+        }
+
+        // Variant parent products must have price > 0 (price=0 only allowed for products WITH variants)
+        if (price <= 0 && !hasVariants) {
+          result.errors.push(`Baris ${rowNum}: Harga Jual harus lebih dari 0 (Nama: ${name})`)
+          continue
+        }
+
+        // Validate stock is not negative (Fix Bug #7: Negative Stock Validation)
+        if (stock < 0) {
+          result.errors.push(`Baris ${rowNum}: Stok tidak boleh negatif (Nama: ${name}, Stok: ${stock})`)
+          continue
+        }
+
+        const unit = validateUnit(unitRaw)
+
+        // Check product limit INSIDE transaction (atomic)
+        if (!isUnlimited(outletPlan.features.maxProducts)) {
+          const currentCount = await tx.product.count({ where: { outletId } })
+          if (currentCount >= outletPlan.features.maxProducts) {
+            result.errors.push(`Baris ${rowNum}: Batas produk sudah tercapai, sisa produk dihentikan`)
+            break
+          }
+        }
+
+        // Skip duplicates (by name + outletId)
+        const existing = await tx.product.findFirst({
+          where: { name, outletId },
+        })
+        if (existing) {
+          result.skipped++
+          continue
+        }
+
+        // Auto-create category if needed (with cache)
+        let categoryId: string | null = null
+        if (categoryRaw) {
+          if (categoryCache.has(categoryRaw)) {
+            categoryId = categoryCache.get(categoryRaw)!
+          } else {
+            const existingCategory = await tx.category.findFirst({
+              where: { name: categoryRaw, outletId },
+            })
+            if (existingCategory) {
+              categoryId = existingCategory.id
+              categoryCache.set(categoryRaw, categoryId)
+            } else {
+              const newCategory = await tx.category.create({
+                data: {
+                  name: categoryRaw,
+                  outletId,
+                  color: 'zinc',
+                },
+              })
+              categoryId = newCategory.id
+              categoryCache.set(categoryRaw, categoryId)
+            }
+          }
+        }
+
+        // Auto-generate SKU if not provided
+        const finalSku = sku || await generateUniqueSKU(name, outletId)
+        // Auto-generate barcode from SKU if barcode not provided
+        const finalBarcode = barcode || finalSku
+
+        // Create product using transaction client
+        await tx.product.create({
+          data: {
+            name,
+            sku: finalSku,
+            barcode: finalBarcode,
+            hpp,
+            price,
+            stock,
+            unit,
+            categoryId,
+            hasVariants,
+            outletId,
+          },
+        })
+
+        result.created++
       }
 
-      // Auto-create category if needed (with cache)
-      let categoryId: string | null = null
-      if (categoryRaw) {
-        if (categoryCache.has(categoryRaw)) {
-          categoryId = categoryCache.get(categoryRaw)!
-        } else {
-          const existingCategory = await db.category.findFirst({
-            where: { name: categoryRaw, outletId },
-          })
-          if (existingCategory) {
-            categoryId = existingCategory.id
-            categoryCache.set(categoryRaw, categoryId)
-          } else {
-            const newCategory = await db.category.create({
+      // === Process "Varian Produk" sheet if it exists ===
+      const variantSheetName = workbook.SheetNames.find(
+        (n) => normalizeHeader(n).includes('varian')
+      )
+
+      if (variantSheetName) {
+        const variantSheet = workbook.Sheets[variantSheetName]
+        const variantRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(variantSheet, { defval: '' })
+
+        console.log(`[Bulk Upload] Found variant sheet "${variantSheetName}" with ${variantRows.length} rows`)
+
+        // Cache parent products by name for this outlet to reduce DB queries
+        const productCache = new Map<string, { id: string; hasVariants: boolean }>()
+
+        for (let i = 0; i < variantRows.length; i++) {
+          try {
+            const vRow = variantRows[i]
+            const rowNum = i + 2 // Excel rows start at 1, header is row 1
+
+            const parentName = String(findColumn(vRow, ['NAMA PRODUK*', 'NAMA PRODUK', 'Nama Produk', 'Nama', 'NAME', 'name', 'Product Name', 'Produk']) || '').trim()
+            const variantName = String(findColumn(vRow, ['NAMA VARIAN*', 'NAMA VARIAN', 'Nama Varian', 'Variant Name', 'Varian']) || '').trim()
+            const variantSku = String(findColumn(vRow, ['SKU VARIAN', 'SKU Varian', 'SKU', 'sku']) || '').trim() || null
+            const variantBarcode = String(findColumn(vRow, ['BARCODE VARIAN', 'Barcode Varian', 'BARCODE', 'Barcode', 'barcode']) || '').trim() || null
+            const variantHpp = sanitizeNumber(findColumn(vRow, ['HPP (Rp)', 'HPP', 'Harga Pokok', 'harga_pokok', 'Cost', 'Modal']))
+            const variantPrice = sanitizeNumber(findColumn(vRow, ['HARGA JUAL* (Rp)', 'HARGA JUAL (Rp)', 'HARGA JUAL', 'Harga Jual', 'Harga', 'Price', 'harga_jual', 'harga', 'price', 'Sell Price', 'Jual']))
+            const variantStock = sanitizeNumber(findColumn(vRow, ['STOK', 'Stok', 'stok', 'Stock', 'stock', 'QTY', 'qty', 'Quantity', 'Jumlah']))
+
+            // Validate required fields
+            if (!parentName) {
+              result.errors.push(`Baris ${rowNum} (Varian): Nama Produk wajib diisi`)
+              continue
+            }
+
+            if (!variantName) {
+              result.errors.push(`Baris ${rowNum} (Varian): Nama Varian wajib diisi`)
+              continue
+            }
+
+            if (!variantPrice || variantPrice <= 0) {
+              result.errors.push(`Baris ${rowNum} (Varian): Harga Jual harus lebih dari 0 (Produk: ${parentName}, Varian: ${variantName})`)
+              continue
+            }
+
+            // Validate variant stock is not negative (Fix Bug #7)
+            if (variantStock < 0) {
+              result.errors.push(`Baris ${rowNum} (Varian): Stok tidak boleh negatif (Produk: ${parentName}, Varian: ${variantName})`)
+              continue
+            }
+
+            // Find parent product by name + outletId (use cache)
+            let parentProduct = productCache.get(parentName)
+            if (!parentProduct) {
+              const found = await tx.product.findFirst({
+                where: { name: parentName, outletId },
+              })
+              if (!found) {
+                result.errors.push(`Baris ${rowNum}: Produk "${parentName}" tidak ditemukan. Upload produk terlebih dahulu`)
+                result.variantsSkipped++
+                continue
+              }
+              parentProduct = { id: found.id, hasVariants: !!found.hasVariants }
+              productCache.set(parentName, parentProduct)
+            }
+
+            // Auto-generate variant SKU if not provided
+            const finalVariantSku = variantSku || await generateVariantSKU(parentName, variantName, outletId)
+            // Auto-generate variant barcode from SKU if not provided
+            const finalVariantBarcode = variantBarcode || finalVariantSku
+
+            // Skip duplicate variants (by name + productId) — allows safe re-upload
+            const existingVariant = await tx.productVariant.findFirst({
+              where: { name: variantName, productId: parentProduct.id },
+            })
+            if (existingVariant) {
+              result.variantsSkipped++
+              continue
+            }
+
+            // Create variant using transaction client
+            await tx.productVariant.create({
               data: {
-                name: categoryRaw,
+                name: variantName,
+                sku: finalVariantSku,
+                barcode: finalVariantBarcode,
+                hpp: variantHpp,
+                price: variantPrice,
+                stock: variantStock,
+                productId: parentProduct.id,
                 outletId,
-                color: 'zinc',
               },
             })
-            categoryId = newCategory.id
-            categoryCache.set(categoryRaw, categoryId)
+
+            // Set hasVariants = true on parent product
+            if (!parentProduct.hasVariants) {
+              await tx.product.update({
+                where: { id: parentProduct.id },
+                data: { hasVariants: true },
+              })
+              parentProduct.hasVariants = true
+            }
+
+            result.variantsCreated++
+          } catch (variantError) {
+            const rowNum = i + 2
+            const errMessage = variantError instanceof Error ? variantError.message : 'Unknown error'
+            console.error(`[Bulk Upload] Variant row ${rowNum} error:`, variantError)
+            result.errors.push(`Baris ${rowNum} (Varian): Gagal memproses — ${errMessage}`)
+            result.variantsSkipped++
           }
         }
       }
 
-      // Auto-generate SKU if not provided
-      const finalSku = sku || await generateUniqueSKU(name, outletId)
-      // Auto-generate barcode from SKU if barcode not provided
-      const finalBarcode = barcode || finalSku
+      // === Process "Komposisi" sheet if it exists ===
+      const compSheetName = workbook.SheetNames.find(
+        (n) => normalizeHeader(n).includes('komposisi')
+      )
 
-      // Create product
-      await db.product.create({
-        data: {
-          name,
-          sku: finalSku,
-          barcode: finalBarcode,
-          hpp,
-          price,
-          stock,
-          unit,
-          categoryId,
-          hasVariants,
-          outletId,
-        },
-      })
+      if (compSheetName) {
+        const compSheet = workbook.Sheets[compSheetName]
+        const compRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(compSheet, { defval: '' })
 
-      created++
-    }
+        console.log(`[Bulk Upload] Found composition sheet "${compSheetName}" with ${compRows.length} rows`)
 
-    // === Process "Varian Produk" sheet if it exists ===
-    let variantsCreated = 0
-    let variantsSkipped = 0
+        // Cache products and inventory items
+        const compProductCache = new Map<string, string>() // productName → productId
+        const inventoryItemCache = new Map<string, { id: string; baseUnit: string }>()
 
-    const variantSheetName = workbook.SheetNames.find(
-      (n) => normalizeHeader(n).includes('varian')
-    )
+        // Pre-load all inventory items for this outlet
+        const allInventoryItems = await tx.inventoryItem.findMany({
+          where: { outletId },
+          select: { id: true, name: true, baseUnit: true },
+        })
+        for (const item of allInventoryItems) {
+          inventoryItemCache.set(item.name, { id: item.id, baseUnit: item.baseUnit })
+        }
 
-    if (variantSheetName) {
-      const variantSheet = workbook.Sheets[variantSheetName]
-      const variantRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(variantSheet, { defval: '' })
+        for (let i = 0; i < compRows.length; i++) {
+          try {
+            const cRow = compRows[i]
+            const rowNum = i + 2
 
-      console.log(`[Bulk Upload] Found variant sheet "${variantSheetName}" with ${variantRows.length} rows`)
+            const parentName = String(findColumn(cRow, ['NAMA PRODUK*', 'NAMA PRODUK', 'Nama Produk', 'Nama', 'NAME', 'name', 'Product Name', 'Produk']) || '').trim()
+            const variantName = String(findColumn(cRow, ['NAMA VARIAN', 'Nama Varian', 'Varian', 'Variant Name']) || '').trim()
+            const bahanName = String(findColumn(cRow, ['NAMA BAHAN*', 'NAMA BAHAN', 'Nama Bahan', 'Bahan', 'BAHAN']) || '').trim()
+            const qty = sanitizeNumber(findColumn(cRow, ['QTY*', 'QTY', 'Qty', 'qty', 'Jumlah', 'Quantity']))
 
-      // Cache parent products by name for this outlet to reduce DB queries
-      const productCache = new Map<string, { id: string; hasVariants: boolean }>()
-
-      for (let i = 0; i < variantRows.length; i++) {
-        try {
-          const vRow = variantRows[i]
-          const rowNum = i + 2 // Excel rows start at 1, header is row 1
-
-          const parentName = String(findColumn(vRow, ['NAMA PRODUK*', 'NAMA PRODUK', 'Nama Produk', 'Nama', 'NAME', 'name', 'Product Name', 'Produk']) || '').trim()
-          const variantName = String(findColumn(vRow, ['NAMA VARIAN*', 'NAMA VARIAN', 'Nama Varian', 'Variant Name', 'Varian']) || '').trim()
-          const variantSku = String(findColumn(vRow, ['SKU VARIAN', 'SKU Varian', 'SKU', 'sku']) || '').trim() || null
-          const variantBarcode = String(findColumn(vRow, ['BARCODE VARIAN', 'Barcode Varian', 'BARCODE', 'Barcode', 'barcode']) || '').trim() || null
-          const variantHpp = sanitizeNumber(findColumn(vRow, ['HPP (Rp)', 'HPP', 'Harga Pokok', 'harga_pokok', 'Cost', 'Modal']))
-          const variantPrice = sanitizeNumber(findColumn(vRow, ['HARGA JUAL* (Rp)', 'HARGA JUAL (Rp)', 'HARGA JUAL', 'Harga Jual', 'Harga', 'Price', 'harga_jual', 'harga', 'price', 'Sell Price', 'Jual']))
-          const variantStock = sanitizeNumber(findColumn(vRow, ['STOK', 'Stok', 'stok', 'Stock', 'stock', 'QTY', 'qty', 'Quantity', 'Jumlah']))
-
-          // Validate required fields
-          if (!parentName) {
-            errors.push(`Baris ${rowNum} (Varian): Nama Produk wajib diisi`)
-            continue
-          }
-
-          if (!variantName) {
-            errors.push(`Baris ${rowNum} (Varian): Nama Varian wajib diisi`)
-            continue
-          }
-
-          if (!variantPrice || variantPrice <= 0) {
-            errors.push(`Baris ${rowNum} (Varian): Harga Jual harus lebih dari 0 (Produk: ${parentName}, Varian: ${variantName})`)
-            continue
-          }
-
-          // Find parent product by name + outletId (use cache)
-          let parentProduct = productCache.get(parentName)
-          if (!parentProduct) {
-            const found = await db.product.findFirst({
-              where: { name: parentName, outletId },
-            })
-            if (!found) {
-              errors.push(`Baris ${rowNum}: Produk "${parentName}" tidak ditemukan. Upload produk terlebih dahulu`)
-              variantsSkipped++
+            if (!parentName) {
+              result.errors.push(`Baris ${rowNum} (Komposisi): Nama Produk wajib diisi`)
               continue
             }
-            parentProduct = { id: found.id, hasVariants: !!found.hasVariants }
-            productCache.set(parentName, parentProduct)
-          }
+            if (!bahanName) {
+              result.errors.push(`Baris ${rowNum} (Komposisi): Nama Bahan wajib diisi (Produk: ${parentName})`)
+              continue
+            }
+            if (!qty || qty <= 0) {
+              result.errors.push(`Baris ${rowNum} (Komposisi): QTY harus lebih dari 0 (Produk: ${parentName}, Bahan: ${bahanName})`)
+              continue
+            }
 
-          // Auto-generate variant SKU if not provided
-          const finalVariantSku = variantSku || await generateVariantSKU(parentName, variantName, outletId)
-          // Auto-generate variant barcode from SKU if not provided
-          const finalVariantBarcode = variantBarcode || finalVariantSku
+            // Find parent product
+            let productId = compProductCache.get(parentName)
+            if (!productId) {
+              const found = await tx.product.findFirst({ where: { name: parentName, outletId } })
+              if (!found) {
+                result.errors.push(`Baris ${rowNum} (Komposisi): Produk "${parentName}" tidak ditemukan`)
+                result.compSkipped++
+                continue
+              }
+              productId = found.id
+              compProductCache.set(parentName, productId)
+            }
 
-          // Skip duplicate variants (by name + productId) — allows safe re-upload
-          const existingVariant = await db.productVariant.findFirst({
-            where: { name: variantName, productId: parentProduct.id },
-          })
-          if (existingVariant) {
-            variantsSkipped++
-            continue
-          }
+            // Find inventory item
+            const invItem = inventoryItemCache.get(bahanName)
+            if (!invItem) {
+              result.errors.push(`Baris ${rowNum} (Komposisi): Item "${bahanName}" tidak ditemukan. Daftarkan item terlebih dahulu.`)
+              result.compSkipped++
+              continue
+            }
 
-          // Create variant
-          await db.productVariant.create({
-            data: {
-              name: variantName,
-              sku: finalVariantSku,
-              barcode: finalVariantBarcode,
-              hpp: variantHpp,
-              price: variantPrice,
-              stock: variantStock,
-              productId: parentProduct.id,
-              outletId,
-            },
-          })
+            // Find variant if specified
+            let variantId: string | null = null
+            if (variantName) {
+              const foundVariant = await tx.productVariant.findFirst({
+                where: { name: variantName, productId, outletId },
+              })
+              if (!foundVariant) {
+                result.errors.push(`Baris ${rowNum} (Komposisi): Varian "${variantName}" tidak ditemukan untuk produk "${parentName}"`)
+                result.compSkipped++
+                continue
+              }
+              variantId = foundVariant.id
+            }
 
-          // Set hasVariants = true on parent product
-          if (!parentProduct.hasVariants) {
-            await db.product.update({
-              where: { id: parentProduct.id },
-              data: { hasVariants: true },
+            // Skip duplicate compositions (productId + variantId + inventoryItemId) — allows safe re-upload
+            const existingComp = await tx.productComposition.findFirst({
+              where: { productId, variantId: variantId || null, inventoryItemId: invItem.id },
             })
-            parentProduct.hasVariants = true
-          }
+            if (existingComp) {
+              result.compSkipped++
+              continue
+            }
 
-          variantsCreated++
-        } catch (variantError) {
-          const rowNum = i + 2
-          const errMessage = variantError instanceof Error ? variantError.message : 'Unknown error'
-          console.error(`[Bulk Upload] Variant row ${rowNum} error:`, variantError)
-          errors.push(`Baris ${rowNum} (Varian): Gagal memproses — ${errMessage}`)
-          variantsSkipped++
+            await tx.productComposition.create({
+              data: {
+                productId,
+                variantId,
+                inventoryItemId: invItem.id,
+                qty,
+                baseUnit: invItem.baseUnit,
+              },
+            })
+            result.compCreated++
+          } catch (compError) {
+            const rowNum = i + 2
+            const errMessage = compError instanceof Error ? compError.message : 'Unknown error'
+            console.error(`[Bulk Upload] Composition row ${rowNum} error:`, compError)
+            result.errors.push(`Baris ${rowNum} (Komposisi): Gagal memproses — ${errMessage}`)
+            result.compSkipped++
+          }
         }
       }
-    }
+    }) // End of transaction
 
-    // === Process "Komposisi" sheet if it exists ===
-    let compCreated = 0
-    let compSkipped = 0
-
-    const compSheetName = workbook.SheetNames.find(
-      (n) => normalizeHeader(n).includes('komposisi')
-    )
-
-    if (compSheetName) {
-      const compSheet = workbook.Sheets[compSheetName]
-      const compRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(compSheet, { defval: '' })
-
-      console.log(`[Bulk Upload] Found composition sheet "${compSheetName}" with ${compRows.length} rows`)
-
-      // Cache products and inventory items
-      const compProductCache = new Map<string, string>() // productName → productId
-      const inventoryItemCache = new Map<string, { id: string; baseUnit: string }>()
-
-      // Pre-load all inventory items for this outlet
-      const allInventoryItems = await db.inventoryItem.findMany({
-        where: { outletId },
-        select: { id: true, name: true, baseUnit: true },
-      })
-      for (const item of allInventoryItems) {
-        inventoryItemCache.set(item.name, { id: item.id, baseUnit: item.baseUnit })
-      }
-
-      for (let i = 0; i < compRows.length; i++) {
-        try {
-          const cRow = compRows[i]
-          const rowNum = i + 2
-
-          const parentName = String(findColumn(cRow, ['NAMA PRODUK*', 'NAMA PRODUK', 'Nama Produk', 'Nama', 'NAME', 'name', 'Product Name', 'Produk']) || '').trim()
-          const variantName = String(findColumn(cRow, ['NAMA VARIAN', 'Nama Varian', 'Varian', 'Variant Name']) || '').trim()
-          const bahanName = String(findColumn(cRow, ['NAMA BAHAN*', 'NAMA BAHAN', 'Nama Bahan', 'Bahan', 'BAHAN']) || '').trim()
-          const qty = sanitizeNumber(findColumn(cRow, ['QTY*', 'QTY', 'Qty', 'qty', 'Jumlah', 'Quantity']))
-
-          if (!parentName) {
-            errors.push(`Baris ${rowNum} (Komposisi): Nama Produk wajib diisi`)
-            continue
-          }
-          if (!bahanName) {
-            errors.push(`Baris ${rowNum} (Komposisi): Nama Bahan wajib diisi (Produk: ${parentName})`)
-            continue
-          }
-          if (!qty || qty <= 0) {
-            errors.push(`Baris ${rowNum} (Komposisi): QTY harus lebih dari 0 (Produk: ${parentName}, Bahan: ${bahanName})`)
-            continue
-          }
-
-          // Find parent product
-          let productId = compProductCache.get(parentName)
-          if (!productId) {
-            const found = await db.product.findFirst({ where: { name: parentName, outletId } })
-            if (!found) {
-              errors.push(`Baris ${rowNum} (Komposisi): Produk "${parentName}" tidak ditemukan`)
-              compSkipped++
-              continue
-            }
-            productId = found.id
-            compProductCache.set(parentName, productId)
-          }
-
-          // Find inventory item
-          const invItem = inventoryItemCache.get(bahanName)
-          if (!invItem) {
-            errors.push(`Baris ${rowNum} (Komposisi): Item "${bahanName}" tidak ditemukan. Daftarkan item terlebih dahulu.`)
-            compSkipped++
-            continue
-          }
-
-          // Find variant if specified
-          let variantId: string | null = null
-          if (variantName) {
-            const foundVariant = await db.productVariant.findFirst({
-              where: { name: variantName, productId, outletId },
-            })
-            if (!foundVariant) {
-              errors.push(`Baris ${rowNum} (Komposisi): Varian "${variantName}" tidak ditemukan untuk produk "${parentName}"`)
-              compSkipped++
-              continue
-            }
-            variantId = foundVariant.id
-          }
-
-          // Skip duplicate compositions (productId + variantId + inventoryItemId) — allows safe re-upload
-          const existingComp = await db.productComposition.findFirst({
-            where: { productId, variantId: variantId || null, inventoryItemId: invItem.id },
-          })
-          if (existingComp) {
-            compSkipped++
-            continue
-          }
-
-          await db.productComposition.create({
-            data: {
-              productId,
-              variantId,
-              inventoryItemId: invItem.id,
-              qty,
-              baseUnit: invItem.baseUnit,
-            },
-          })
-          compCreated++
-        } catch (compError) {
-          const rowNum = i + 2
-          const errMessage = compError instanceof Error ? compError.message : 'Unknown error'
-          console.error(`[Bulk Upload] Composition row ${rowNum} error:`, compError)
-          errors.push(`Baris ${rowNum} (Komposisi): Gagal memproses — ${errMessage}`)
-          compSkipped++
-        }
-      }
-    }
-
-    // Create audit log for bulk upload
-    if (created > 0 || variantsCreated > 0 || compCreated > 0) {
-      await safeAuditLog({
-        action: 'CREATE',
-        entityType: 'PRODUCT',
-        details: JSON.stringify({
-          bulkUpload: true,
-          created,
-          skipped,
-          variantsCreated,
-          variantsSkipped,
-          compCreated,
-          compSkipped,
-          errors: errors.length,
-          fileName: file.name,
-        }),
-        outletId,
-        userId,
-      })
-    }
-
-    return safeJson({
-      created,
-      skipped,
-      variantsCreated,
-      variantsSkipped,
-      compCreated,
-      compSkipped,
-      errors,
+    // Create audit log for bulk upload (Fix Bug #14: Also log failed operations)
+    await safeAuditLog({
+      action: result.created > 0 ? 'CREATE' : 'UPLOAD_ATTEMPT',
+      entityType: 'PRODUCT',
+      details: JSON.stringify({
+        bulkUpload: true,
+        created: result.created,
+        skipped: result.skipped,
+        variantsCreated: result.variantsCreated,
+        variantsSkipped: result.variantsSkipped,
+        compCreated: result.compCreated,
+        compSkipped: result.compSkipped,
+        errors: result.errors.length,
+        fileName: file.name,
+        success: result.created > 0 || result.variantsCreated > 0 || result.compCreated > 0,
+      }),
+      outletId,
+      userId,
     })
+
+    return safeJson(result)
   } catch (error) {
     console.error('Bulk upload error:', error)
     const message = error instanceof Error ? error.message : 'Unknown error'
+    
+    // Check if this was a limit error (not a system error)
+    if (message.includes('Batas produk')) {
+      return safeJsonError(message, 400)
+    }
+    
     return safeJson({ error: 'Gagal memproses file upload', details: message }, 500)
   }
 }

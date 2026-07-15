@@ -1105,7 +1105,8 @@ export default function ProductsPage() {
         toast.success(`${total} produk berhasil ditambahkan`)
       } else {
         const data = await res.json()
-        toast.error(data.error || 'Gagal upload file')
+        // Fix Bug #11: Show details message for better debugging
+        toast.error(data.details || data.error || 'Gagal upload file')
       }
     } catch {
       toast.error('Gagal upload file')
@@ -1195,7 +1196,8 @@ export default function ProductsPage() {
         toast.success(`${total} produk berhasil diperbarui`)
       } else {
         const data = await res.json()
-        toast.error(data.error || 'Gagal update file')
+        // Fix Bug #11: Show details message for better debugging
+        toast.error(data.details || data.error || 'Gagal update file')
       }
     } catch {
       toast.error('Gagal update file')
