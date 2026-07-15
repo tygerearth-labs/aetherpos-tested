@@ -8,7 +8,7 @@ import {
   Package, Boxes, X,
   FileSearch, ClipboardCheck, ArrowRightLeft, Cpu, Database,
   CircleCheck, CircleAlert, Copy, GitBranch, Tags, ScanBarcode,
-  FlaskConical, TrendingUp, Link2,
+  FlaskConical, TrendingUp, Link2, AlertTriangle,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -651,6 +651,48 @@ export function MigrationWizard({
                       </p>
                     ))}
                   </div>
+                </motion.div>
+              )}
+
+              {/* Critical Warning: Inventory not created in stock/inventory mode */}
+              {hasInventory && result.productsCreated > 0 && result.inventoryItemsCreated === 0 && !hasErrors && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.65 }}
+                  className="rounded-xl bg-red-500/[0.06] border border-red-500/15 p-3 space-y-2"
+                >
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="h-3.5 w-3.5 text-red-400" />
+                    <span className="text-xs font-semibold text-red-300">
+                      Peringatan Stok/Inventory
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    {isStockMode
+                      ? 'Produk berhasil dibuat, tapi stok gudang TIDAK terbuat. Pastikan kolom STOK AWAL terisi di template.'
+                      : 'Produk berhasil dibuat, tapi item inventory TIDAK terbuat. Pastikan sheet "Bahan Baku" terisi atau STOK AWAL > 0.'
+                    }
+                  </p>
+                </motion.div>
+              )}
+
+              {hasInventory && result.productsCreated > 0 && result.inventoryItemsCreated > 0 && result.inventoryItemsCreated < result.productsCreated && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.65 }}
+                  className="rounded-xl bg-amber-500/[0.06] border border-amber-500/15 p-3 space-y-2"
+                >
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />
+                    <span className="text-xs font-semibold text-amber-300">
+                      Sebagian Inventory Gagal
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    {formatNumber(result.productsCreated - result.inventoryItemsCreated)} produk tidak memiliki inventory/stok. Pastikan kolom STOK AWAL terisi.
+                  </p>
                 </motion.div>
               )}
 

@@ -2977,116 +2977,195 @@ export default function PurchasePage() {
           {/* TAB 2: INVENTORY ITEMS                                */}
           {/* ══════════════════════════════════════════════════════ */}
           <TabsContent value="inventory" className="mt-4 space-y-4">
-            {/* Top bar */}
-            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
-              <div className="relative flex-1 w-full">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
-                <Input
-                  value={invSearch}
-                  onChange={(e) => { setInvSearch(e.target.value); setInvPage(1); setSelectedInvIds(new Set()) }}
-                  placeholder="Cari item..."
-                  className={cn(inputClass, 'pl-8')}
-                />
+            {/* Enhanced Filter Bar */}
+            <div className="space-y-3">
+              {/* Search Row - Primary */}
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
+                <div className="relative flex-1 w-full group">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500 group-focus-within:text-emerald-400 transition-colors" />
+                  <Input
+                    value={invSearch}
+                    onChange={(e) => { setInvSearch(e.target.value); setInvPage(1); setSelectedInvIds(new Set()) }}
+                    placeholder="Cari item berdasarkan nama atau SKU..."
+                    className={cn(inputClass, 'pl-10 h-10 rounded-xl bg-white/[0.03] border-white/[0.08] focus:border-emerald-500/30 focus:bg-white/[0.05] transition-all')}
+                  />
+                </div>
+                {/* Reset Filters Button - appears when filters active */}
+                {(invSearch || invCategoryFilter !== 'all' || showInactiveItems) && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => { setInvSearch(''); setInvCategoryFilter('all'); setShowInactiveItems(false); setInvPage(1); setSelectedInvIds(new Set()) }}
+                    className="h-10 px-3 text-xs text-slate-400 hover:text-red-400 hover:bg-red-500/[0.08] border border-white/[0.06] hover:border-red-500/20 rounded-xl gap-1.5 shrink-0 transition-all"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">Reset</span>
+                  </Button>
+                )}
               </div>
-              <div className="flex items-center gap-2 w-full sm:w-auto">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 text-[10px] gap-1 text-slate-400 hover:text-white hover:bg-white/[0.04] border border-white/[0.06] shrink-0"
-                  onClick={() => setCategoryDialogOpen(true)}
-                >
-                  <Tags className="h-3 w-3" />
-                  <span className="hidden sm:inline">Kategori</span>
-                </Button>
-                <Select value={invCategoryFilter} onValueChange={(v) => { setInvCategoryFilter(v); setInvPage(1); setSelectedInvIds(new Set()) }}>
-                  <SelectTrigger className="bg-white/[0.04] border-white/[0.06] text-white text-xs h-8 w-[120px] rounded-lg">
-                    <SelectValue placeholder="Semua" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-nebula border-white/[0.06]">
-                    <SelectItem value="all" className="text-slate-200 text-xs">Semua Kategori</SelectItem>
-                    {categories.map((c) => (
-                      <SelectItem key={c.id} value={c.id} className="text-slate-200 text-xs">
-                        {c.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className={cn(
-                    'h-8 text-[10px] gap-1 border shrink-0',
-                    showInactiveItems
-                      ? 'text-amber-400 hover:text-amber-300 bg-amber-500/[0.06] border-amber-500/20'
-                      : 'text-slate-500 hover:text-slate-300 hover:bg-white/[0.04] border-white/[0.06]',
-                  )}
-                  onClick={() => { setShowInactiveItems(!showInactiveItems); setInvPage(1); setSelectedInvIds(new Set()) }}
-                >
-                  <Archive className="h-3 w-3" />
-                  <span className="hidden sm:inline">{showInactiveItems ? 'Sembunyikan Nonaktif' : 'Tampilkan Nonaktif'}</span>
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 text-[10px] gap-1 text-slate-400 hover:text-white hover:bg-white/[0.04] border border-white/[0.06] shrink-0"
-                  onClick={() => { setBatchSearchOpen(true); setBatchSearchQuery(''); setBatchSearchResult(null) }}
-                >
-                  <Hash className="h-3 w-3" />
-                  <span className="hidden sm:inline">Cari Batch</span>
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 text-[10px] gap-1 text-slate-400 hover:text-white hover:bg-white/[0.04] border border-white/[0.06] shrink-0"
-                  onClick={() => { setWasteReportOpen(true); setWasteReportData(null) }}
-                >
-                  <Flame className="h-3 w-3" />
-                  <span className="hidden sm:inline">Waste Report</span>
-                </Button>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="sm" className="h-8 text-[10px] gap-1 text-slate-400 hover:text-white hover:bg-white/[0.04] border border-white/[0.06] shrink-0">
-                      <FileSpreadsheet className="h-3 w-3" />
-                      <span className="hidden sm:inline">Excel</span>
-                      <ChevronDown className="h-3 w-3" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-[200px] rounded-xl border-white/[0.08] bg-nebula p-1 shadow-2xl shadow-black/60">
-                    <DropdownMenuItem onClick={handleInvExport} disabled={invExporting} className="flex items-center gap-2.5 px-3 py-2.5 text-xs text-slate-300 hover:bg-white/[0.04] hover:text-white rounded-lg cursor-pointer focus:bg-white/[0.04] focus:text-white">
-                      {invExporting ? <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" /> : <Download className="h-3.5 w-3.5 text-slate-500" />}
-                      <div className="flex-1">
-                        <span>Export Excel</span>
-                        <p className="text-[10px] text-slate-600">{invExporting ? 'Mengunduh...' : 'Download data'}</p>
-                      </div>
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator className="bg-white/[0.06] my-1" />
-                    <LockedDropdownItem
-                      feature="bulkUpload"
-                      icon={<FilePenLine className="h-3.5 w-3.5" />}
-                      iconColor="text-slate-500"
-                      iconHoverColor="group-hover:text-cyan-400"
-                      title="Edit Excel"
-                      subtitle="Update massal"
-                      onClick={() => { setInvEditExcelOpen(true); setInvEditExcelFile(null); setInvEditExcelResult(null) }}
-                    />
-                  </DropdownMenuContent>
-                </DropdownMenu>
+              
+              {/* Filter Actions Row - Secondary */}
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Category Filter Group */}
+                <div className="flex items-center gap-1.5 bg-white/[0.02] border border-white/[0.06] rounded-xl p-1 pr-2">
+                  <span className="text-[10px] text-slate-600 uppercase tracking-wider pl-2 font-medium">Kategori</span>
+                  <Select value={invCategoryFilter} onValueChange={(v) => { setInvCategoryFilter(v); setInvPage(1); setSelectedInvIds(new Set()) }}>
+                    <SelectTrigger className="bg-white/[0.04] border-white/[0.06] text-white text-xs h-7 w-auto min-w-[100px] rounded-lg shadow-none focus:ring-0">
+                      <SelectValue placeholder="Semua" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-nebula border-white/[0.06]">
+                      <SelectItem value="all" className="text-slate-200 text-xs">Semua Kategori</SelectItem>
+                      {categories.map((c) => (
+                        <SelectItem key={c.id} value={c.id} className="text-slate-200 text-xs">
+                          {c.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Toggle Filters */}
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className={cn(
+                      'h-7 text-[10px] gap-1.5 border rounded-lg shrink-0 transition-all',
+                      showInactiveItems
+                        ? 'text-amber-400 hover:text-amber-300 bg-amber-500/[0.1] border-amber-500/30 shadow-sm shadow-amber-500/5'
+                        : 'text-slate-500 hover:text-slate-300 hover:bg-white/[0.04] border-white/[0.06]',
+                    )}
+                    onClick={() => { setShowInactiveItems(!showInactiveItems); setInvPage(1); setSelectedInvIds(new Set()) }}
+                  >
+                    <Archive className="h-3 w-3" />
+                    <span className="hidden sm:inline">{showInactiveItems ? 'Nonaktif Aktif' : 'Nonaktif'}</span>
+                  </Button>
+                </div>
+
+                {/* Divider */}
+                <div className="h-5 w-px bg-white/[0.06] hidden sm:block" />
+
+                {/* Action Buttons */}
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-[10px] gap-1.5 text-slate-400 hover:text-cyan-400 hover:bg-cyan-500/[0.08] border border-white/[0.06] hover:border-cyan-500/20 rounded-lg shrink-0 transition-all"
+                    onClick={() => setCategoryDialogOpen(true)}
+                  >
+                    <Tags className="h-3 w-3" />
+                    <span className="hidden md:inline">Kelola Kategori</span>
+                  </Button>
+                  
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-[10px] gap-1.5 text-slate-400 hover:text-violet-400 hover:bg-violet-500/[0.08] border border-white/[0.06] hover:border-violet-500/20 rounded-lg shrink-0 transition-all"
+                    onClick={() => { setBatchSearchOpen(true); setBatchSearchQuery(''); setBatchSearchResult(null) }}
+                  >
+                    <Hash className="h-3 w-3" />
+                    <span className="hidden md:inline">Cari Batch</span>
+                  </Button>
+                  
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-[10px] gap-1.5 text-slate-400 hover:text-orange-400 hover:bg-orange-500/[0.08] border border-white/[0.06] hover:border-orange-500/20 rounded-lg shrink-0 transition-all"
+                    onClick={() => { setWasteReportOpen(true); setWasteReportData(null) }}
+                  >
+                    <Flame className="h-3 w-3" />
+                    <span className="hidden md:inline">Waste Report</span>
+                  </Button>
+                  
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="sm" className="h-7 text-[10px] gap-1.5 text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/[0.08] border border-white/[0.06] hover:border-emerald-500/20 rounded-lg shrink-0 transition-all">
+                        <FileSpreadsheet className="h-3 w-3" />
+                        <span className="hidden md:inline">Excel</span>
+                        <ChevronDown className="h-3 w-3" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-[200px] rounded-xl border-white/[0.08] bg-nebula p-1 shadow-2xl shadow-black/60">
+                      <DropdownMenuItem onClick={handleInvExport} disabled={invExporting} className="flex items-center gap-2.5 px-3 py-2.5 text-xs text-slate-300 hover:bg-white/[0.04] hover:text-white rounded-lg cursor-pointer focus:bg-white/[0.04] focus:text-white">
+                        {invExporting ? <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" /> : <Download className="h-3.5 w-3.5 text-emerald-500" />}
+                        <div className="flex-1">
+                          <span>Export Excel</span>
+                          <p className="text-[10px] text-slate-600">{invExporting ? 'Mengunduh...' : 'Download data inventory'}</p>
+                        </div>
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator className="bg-white/[0.06] my-1" />
+                      <LockedDropdownItem
+                        feature="bulkUpload"
+                        icon={<FilePenLine className="h-3.5 w-3.5" />}
+                        iconColor="text-slate-500"
+                        iconHoverColor="group-hover:text-cyan-400"
+                        title="Edit Excel"
+                        subtitle="Update massal via upload"
+                        onClick={() => { setInvEditExcelOpen(true); setInvEditExcelFile(null); setInvEditExcelResult(null) }}
+                      />
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
               </div>
             </div>
 
-            {/* Compact Stats Row */}
-            <div className="grid grid-cols-3 gap-2">
-              <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-3">
-                <p className="text-[10px] text-slate-500 mb-0.5">Total Item</p>
-                <p className="text-sm font-bold text-white">{formatNumber(invStats.totalItems)}</p>
+            {/* Enhanced Stats Cards */}
+            <div className="grid grid-cols-3 gap-2.5">
+              {/* Total Item Card */}
+              <div className="group relative rounded-xl bg-gradient-to-br from-emerald-500/[0.08] to-transparent border border-emerald-500/10 hover:border-emerald-500/20 p-3.5 transition-all duration-300 hover:shadow-lg hover:shadow-emerald-500/5 overflow-hidden">
+                <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                <div className="relative flex items-start justify-between">
+                  <div>
+                    <p className="text-[10px] text-slate-500 mb-1 uppercase tracking-wider font-medium">Total Item</p>
+                    <p className="text-lg font-bold text-white tabular-nums">{formatNumber(invStats.totalItems)}</p>
+                  </div>
+                  <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0 group-hover:bg-emerald-500/15 transition-colors">
+                    <Package className="h-4 w-4 text-emerald-400" />
+                  </div>
+                </div>
               </div>
-              <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-3">
-                <p className="text-[10px] text-slate-500 mb-0.5">Total Nilai</p>
-                <p className="text-sm font-bold text-white">{formatCurrency(invStats.totalValue)}</p>
+
+              {/* Total Nilai Card */}
+              <div className="group relative rounded-xl bg-gradient-to-br from-blue-500/[0.08] to-transparent border border-blue-500/10 hover:border-blue-500/20 p-3.5 transition-all duration-300 hover:shadow-lg hover:shadow-blue-500/5 overflow-hidden">
+                <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                <div className="relative flex items-start justify-between">
+                  <div>
+                    <p className="text-[10px] text-slate-500 mb-1 uppercase tracking-wider font-medium">Total Nilai</p>
+                    <p className="text-sm font-bold text-white tabular-nums leading-tight">{formatCurrency(invStats.totalValue)}</p>
+                  </div>
+                  <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center shrink-0 group-hover:bg-blue-500/15 transition-colors">
+                    <Banknote className="h-4 w-4 text-blue-400" />
+                  </div>
+                </div>
               </div>
-              <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-3">
-                <p className="text-[10px] text-slate-500 mb-0.5">Stok Rendah</p>
-                <p className={cn('text-sm font-bold', invStats.lowStockCount > 0 ? 'text-amber-400' : 'text-white')}>{formatNumber(invStats.lowStockCount)}</p>
+
+              {/* Stok Rendah Card */}
+              <div className={cn(
+                'group relative rounded-xl bg-gradient-to-br p-3.5 transition-all duration-300 hover:shadow-lg overflow-hidden',
+                invStats.lowStockCount > 0 
+                  ? 'from-amber-500/[0.12] to-transparent border border-amber-500/20 hover:border-amber-500/30 hover:shadow-amber-500/10' 
+                  : 'from-slate-500/[0.05] to-transparent border border-white/[0.06] hover:border-white/[0.1] hover:shadow-slate-500/5'
+              )}>
+                <div className={cn(
+                  "absolute inset-0 bg-gradient-to-br opacity-0 group-hover:opacity-100 transition-opacity",
+                  invStats.lowStockCount > 0 ? 'from-amber-500/8' : 'from-slate-500/5'
+                )} />
+                <div className="relative flex items-start justify-between">
+                  <div>
+                    <p className="text-[10px] text-slate-500 mb-1 uppercase tracking-wider font-medium">Stok Rendah</p>
+                    <p className={cn('text-lg font-bold tabular-nums', invStats.lowStockCount > 0 ? 'text-amber-400' : 'text-white')}>{formatNumber(invStats.lowStockCount)}</p>
+                  </div>
+                  <div className={cn(
+                    'w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors',
+                    invStats.lowStockCount > 0 ? 'bg-amber-500/15 group-hover:bg-amber-500/25' : 'bg-slate-500/10 group-hover:bg-slate-500/15'
+                  )}>
+                    {invStats.lowStockCount > 0 ? (
+                      <AlertTriangle className="h-4 w-4 text-amber-400 animate-pulse" />
+                    ) : (
+                      <CheckCircle2 className="h-4 w-4 text-slate-400" />
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -3231,215 +3310,369 @@ export default function PurchasePage() {
               </motion.div>
             )}
 
-            {/* Desktop Table */}
+            {/* Enhanced Desktop Table */}
+
             <div className="hidden md:block">
               <Card className="bg-nebula border-white/[0.06] overflow-hidden rounded-xl">
-                {/* Inline sort filter chips */}
-                <div className="flex items-center gap-1 px-4 pt-3 pb-1 overflow-x-auto custom-scrollbar">
-                  {([
-                    ['name-asc', 'Nama A-Z'],
-                    ['name-desc', 'Nama Z-A'],
-                    ['stock-desc', 'Stock Terbanyak'],
-                    ['stock-asc', 'Stock Terendah'],
-                    ['value-desc', 'Nilai Terbesar'],
-                    ['value-asc', 'Nilai Terkecil'],
-                    ['updatedAt-desc', 'Terbaru'],
-                    ['updatedAt-asc', 'Terlama'],
-                  ] as const).map(([val, label]) => (
-                    <button
-                      key={val}
-                      onClick={() => { setInvSortBy(val); setInvPage(1); setSelectedInvIds(new Set()) }}
-                      className={cn(
-                        'shrink-0 px-2.5 py-1 rounded-md text-[11px] font-medium transition-all whitespace-nowrap',
-                        invSortBy === val
-                          ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/25'
-                          : 'text-slate-500 hover:text-slate-300 hover:bg-white/[0.04] border border-transparent',
-                      )}
-                    >
-                      {label}
-                    </button>
-                  ))}
+                {/* Grouped Sort Filter Chips */}
+                <div className="px-4 pt-4 pb-2 space-y-2">
+                  <p className="text-[10px] text-slate-600 uppercase tracking-wider font-medium flex items-center gap-1.5">
+                    <ArrowUpDown className="h-3 w-3" />
+                    Urutkan berdasarkan
+                  </p>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {/* Sort by Name */}
+                    <div className="flex items-center gap-1 pr-2 border-r border-white/[0.06]">
+                      <span className="text-[9px] text-slate-600 uppercase">Nama</span>
+                      {[['name-asc', 'A-Z', 'ChevronsUpDown'], ['name-desc', 'Z-A', 'ChevronsUpDown']].map(([val, label, icon]) => (
+                        <button
+                          key={val}
+                          onClick={() => { setInvSortBy(val); setInvPage(1); setSelectedInvIds(new Set()) }}
+                          className={cn(
+                            'shrink-0 px-2 py-1 rounded-md text-[10px] font-medium transition-all whitespace-nowrap flex items-center gap-1',
+                            invSortBy === val
+                              ? 'bg-violet-500/15 text-violet-400 border border-violet-500/30 shadow-sm'
+                              : 'text-slate-500 hover:text-slate-300 hover:bg-white/[0.04] border border-transparent',
+                          )}
+                          title={`Urutkan ${label}`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    {/* Sort by Stock */}
+                    <div className="flex items-center gap-1 pr-2 border-r border-white/[0.06]">
+                      <span className="text-[9px] text-slate-600 uppercase">Stok</span>
+                      {[['stock-desc', 'Terbanyak', 'TrendingUp'], ['stock-asc', 'Terendah', 'TrendingDown']].map(([val, label, icon]) => (
+                        <button
+                          key={val}
+                          onClick={() => { setInvSortBy(val); setInvPage(1); setSelectedInvIds(new Set()) }}
+                          className={cn(
+                            'shrink-0 px-2 py-1 rounded-md text-[10px] font-medium transition-all whitespace-nowrap flex items-center gap-1',
+                            invSortBy === val
+                              ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 shadow-sm'
+                              : 'text-slate-500 hover:text-slate-300 hover:bg-white/[0.04] border border-transparent',
+                          )}
+                          title={`Urutkan: ${label}`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    {/* Sort by Value */}
+                    <div className="flex items-center gap-1 pr-2 border-r border-white/[0.06]">
+                      <span className="text-[9px] text-slate-600 uppercase">Nilai</span>
+                      {[['value-desc', 'Terbesar', 'TrendingUp'], ['value-asc', 'Terkecil', 'TrendingDown']].map(([val, label, icon]) => (
+                        <button
+                          key={val}
+                          onClick={() => { setInvSortBy(val); setInvPage(1); setSelectedInvIds(new Set()) }}
+                          className={cn(
+                            'shrink-0 px-2 py-1 rounded-md text-[10px] font-medium transition-all whitespace-nowrap flex items-center gap-1',
+                            invSortBy === val
+                              ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-sm'
+                              : 'text-slate-500 hover:text-slate-300 hover:bg-white/[0.04] border border-transparent',
+                          )}
+                          title={`Urutkan: ${label}`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    {/* Sort by Date */}
+                    <div className="flex items-center gap-1">
+                      <span className="text-[9px] text-slate-600 uppercase">Waktu</span>
+                      {[['updatedAt-desc', 'Terbaru', 'Clock'], ['updatedAt-asc', 'Terlama', 'Clock']].map(([val, label, icon]) => (
+                        <button
+                          key={val}
+                          onClick={() => { setInvSortBy(val); setInvPage(1); setSelectedInvIds(new Set()) }}
+                          className={cn(
+                            'shrink-0 px-2 py-1 rounded-md text-[10px] font-medium transition-all whitespace-nowrap flex items-center gap-1',
+                            invSortBy === val
+                              ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30 shadow-sm'
+                              : 'text-slate-500 hover:text-slate-300 hover:bg-white/[0.04] border border-transparent',
+                          )}
+                          title={`Urutkan: ${label}`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
-                <Table>
-                  <TableHeader>
-                    <TableRow className="border-white/[0.06] hover:bg-transparent">
-                      <TableHead className="w-10">
-                        <Checkbox
-                          checked={invList.length > 0 && invList.every(i => selectedInvIds.has(i.id)) ? true : invList.length > 0 ? 'indeterminate' : false}
-                          onCheckedChange={() => toggleSelectAllInv()}
-                          className="h-4 w-4"
-                        />
-                      </TableHead>
-                      <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider min-w-[200px]">Nama</TableHead>
-                      <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider w-[120px]">Kategori</TableHead>
-                      <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider text-right w-[130px]">Stok</TableHead>
-                      <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider text-right w-[140px]">HPP Satuan</TableHead>
-                      <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider text-right w-[140px]">Total Nilai</TableHead>
-                      <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider text-right w-[80px]">Digunakan</TableHead>
-                      <TableHead className="text-[11px] text-slate-500 font-medium uppercase tracking-wider text-right w-[80px]">Aksi</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {invList.length === 0 ? (
-                      <TableRow className="border-white/[0.04] hover:bg-transparent">
-                        <TableCell colSpan={8} className="text-center py-16">
-                          <div className="flex flex-col items-center">
-                            <div className="w-12 h-12 rounded-2xl bg-white/[0.04] flex items-center justify-center mb-3">
-                              <PackagePlus className="h-6 w-6 text-slate-600" />
-                            </div>
-                            <p className="text-sm text-slate-400 mb-1">Belum ada item inventory</p>
-                            <p className="text-xs text-slate-600 mb-4">Buat pembelian pertama untuk menambah item ke inventory</p>
-                            <div className="flex gap-2">
+                
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="border-white/[0.06] hover:bg-transparent bg-white/[0.02]">
+                        <TableHead className="w-12 pl-4">
+                          <Checkbox
+                            checked={invList.length > 0 && invList.every(i => selectedInvIds.has(i.id)) ? true : invList.length > 0 ? 'indeterminate' : false}
+                            onCheckedChange={() => toggleSelectAllInv()}
+                            className="h-4 w-4"
+                          />
+                        </TableHead>
+                        <TableHead className="text-[11px] text-slate-500 font-semibold uppercase tracking-wider min-w-[220px]">Nama Item</TableHead>
+                        <TableHead className="text-[11px] text-slate-500 font-semibold uppercase tracking-wider w-[130px]">Kategori</TableHead>
+                        <TableHead className="text-[11px] text-slate-500 font-semibold uppercase tracking-wider text-right w-[140px]">Stok</TableHead>
+                        <TableHead className="text-[11px] text-slate-500 font-semibold uppercase tracking-wider text-right w-[150px]">HPP Satuan</TableHead>
+                        <TableHead className="text-[11px] text-slate-500 font-semibold uppercase tracking-wider text-right w-[150px]">Total Nilai</TableHead>
+                        <TableHead className="text-[11px] text-slate-500 font-semibold uppercase tracking-wider text-right w-[90px]">Digunakan</TableHead>
+                        <TableHead className="text-[11px] text-slate-500 font-semibold uppercase tracking-wider text-right w-[120px]">Aksi</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {invList.length === 0 ? (
+                        <TableRow className="border-white/[0.04] hover:bg-transparent">
+                          <TableCell colSpan={8} className="text-center py-20">
+                            <div className="flex flex-col items-center max-w-xs mx-auto">
+                              {/* Enhanced Empty State Illustration */}
+                              <div className="relative w-20 h-20 mb-5">
+                                <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-emerald-500/10 to-blue-500/10 animate-pulse" />
+                                <div className="relative w-full h-full rounded-3xl bg-white/[0.03] border border-white/[0.08] flex items-center justify-center">
+                                  <PackagePlus className="h-9 w-9 text-slate-500" />
+                                </div>
+                                <div className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-emerald-500/20 flex items-center justify-center">
+                                  <Plus className="h-3 w-3 text-emerald-400" />
+                                </div>
+                              </div>
+                              <h3 className="text-base font-semibold text-white mb-1.5">Inventory Kosong</h3>
+                              <p className="text-sm text-slate-400 mb-1 text-center leading-relaxed">Belum ada item di inventory</p>
+                              <p className="text-xs text-slate-600 mb-5 text-center leading-relaxed">Buat pembelian pertama untuk mulai menambah stok dan bahan baku</p>
                               <Button
                                 size="sm"
                                 onClick={() => { resetPoCreateForm(); openPoCreate() }}
-                                className="theme-bg theme-hover text-white text-xs h-8 px-4 rounded-lg gap-1.5"
+                                className="theme-bg theme-hover text-white text-xs h-9 px-5 rounded-xl gap-2 shadow-lg"
                               >
-                                <ShoppingCart className="h-3.5 w-3.5" />
-                                Buat Pembelian
+                                <ShoppingCart className="h-4 w-4" />
+                                Buat Pembelian Pertama
                               </Button>
                             </div>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      invList.map((item) => {
-                        const isLow = item.stock <= item.lowStockAlert
-                        const isSelected = selectedInvIds.has(item.id)
-                        const colorClasses = item.category ? getCategoryColorClasses(item.category.color) : null
-                        return (
-                          <TableRow key={item.id} className={cn(
-                            'border-white/[0.04] hover:bg-transparent',
-                            isSelected && 'bg-emerald-500/[0.04]',
-                            item.status === 'ARCHIVED' && 'opacity-50',
-                          )}>
-                            <TableCell>
-                              <Checkbox
-                                checked={isSelected}
-                                onCheckedChange={() => toggleInvSelect(item.id)}
-                                className="h-4 w-4"
-                              />
-                            </TableCell>
-                            <TableCell className="text-xs text-slate-200 font-medium">
-                              <div className="flex items-center gap-1.5">
-                                {item.name}
-                                {item.status === 'ARCHIVED' && (
-                                  <Badge variant="secondary" className="text-[9px] px-1.5 py-0 bg-amber-500/15 text-amber-400 border-amber-500/20">Nonaktif</Badge>
-                                )}
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              {item.category && colorClasses ? (
-                                <Badge variant="outline" className={cn('text-[10px] px-1.5 py-0 leading-none border font-medium', colorClasses.bg, colorClasses.text, colorClasses.border)}>
-                                  {item.category.name}
-                                </Badge>
-                              ) : (
-                                <span className="text-[10px] text-slate-500">-</span>
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        invList.map((item, index) => {
+                          const isLow = item.stock <= item.lowStockAlert
+                          const isSelected = selectedInvIds.has(item.id)
+                          const colorClasses = item.category ? getCategoryColorClasses(item.category.color) : null
+                          const isArchived = item.status === 'ARCHIVED'
+                          return (
+                            <TableRow 
+                              key={item.id} 
+                              className={cn(
+                                'group relative border-b border-white/[0.04] transition-all duration-150',
+                                // Alternating row backgrounds
+                                index % 2 === 0 ? 'bg-transparent' : 'bg-white/[0.015]',
+                                // Hover effect
+                                'hover:bg-white/[0.04]',
+                                // Selected state
+                                isSelected && 'bg-emerald-500/[0.05] hover:bg-emerald-500/[0.08]',
+                                // Archived state
+                                isArchived && 'opacity-60',
                               )}
-                            </TableCell>
-                            <TableCell className="text-xs text-right font-medium">
-                              <span className={cn('inline-flex items-center gap-1 px-2 py-1 rounded-md tabular-nums', isLow ? 'text-red-400' : 'text-slate-200')}>
-                                {formatNumber(item.stock)}
-                                <span className="text-slate-500 font-normal">{item.baseUnit}</span>
-                              </span>
-                            </TableCell>
-                            <TableCell className="text-xs text-slate-400 text-right">{formatCurrency(item.avgCost)}/{item.baseUnit}</TableCell>
-                            <TableCell className="text-xs text-emerald-400 text-right font-medium">{formatCurrency(item.stock * item.avgCost)}</TableCell>
-                            <TableCell className="text-xs text-slate-400 text-right">{item._count?.compositions ?? 0}</TableCell>
-                            <TableCell className="text-right">
-                              <div className="flex items-center justify-end gap-0.5">
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-7 px-2 text-slate-400 hover:text-white hover:bg-white/[0.04]"
-                                  onClick={() => openInvDetail(item)}
-                                >
-                                  <Eye className="h-3.5 w-3.5" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-7 px-2 text-slate-400 hover:text-white hover:bg-white/[0.04]"
-                                  onClick={() => openInvForm(item)}
-                                >
-                                  <Pencil className="h-3.5 w-3.5" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className={cn(
-                                    'h-7 px-2',
-                                    item.status === 'ARCHIVED'
-                                      ? 'text-amber-400 hover:text-amber-300 hover:bg-amber-500/[0.06]'
-                                      : 'text-slate-400 hover:text-red-400 hover:bg-red-500/[0.06]',
+                            >
+                              {/* Low stock left border indicator */}
+                              {isLow && !isArchived && (
+                                <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-gradient-to-b from-red-500 to-red-500/50 rounded-r" />
+                              )}
+                              {/* Archived left border indicator */}
+                              {isArchived && (
+                                <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-gradient-to-b from-amber-500 to-amber-500/50 rounded-r" />
+                              )}
+                              <TableCell className="pl-4">
+                                <Checkbox
+                                  checked={isSelected}
+                                  onCheckedChange={() => toggleInvSelect(item.id)}
+                                  className="h-4 w-4 data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500"
+                                />
+                              </TableCell>
+                              <TableCell className="py-3">
+                                <div className="flex items-center gap-2">
+                                  <span className={cn(
+                                    'text-xs font-medium truncate max-w-[180px] block',
+                                    isArchived ? 'text-slate-500 line-through decoration-slate-600' : 'text-slate-100'
+                                  )}>
+                                    {item.name}
+                                  </span>
+                                  {isArchived && (
+                                    <Badge variant="secondary" className="text-[9px] px-2 py-0.5 bg-amber-500/15 text-amber-400 border-amber-500/25 rounded-full shrink-0">
+                                      <Archive className="h-2.5 w-2.5 mr-1" />
+                                      Nonaktif
+                                    </Badge>
                                   )}
-                                  onClick={() => {
-                                    if (item.status === 'ARCHIVED') {
-                                      handleRestoreInv(item.id)
-                                    } else {
-                                      void openDeleteInvDialog(item.id)
-                                    }
-                                  }}
-                                >
-                                  {item.status === 'ARCHIVED' ? (
-                                    <RotateCcw className="h-3.5 w-3.5" />
-                                  ) : (
-                                    <Trash2 className="h-3.5 w-3.5" />
+                                  {isLow && !isArchived && (
+                                    <Badge variant="secondary" className="text-[9px] px-2 py-0.5 bg-red-500/15 text-red-400 border-red-500/25 rounded-full animate-pulse shrink-0">
+                                      <AlertTriangle className="h-2.5 w-2.5 mr-1" />
+                                      Stok Rendah
+                                    </Badge>
                                   )}
-                                </Button>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        )
-                      })
-                    )}
-                  </TableBody>
-                </Table>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                {item.category && colorClasses ? (
+                                  <Badge 
+                                    variant="outline" 
+                                    className={cn(
+                                      'text-[10px] px-2.5 py-1 rounded-full border font-medium transition-colors',
+                                      colorClasses.bg,
+                                      colorClasses.text,
+                                      colorClasses.border,
+                                      'hover:opacity-80'
+                                    )}
+                                  >
+                                    {item.category.name}
+                                  </Badge>
+                                ) : (
+                                  <span className="text-[10px] text-slate-600 italic">Tanpa kategori</span>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <span className={cn(
+                                  'inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg tabular-nums text-xs font-semibold',
+                                  isLow 
+                                    ? 'bg-red-500/10 text-red-400 ring-1 ring-red-500/20' 
+                                    : 'text-slate-200'
+                                )}>
+                                  {formatNumber(item.stock)}
+                                  <span className={cn('font-normal text-[10px]', isLow ? 'text-red-400/70' : 'text-slate-500')}>{item.baseUnit}</span>
+                                </span>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <span className="text-xs text-slate-400 tabular-nums">
+                                  {formatCurrency(item.avgCost)}<span className="text-slate-600">/{item.baseUnit}</span>
+                                </span>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <span className="text-xs text-emerald-400 font-semibold tabular-nums">
+                                  {formatCurrency(item.stock * item.avgCost)}
+                                </span>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <span className={cn(
+                                  'inline-flex items-center justify-center min-w-[24px] h-6 rounded-md text-xs tabular-nums font-medium',
+                                  (item._count?.compositions ?? 0) > 0 
+                                    ? 'bg-violet-500/15 text-violet-400' 
+                                    : 'text-slate-600'
+                                )}>
+                                  {item._count?.compositions ?? 0}
+                                </span>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <div className="flex items-center justify-end gap-0.5 opacity-60 group-hover:opacity-100 transition-opacity">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 w-7 p-0 text-slate-400 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors"
+                                    onClick={() => openInvDetail(item)}
+                                    title="Lihat detail item"
+                                  >
+                                    <Eye className="h-3.5 w-3.5" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 w-7 p-0 text-slate-400 hover:text-amber-400 hover:bg-amber-500/10 rounded-lg transition-colors"
+                                    onClick={() => openInvForm(item)}
+                                    title="Edit item"
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className={cn(
+                                      'h-7 w-7 p-0 rounded-lg transition-colors',
+                                      isArchived
+                                        ? 'text-amber-400 hover:text-amber-300 hover:bg-amber-500/10'
+                                        : 'text-slate-400 hover:text-red-400 hover:bg-red-500/10',
+                                    )}
+                                    onClick={() => {
+                                      if (isArchived) {
+                                        handleRestoreInv(item.id)
+                                      } else {
+                                        void openDeleteInvDialog(item.id)
+                                      }
+                                    }}
+                                    title={isArchived ? 'Aktifkan kembali' : 'Arsipkan item'}
+                                  >
+                                    {isArchived ? (
+                                      <RotateCcw className="h-3.5 w-3.5" />
+                                    ) : (
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    )}
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
               </Card>
             </div>
 
-            {/* Mobile sort chips */}
-            <div className="md:hidden flex items-center gap-1 overflow-x-auto custom-scrollbar pb-1">
-              {([
-                ['name-asc', 'A-Z'],
-                ['name-desc', 'Z-A'],
-                ['stock-desc', 'Stock ↓'],
-                ['stock-asc', 'Stock ↑'],
-                ['value-desc', 'Nilai ↓'],
-                ['value-asc', 'Nilai ↑'],
-                ['updatedAt-desc', 'Terbaru'],
-                ['updatedAt-asc', 'Terlama'],
-              ] as const).map(([val, label]) => (
-                <button
-                  key={val}
-                  onClick={() => { setInvSortBy(val); setInvPage(1); setSelectedInvIds(new Set()) }}
-                  className={cn(
-                    'shrink-0 px-2.5 py-1 rounded-md text-[11px] font-medium transition-all whitespace-nowrap',
-                    invSortBy === val
-                      ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/25'
-                      : 'text-slate-500 hover:text-slate-300 hover:bg-white/[0.04] border border-transparent',
-                  )}
-                >
-                  {label}
-                </button>
-              ))}
+            {/* Enhanced Mobile Sort Chips */}
+            <div className="md:hidden space-y-1.5">
+              <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar px-0.5">
+                <span className="text-[9px] text-slate-600 uppercase tracking-wider font-medium shrink-0 flex items-center gap-1">
+                  <ArrowUpDown className="h-3 w-3" />
+                  Sort:
+                </span>
+                {([
+                  ['name-asc', 'A-Z', 'violet'],
+                  ['name-desc', 'Z-A', 'violet'],
+                  ['stock-desc', 'Stock ↓', 'cyan'],
+                  ['stock-asc', 'Stock ↑', 'cyan'],
+                  ['value-desc', 'Nilai ↓', 'emerald'],
+                  ['value-asc', 'Nilai ↑', 'emerald'],
+                  ['updatedAt-desc', 'Baru', 'amber'],
+                  ['updatedAt-asc', 'Lama', 'amber'],
+                ] as const).map(([val, label, color]) => (
+                  <button
+                    key={val}
+                    onClick={() => { setInvSortBy(val); setInvPage(1); setSelectedInvIds(new Set()) }}
+                    className={cn(
+                      'shrink-0 px-2.5 py-1 rounded-lg text-[10px] font-medium transition-all whitespace-nowrap border',
+                      invSortBy === val
+                        ? cn(
+                            color === 'violet' && 'bg-violet-500/15 text-violet-400 border-violet-500/30 shadow-sm',
+                            color === 'cyan' && 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30 shadow-sm',
+                            color === 'emerald' && 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30 shadow-sm',
+                            color === 'amber' && 'bg-amber-500/15 text-amber-400 border-amber-500/30 shadow-sm',
+                          )
+                        : 'text-slate-500 hover:text-slate-300 hover:bg-white/[0.04] border-white/[0.06]',
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            {/* Mobile Cards */}
-            <div className="md:hidden space-y-2">
+            {/* Enhanced Mobile Cards */}
+            <div className="md:hidden space-y-3">
               {invList.length === 0 ? (
-                <Card className="bg-nebula border-white/[0.06]">
-                  <CardContent className="py-12 text-center">
-                    <div className="flex flex-col items-center">
-                      <div className="w-12 h-12 rounded-2xl bg-white/[0.04] flex items-center justify-center mb-3">
-                        <PackagePlus className="h-6 w-6 text-slate-600" />
+                <Card className="bg-nebula border-white/[0.06] overflow-hidden">
+                  <CardContent className="py-14 text-center">
+                    <div className="flex flex-col items-center max-w-[240px] mx-auto">
+                      {/* Enhanced Empty State for Mobile */}
+                      <div className="relative w-16 h-16 mb-4">
+                        <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-emerald-500/10 to-blue-500/10 animate-pulse" />
+                        <div className="relative w-full h-full rounded-2xl bg-white/[0.03] border border-white/[0.08] flex items-center justify-center">
+                          <PackagePlus className="h-7 w-7 text-slate-500" />
+                        </div>
+                        <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-emerald-500/20 flex items-center justify-center">
+                          <Plus className="h-2.5 w-2.5 text-emerald-400" />
+                        </div>
                       </div>
-                      <p className="text-sm text-slate-400 mb-1">Belum ada item inventory</p>
-                      <p className="text-xs text-slate-600 mb-4">Buat pembelian pertama untuk menambah item ke inventory</p>
+                      <h3 className="text-sm font-semibold text-white mb-1">Inventory Kosong</h3>
+                      <p className="text-xs text-slate-400 mb-1 leading-relaxed">Belum ada item di inventory</p>
+                      <p className="text-[11px] text-slate-600 mb-4 leading-relaxed">Buat pembelian pertama untuk mulai</p>
                       <Button
                         size="sm"
                         onClick={() => { resetPoCreateForm(); openPoCreate() }}
-                        className="theme-bg theme-hover text-white text-xs h-8 px-4 rounded-lg gap-1.5"
+                        className="theme-bg theme-hover text-white text-xs h-9 px-4 rounded-xl gap-1.5 shadow-lg"
                       >
                         <ShoppingCart className="h-3.5 w-3.5" />
                         Buat Pembelian
@@ -3449,86 +3682,164 @@ export default function PurchasePage() {
                 </Card>
               ) : (
                 <AnimatePresence>
-                  {invList.map((item) => {
+                  {invList.map((item, index) => {
                     const isLow = item.stock <= item.lowStockAlert
                     const isSelected = selectedInvIds.has(item.id)
                     const colorClasses = item.category ? getCategoryColorClasses(item.category.color) : null
+                    const isArchived = item.status === 'ARCHIVED'
                     return (
                       <motion.div
                         key={item.id}
-                        initial={{ opacity: 0, y: 8 }}
+                        initial={{ opacity: 0, y: 12 }}
                         animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -8 }}
-                        transition={{ duration: 0.2 }}
+                        exit={{ opacity: 0, y: -12 }}
+                        transition={{ duration: 0.25, delay: index * 0.03 }}
                       >
-                        <Card className={cn('bg-nebula border-white/[0.06] transition-all', isSelected && 'border-emerald-500/40 ring-1 ring-emerald-500/10')}>
-                          <CardContent className="p-3 space-y-2">
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="flex items-start gap-2 min-w-0">
+                        <Card className={cn(
+                          'relative overflow-hidden transition-all duration-200',
+                          // Base styling
+                          'bg-nebula border-white/[0.06] hover:border-white/[0.1]',
+                          // Selected state
+                          isSelected && 'border-emerald-500/40 ring-1 ring-emerald-500/15 bg-emerald-500/[0.02]',
+                          // Low stock glow effect
+                          isLow && !isArchived && 'shadow-sm shadow-red-500/5',
+                          // Archived state
+                          isArchived && 'opacity-60',
+                        )}>
+n                          {/* Left accent bar for low stock / archived */}
+                          {isLow && !isArchived && (
+                            <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-red-500 to-red-500/40" />
+                          )}
+                          {isArchived && (
+                            <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-amber-500 to-amber-500/40" />
+                          )}
+n                          <CardContent className="p-3.5 space-y-3">
+                            {/* Header Row - Name + Stock Hero */}
+                            <div className="flex items-start justify-between gap-3">\                              <div className="flex items-start gap-2.5 min-w-0 flex-1">
                                 <Checkbox
                                   checked={isSelected}
                                   onCheckedChange={() => toggleInvSelect(item.id)}
-                                  className="h-4 w-4 mt-0.5 shrink-0"
+                                  className="h-4 w-4 mt-0.5 shrink-0 data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500"
                                 />
-                                <div className="min-w-0">
-                                  <p className="text-xs text-slate-200 font-medium truncate">{item.name}</p>
-                                  {item.category && colorClasses && (
-                                    <Badge variant="outline" className={cn('text-[9px] px-1.5 py-0 leading-none border font-medium mt-1', colorClasses.bg, colorClasses.text, colorClasses.border)}>
-                                      {item.category.name}
-                                    </Badge>
-                                  )}
+                                <div className="min-w-0 flex-1">
+                                  <p className={cn(
+                                    'text-sm font-semibold truncate block leading-tight',
+                                    isArchived ? 'text-slate-500 line-through decoration-slate-600' : 'text-white'
+                                  )}>
+                                    {item.name}
+                                  </p>
+n                                  <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                                    {isArchived && (
+                                      <Badge variant="secondary" className="text-[9px] px-2 py-0 bg-amber-500/15 text-amber-400 border-amber-500/25 rounded-full">
+                                        <Archive className="h-2.5 w-2.5 mr-1" />
+                                        Nonaktif
+                                      </Badge>
+                                    )}
+                                    {isLow && !isArchived && (
+                                      <Badge variant="secondary" className="text-[9px] px-2 py-0 bg-red-500/15 text-red-400 border-red-500/25 rounded-full animate-pulse">
+                                        <AlertTriangle className="h-2.5 w-2.5 mr-1" />
+                                        Stok Rendah
+                                      </Badge>
+                                    )}
+                                    {item.category && colorClasses && (
+                                      <Badge 
+                                        variant="outline" 
+                                        className={cn(
+                                          'text-[9px] px-2 py-0 rounded-full border font-medium',
+                                          colorClasses.bg,
+                                          colorClasses.text,
+                                          colorClasses.border,
+                                        )}
+                                      >
+                                        {item.category.name}
+                                      </Badge>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
-                              <span
-                                className={cn(
-                                  'flex items-center gap-1 px-2.5 py-1.5 rounded-lg tabular-nums shrink-0',
-                                  isLow ? 'text-red-400' : 'text-white'
-                                )}
-                              >
-                                <span className="font-bold">{formatNumber(item.stock)}</span>
-                                <span className="text-[10px] text-slate-400 font-normal">{item.baseUnit}</span>
-                              </span>
+n                              {/* Hero Stock Number */}
+                              <div className={cn(
+                                'shrink-0 text-right',
+                                isLow && 'animate-pulse'
+                              )}>
+                                <div className={cn(
+                                  'inline-flex flex-col items-end px-3 py-2 rounded-xl tabular-nums',
+                                  isLow 
+                                    ? 'bg-red-500/10 ring-1 ring-red-500/20' 
+                                    : 'bg-white/[0.04]'
+                                )}>
+                                  <span className={cn(
+                                    'text-xl font-bold leading-none',
+                                    isLow ? 'text-red-400' : 'text-white'
+                                  )}>
+                                    {formatNumber(item.stock)}
+                                  </span>
+                                  <span className={cn(
+                                    'text-[10px] font-medium mt-0.5',
+                                    isLow ? 'text-red-400/70' : 'text-slate-500'
+                                  )}>
+                                    {item.baseUnit}
+                                  </span>
+                                </div>
+                              </div>
                             </div>
-                            <div className="flex items-center justify-between text-slate-500">
-                              <span className="text-[11px]">HPP: {formatCurrency(item.avgCost)}/{item.baseUnit}</span>
-                              <span className="text-[11px] text-emerald-400 font-medium">{formatCurrency(item.stock * item.avgCost)}</span>
+n                            {/* Stats Row - HPP & Total Value */}
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="rounded-lg bg-white/[0.03] border border-white/[0.04] px-2.5 py-2">
+                                <p className="text-[9px] text-slate-600 uppercase tracking-wider mb-0.5">HPP Satuan</p>
+                                <p className="text-xs text-slate-300 font-medium tabular-nums">{formatCurrency(item.avgCost)}<span className="text-slate-600">/{item.baseUnit}</span></p>
+                              </div>
+                              <div className="rounded-lg bg-emerald-500/[0.05] border border-emerald-500/10 px-2.5 py-2">
+                                <p className="text-[9px] text-emerald-500/70 uppercase tracking-wider mb-0.5">Total Nilai</p>
+                                <p className="text-xs text-emerald-400 font-semibold tabular-nums">{formatCurrency(item.stock * item.avgCost)}</p>
+                              </div>
                             </div>
-                            <div className="flex items-center gap-1 pt-1 border-t border-white/[0.04]">
+                            {/* Usage indicator */}
+                            {(item._count?.compositions ?? 0) > 0 && (
+                              <div className="flex items-center gap-1.5 text-[10px] text-violet-400">
+                                <Sparkles className="h-3 w-3" />
+                                <span>Dipakai di <strong>{item._count?.compositions ?? 0}</strong> produk</span>
+                              </div>
+                            )}
+n                            {/* Action Buttons */}
+                            <div className="flex items-center gap-1.5 pt-2 border-t border-white/[0.04]">
                               <Button
                                 size="sm"
-                                className="flex-1 h-7 text-[10px] gap-1 text-slate-400 hover:text-white hover:bg-white/[0.04]"
+                                className="flex-1 h-8 text-[11px] gap-1.5 text-slate-400 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors"
                                 onClick={() => openInvDetail(item)}
                               >
-                                <Eye className="h-3 w-3" />
+                                <Eye className="h-3.5 w-3.5" />
                                 Detail
                               </Button>
                               <Button
                                 size="sm"
-                                className="h-7 px-2 text-slate-400 hover:text-white hover:bg-white/[0.04]"
+                                className="h-8 w-8 p-0 text-slate-400 hover:text-amber-400 hover:bg-amber-500/10 rounded-lg transition-colors"
                                 onClick={() => openInvForm(item)}
+                                title="Edit"
                               >
-                                <Pencil className="h-3 w-3" />
+                                <Pencil className="h-3.5 w-3.5" />
                               </Button>
                               <Button
                                 size="sm"
                                 className={cn(
-                                  'h-7 px-2',
-                                  item.status === 'ARCHIVED'
-                                    ? 'text-amber-400 hover:text-amber-300 hover:bg-amber-500/[0.06]'
-                                    : 'text-slate-400 hover:text-red-400 hover:bg-red-500/[0.06]',
+                                  'h-8 w-8 p-0 rounded-lg transition-colors',
+                                  isArchived
+                                    ? 'text-amber-400 hover:text-amber-300 hover:bg-amber-500/10'
+                                    : 'text-slate-400 hover:text-red-400 hover:bg-red-500/10',
                                 )}
                                 onClick={() => {
-                                  if (item.status === 'ARCHIVED') {
+                                  if (isArchived) {
                                     handleRestoreInv(item.id)
                                   } else {
                                     void openDeleteInvDialog(item.id)
                                   }
                                 }}
+                                title={isArchived ? 'Aktifkan kembali' : 'Arsipkan'}
                               >
-                                {item.status === 'ARCHIVED' ? (
-                                  <RotateCcw className="h-3 w-3" />
+                                {isArchived ? (
+                                  <RotateCcw className="h-3.5 w-3.5" />
                                 ) : (
-                                  <Trash2 className="h-3 w-3" />
+                                  <Trash2 className="h-3.5 w-3.5" />
                                 )}
                               </Button>
                             </div>

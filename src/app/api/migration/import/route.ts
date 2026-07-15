@@ -441,110 +441,133 @@ export async function POST(request: NextRequest) {
 
           // === If inventory/bahan mode + stock > 0: create InventoryItem + Opening Balance ===
           if (includeInventory && stock > 0) {
-            const existingInv = await db.inventoryItem.findFirst({
-              where: { name, outletId },
-            })
-
-            if (!existingInv) {
-              const invItem = await db.inventoryItem.create({
-                data: {
-                  name,
-                  sku: finalSku,
-                  baseUnit: unit,
-                  stock: stock,
-                  avgCost: hpp > 0 ? hpp : 0,
-                  lowStockAlert: lowStockAlert > 0 ? lowStockAlert : 0,
-                  status: 'ACTIVE',
-                  outletId,
-                  categoryId: null,
-                },
+            try {
+              const existingInv = await db.inventoryItem.findFirst({
+                where: { name, outletId },
               })
 
-              inventoryItemsCreated++
-              totalStock += stock
-              totalModalValue += hpp * stock
-              inventoryItemCache.set(name, invItem.id)
+              if (!existingInv) {
+                const invItem = await db.inventoryItem.create({
+                  data: {
+                    name,
+                    sku: finalSku,
+                    baseUnit: unit,
+                    stock: stock,
+                    avgCost: hpp > 0 ? hpp : 0,
+                    lowStockAlert: lowStockAlert > 0 ? lowStockAlert : 0,
+                    status: 'ACTIVE',
+                    outletId,
+                    categoryId: null,
+                  },
+                })
 
-              // Create opening balance movement
-              await db.inventoryMovement.create({
-                data: {
-                  type: 'PURCHASE',
-                  quantity: stock,
-                  previousStock: 0,
-                  newStock: stock,
-                  referenceType: 'MIGRATION',
-                  notes: `Saldo awal migrasi dari ${file.name}`,
-                  outletId,
-                  inventoryItemId: invItem.id,
-                  userId,
-                },
-              })
-            } else {
-              inventoryItemCache.set(name, existingInv.id)
+                inventoryItemsCreated++
+                totalStock += stock
+                totalModalValue += hpp * stock
+                inventoryItemCache.set(name, invItem.id)
+
+                // Create opening balance movement
+                try {
+                  await db.inventoryMovement.create({
+                    data: {
+                      type: 'PURCHASE',
+                      quantity: stock,
+                      previousStock: 0,
+                      newStock: stock,
+                      referenceType: 'MIGRATION',
+                      notes: `Saldo awal migrasi dari ${file.name}`,
+                      outletId,
+                      inventoryItemId: invItem.id,
+                      userId,
+                    },
+                  })
+                } catch (movErr) {
+                  console.warn(`[migration] Failed to create opening balance movement for ${name}:`, movErr)
+                  errors.push(`Warning: Gagal catat pergerakan stok untuk "${name}"`)
+                }
+              } else {
+                inventoryItemCache.set(name, existingInv.id)
+              }
+            } catch (invErr) {
+              console.error(`[migration] CRITICAL: Failed to create inventory item for ${name}:`, invErr)
+              const errMsg = invErr instanceof Error ? invErr.message : String(invErr)
+              errors.push(`Gagal buat inventory "${name}": ${errMsg}`)
             }
           }
 
           // === product_stock mode: create 1:1 InventoryItem + Composition (product↔stock) ===
           if (isStockMode && stock > 0) {
-            const existingInv = await db.inventoryItem.findFirst({
-              where: { name, outletId },
-            })
-
-            let invItemId: string
-            if (!existingInv) {
-              const invItem = await db.inventoryItem.create({
-                data: {
-                  name,
-                  sku: finalSku,
-                  baseUnit: unit,
-                  stock: stock,
-                  avgCost: hpp > 0 ? hpp : 0,
-                  lowStockAlert: lowStockAlert > 0 ? lowStockAlert : 0,
-                  status: 'ACTIVE',
-                  outletId,
-                  categoryId: null,
-                },
-              })
-
-              invItemId = invItem.id
-              inventoryItemsCreated++
-              totalStock += stock
-              totalModalValue += hpp * stock
-              inventoryItemCache.set(name, invItem.id)
-
-              // Create opening balance movement
-              await db.inventoryMovement.create({
-                data: {
-                  type: 'PURCHASE',
-                  quantity: stock,
-                  previousStock: 0,
-                  newStock: stock,
-                  referenceType: 'MIGRATION',
-                  notes: `Saldo awal stok gudang migrasi dari ${file.name}`,
-                  outletId,
-                  inventoryItemId: invItem.id,
-                  userId,
-                },
-              })
-            } else {
-              invItemId = existingInv.id
-              inventoryItemCache.set(name, existingInv.id)
-            }
-
-            // Create 1:1 composition: 1 unit of product uses 1 unit of inventory
             try {
-              await db.productComposition.create({
-                data: {
-                  productId: product.id,
-                  inventoryItemId: invItemId,
-                  quantity: 1,
-                  unit: unit,
-                },
+              const existingInv = await db.inventoryItem.findFirst({
+                where: { name, outletId },
               })
-              compositionsCreated++
-            } catch (e) {
-              console.warn(`[migration] Failed to create 1:1 composition for ${name}:`, e)
-              errors.push(`Gagal menghubungkan stok untuk "${name}"`)
+
+              let invItemId: string
+              if (!existingInv) {
+                // Create InventoryItem with proper error handling
+                const invItem = await db.inventoryItem.create({
+                  data: {
+                    name,
+                    sku: finalSku,
+                    baseUnit: unit,
+                    stock: stock,
+                    avgCost: hpp > 0 ? hpp : 0,
+                    lowStockAlert: lowStockAlert > 0 ? lowStockAlert : 0,
+                    status: 'ACTIVE',
+                    outletId,
+                    categoryId: null,
+                  },
+                })
+
+                invItemId = invItem.id
+                inventoryItemsCreated++
+                totalStock += stock
+                totalModalValue += hpp * stock
+                inventoryItemCache.set(name, invItem.id)
+
+                // Create opening balance movement
+                try {
+                  await db.inventoryMovement.create({
+                    data: {
+                      type: 'PURCHASE',
+                      quantity: stock,
+                      previousStock: 0,
+                      newStock: stock,
+                      referenceType: 'MIGRATION',
+                      notes: `Saldo awal stok gudang migrasi dari ${file.name}`,
+                      outletId,
+                      inventoryItemId: invItem.id,
+                      userId,
+                    },
+                  })
+                }catch (movErr) {
+                  console.warn(`[migration] Failed to create opening balance movement for ${name}:`, movErr)
+                  errors.push(`Warning: Gagal catat pergerakan stok untuk "${name}" (stok tetap tersimpan)`)
+                }
+              } else {
+                invItemId = existingInv.id
+                inventoryItemCache.set(name, existingInv.id)
+              }
+
+              // Create 1:1 composition: 1 unit of product uses 1 unit of inventory
+              try {
+                await db.productComposition.create({
+                  data: {
+                    productId: product.id,
+                    inventoryItemId: invItemId,
+                    quantity: 1,
+                    unit: unit,
+                  },
+                })
+                compositionsCreated++
+              } catch (compErr) {
+                console.warn(`[migration] Failed to create 1:1 composition for ${name}:`, compErr)
+                errors.push(`Gagal hubungkan produk↔stok untuk "${name}" (inventory tetap dibuat)`)
+              }
+            } catch (invErr) {
+              console.error(`[migration] CRITICAL: Failed to create inventory item for ${name}:`, invErr)
+              const errMsg = invErr instanceof Error ? invErr.message : String(invErr)
+              errors.push(`Gagal buat inventory "${name}": ${errMsg}`)
             }
           }
 
@@ -919,12 +942,18 @@ export async function POST(request: NextRequest) {
       }
 
       for (const deferred of deferredInlineCompositions) {
-        const compCount = await processInlineComposition(
-          deferred.productId,
-          deferred.variantId,
-          deferred.compositionStr
-        )
-        compositionsCreated += compCount
+        try {
+          const compCount = await processInlineComposition(
+            deferred.productId,
+            deferred.variantId,
+            deferred.compositionStr
+          )
+          compositionsCreated += compCount
+        } catch (compErr) {
+          console.error(`[migration] Failed to process deferred composition for product ${deferred.productId}:`, compErr)
+          const errMsg = compErr instanceof Error ? compErr.message : String(compErr)
+          errors.push(`Gagal proses komposisi inline: ${errMsg}`)
+        }
       }
     }
 

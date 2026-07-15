@@ -83,7 +83,7 @@ export async function GET(request: NextRequest) {
       ]
     }
 
-    const [orders, total, linkedPoItems, usageCheckItems] = await Promise.all([
+    const [orders, total, linkedPoItems, usageCheckItems, transferLinkedPoItems, transactionLinkedPoItems] = await Promise.all([
       db.purchaseOrder.findMany({
         where,
         orderBy: { [validSort]: validOrder },
@@ -114,6 +114,7 @@ export async function GET(request: NextRequest) {
         },
       }),
       db.purchaseOrder.count({ where }),
+      // Check 1: PO items linked to products (compositions)
       db.purchaseOrderItem.findMany({
         where: {
           purchaseOrder: { outletId: user.outletId },
@@ -122,8 +123,7 @@ export async function GET(request: NextRequest) {
         select: { purchaseOrderId: true },
         distinct: ['purchaseOrderId'],
       }),
-      // Check for purchases with items that have usage history (stock < purchased qty)
-      // This identifies purchases that CANNOT be safely deleted
+      // Check 2: PO items with usage history (stock < purchased qty)
       db.purchaseOrderItem.findMany({
         where: {
           purchaseOrder: { outletId: user.outletId },
@@ -135,9 +135,36 @@ export async function GET(request: NextRequest) {
           baseQty: true,
         },
       }),
+      // Check 3: PO items linked to TRANSFERS
+      db.purchaseOrderItem.findMany({
+        where: {
+          purchaseOrder: { outletId: user.outletId },
+          inventoryItem: { inventoryTransferItems: { some: {} } },
+        },
+        select: { purchaseOrderId: true },
+        distinct: ['purchaseOrderId'],
+      }),
+      // Check 4: PO items linked to TRANSAKSI/PENJUALAN (POS)
+      db.purchaseOrderItem.findMany({
+        where: {
+          purchaseOrder: { outletId: user.outletId },
+          inventoryItem: { consumptionSnapshots: { some: {} } },
+        },
+        select: { purchaseOrderId: true },
+        distinct: ['purchaseOrderId'],
+      }),
     ])
 
-    const linkedPoIds = new Set(linkedPoItems.map(p => p.purchaseOrderId))
+    // Combine all "linked" flags
+    const productLinkedPoIds = new Set(linkedPoItems.map(p => p.purchaseOrderId))
+    const transferLinkedPoIds = new Set(transferLinkedPoItems.map(p => p.purchaseOrderId))
+    const transactionLinkedPoIds = new Set(transactionLinkedPoItems.map(p => p.purchaseOrderId))
+    
+    // hasLinkedItems = linked to products OR transfers OR transactions
+    const hasLinkedItems = new Set<string>()
+    for (const id of [...productLinkedPoIds, ...transferLinkedPoIds, ...transactionLinkedPoIds]) {
+      hasLinkedItems.add(id)
+    }
     
     // Build a map of PO ID -> array of {inventoryItemId, baseQty}
     // Then check each item's current stock to determine if PO has usage
@@ -194,7 +221,7 @@ export async function GET(request: NextRequest) {
         supplierName: o.supplier?.name || null,
         createdByName: o.createdBy.name,
         itemCount: o.items.length,
-        hasLinkedItems: linkedPoIds.has(o.id),
+        hasLinkedItems: hasLinkedItems.has(o.id),
         hasUsageHistory: poWithUsageHistory.has(o.id),
         _batchSummary: {
           itemsWithBatch,
