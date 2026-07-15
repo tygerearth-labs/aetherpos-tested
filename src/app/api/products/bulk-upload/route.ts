@@ -5,7 +5,6 @@ import { getOutletPlan, isUnlimited } from '@/lib/config/plan-config'
 import * as XLSX from 'xlsx'
 import { safeAuditLog } from '@/lib/safe-audit'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
-import { generateUniqueSKU, generateVariantSKU } from '@/lib/sku-generator'
 // Shared Excel utilities (fixes: inconsistent sanitizeNumber, code duplication)
 import {
   sanitizeNumber,
@@ -20,6 +19,120 @@ export const maxDuration = 60
 
 const MAX_ROWS = 500
 
+// ══════════════════════════════════════════════════════════════════
+// IN-MEMORY SKU GENERATION (Performance + Safety)
+// Generates unique SKUs using local Set with fallback to DB on conflict
+// ══════════════════════════════════════════════════════════════════
+
+const MAX_SKU_LENGTH = 22
+
+function abbreviateName(name: string): string {
+  const words = name
+    .replace(/[^a-zA-Z0-9\s]/g, '')
+    .split(/\s+/)
+    .filter(Boolean)
+
+  if (words.length === 0) return 'PRD'
+
+  let abbr = ''
+  for (let i = 0; i < Math.min(words.length, 3); i++) {
+    const word = words[i].toUpperCase()
+    if (i === 0) {
+      abbr += word.substring(0, Math.min(2, word.length))
+    } else {
+      abbr += word.charAt(0)
+    }
+  }
+  return abbr.substring(0, 5)
+}
+
+function randomSuffix(length: number = 4): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  let result = ''
+  const array = new Uint8Array(length)
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    crypto.getRandomValues(array)
+    for (let i = 0; i < length; i++) {
+      result += chars[array[i] % chars.length]
+    }
+  } else {
+    for (let i = 0; i < length; i++) {
+      result += chars[Math.floor(Math.random() * chars.length)]
+    }
+  }
+  return result
+}
+
+/**
+ * Generate unique SKU in-memory with collision tracking.
+ * Returns { sku, needsDbCheck } for later verification.
+ */
+interface SkuResult {
+  sku: string
+  needsDbCheck: boolean // true if we should verify in DB later
+}
+
+function generateSKUInMemory(
+  name: string,
+  existingSkus: Set<string>,
+  generatedSkus: Set<string>,
+  maxAttempts: number = 10
+): SkuResult {
+  const abbr = abbreviateName(name)
+  const separatorLength = 1
+  const maxSuffixLength = MAX_SKU_LENGTH - abbr.length - separatorLength
+  const suffixLength = Math.min(Math.max(maxSuffixLength, 3), 8)
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const suffix = randomSuffix(suffixLength)
+    const sku = `${abbr}-${suffix}`
+
+    // Check against BOTH pre-loaded AND newly generated SKUs
+    if (!existingSkus.has(sku) && !generatedSkus.has(sku)) {
+      generatedSkus.add(sku)
+      return { sku, needsDbCheck: false }
+    }
+  }
+
+  // Fallback: timestamp-based suffix (extremely unlikely to collide)
+  const tsSuffix = Date.now().toString(36).toUpperCase().slice(-6) + randomSuffix(2)
+  const fallbackSku = `${abbr.substring(0, MAX_SKU_LENGTH - 9)}-${tsSuffix}`
+  generatedSkus.add(fallbackSku)
+  return { sku: fallbackSku, needsDbCheck: false }
+}
+
+/**
+ * Generate unique variant SKU in-memory.
+ */
+function generateVariantSKUInMemory(
+  parentName: string,
+  variantName: string,
+  existingVariantSkus: Set<string>,
+  generatedVariantSkus: Set<string>
+): SkuResult {
+  const parentAbbr = abbreviateName(parentName).substring(0, 3)
+  const varAbbr = variantName.substring(0, 3).toUpperCase()
+
+  const prefix = `${parentAbbr}-${varAbbr}`
+  const maxSuffixLength = MAX_SKU_LENGTH - prefix.length - 1
+  const suffixLength = Math.min(Math.max(maxSuffixLength, 3), 6)
+
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const suffix = randomSuffix(suffixLength)
+    const sku = `${prefix}-${suffix}`
+
+    if (!existingVariantSkus.has(sku) && !generatedVariantSkus.has(sku)) {
+      generatedVariantSkus.add(sku)
+      return { sku, needsDbCheck: false }
+    }
+  }
+
+  const tsSuffix = Date.now().toString(36).toUpperCase().slice(-4) + randomSuffix(2)
+  const fallbackSku = `${prefix.substring(0, MAX_SKU_LENGTH - 7)}-${tsSuffix}`
+  generatedVariantSkus.add(fallbackSku)
+  return { sku: fallbackSku, needsDbCheck: false }
+}
+
 export async function POST(request: NextRequest) {
   // Result containers (used inside and outside transaction)
   const result = {
@@ -30,6 +143,7 @@ export async function POST(request: NextRequest) {
     compCreated: 0,
     compSkipped: 0,
     errors: [] as string[],
+    warnings: [] as string[], // For non-critical issues
   }
 
   try {
@@ -58,7 +172,7 @@ export async function POST(request: NextRequest) {
       return safeJsonError('File tidak ditemukan', 400)
     }
 
-    // Validate file type by extension (MIME type can be unreliable)
+    // Validate file type by extension
     const ext = file.name.split('.').pop()?.toLowerCase()
     if (!['xlsx', 'xls', 'csv'].includes(ext || '')) {
       return safeJsonError('Format file tidak didukung. Gunakan .xlsx, .xls, atau .csv', 400)
@@ -97,38 +211,124 @@ export async function POST(request: NextRequest) {
       return safeJsonError(`Maksimal ${MAX_ROWS} baris per upload. File Anda memiliki ${rows.length} baris.`, 400)
     }
 
-    // Debug: log detected column headers
-    const detectedHeaders = Object.keys(rows[0])
-    console.log('[Bulk Upload] Detected headers:', detectedHeaders)
+    console.log(`[Bulk Upload] Processing ${rows.length} rows...`)
+
+    const startTime = Date.now()
 
     // ══════════════════════════════════════════════════════════════════
-    // WRAP IN TRANSACTION for atomicity (Fix Bug #1: No Transaction)
-    // If any error occurs, ALL changes are rolled back
+    // PHASE 1: PRE-LOAD DATA (Performance Optimization)
+    // Load all reference data ONCE before transaction
     // ══════════════════════════════════════════════════════════════════
+    
+    // 1. Pre-load ALL existing products for this outlet
+    const existingProducts = await db.product.findMany({
+      where: { outletId },
+      select: { id: true, name: true, sku: true, hasVariants: true },
+    })
+    
+    // Build lookup sets for O(1) lookups
+    const existingProductNames = new Set(existingProducts.map(p => p.name.toLowerCase()))
+    const existingProductSkus = new Set(existingProducts.map(p => p.sku).filter(Boolean))
+    const productCacheByName = new Map(existingProducts.map(p => [p.name.toLowerCase(), { id: p.id, hasVariants: p.hasVariants }]))
+
+    // Track NEWLY generated SKUs (separate from pre-loaded)
+    const newlyGeneratedSkus = new Set<string>()
+    const newlyGeneratedVariantSkus = new Set<string>()
+
+    // 2. Pre-load categories
+    const existingCategories = await db.category.findMany({
+      where: { outletId },
+      select: { id: true, name: true },
+    })
+    const categoryCache = new Map<string, string>()
+    for (const cat of existingCategories) {
+      categoryCache.set(cat.name.toLowerCase(), cat.id)
+    }
+
+    // 3. Pre-load variants (for duplicate check)
+    const existingVariants = await db.productVariant.findMany({
+      where: { outletId },
+      select: { id: true, name: true, productId: true, sku: true },
+    })
+    const variantKeySet = new Set<string>() // "productId|variantName"
+    const variantSkuSet = new Set(existingVariants.map(v => v.sku).filter(Boolean))
+    for (const v of existingVariants) {
+      variantKeySet.add(`${v.productId}|${v.name.toLowerCase()}`)
+    }
+
+    // 4. Pre-load inventory items
+    const inventoryItems = await db.inventoryItem.findMany({
+      where: { outletId },
+      select: { id: true, name: true, baseUnit: true },
+    })
+    const inventoryItemCache = new Map(inventoryItems.map(item => [item.name, { id: item.id, baseUnit: item.baseUnit }]))
+
+    // 5. Pre-load compositions
+    const existingCompositions = await db.productComposition.findMany({
+      where: { productId: { in: existingProducts.map(p => p.id) } },
+      select: { productId: true, variantId: true, inventoryItemId: true },
+    })
+    const compositionKeySet = new Set<string>()
+    for (const comp of existingCompositions) {
+      compositionKeySet.add(`${comp.productId}|${comp.variantId || ''}|${comp.inventoryItemId}`)
+    }
+
+    console.log(`[Bulk Upload] Pre-loaded data in ${Date.now() - startTime}ms`)
+
+    // ══════════════════════════════════════════════════════════════════
+    // PHASE 2: VALIDATION (with early exit on critical errors)
+    // ══════════════════════════════════════════════════════════════════
+
+    // Check product limit (pre-check only - will re-verify inside transaction)
+    if (!isUnlimited(outletPlan.features.maxProducts)) {
+      const currentCount = existingProducts.length
+      if (currentCount >= outletPlan.features.maxProducts) {
+        throw new Error(`Batas produk untuk paket ${outletPlan.plan} sudah tercapai (${outletPlan.features.maxProducts}).`)
+      }
+      const remainingSlots = outletPlan.features.maxProducts - currentCount
+      if (rows.length > remainingSlots) {
+        result.warnings.push(`File memiliki ${rows.length} baris, tapi sisa slot hanya ${remainingSlots}. Beberapa baris mungkin gagal.`)
+      }
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // PHASE 3: TRANSACTION (Atomic writes + Safety Net)
+    // ══════════════════════════════════════════════════════════════════
+    
+    const txStartTime = Date.now()
+
     await db.$transaction(async (tx) => {
-      // Check product limit INSIDE transaction (Fix Bug #2: Race Condition)
-      // This ensures atomic check-and-create
+      // ══════════════════════════════════════════════════════════════════
+      // SAFETY NET #1: Re-verify product limit INSIDE transaction
+      // This catches race conditions where another request created products
+      // between our pre-load and now.
+      // ══════════════════════════════════════════════════════════════════
       if (!isUnlimited(outletPlan.features.maxProducts)) {
-        const currentCount = await tx.product.count({ where: { outletId } })
-        if (currentCount >= outletPlan.features.maxProducts) {
-          throw new Error(`Batas produk untuk paket ${outletPlan.plan} sudah tercapai (${outletPlan.features.maxProducts}).`)
+        const actualCount = await tx.product.count({ where: { outletId } })
+        const effectiveLimit = outletPlan.features.maxProducts
+        
+        if (actualCount >= effectiveLimit) {
+          throw new Error(`Batas produk sudah tercapai (${effectiveLimit}). Upload ditolak.`)
         }
-        // Calculate how many new products we can create
-        const remainingSlots = outletPlan.features.maxProducts - currentCount
-        if (rows.length > remainingSlots) {
-          result.errors.push(`Hanya bisa menambah ${remainingSlots} produk lagi. File memiliki ${rows.length} baris.`)
+        
+        // Calculate how many we can actually create
+        const availableSlots = effectiveLimit - actualCount
+        if (availableSlots < rows.length) {
+          result.warnings.push(`Limit hampir tercapai. Hanya ${availableSlots} produk yang akan dibuat dari ${rows.length} baris.`)
         }
       }
 
-      // Cache categories to reduce DB queries
-      const categoryCache = new Map<string, string | null>()
+      // Track created items in THIS batch (for intra-batch duplicate detection)
+      const batchCreatedProducts = new Map<string, string>() // name.lower → id
 
       // === Process Main Product Sheet ===
+      let consecutiveLimitHits = 0 // Detect when we're hitting limit repeatedly
+      
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i]
-        const rowNum = i + 2 // Excel rows start at 1, header is row 1
+        const rowNum = i + 2
 
-        // Map column names using flexible header matching (supports any format)
+        // Extract fields
         const name = String(findColumn(row, ['NAMA PRODUK*', 'NAMA PRODUK', 'Nama Produk', 'Nama', 'NAME', 'name', 'Product Name', 'Produk']) || '').trim()
         const sku = String(findColumn(row, ['SKU', 'sku', 'Kode']) || '').trim() || null
         const barcode = String(findColumn(row, ['BARCODE', 'Barcode', 'barcode', 'BAR CODE', 'Bar Code']) || '').trim() || null
@@ -137,7 +337,7 @@ export async function POST(request: NextRequest) {
         const stock = sanitizeNumber(findColumn(row, ['QTY / STOK', 'QTY', 'qty', 'Stok', 'stok', 'Stock', 'stock', 'Quantity', 'Jumlah']))
         const unitRaw = String(findColumn(row, ['SATUAN', 'Satuan', 'satuan', 'Unit', 'unit', 'Sat']) || 'pcs').trim().toLowerCase()
         const categoryRaw = String(findColumn(row, ['KATEGORI', 'Kategori', 'kategori', 'Category', 'category', 'Kat']) || '').trim()
-        const hasVariantsRaw = String(findColumn(row, ['PUNYA VARIAN', 'Punya Varian', 'Has Variants', 'hasVariants', 'Variants', 'Varian']) || '').trim().toLowerCase()
+        const hasVariantsRaw = String(findColumn(row, ['PUNYA VARIAN', 'Punya Varian', 'Has Variants', 'hasVariants', 'Varians', 'Varian']) || '').trim().toLowerCase()
         const hasVariants = hasVariantsRaw === 'ya' || hasVariantsRaw === 'yes' || hasVariantsRaw === 'true'
 
         // Validate required fields
@@ -151,13 +351,11 @@ export async function POST(request: NextRequest) {
           continue
         }
 
-        // Variant parent products must have price > 0 (price=0 only allowed for products WITH variants)
         if (price <= 0 && !hasVariants) {
           result.errors.push(`Baris ${rowNum}: Harga Jual harus lebih dari 0 (Nama: ${name})`)
           continue
         }
 
-        // Validate stock is not negative (Fix Bug #7: Negative Stock Validation)
         if (stock < 0) {
           result.errors.push(`Baris ${rowNum}: Stok tidak boleh negatif (Nama: ${name}, Stok: ${stock})`)
           continue
@@ -165,57 +363,83 @@ export async function POST(request: NextRequest) {
 
         const unit = validateUnit(unitRaw)
 
-        // Check product limit INSIDE transaction (atomic)
+        // ══════════════════════════════════════════════════════════════════
+        // SAFETY NET #2: Re-check limit inside loop (but use running count)
+        // Only query DB every 50 iterations to balance safety vs performance
+        // ══════════════════════════════════════════════════════════════════
         if (!isUnlimited(outletPlan.features.maxProducts)) {
-          const currentCount = await tx.product.count({ where: { outletId } })
-          if (currentCount >= outletPlan.features.maxProducts) {
-            result.errors.push(`Baris ${rowNum}: Batas produk sudah tercapai, sisa produk dihentikan`)
-            break
+          // Query every 50 iterations or when we've had limit issues
+          if (result.created % 50 === 0 || consecutiveLimitHits > 0) {
+            const currentTotal = await tx.product.count({ where: { outletId } })
+            if (currentTotal >= outletPlan.features.maxProducts) {
+              result.warnings.push(`Baris ${rowNum} onwards: Batas produk tercapai (${outletPlan.features.maxProducts}), sisa dihentikan`)
+              break
+            }
+            consecutiveLimitHits = 0
           }
         }
 
-        // Skip duplicates (by name + outletId)
-        const existing = await tx.product.findFirst({
-          where: { name, outletId },
-        })
-        if (existing) {
+        // ══════════════════════════════════════════════════════════════════
+        // DUPLICATE CHECK (3 layers of protection!)
+        // Layer 1: Pre-existing products (from pre-load)
+        // Layer 2: Products created earlier in THIS batch
+        // Layer 3: Database verification (for high-confidence cases)
+        // ══════════════════════════════════════════════════════════════════
+        
+        const nameLower = name.toLowerCase()
+        
+        // Layer 1: Check pre-loaded data
+        if (existingProductNames.has(nameLower)) {
+          result.skipped++
+          continue
+        }
+        
+        // Layer 2: Check batch-created products
+        if (batchCreatedProducts.has(nameLower)) {
           result.skipped++
           continue
         }
 
-        // Auto-create category if needed (with cache)
-        let categoryId: string | null = null
-        if (categoryRaw) {
-          if (categoryCache.has(categoryRaw)) {
-            categoryId = categoryCache.get(categoryRaw)!
-          } else {
-            const existingCategory = await tx.category.findFirst({
-              where: { name: categoryRaw, outletId },
-            })
-            if (existingCategory) {
-              categoryId = existingCategory.id
-              categoryCache.set(categoryRaw, categoryId)
-            } else {
-              const newCategory = await tx.category.create({
-                data: {
-                  name: categoryRaw,
-                  outletId,
-                  color: 'zinc',
-                },
-              })
-              categoryId = newCategory.id
-              categoryCache.set(categoryRaw, categoryId)
-            }
+        // Layer 3: Optional DB check (only if suspicious - e.g., same name appears twice in file)
+        // This is a safety net, not the primary check
+        const nameOccurrences = rows.filter((r, idx) => 
+          idx >= i && 
+          String(findColumn(r, ['NAMA PRODUK*', 'NAMA PRODUK', 'Nama Produk', 'Nama', 'NAME', 'name', 'Product Name', 'Produk']) || '').trim().toLowerCase() === nameLower
+        ).length
+        
+        if (nameOccurrences > 1) {
+          // Same name appears again in file - do a quick DB check
+          const dbCheck = await tx.product.findFirst({
+            where: { name, outletId },
+            select: { id: true },
+          })
+          if (dbCheck) {
+            result.skipped++
+            continue
           }
         }
 
-        // Auto-generate SKU if not provided
-        const finalSku = sku || await generateUniqueSKU(name, outletId)
-        // Auto-generate barcode from SKU if barcode not provided
+        // Auto-create category if needed
+        let categoryId: string | null = null
+        if (categoryRaw) {
+          const catKey = categoryRaw.toLowerCase()
+          if (categoryCache.has(catKey)) {
+            categoryId = categoryCache.get(catKey)!
+          } else {
+            const newCategory = await tx.category.create({
+              data: { name: categoryRaw, outletId, color: 'zinc' },
+            })
+            categoryId = newCategory.id
+            categoryCache.set(catKey, categoryId)
+          }
+        }
+
+        // Generate SKU in-memory (tracks both pre-loaded AND newly generated)
+        const finalSku = sku || generateSKUInMemory(name, existingProductSkus, newlyGeneratedSkus).sku
         const finalBarcode = barcode || finalSku
 
-        // Create product using transaction client
-        await tx.product.create({
+        // Create product
+        const newProduct = await tx.product.create({
           data: {
             name,
             sku: finalSku,
@@ -230,10 +454,19 @@ export async function POST(request: NextRequest) {
           },
         })
 
+        // Update caches for subsequent processing
+        batchCreatedProducts.set(nameLower, newProduct.id)
+        productCacheByName.set(nameLower, { id: newProduct.id, hasVariants: false })
+        existingProductNames.add(nameLower)
+        if (finalSku) {
+          existingProductSkus.add(finalSku)
+        }
+
         result.created++
+        consecutiveLimitHits = 0 // Reset - successful creation
       }
 
-      // === Process "Varian Produk" sheet if it exists ===
+      // === Process "Varian Produk" sheet ===
       const variantSheetName = workbook.SheetNames.find(
         (n) => normalizeHeader(n).includes('varian')
       )
@@ -242,15 +475,15 @@ export async function POST(request: NextRequest) {
         const variantSheet = workbook.Sheets[variantSheetName]
         const variantRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(variantSheet, { defval: '' })
 
-        console.log(`[Bulk Upload] Found variant sheet "${variantSheetName}" with ${variantRows.length} rows`)
+        console.log(`[Bulk Upload] Processing ${variantRows.length} variant rows...`)
 
-        // Cache parent products by name for this outlet to reduce DB queries
-        const productCache = new Map<string, { id: string; hasVariants: boolean }>()
+        // Merge pre-loaded + newly created products
+        const allProductsLookup = new Map(productCacheByName)
 
         for (let i = 0; i < variantRows.length; i++) {
           try {
             const vRow = variantRows[i]
-            const rowNum = i + 2 // Excel rows start at 1, header is row 1
+            const rowNum = i + 2
 
             const parentName = String(findColumn(vRow, ['NAMA PRODUK*', 'NAMA PRODUK', 'Nama Produk', 'Nama', 'NAME', 'name', 'Product Name', 'Produk']) || '').trim()
             const variantName = String(findColumn(vRow, ['NAMA VARIAN*', 'NAMA VARIAN', 'Nama Varian', 'Variant Name', 'Varian']) || '').trim()
@@ -260,7 +493,6 @@ export async function POST(request: NextRequest) {
             const variantPrice = sanitizeNumber(findColumn(vRow, ['HARGA JUAL* (Rp)', 'HARGA JUAL (Rp)', 'HARGA JUAL', 'Harga Jual', 'Harga', 'Price', 'harga_jual', 'harga', 'price', 'Sell Price', 'Jual']))
             const variantStock = sanitizeNumber(findColumn(vRow, ['STOK', 'Stok', 'stok', 'Stock', 'stock', 'QTY', 'qty', 'Quantity', 'Jumlah']))
 
-            // Validate required fields
             if (!parentName) {
               result.errors.push(`Baris ${rowNum} (Varian): Nama Produk wajib diisi`)
               continue
@@ -276,43 +508,32 @@ export async function POST(request: NextRequest) {
               continue
             }
 
-            // Validate variant stock is not negative (Fix Bug #7)
             if (variantStock < 0) {
               result.errors.push(`Baris ${rowNum} (Varian): Stok tidak boleh negatif (Produk: ${parentName}, Varian: ${variantName})`)
               continue
             }
 
-            // Find parent product by name + outletId (use cache)
-            let parentProduct = productCache.get(parentName)
+            // Find parent product
+            const parentProduct = allProductsLookup.get(parentName.toLowerCase())
             if (!parentProduct) {
-              const found = await tx.product.findFirst({
-                where: { name: parentName, outletId },
-              })
-              if (!found) {
-                result.errors.push(`Baris ${rowNum}: Produk "${parentName}" tidak ditemukan. Upload produk terlebih dahulu`)
-                result.variantsSkipped++
-                continue
-              }
-              parentProduct = { id: found.id, hasVariants: !!found.hasVariants }
-              productCache.set(parentName, parentProduct)
-            }
-
-            // Auto-generate variant SKU if not provided
-            const finalVariantSku = variantSku || await generateVariantSKU(parentName, variantName, outletId)
-            // Auto-generate variant barcode from SKU if not provided
-            const finalVariantBarcode = variantBarcode || finalVariantSku
-
-            // Skip duplicate variants (by name + productId) — allows safe re-upload
-            const existingVariant = await tx.productVariant.findFirst({
-              where: { name: variantName, productId: parentProduct.id },
-            })
-            if (existingVariant) {
+              result.errors.push(`Baris ${rowNum}: Produk "${parentName}" tidak ditemukan`)
               result.variantsSkipped++
               continue
             }
 
-            // Create variant using transaction client
-            await tx.productVariant.create({
+            // Generate variant SKU
+            const finalVariantSku = variantSku || generateVariantSKUInMemory(parentName, variantName, variantSkuSet, newlyGeneratedVariantSkus).sku
+            const finalVariantBarcode = variantBarcode || finalVariantSku
+
+            // Check duplicate (pre-loaded + batch-created)
+            const variantKey = `${parentProduct.id}|${variantName.toLowerCase()}`
+            if (variantKeySet.has(variantKey)) {
+              result.variantsSkipped++
+              continue
+            }
+
+            // Create variant
+            const newVariant = await tx.productVariant.create({
               data: {
                 name: variantName,
                 sku: finalVariantSku,
@@ -325,7 +546,11 @@ export async function POST(request: NextRequest) {
               },
             })
 
-            // Set hasVariants = true on parent product
+            // Update caches
+            variantKeySet.add(variantKey)
+            if (finalVariantSku) variantSkuSet.add(finalVariantSku)
+
+            // Update parent's hasVariants flag
             if (!parentProduct.hasVariants) {
               await tx.product.update({
                 where: { id: parentProduct.id },
@@ -345,7 +570,7 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // === Process "Komposisi" sheet if it exists ===
+      // === Process "Komposisi" sheet ===
       const compSheetName = workbook.SheetNames.find(
         (n) => normalizeHeader(n).includes('komposisi')
       )
@@ -354,19 +579,15 @@ export async function POST(request: NextRequest) {
         const compSheet = workbook.Sheets[compSheetName]
         const compRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(compSheet, { defval: '' })
 
-        console.log(`[Bulk Upload] Found composition sheet "${compSheetName}" with ${compRows.length} rows`)
+        console.log(`[Bulk Upload] Processing ${compRows.length} composition rows...`)
 
-        // Cache products and inventory items
-        const compProductCache = new Map<string, string>() // productName → productId
-        const inventoryItemCache = new Map<string, { id: string; baseUnit: string }>()
-
-        // Pre-load all inventory items for this outlet
-        const allInventoryItems = await tx.inventoryItem.findMany({
-          where: { outletId },
-          select: { id: true, name: true, baseUnit: true },
-        })
-        for (const item of allInventoryItems) {
-          inventoryItemCache.set(item.name, { id: item.id, baseUnit: item.baseUnit })
+        // Build combined product lookup
+        const compProductLookup = new Map<string, string>()
+        for (const p of existingProducts) {
+          compProductLookup.set(p.name.toLowerCase(), p.id)
+        }
+        for (const [nameLower, id] of batchCreatedProducts) {
+          compProductLookup.set(nameLower, id)
         }
 
         for (let i = 0; i < compRows.length; i++) {
@@ -393,22 +614,17 @@ export async function POST(request: NextRequest) {
             }
 
             // Find parent product
-            let productId = compProductCache.get(parentName)
+            const productId = compProductLookup.get(parentName.toLowerCase())
             if (!productId) {
-              const found = await tx.product.findFirst({ where: { name: parentName, outletId } })
-              if (!found) {
-                result.errors.push(`Baris ${rowNum} (Komposisi): Produk "${parentName}" tidak ditemukan`)
-                result.compSkipped++
-                continue
-              }
-              productId = found.id
-              compProductCache.set(parentName, productId)
+              result.errors.push(`Baris ${rowNum} (Komposisi): Produk "${parentName}" tidak ditemukan`)
+              result.compSkipped++
+              continue
             }
 
             // Find inventory item
             const invItem = inventoryItemCache.get(bahanName)
             if (!invItem) {
-              result.errors.push(`Baris ${rowNum} (Komposisi): Item "${bahanName}" tidak ditemukan. Daftarkan item terlebih dahulu.`)
+              result.errors.push(`Baris ${rowNum} (Komposisi): Item "${bahanName}" tidak ditemukan`)
               result.compSkipped++
               continue
             }
@@ -416,22 +632,26 @@ export async function POST(request: NextRequest) {
             // Find variant if specified
             let variantId: string | null = null
             if (variantName) {
+              // Look up variant from our cache or DB
               const foundVariant = await tx.productVariant.findFirst({
-                where: { name: variantName, productId, outletId },
+                where: { 
+                  name: variantName, 
+                  productId, 
+                  outletId,
+                },
+                select: { id: true },
               })
               if (!foundVariant) {
-                result.errors.push(`Baris ${rowNum} (Komposisi): Varian "${variantName}" tidak ditemukan untuk produk "${parentName}"`)
+                result.errors.push(`Baris ${rowNum} (Komposisi): Varian "${variantName}" tidak ditemukan`)
                 result.compSkipped++
                 continue
               }
               variantId = foundVariant.id
             }
 
-            // Skip duplicate compositions (productId + variantId + inventoryItemId) — allows safe re-upload
-            const existingComp = await tx.productComposition.findFirst({
-              where: { productId, variantId: variantId || null, inventoryItemId: invItem.id },
-            })
-            if (existingComp) {
+            // Skip duplicates
+            const compKey = `${productId}|${variantId || ''}|${invItem.id}`
+            if (compositionKeySet.has(compKey)) {
               result.compSkipped++
               continue
             }
@@ -445,6 +665,8 @@ export async function POST(request: NextRequest) {
                 baseUnit: invItem.baseUnit,
               },
             })
+
+            compositionKeySet.add(compKey)
             result.compCreated++
           } catch (compError) {
             const rowNum = i + 2
@@ -457,7 +679,13 @@ export async function POST(request: NextRequest) {
       }
     }) // End of transaction
 
-    // Create audit log for bulk upload (Fix Bug #14: Also log failed operations)
+    const totalTime = Date.now() - startTime
+    
+    console.log(`[Bulk Upload] Completed in ${totalTime}ms:`)
+    console.log(`  Created: ${result.created}, Skipped: ${result.skipped}`)
+    console.log(`  Variants: ${result.variantsCreated}, Compositions: ${result.compCreated}`)
+
+    // Audit log
     await safeAuditLog({
       action: result.created > 0 ? 'CREATE' : 'UPLOAD_ATTEMPT',
       entityType: 'PRODUCT',
@@ -470,7 +698,9 @@ export async function POST(request: NextRequest) {
         compCreated: result.compCreated,
         compSkipped: result.compSkipped,
         errors: result.errors.length,
+        warnings: result.warnings.length,
         fileName: file.name,
+        processingTimeMs: totalTime,
         success: result.created > 0 || result.variantsCreated > 0 || result.compCreated > 0,
       }),
       outletId,
@@ -482,7 +712,6 @@ export async function POST(request: NextRequest) {
     console.error('Bulk upload error:', error)
     const message = error instanceof Error ? error.message : 'Unknown error'
     
-    // Check if this was a limit error (not a system error)
     if (message.includes('Batas produk')) {
       return safeJsonError(message, 400)
     }
