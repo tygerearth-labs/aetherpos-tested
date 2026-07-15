@@ -555,8 +555,8 @@ export async function POST(request: NextRequest) {
                   data: {
                     productId: product.id,
                     inventoryItemId: invItemId,
-                    quantity: 1,
-                    unit: unit,
+                    qty: 1,
+                    baseUnit: unit,
                   },
                 })
                 compositionsCreated++
