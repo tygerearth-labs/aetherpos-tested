@@ -5,6 +5,10 @@ import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 import { safeAuditLogMany } from '@/lib/safe-audit'
 
 export async function POST(request: NextRequest) {
+  // We track deletedCount outside the try/catch so we can return
+  // success even if post-deletion operations (audit logs) fail.
+  let deletedCount = 0
+
   try {
     const user = await getAuthUser(request)
     if (!user) {
@@ -55,7 +59,7 @@ export async function POST(request: NextRequest) {
     // TransactionItem rows are preserved — Prisma's onDelete: SetNull
     // will nullify productId/variantId, but snapshot fields (productName,
     // variantName, price, qty, subtotal) remain intact.
-    const { count: deletedCount, productsForAudit, variantIds } = await db.$transaction(async (tx) => {
+    const { count, productsForAudit, variantIds } = await db.$transaction(async (tx) => {
       // Get all product IDs to delete (using filters when selectAllMode)
       const idsToDelete = selectAllMode
         ? (await tx.product.findMany({
@@ -91,34 +95,52 @@ export async function POST(request: NextRequest) {
       return { count: result.count, productsForAudit, variantIds: variantInfo }
     })
 
+    // Store deletedCount IMMEDIATELY after successful transaction
+    // This ensures we return success even if audit logging fails
+    deletedCount = count
+
     // Create audit logs for deleted products (non-blocking, outside transaction)
+    // Wrapped in try/catch to prevent audit failures from affecting the response
     if (productsForAudit.length > 0) {
-      const variantMap = new Map(variantIds.map((v) => [v.productId, v]))
-      await safeAuditLogMany(productsForAudit.map((p) => {
-        const productVariants = variantMap.get(p.id)
-        return {
-          action: 'DELETE' as const,
-          entityType: 'PRODUCT' as const,
-          entityId: p.id,
-          details: JSON.stringify({
-            productName: p.name,
-            price: p.price,
-            stock: p.stock,
-            sku: p.sku,
-            hasVariants: !!p.hasVariants,
-            variantCount: productVariants ? productVariants.filter((v) => v.productId === p.id).length : 0,
-            variantNames: productVariants?.filter((v) => v.productId === p.id).map((v) => v.name) || [],
-            deleteType: 'BULK',
-          }),
-          outletId,
-          userId: user.id,
-        }
-      }))
+      try {
+        const variantMap = new Map(variantIds.map((v) => [v.productId, v]))
+        await safeAuditLogMany(productsForAudit.map((p) => {
+          const productVariants = variantMap.get(p.id)
+          return {
+            action: 'DELETE' as const,
+            entityType: 'PRODUCT' as const,
+            entityId: p.id,
+            details: JSON.stringify({
+              productName: p.name,
+              price: p.price,
+              stock: p.stock,
+              sku: p.sku,
+              hasVariants: !!p.hasVariants,
+              variantCount: productVariants ? productVariants.filter((v) => v.productId === p.id).length : 0,
+              variantNames: productVariants?.filter((v) => v.productId === p.id).map((v) => v.name) || [],
+              deleteType: 'BULK',
+            }),
+            outletId,
+            userId: user.id,
+          }
+        }))
+      } catch (auditError) {
+        // Audit log failure should NOT cause the delete to appear failed
+        // Products are already deleted, just log the warning
+        console.warn('[bulk-delete] Failed to create audit logs (non-critical):', auditError)
+      }
     }
 
+    // Return success with the actual deleted count
     return safeJson({ deletedCount })
   } catch (error) {
     console.error('Bulk delete error:', error)
+    // If we have a deletedCount > 0, it means the transaction succeeded
+    // but something else failed - still return success
+    if (deletedCount > 0) {
+      console.warn('[bulk-delete] Transaction succeeded but post-processing failed, returning success with deletedCount:', deletedCount)
+      return safeJson({ deletedCount })
+    }
     return safeJsonError('Gagal menghapus produk')
   }
 }

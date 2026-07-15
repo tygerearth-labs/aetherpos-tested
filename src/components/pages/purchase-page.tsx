@@ -150,6 +150,7 @@ interface PurchaseOrder {
   supplierName?: string | null
   createdByName?: string
   hasLinkedItems?: boolean
+  hasUsageHistory?: boolean
   supplier?: { id: string; name: string; phone: string | null; address: string | null } | null
   createdBy?: { id: string; name: string; email: string } | null
   _batchSummary?: {
@@ -405,6 +406,7 @@ export default function PurchasePage() {
   const [poDetailData, setPoDetailData] = useState<PurchaseOrder | null>(null)
   const [poDetailLoading, setPoDetailLoading] = useState(false)
   const [poDetailHasLinked, setPoDetailHasLinked] = useState(false)
+  const [poDetailHasUsageHistory, setPoDetailHasUsageHistory] = useState(false)
 
   // Purchase create dialog
   const [poCreateOpen, setPoCreateOpen] = useState(false)
@@ -838,6 +840,7 @@ export default function PurchasePage() {
     setPoDetailError(null)
     setPoDetailLoading(true)
     setPoDetailHasLinked(!!po.hasLinkedItems)
+    setPoDetailHasUsageHistory(!!po.hasUsageHistory)
     try {
       const res = await fetch(`/api/purchases/${po.id}`)
       if (res.ok) {
@@ -2825,9 +2828,21 @@ export default function PurchasePage() {
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                className={cn("h-7 px-2 hover:text-red-300 hover:bg-red-500/[0.06]", po.hasLinkedItems ? "opacity-50 cursor-not-allowed text-red-400/50" : "text-red-400")}
+                                className={cn(
+                                  "h-7 px-2 hover:text-red-300 hover:bg-red-500/[0.06]",
+                                  (po.hasLinkedItems || po.hasUsageHistory) 
+                                    ? "opacity-50 cursor-not-allowed text-red-400/50" 
+                                    : "text-red-400"
+                                )}
                                 onClick={() => setDeletePoId(po.id)}
-                                disabled={po.hasLinkedItems}
+                                disabled={po.hasLinkedItems || po.hasUsageHistory}
+                                title={
+                                  po.hasUsageHistory
+                                    ? 'Item sudah terpakai dalam transaksi — tidak bisa dihapus'
+                                    : po.hasLinkedItems
+                                      ? 'Item terkait produk — hapus bisa mengubah komposisi'
+                                      : 'Hapus pembelian'
+                                }
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
                               </Button>
@@ -2896,13 +2911,19 @@ export default function PurchasePage() {
                               <button
                                 className={cn(
                                   "w-7 h-7 rounded-md flex items-center justify-center transition-colors",
-                                  po.hasLinkedItems
+                                  (po.hasLinkedItems || po.hasUsageHistory)
                                     ? "text-red-400/30 cursor-not-allowed"
                                     : "text-slate-500 hover:text-red-400 hover:bg-red-500/[0.06]"
                                 )}
-                                onClick={() => !po.hasLinkedItems && setDeletePoId(po.id)}
-                                disabled={po.hasLinkedItems}
-                                title={po.hasLinkedItems ? 'Item terkait produk — tidak bisa dihapus' : 'Hapus'}
+                                onClick={() => !(po.hasLinkedItems || po.hasUsageHistory) && setDeletePoId(po.id)}
+                                disabled={po.hasLinkedItems || po.hasUsageHistory}
+                                title={
+                                  po.hasUsageHistory
+                                    ? 'Item sudah terpakai dalam transaksi — tidak bisa dihapus'
+                                    : po.hasLinkedItems
+                                      ? 'Item terkait produk — tidak bisa dihapus'
+                                      : 'Hapus'
+                                }
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
                               </button>
@@ -3667,20 +3688,23 @@ export default function PurchasePage() {
                     variant="ghost"
                     className={cn(
                       "flex-1 h-8 text-xs gap-1.5",
-                      poDetailHasLinked
+                      (poDetailHasLinked || poDetailHasUsageHistory)
                         ? "text-red-400/40 cursor-not-allowed"
                         : "text-red-400 hover:text-red-300 hover:bg-red-500/[0.06]"
                     )}
-                    onClick={() => { if (!poDetailHasLinked) setDeletePoId(poDetailData!.id) }}
-                    disabled={poDetailHasLinked}
+                    onClick={() => { if (!poDetailHasLinked && !poDetailHasUsageHistory) setDeletePoId(poDetailData!.id) }}
+                    disabled={poDetailHasLinked || poDetailHasUsageHistory}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                     Hapus
                   </Button>
                 </div>
-                {poDetailHasLinked && (
+                {(poDetailHasLinked || poDetailHasUsageHistory) && (
                   <p className="text-[10px] text-amber-400/70 text-center -mt-1">
-                    ⚠ Item terkait produk — hapus pembelian bisa mengubah komposisi
+                    {poDetailHasUsageHistory
+                      ? '⚠ Item sudah terpakai dalam transaksi — tidak bisa dihapus'
+                      : '⚠ Item terkait produk — hapus pembelian bisa mengubah komposisi'
+                    }
                   </p>
                 )}
               </div>

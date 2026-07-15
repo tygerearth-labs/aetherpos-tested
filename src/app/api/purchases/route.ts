@@ -83,7 +83,7 @@ export async function GET(request: NextRequest) {
       ]
     }
 
-    const [orders, total, linkedPoItems] = await Promise.all([
+    const [orders, total, linkedPoItems, usageCheckItems] = await Promise.all([
       db.purchaseOrder.findMany({
         where,
         orderBy: { [validSort]: validOrder },
@@ -105,6 +105,8 @@ export async function GET(request: NextRequest) {
           items: {
             select: {
               id: true,
+              inventoryItemId: true,
+              baseQty: true,
               batch: true,
               expiredDate: true,
             },
@@ -120,9 +122,58 @@ export async function GET(request: NextRequest) {
         select: { purchaseOrderId: true },
         distinct: ['purchaseOrderId'],
       }),
+      // Check for purchases with items that have usage history (stock < purchased qty)
+      // This identifies purchases that CANNOT be safely deleted
+      db.purchaseOrderItem.findMany({
+        where: {
+          purchaseOrder: { outletId: user.outletId },
+          inventoryItem: { stock: { lt: 0 } },  // Will filter in code below
+        },
+        select: { 
+          purchaseOrderId: true,
+          inventoryItemId: true,
+          baseQty: true,
+        },
+      }),
     ])
 
     const linkedPoIds = new Set(linkedPoItems.map(p => p.purchaseOrderId))
+    
+    // Build a map of PO ID -> array of {inventoryItemId, baseQty}
+    // Then check each item's current stock to determine if PO has usage
+    const poItemMap = new Map<string, Array<{inventoryItemId: string; baseQty: number}>>() 
+    for (const item of usageCheckItems) {
+      const existing = poItemMap.get(item.purchaseOrderId) || []
+      existing.push({ inventoryItemId: item.inventoryItemId, baseQty: item.baseQty })
+      poItemMap.set(item.purchaseOrderId, existing)
+    }
+    
+    // Get all unique inventory item IDs from the usage check items
+    const invItemIdsToCheck = [...new Set(usageCheckItems.map(i => i.inventoryItemId))]
+    const currentStocks = new Map<string, number>()
+    if (invItemIdsToCheck.length > 0) {
+      const invItems = await db.inventoryItem.findMany({
+        where: { id: { in: invItemIdsToCheck }, outletId: user.outletId },
+        select: { id: true, stock: true },
+      })
+      for (const inv of invItems) {
+        currentStocks.set(inv.id, inv.stock)
+      }
+    }
+    
+    // Determine which POs have usage history (cannot be safely deleted)
+    const poWithUsageHistory = new Set<string>()
+    for (const [poId, items] of poItemMap) {
+      for (const item of items) {
+        const currentStock = currentStocks.get(item.inventoryItemId) ?? 0
+        // If current stock is less than what was added by this PO,
+        // it means some quantity has been used/sold
+        if (currentStock < item.baseQty) {
+          poWithUsageHistory.add(poId)
+          break
+        }
+      }
+    }
 
     const mappedOrders = orders.map((o) => {
       const itemsWithBatch = o.items.filter(i => i.batch).length
@@ -144,6 +195,7 @@ export async function GET(request: NextRequest) {
         createdByName: o.createdBy.name,
         itemCount: o.items.length,
         hasLinkedItems: linkedPoIds.has(o.id),
+        hasUsageHistory: poWithUsageHistory.has(o.id),
         _batchSummary: {
           itemsWithBatch,
           itemsWithExp,

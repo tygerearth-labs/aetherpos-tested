@@ -522,22 +522,47 @@ export async function DELETE(
     const outletId = user.outletId
     const { id } = await params
 
-    const order = await db.purchaseOrder.findFirst({
+    // Fetch the PO with basic info first
+    const poWithSupplier = await db.purchaseOrder.findFirst({
       where: { id, outletId },
-      include: {
-        items: {
-          include: {
-            inventoryItem: {
-              select: { id: true, name: true, stock: true, avgCost: true },
-            },
-          },
-        },
+      select: { 
+        id: true, 
+        orderNumber: true,
+        totalCost: true,
+        createdAt: true,
         supplier: { select: { id: true, name: true } },
       },
     })
 
-    if (!order) {
+    if (!poWithSupplier) {
       return safeJsonError('Purchase order not found', 404)
+    }
+
+    // Fetch items separately to handle orphaned inventory items gracefully
+    // This avoids Prisma error when inventoryItem is null (deleted)
+    const items = await db.purchaseOrderItem.findMany({
+      where: { purchaseOrderId: id },
+      orderBy: { id: 'asc' },
+    })
+
+    // Fetch inventory items that still exist (exclude deleted/orphaned ones)
+    const itemInvIds = items.map(i => i.inventoryItemId).filter(Boolean)
+    const existingInvItems = itemInvIds.length > 0 
+      ? await db.inventoryItem.findMany({
+          where: { id: { in: itemInvIds }, outletId },
+          select: { id: true, name: true, stock: true, avgCost: true },
+        })
+      : []
+    
+    const invItemMap = new Map(existingInvItems.map(inv => [inv.id, inv]))
+
+    // Build order object with items (handling orphaned items as null)
+    const order = {
+      ...poWithSupplier,
+      items: items.map(item => ({
+        ...item,
+        inventoryItem: invItemMap.get(item.inventoryItemId) || null,
+      })),
     }
 
     await db.$transaction(async (tx) => {
@@ -643,12 +668,16 @@ export async function DELETE(
     console.error('Purchase order DELETE error:', error)
     if (error instanceof Error) {
       if (error.message.includes('tidak mencukupi') || error.message.includes('stok')) {
-        return safeJsonError(error.message, 400)
+        // Add more context about why deletion failed
+        const enhancedMessage = error.message + 
+          '\n\nItem dalam pembelian ini sudah terpakai/dijual. ' +
+          'Hapus pembelian yang sudah memiliki riwayat penggunaan tidak diperbolehkan untuk menjaga integritas data.'
+        return safeJsonError(enhancedMessage, 400)
       }
       if (error.message.includes('sudah terpakai')) {
         return safeJsonError(error.message, 400)
       }
-      // Return actual error detail for debugging instead of generic message
+      // Return actual error detail for debugging
       return safeJsonError(`Gagal menghapus pembelian: ${error.message}`)
     }
     return safeJsonError('Gagal menghapus pembelian. Coba lagi beberapa saat.')

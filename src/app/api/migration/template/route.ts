@@ -7,6 +7,16 @@ type TemplateMode = 'product_only' | 'product_stock' | 'product_inventory'
 export async function GET(request: NextRequest) {
   try {
     const mode = (request.nextUrl.searchParams.get('mode') || 'product_stock') as TemplateMode
+    
+    // Validate mode parameter
+    const validModes: TemplateMode[] = ['product_only', 'product_stock', 'product_inventory']
+    if (!validModes.includes(mode)) {
+      console.error('[Migration Template] Invalid mode:', mode)
+      return safeJsonError('Mode tidak valid. Gunakan product_only, product_stock, atau product_inventory', 400)
+    }
+    
+    console.log('[Migration Template] Generating template for mode:', mode)
+    
     const wb = XLSX.utils.book_new()
 
     const showStock = mode === 'product_stock' || mode === 'product_inventory'
@@ -231,6 +241,8 @@ export async function GET(request: NextRequest) {
 
     const modeLabel = mode === 'product_only' ? 'produk-saja' : mode === 'product_stock' ? 'produk-stok-gudang' : 'produk-bahan-baku-resep'
 
+    console.log('[Migration Template] Template generated successfully for mode:', mode, 'size:', buffer.length)
+
     return new Response(buffer, {
       status: 200,
       headers: {
@@ -239,8 +251,9 @@ export async function GET(request: NextRequest) {
       },
     })
   } catch (error) {
-    console.error('Migration template error:', error)
-    return safeJsonError('Gagal mengunduh template', 500)
+    console.error('[Migration Template] Error generating template:', error)
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    return safeJsonError(`Gagal mengunduh template: ${message}`, 500)
   }
 }
 
