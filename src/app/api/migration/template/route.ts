@@ -372,7 +372,7 @@ function getGuideData(mode: TemplateMode): (string)[][] {
     ['HARGA JUAL* (Rp)', 'Harga jual ke customer', '4000', 'Ya'],
   )
 
-  if (showStock || mode === 'product_stock' || mode === 'product_inventory') {
+  if (mode === 'product_stock' || mode === 'product_inventory') {
     lines.push(
       ['STOK AWAL', 'Jumlah stok saat ini', '144', 'Ya'],
     )

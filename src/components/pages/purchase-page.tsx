@@ -2836,20 +2836,16 @@ export default function PurchasePage() {
                                 )}
                                 onClick={() => {
                                   if (po.hasLinkedItems || po.hasUsageHistory) {
-                                    toast.error(po.hasUsageHistory
-                                      ? 'Item sudah terpakai dalam transaksi — tidak bisa dihapus'
-                                      : 'Item terkait produk — hapus pembelian bisa mengubah komposisi')
+                                    toast.error('Sudah ada link ke produk/pembelian/transfer — tidak bisa dihapus')
                                     return
                                   }
                                   setDeletePoId(po.id)
                                 }}
                                 disabled={po.hasLinkedItems || po.hasUsageHistory}
                                 title={
-                                  po.hasUsageHistory
-                                    ? 'Item sudah terpakai dalam transaksi — tidak bisa dihapus'
-                                    : po.hasLinkedItems
-                                      ? 'Item terkait produk — hapus bisa mengubah komposisi'
-                                      : 'Hapus pembelian'
+                                  (po.hasLinkedItems || po.hasUsageHistory)
+                                    ? 'Sudah ada link ke produk/pembelian/transfer'
+                                    : 'Hapus pembelian'
                                 }
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
@@ -2926,11 +2922,9 @@ export default function PurchasePage() {
                                 onClick={() => !(po.hasLinkedItems || po.hasUsageHistory) && setDeletePoId(po.id)}
                                 disabled={po.hasLinkedItems || po.hasUsageHistory}
                                 title={
-                                  po.hasUsageHistory
-                                    ? 'Item sudah terpakai dalam transaksi — tidak bisa dihapus'
-                                    : po.hasLinkedItems
-                                      ? 'Item terkait produk — tidak bisa dihapus'
-                                      : 'Hapus'
+                                  (po.hasLinkedItems || po.hasUsageHistory)
+                                    ? 'Sudah ada link ke produk/pembelian/transfer'
+                                    : 'Hapus'
                                 }
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
