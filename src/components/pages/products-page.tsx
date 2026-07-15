@@ -503,6 +503,7 @@ export default function ProductsPage() {
   // Bulk edit state
   const [bulkMode, setBulkMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [refreshKey, setRefreshKey] = useState(0) // Force refresh counter for table
   const [bulkPriceOpen, setBulkPriceOpen] = useState(false)
   const [bulkPriceType, setBulkPriceType] = useState<'percent' | 'fixed'>('percent')
   const [bulkPriceValue, setBulkPriceValue] = useState('')
@@ -737,13 +738,14 @@ export default function ProductsPage() {
     try {
       const res = await fetch(`/api/products/${deleteId}`, { method: 'DELETE' })
       if (res.ok) {
-        toast.success('Product deleted')
+        toast.success('Produk berhasil dihapus')
         fetchProducts()
       } else {
-        toast.error('Failed to delete product')
+        const data = await res.json().catch(() => ({}))
+        toast.error(data.error || 'Gagal menghapus produk')
       }
     } catch {
-      toast.error('Failed to delete product')
+      toast.error('Gagal menghapus produk')
     } finally {
       setDeleting(false)
       setDeleteId(null)
@@ -941,7 +943,7 @@ export default function ProductsPage() {
         setSelectedIds(new Set())
         setBulkMode(false)
         setSelectAllMode(false)
-        fetchProducts()
+        await forceRefresh()
       } else {
         toast.error('Failed to update prices')
       }
@@ -982,7 +984,7 @@ export default function ProductsPage() {
         setSelectedIds(new Set())
         setBulkMode(false)
         setSelectAllMode(false)
-        fetchProducts()
+        await forceRefresh()
       } else {
         toast.error('Failed to update stock')
       }
@@ -1018,7 +1020,7 @@ export default function ProductsPage() {
         setSelectedIds(new Set())
         setBulkMode(false)
         setSelectAllMode(false)
-        fetchProducts()
+        await forceRefresh()
         fetchCategories()
       } else {
         toast.error('Gagal mengubah kategori')
@@ -1029,6 +1031,12 @@ export default function ProductsPage() {
       setBulkCategorySubmitting(false)
     }
   }
+
+  // Force refresh helper - increments refreshKey and fetches products
+  const forceRefresh = useCallback(async () => {
+    setRefreshKey((prev) => prev + 1)
+    await fetchProducts()
+  }, [fetchProducts])
 
   // Select all products across all pages (for current filter)
   const handleSelectAll = async () => {
@@ -1092,7 +1100,7 @@ export default function ProductsPage() {
         // Small delay to show 100% before switching to result
         await new Promise((r) => setTimeout(r, 400))
         setUploadResult(data)
-        fetchProducts()
+        await forceRefresh()
         const total = data.created + (data.variantsCreated || 0)
         toast.success(`${total} produk berhasil ditambahkan`)
       } else {
@@ -1181,7 +1189,7 @@ export default function ProductsPage() {
         setEditExcelPhase('Selesai!')
         await new Promise((r) => setTimeout(r, 400))
         setEditExcelResult(data)
-        fetchProducts()
+        await forceRefresh()
         fetchCategories()
         const total = data.updated + (data.variantsUpdated || 0)
         toast.success(`${total} produk berhasil diperbarui`)
@@ -1226,7 +1234,7 @@ export default function ProductsPage() {
         setSelectedIds(new Set())
         setBulkMode(false)
         setSelectAllMode(false)
-        fetchProducts()
+        await forceRefresh()
         fetchCategories()
       } else {
         const data = await res.json()
@@ -1289,7 +1297,8 @@ export default function ProductsPage() {
         fetchCategories()
         fetchProducts()
       } else {
-        toast.error('Gagal menghapus kategori')
+        const data = await res.json().catch(() => ({}))
+        toast.error(data.error || 'Gagal menghapus kategori')
       }
     } catch {
       toast.error('Gagal menghapus kategori')
@@ -1770,7 +1779,7 @@ export default function ProductsPage() {
             <p className="text-sm text-slate-500">Tidak ada produk ditemukan</p>
           </div>
         ) : (
-          <div className="rounded-xl border border-white/[0.06] overflow-hidden">
+          <div key={`table-${refreshKey}`} className="rounded-xl border border-white/[0.06] overflow-hidden">
             <Table>
               <TableHeader>
                 <TableRow className="border-white/[0.06] hover:bg-transparent bg-nebula/80">
@@ -2048,7 +2057,7 @@ export default function ProductsPage() {
             <p className="text-sm text-slate-500">Tidak ada produk ditemukan</p>
           </div>
         ) : (
-          <div className="space-y-2.5">
+          <div key={`cards-${refreshKey}`} className="space-y-2.5">
             {products.map((product) => {
               const isOutOfStock = product.stock === 0
               const isLowStock = product.stock > 0 && product.stock <= product.lowStockAlert
@@ -2436,14 +2445,14 @@ export default function ProductsPage() {
       <AlertDialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>
         <AlertDialogContent className="bg-nebula border-white/[0.06]">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-white text-sm font-semibold">Delete Product</AlertDialogTitle>
+            <AlertDialogTitle className="text-white text-sm font-semibold">Hapus Produk?</AlertDialogTitle>
             <AlertDialogDescription className="text-slate-400 text-xs">
-              Are you sure? This action cannot be undone.
+              Produk yang dihapus tidak dapat dikembalikan. Semua data produk (termasuk varian & stok) akan hilang.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel className="bg-white/[0.04] border-white/[0.04] text-slate-300 hover:bg-white/[0.04] h-8 text-xs">
-              Cancel
+              Batal
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
@@ -2451,7 +2460,7 @@ export default function ProductsPage() {
               className="bg-red-500 hover:bg-red-600 text-white h-8 text-xs"
             >
               {deleting && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
-              Delete
+              Hapus
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

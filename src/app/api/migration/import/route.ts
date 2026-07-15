@@ -497,6 +497,7 @@ export async function POST(request: NextRequest) {
 
           // === product_stock mode: create 1:1 InventoryItem + Composition (product↔stock) ===
           if (isStockMode && stock > 0) {
+            console.log(`[migration] product_stock: Processing "${name}" with stock=${stock}, unit=${unit}`)
             try {
               const existingInv = await db.inventoryItem.findFirst({
                 where: { name, outletId },
@@ -504,6 +505,7 @@ export async function POST(request: NextRequest) {
 
               let invItemId: string
               if (!existingInv) {
+                console.log(`[migration] product_stock: Creating NEW inventory for "${name}"`)
                 // Create InventoryItem with proper error handling
                 const invItem = await db.inventoryItem.create({
                   data: {
@@ -545,6 +547,7 @@ export async function POST(request: NextRequest) {
                   errors.push(`Warning: Gagal catat pergerakan stok untuk "${name}" (stok tetap tersimpan)`)
                 }
               } else {
+                console.log(`[migration] product_stock: Using EXISTING inventory for "${name}" (id=${existingInv.id})`)
                 invItemId = existingInv.id
                 inventoryItemCache.set(name, existingInv.id)
               }
@@ -560,6 +563,7 @@ export async function POST(request: NextRequest) {
                   },
                 })
                 compositionsCreated++
+                console.log(`[migration] product_stock: Composition created for "${name}" → inv=${invItemId}`)
               } catch (compErr) {
                 console.warn(`[migration] Failed to create 1:1 composition for ${name}:`, compErr)
                 errors.push(`Gagal hubungkan produk↔stok untuk "${name}" (inventory tetap dibuat)`)
@@ -569,6 +573,8 @@ export async function POST(request: NextRequest) {
               const errMsg = invErr instanceof Error ? invErr.message : String(invErr)
               errors.push(`Gagal buat inventory "${name}": ${errMsg}`)
             }
+          } else if (isStockMode && stock <= 0) {
+            console.log(`[migration] product_stock: SKIPPED "${name}" - stock=${stock} (must be > 0)`)
           }
 
           // === Process inline composition (ALWAYS defer — inventory sheet may not be processed yet) ===
