@@ -18,6 +18,7 @@ import {
 export const maxDuration = 60
 
 const MAX_ROWS = 500
+const CHUNK_SIZE = 50 // Process in chunks of 50 for better reliability
 
 // ══════════════════════════════════════════════════════════════════
 // IN-MEMORY SKU GENERATION (Performance + Safety)
@@ -65,40 +66,32 @@ function randomSuffix(length: number = 4): string {
 
 /**
  * Generate unique SKU in-memory with collision tracking.
- * Returns { sku, needsDbCheck } for later verification.
  */
-interface SkuResult {
-  sku: string
-  needsDbCheck: boolean // true if we should verify in DB later
-}
-
 function generateSKUInMemory(
   name: string,
   existingSkus: Set<string>,
   generatedSkus: Set<string>,
   maxAttempts: number = 10
-): SkuResult {
+): string {
   const abbr = abbreviateName(name)
-  const separatorLength = 1
-  const maxSuffixLength = MAX_SKU_LENGTH - abbr.length - separatorLength
+  const maxSuffixLength = MAX_SKU_LENGTH - abbr.length - 1
   const suffixLength = Math.min(Math.max(maxSuffixLength, 3), 8)
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const suffix = randomSuffix(suffixLength)
     const sku = `${abbr}-${suffix}`
 
-    // Check against BOTH pre-loaded AND newly generated SKUs
     if (!existingSkus.has(sku) && !generatedSkus.has(sku)) {
       generatedSkus.add(sku)
-      return { sku, needsDbCheck: false }
+      return sku
     }
   }
 
-  // Fallback: timestamp-based suffix (extremely unlikely to collide)
+  // Fallback: timestamp-based suffix
   const tsSuffix = Date.now().toString(36).toUpperCase().slice(-6) + randomSuffix(2)
   const fallbackSku = `${abbr.substring(0, MAX_SKU_LENGTH - 9)}-${tsSuffix}`
   generatedSkus.add(fallbackSku)
-  return { sku: fallbackSku, needsDbCheck: false }
+  return fallbackSku
 }
 
 /**
@@ -109,7 +102,7 @@ function generateVariantSKUInMemory(
   variantName: string,
   existingVariantSkus: Set<string>,
   generatedVariantSkus: Set<string>
-): SkuResult {
+): string {
   const parentAbbr = abbreviateName(parentName).substring(0, 3)
   const varAbbr = variantName.substring(0, 3).toUpperCase()
 
@@ -123,18 +116,84 @@ function generateVariantSKUInMemory(
 
     if (!existingVariantSkus.has(sku) && !generatedVariantSkus.has(sku)) {
       generatedVariantSkus.add(sku)
-      return { sku, needsDbCheck: false }
+      return sku
     }
   }
 
   const tsSuffix = Date.now().toString(36).toUpperCase().slice(-4) + randomSuffix(2)
   const fallbackSku = `${prefix.substring(0, MAX_SKU_LENGTH - 7)}-${tsSuffix}`
   generatedVariantSkus.add(fallbackSku)
-  return { sku: fallbackSku, needsDbCheck: false }
+  return fallbackSku
+}
+
+// ══════════════════════════════════════════════════════════════════
+// INTERFACES FOR BATCH DATA COLLECTION
+// ══════════════════════════════════════════════════════════════════
+
+interface ProductToCreate {
+  name: string
+  sku: string
+  barcode: string | null
+  hpp: number
+  price: number
+  stock: number
+  unit: string
+  categoryId: string | null
+  hasVariants: boolean
+  outletId: string
+  rowNum: number
+}
+
+interface VariantToCreate {
+  productId: string
+  name: string
+  sku: string
+  barcode: string | null
+  hpp: number
+  price: number
+  stock: number
+  outletId: string
+  rowNum: number
+  parentName: string
+}
+
+interface CompositionToCreate {
+  productId: string
+  variantName: string | null
+  inventoryItemId: string
+  qty: number
+  baseUnit: string
+  avgCost: number
+  currentStock: number
+  rowNum: number
+}
+
+/**
+ * Pre-loaded data container - all reference data loaded once
+ */
+interface PreloadedData {
+  existingProducts: Array<{ id: string; name: string; sku: string | null; hasVariants: boolean }>
+  existingProductNames: Set<string>
+  existingProductSkus: Set<string>
+  productCacheByName: Map<string, { id: string; hasVariants: boolean }>
+  
+  categoryCache: Map<string, string>
+  
+  variantKeySet: Set<string> // "productId|variantName"
+  variantSkuSet: Set<string>
+  
+  inventoryItemCache: Map<string, { 
+    id: string; 
+    baseUnit: string; 
+    avgCost: number;
+    stock: number;
+  }>
+  
+  compositionKeySet: Set<string> // "productId|variantId|itemId"
 }
 
 export async function POST(request: NextRequest) {
-  // Result containers (used inside and outside transaction)
+  // Result containers
   const result = {
     created: 0,
     skipped: 0,
@@ -143,7 +202,7 @@ export async function POST(request: NextRequest) {
     compCreated: 0,
     compSkipped: 0,
     errors: [] as string[],
-    warnings: [] as string[], // For non-critical issues
+    warnings: [] as string[],
   }
 
   try {
@@ -211,75 +270,98 @@ export async function POST(request: NextRequest) {
       return safeJsonError(`Maksimal ${MAX_ROWS} baris per upload. File Anda memiliki ${rows.length} baris.`, 400)
     }
 
-    console.log(`[Bulk Upload] Processing ${rows.length} rows...`)
-
     const startTime = Date.now()
 
     // ══════════════════════════════════════════════════════════════════
-    // PHASE 1: PRE-LOAD DATA (Performance Optimization)
-    // Load all reference data ONCE before transaction
+    // PHASE 1: PARALLEL PRE-LOAD (Optimization #1)
+    // Load ALL reference data ONCE using Promise.all for ~50% faster load
     // ══════════════════════════════════════════════════════════════════
     
-    // 1. Pre-load ALL existing products for this outlet
-    const existingProducts = await db.product.findMany({
-      where: { outletId },
-      select: { id: true, name: true, sku: true, hasVariants: true },
-    })
-    
-    // Build lookup sets for O(1) lookups
-    const existingProductNames = new Set(existingProducts.map(p => p.name.toLowerCase()))
-    const existingProductSkus = new Set(existingProducts.map(p => p.sku).filter(Boolean))
-    const productCacheByName = new Map(existingProducts.map(p => [p.name.toLowerCase(), { id: p.id, hasVariants: p.hasVariants }]))
+    const [
+      existingProducts,
+      existingCategories,
+      existingVariants,
+      inventoryItems,
+      existingCompositions,
+    ] = await Promise.all([
+      // 1. All existing products
+      db.product.findMany({
+        where: { outletId },
+        select: { id: true, name: true, sku: true, hasVariants: true },
+      }),
+      // 2. Categories
+      db.category.findMany({
+        where: { outletId },
+        select: { id: true, name: true },
+      }),
+      // 3. Variants (for duplicate check + smart cache)
+      db.productVariant.findMany({
+        where: { outletId },
+        select: { id: true, name: true, productId: true, sku: true },
+      }),
+      // 4. Inventory items (with avgCost & stock for HPP calculation)
+      db.inventoryItem.findMany({
+        where: { outletId },
+        select: { id: true, name: true, baseUnit: true, avgCost: true, stock: true },
+      }),
+      // 5. Existing compositions (for duplicate check)
+      db.productComposition.findMany({
+        select: { productId: true, variantId: true, inventoryItemId: true },
+      }),
+    ])
 
-    // Track NEWLY generated SKUs (separate from pre-loaded)
+    // Build lookup structures (O(1) lookups)
+    const preloadedData: PreloadedData = {
+      existingProducts,
+      existingProductNames: new Set(existingProducts.map(p => p.name.toLowerCase())),
+      existingProductSkus: new Set(existingProducts.map(p => p.sku).filter(Boolean)),
+      productCacheByName: new Map(existingProducts.map(p => [p.name.toLowerCase(), { id: p.id, hasVariants: p.hasVariants }])),
+      
+      categoryCache: new Map(),
+      
+      variantKeySet: new Set(), // "productId|variantName"
+      variantSkuSet: new Set(existingVariants.map(v => v.sku).filter(Boolean) as string[]),
+      
+      inventoryItemCache: new Map(),
+      
+      compositionKeySet: new Set(),
+    }
+
+    // Populate category cache
+    for (const cat of existingCategories) {
+      preloadedData.categoryCache.set(cat.name.toLowerCase(), cat.id)
+    }
+
+    // Populate variant key set (Optimization #4: Smart Cache)
+    for (const v of existingVariants) {
+      preloadedData.variantKeySet.add(`${v.productId}|${v.name.toLowerCase()}`)
+    }
+
+    // Populate inventory item cache with cost data
+    for (const item of inventoryItems) {
+      preloadedData.inventoryItemCache.set(item.name, {
+        id: item.id,
+        baseUnit: item.baseUnit,
+        avgCost: Number(item.avgCost) || 0,
+        stock: Number(item.stock) || 0,
+      })
+    }
+
+    // Populate composition key set
+    for (const comp of existingCompositions) {
+      preloadedData.compositionKeySet.add(`${comp.productId}|${comp.variantId || ''}|${comp.inventoryItemId}`)
+    }
+
+    console.log(`[Bulk Upload] Pre-loaded ${existingProducts.length} products, ${existingCategories.length} categories, ${existingVariants.length} variants, ${inventoryItems.length} items in ${Date.now() - startTime}ms`)
+
+    // Track NEWLY generated SKUs
     const newlyGeneratedSkus = new Set<string>()
     const newlyGeneratedVariantSkus = new Set<string>()
 
-    // 2. Pre-load categories
-    const existingCategories = await db.category.findMany({
-      where: { outletId },
-      select: { id: true, name: true },
-    })
-    const categoryCache = new Map<string, string>()
-    for (const cat of existingCategories) {
-      categoryCache.set(cat.name.toLowerCase(), cat.id)
-    }
-
-    // 3. Pre-load variants (for duplicate check)
-    const existingVariants = await db.productVariant.findMany({
-      where: { outletId },
-      select: { id: true, name: true, productId: true, sku: true },
-    })
-    const variantKeySet = new Set<string>() // "productId|variantName"
-    const variantSkuSet = new Set(existingVariants.map(v => v.sku).filter(Boolean))
-    for (const v of existingVariants) {
-      variantKeySet.add(`${v.productId}|${v.name.toLowerCase()}`)
-    }
-
-    // 4. Pre-load inventory items
-    const inventoryItems = await db.inventoryItem.findMany({
-      where: { outletId },
-      select: { id: true, name: true, baseUnit: true },
-    })
-    const inventoryItemCache = new Map(inventoryItems.map(item => [item.name, { id: item.id, baseUnit: item.baseUnit }]))
-
-    // 5. Pre-load compositions
-    const existingCompositions = await db.productComposition.findMany({
-      where: { productId: { in: existingProducts.map(p => p.id) } },
-      select: { productId: true, variantId: true, inventoryItemId: true },
-    })
-    const compositionKeySet = new Set<string>()
-    for (const comp of existingCompositions) {
-      compositionKeySet.add(`${comp.productId}|${comp.variantId || ''}|${comp.inventoryItemId}`)
-    }
-
-    console.log(`[Bulk Upload] Pre-loaded data in ${Date.now() - startTime}ms`)
-
     // ══════════════════════════════════════════════════════════════════
-    // PHASE 2: VALIDATION (with early exit on critical errors)
+    // PHASE 2: CHECK PRODUCT LIMIT (Safety Net #1)
     // ══════════════════════════════════════════════════════════════════
 
-    // Check product limit (pre-check only - will re-verify inside transaction)
     if (!isUnlimited(outletPlan.features.maxProducts)) {
       const currentCount = existingProducts.length
       if (currentCount >= outletPlan.features.maxProducts) {
@@ -292,242 +374,502 @@ export async function POST(request: NextRequest) {
     }
 
     // ══════════════════════════════════════════════════════════════════
-    // PHASE 3: TRANSACTION (Atomic writes + Safety Net)
+    // PHASE 3: COLLECT ALL DATA IN MEMORY (No DB writes yet!)
     // ══════════════════════════════════════════════════════════════════
-    
-    const txStartTime = Date.now()
 
-    await db.$transaction(async (tx) => {
-      // ══════════════════════════════════════════════════════════════════
-      // SAFETY NET #1: Re-verify product limit INSIDE transaction
-      // This catches race conditions where another request created products
-      // between our pre-load and now.
-      // ══════════════════════════════════════════════════════════════════
-      if (!isUnlimited(outletPlan.features.maxProducts)) {
-        const actualCount = await tx.product.count({ where: { outletId } })
-        const effectiveLimit = outletPlan.features.maxProducts
-        
-        if (actualCount >= effectiveLimit) {
-          throw new Error(`Batas produk sudah tercapai (${effectiveLimit}). Upload ditolak.`)
-        }
-        
-        // Calculate how many we can actually create
-        const availableSlots = effectiveLimit - actualCount
-        if (availableSlots < rows.length) {
-          result.warnings.push(`Limit hampir tercapai. Hanya ${availableSlots} produk yang akan dibuat dari ${rows.length} baris.`)
+    const productsToCreate: ProductToCreate[] = []
+    const categoriesToCreate: Array<{ name: string; outletId: string }> = []
+    const batchCreatedProducts = new Map<string, string>() // name.lower → tempId
+    const batchCreatedCategories = new Map<string, string>() // categoryName.lower → tempId
+    
+    // Process Main Product Sheet
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i]
+      const rowNum = i + 2
+
+      // Extract fields
+      const name = String(findColumn(row, ['NAMA PRODUK*', 'NAMA PRODUK', 'Nama Produk', 'Nama', 'NAME', 'name', 'Product Name', 'Produk']) || '').trim()
+      const skuInput = String(findColumn(row, ['SKU', 'sku', 'Kode']) || '').trim() || null
+      const barcode = String(findColumn(row, ['BARCODE', 'Barcode', 'barcode', 'BAR CODE', 'Bar Code']) || '').trim() || null
+      const hpp = sanitizeNumber(findColumn(row, ['HPP (Rp)', 'HPP', 'Harga Pokok', 'harga_pokok', 'Cost', 'Modal']))
+      const price = sanitizeNumber(findColumn(row, ['HARGA JUAL* (Rp)', 'HARGA JUAL (Rp)', 'HARGA JUAL', 'Harga Jual', 'Harga', 'Price', 'harga_jual', 'harga', 'price', 'Sell Price', 'Jual']))
+      const stock = sanitizeNumber(findColumn(row, ['QTY / STOK', 'QTY', 'qty', 'Stok', 'stok', 'Stock', 'stock', 'Quantity', 'Jumlah']))
+      const unitRaw = String(findColumn(row, ['SATUAN', 'Satuan', 'satuan', 'Unit', 'unit', 'Sat']) || 'pcs').trim().toLowerCase()
+      const categoryRaw = String(findColumn(row, ['KATEGORI', 'Kategori', 'kategori', 'Category', 'category', 'Kat']) || '').trim()
+      const hasVariantsRaw = String(findColumn(row, ['PUNYA VARIAN', 'Punya Varian', 'Has Variants', 'hasVariants', 'Varians', 'Varian']) || '').trim().toLowerCase()
+      const hasVariants = hasVariantsRaw === 'ya' || hasVariantsRaw === 'yes' || hasVariantsRaw === 'true'
+
+      // ── SAFETY NET: Validate required fields ──
+      if (!name) {
+        result.errors.push(`Baris ${rowNum}: Nama produk wajib diisi`)
+        continue
+      }
+
+      if (price < 0) {
+        result.errors.push(`Baris ${rowNum}: Harga Jual tidak boleh negatif (Nama: ${name})`)
+        continue
+      }
+
+      if (price <= 0 && !hasVariants) {
+        result.errors.push(`Baris ${rowNum}: Harga Jual harus lebih dari 0 (Nama: ${name})`)
+        continue
+      }
+
+      // ── SAFETY NET: Block negative stock ──
+      if (stock < 0) {
+        result.errors.push(`Baris ${rowNum}: Stok tidak boleh negatif (Nama: ${name}, Stok: ${stock})`)
+        continue
+      }
+
+      const unit = validateUnit(unitRaw)
+
+      // ── SAFETY NET: Duplicate Check Layer 1 (Pre-existing) ──
+      const nameLower = name.toLowerCase()
+      
+      if (preloadedData.existingProductNames.has(nameLower)) {
+        result.skipped++
+        continue
+      }
+      
+      // ── SAFETY NET: Duplicate Check Layer 2 (Intra-batch) ──
+      if (batchCreatedProducts.has(nameLower)) {
+        result.skipped++
+        continue
+      }
+
+      // Handle category (with dedup)
+      let categoryId: string | null = null
+      if (categoryRaw) {
+        const catKey = categoryRaw.toLowerCase()
+        if (preloadedData.categoryCache.has(catKey)) {
+          categoryId = preloadedData.categoryCache.get(catKey)!
+        } else if (batchCreatedCategories.has(catKey)) {
+          categoryId = batchCreatedCategories.get(catKey)!
+        } else {
+          batchCreatedCategories.set(catKey, `new-${catKey}`)
+          categoriesToCreate.push({ name: categoryRaw, outletId })
+          categoryId = `new-${catKey}`
         }
       }
 
-      // Track created items in THIS batch (for intra-batch duplicate detection)
-      const batchCreatedProducts = new Map<string, string>() // name.lower → id
+      // Generate SKU in-memory
+      const finalSku = skuInput || generateSKUInMemory(name, preloadedData.existingProductSkus, newlyGeneratedSkus)
+      const finalBarcode = barcode || finalSku
 
-      // === Process Main Product Sheet ===
-      let consecutiveLimitHits = 0 // Detect when we're hitting limit repeatedly
-      
-      for (let i = 0; i < rows.length; i++) {
-        const row = rows[i]
-        const rowNum = i + 2
+      // Collect product
+      productsToCreate.push({
+        name,
+        sku: finalSku,
+        barcode: finalBarcode,
+        hpp,
+        price,
+        stock,
+        unit,
+        categoryId,
+        hasVariants,
+        outletId,
+        rowNum,
+      })
 
-        // Extract fields
-        const name = String(findColumn(row, ['NAMA PRODUK*', 'NAMA PRODUK', 'Nama Produk', 'Nama', 'NAME', 'name', 'Product Name', 'Produk']) || '').trim()
-        const sku = String(findColumn(row, ['SKU', 'sku', 'Kode']) || '').trim() || null
-        const barcode = String(findColumn(row, ['BARCODE', 'Barcode', 'barcode', 'BAR CODE', 'Bar Code']) || '').trim() || null
-        const hpp = sanitizeNumber(findColumn(row, ['HPP (Rp)', 'HPP', 'Harga Pokok', 'harga_pokok', 'Cost', 'Modal']))
-        const price = sanitizeNumber(findColumn(row, ['HARGA JUAL* (Rp)', 'HARGA JUAL (Rp)', 'HARGA JUAL', 'Harga Jual', 'Harga', 'Price', 'harga_jual', 'harga', 'price', 'Sell Price', 'Jual']))
-        const stock = sanitizeNumber(findColumn(row, ['QTY / STOK', 'QTY', 'qty', 'Stok', 'stok', 'Stock', 'stock', 'Quantity', 'Jumlah']))
-        const unitRaw = String(findColumn(row, ['SATUAN', 'Satuan', 'satuan', 'Unit', 'unit', 'Sat']) || 'pcs').trim().toLowerCase()
-        const categoryRaw = String(findColumn(row, ['KATEGORI', 'Kategori', 'kategori', 'Category', 'category', 'Kat']) || '').trim()
-        const hasVariantsRaw = String(findColumn(row, ['PUNYA VARIAN', 'Punya Varian', 'Has Variants', 'hasVariants', 'Varians', 'Varian']) || '').trim().toLowerCase()
-        const hasVariants = hasVariantsRaw === 'ya' || hasVariantsRaw === 'yes' || hasVariantsRaw === 'true'
+      batchCreatedProducts.set(nameLower, `pending-${productsToCreate.length}`)
+    }
 
-        // Validate required fields
-        if (!name) {
-          result.errors.push(`Baris ${rowNum}: Nama produk wajib diisi`)
-          continue
-        }
+    // ══════════════════════════════════════════════════════════════════
+    // PHASE 4: COLLECT VARIANT DATA (Optimization #5: Lazy Load)
+    // Only process if sheet exists and has data
+    // ══════════════════════════════════════════════════════════════════
 
-        if (price < 0) {
-          result.errors.push(`Baris ${rowNum}: Harga Jual tidak boleh negatif (Nama: ${name})`)
-          continue
-        }
+    const variantsToCreate: VariantToCreate[] = []
 
-        if (price <= 0 && !hasVariants) {
-          result.errors.push(`Baris ${rowNum}: Harga Jual harus lebih dari 0 (Nama: ${name})`)
-          continue
-        }
+    const variantSheetName = workbook.SheetNames.find(
+      (n) => normalizeHeader(n).includes('varian')
+    )
 
-        if (stock < 0) {
-          result.errors.push(`Baris ${rowNum}: Stok tidak boleh negatif (Nama: ${name}, Stok: ${stock})`)
-          continue
-        }
+    if (variantSheetName) {
+      const variantSheet = workbook.Sheets[variantSheetName]
+      const variantRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(variantSheet, { defval: '' })
 
-        const unit = validateUnit(unitRaw)
+      // Optimization #5: Skip if empty
+      if (variantRows.length > 0) {
+        for (let i = 0; i < variantRows.length; i++) {
+          const vRow = variantRows[i]
+          const rowNum = i + 2
 
-        // ══════════════════════════════════════════════════════════════════
-        // SAFETY NET #2: Re-check limit inside loop (but use running count)
-        // Only query DB every 50 iterations to balance safety vs performance
-        // ══════════════════════════════════════════════════════════════════
-        if (!isUnlimited(outletPlan.features.maxProducts)) {
-          // Query every 50 iterations or when we've had limit issues
-          if (result.created % 50 === 0 || consecutiveLimitHits > 0) {
-            const currentTotal = await tx.product.count({ where: { outletId } })
-            if (currentTotal >= outletPlan.features.maxProducts) {
-              result.warnings.push(`Baris ${rowNum} onwards: Batas produk tercapai (${outletPlan.features.maxProducts}), sisa dihentikan`)
-              break
-            }
-            consecutiveLimitHits = 0
-          }
-        }
+          const parentName = String(findColumn(vRow, ['NAMA PRODUK*', 'NAMA PRODUK', 'Nama Produk', 'Nama', 'NAME', 'name', 'Product Name', 'Produk']) || '').trim()
+          const variantName = String(findColumn(vRow, ['NAMA VARIAN*', 'NAMA VARIAN', 'Nama Varian', 'Variant Name', 'Varian']) || '').trim()
+          const variantSku = String(findColumn(vRow, ['SKU VARIAN', 'SKU Varian', 'SKU', 'sku']) || '').trim() || null
+          const variantBarcode = String(findColumn(vRow, ['BARCODE VARIAN', 'Barcode Varian', 'BARCODE', 'Barcode', 'barcode']) || '').trim() || null
+          const variantHpp = sanitizeNumber(findColumn(vRow, ['HPP (Rp)', 'HPP', 'Harga Pokok', 'harga_pokok', 'Cost', 'Modal']))
+          const variantPrice = sanitizeNumber(findColumn(vRow, ['HARGA JUAL* (Rp)', 'HARGA JUAL (Rp)', 'HARGA JUAL', 'Harga Jual', 'Harga', 'Price', 'harga_jual', 'harga', 'price', 'Sell Price', 'Jual']))
+          const variantStock = sanitizeNumber(findColumn(vRow, ['STOK', 'Stok', 'stok', 'Stock', 'stock', 'QTY', 'qty', 'Quantity', 'Jumlah']))
 
-        // ══════════════════════════════════════════════════════════════════
-        // DUPLICATE CHECK (3 layers of protection!)
-        // Layer 1: Pre-existing products (from pre-load)
-        // Layer 2: Products created earlier in THIS batch
-        // Layer 3: Database verification (for high-confidence cases)
-        // ══════════════════════════════════════════════════════════════════
-        
-        const nameLower = name.toLowerCase()
-        
-        // Layer 1: Check pre-loaded data
-        if (existingProductNames.has(nameLower)) {
-          result.skipped++
-          continue
-        }
-        
-        // Layer 2: Check batch-created products
-        if (batchCreatedProducts.has(nameLower)) {
-          result.skipped++
-          continue
-        }
-
-        // Layer 3: Optional DB check (only if suspicious - e.g., same name appears twice in file)
-        // This is a safety net, not the primary check
-        const nameOccurrences = rows.filter((r, idx) => 
-          idx >= i && 
-          String(findColumn(r, ['NAMA PRODUK*', 'NAMA PRODUK', 'Nama Produk', 'Nama', 'NAME', 'name', 'Product Name', 'Produk']) || '').trim().toLowerCase() === nameLower
-        ).length
-        
-        if (nameOccurrences > 1) {
-          // Same name appears again in file - do a quick DB check
-          const dbCheck = await tx.product.findFirst({
-            where: { name, outletId },
-            select: { id: true },
-          })
-          if (dbCheck) {
-            result.skipped++
+          // Validation
+          if (!parentName) {
+            result.errors.push(`Baris ${rowNum} (Varian): Nama Produk wajib diisi`)
             continue
           }
-        }
 
-        // Auto-create category if needed
-        let categoryId: string | null = null
-        if (categoryRaw) {
-          const catKey = categoryRaw.toLowerCase()
-          if (categoryCache.has(catKey)) {
-            categoryId = categoryCache.get(catKey)!
-          } else {
-            const newCategory = await tx.category.create({
-              data: { name: categoryRaw, outletId, color: 'zinc' },
-            })
-            categoryId = newCategory.id
-            categoryCache.set(catKey, categoryId)
+          if (!variantName) {
+            result.errors.push(`Baris ${rowNum} (Varian): Nama Varian wajib diisi`)
+            continue
+          }
+
+          if (!variantPrice || variantPrice <= 0) {
+            result.errors.push(`Baris ${rowNum} (Varian): Harga Jual harus lebih dari 0 (Produk: ${parentName}, Varian: ${variantName})`)
+            continue
+          }
+
+          // Safety Net: Block negative stock
+          if (variantStock < 0) {
+            result.errors.push(`Baris ${rowNum} (Varian): Stok tidak boleh negatif (Produk: ${parentName}, Varian: ${variantName})`)
+            continue
+          }
+
+          // Find parent product
+          const parentLookup = preloadedData.productCacheByName.get(parentName.toLowerCase())
+          let parentId: string | null = parentLookup?.id || null
+          
+          if (!parentId && batchCreatedProducts.has(parentName.toLowerCase())) {
+            parentId = `batch-${parentName.toLowerCase()}`
+          }
+
+          if (!parentId) {
+            result.errors.push(`Baris ${rowNum}: Produk "${parentName}" tidak ditemukan`)
+            result.variantsSkipped++
+            continue
+          }
+
+          // Generate variant SKU
+          const finalVariantSku = variantSku || generateVariantSKUInMemory(parentName, variantName, preloadedData.variantSkuSet, newlyGeneratedVariantSkus)
+          const finalVariantBarcode = variantBarcode || finalVariantSku
+
+          // Duplicate check
+          if (!parentId.toString().startsWith('batch-')) {
+            const variantKey = `${parentId}|${variantName.toLowerCase()}`
+            if (preloadedData.variantKeySet.has(variantKey)) {
+              result.variantsSkipped++
+              continue
+            }
+          }
+
+          variantsToCreate.push({
+            productId: parentId,
+            name: variantName,
+            sku: finalVariantSku,
+            barcode: finalVariantBarcode,
+            hpp: variantHpp,
+            price: variantPrice,
+            stock: variantStock,
+            outletId,
+            rowNum,
+            parentName,
+          })
+        }
+      }
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // PHASE 5: COLLECT COMPOSITION DATA (Lazy Load)
+    // ══════════════════════════════════════════════════════════════════
+
+    const compositionsToCreate: CompositionToCreate[] = []
+
+    const compSheetName = workbook.SheetNames.find(
+      (n) => normalizeHeader(n).includes('komposisi')
+    )
+
+    if (compSheetName) {
+      const compSheet = workbook.Sheets[compSheetName]
+      const compRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(compSheet, { defval: '' })
+
+      // Optimization #5: Skip if empty
+      if (compRows.length > 0) {
+        for (let i = 0; i < compRows.length; i++) {
+          const cRow = compRows[i]
+          const rowNum = i + 2
+
+          const parentName = String(findColumn(cRow, ['NAMA PRODUK*', 'NAMA PRODUK', 'Nama Produk', 'Nama', 'NAME', 'name', 'Product Name', 'Produk']) || '').trim()
+          const variantName = String(findColumn(cRow, ['NAMA VARIAN', 'Nama Varian', 'Varian', 'Variant Name']) || '').trim()
+          const bahanName = String(findColumn(cRow, ['NAMA BAHAN*', 'NAMA BAHAN', 'Nama Bahan', 'Bahan', 'BAHAN']) || '').trim()
+          const qty = sanitizeNumber(findColumn(cRow, ['QTY*', 'QTY', 'Qty', 'qty', 'Jumlah', 'Quantity']))
+
+          if (!parentName) {
+            result.errors.push(`Baris ${rowNum} (Komposisi): Nama Produk wajib diisi`)
+            continue
+          }
+          if (!bahanName) {
+            result.errors.push(`Baris ${rowNum} (Komposisi): Nama Bahan wajib diisi (Produk: ${parentName})`)
+            continue
+          }
+          if (!qty || qty <= 0) {
+            result.errors.push(`Baris ${rowNum} (Komposisi): QTY harus lebih dari 0 (Produk: ${parentName}, Bahan: ${bahanName})`)
+            continue
+          }
+
+          // Find parent product
+          const productId = preloadedData.productCacheByName.get(parentName.toLowerCase())?.id || 
+                            (batchCreatedProducts.has(parentName.toLowerCase()) ? `batch-${parentName.toLowerCase()}` : null)
+          
+          if (!productId) {
+            result.errors.push(`Baris ${rowNum} (Komposisi): Produk "${parentName}" tidak ditemukan`)
+            result.compSkipped++
+            continue
+          }
+
+          // Find inventory item
+          const invItem = preloadedData.inventoryItemCache.get(bahanName)
+          if (!invItem) {
+            result.errors.push(`Baris ${rowNum} (Komposisi): Item "${bahanName}" tidak ditemukan`)
+            result.compSkipped++
+            continue
+          }
+
+          compositionsToCreate.push({
+            productId: productId as string,
+            variantName: variantName || null,
+            inventoryItemId: invItem.id,
+            qty,
+            baseUnit: invItem.baseUnit,
+            avgCost: invItem.avgCost,
+            currentStock: invItem.stock,
+            rowNum,
+          })
+        }
+      }
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // PHASE 5.5: AUTO-CALCULATE HPP & MAX STOCK FROM COMPOSITIONS
+    // ══════════════════════════════════════════════════════════════════
+
+    /**
+     * Calculate HPP from compositions: Σ(qty × avgCost)
+     */
+    function calculateHPPFromCompositions(comps: CompositionToCreate[]): number {
+      if (comps.length === 0) return 0
+      
+      let totalCost = 0
+      for (const comp of comps) {
+        totalCost += comp.qty * comp.avgCost
+      }
+      return Math.round(totalCost)
+    }
+
+    /**
+     * Calculate max possible product quantity based on inventory item stocks.
+     */
+    function calculateMaxStockFromCompositions(comps: CompositionToCreate[]): number {
+      if (comps.length === 0) return Infinity
+      
+      let minStock = Infinity
+      
+      for (const comp of comps) {
+        if (comp.qty <= 0) continue
+        
+        const maxFromThisItem = Math.floor(comp.currentStock / comp.qty)
+        
+        if (maxFromThisItem < minStock) {
+          minStock = maxFromThisItem
+        }
+      }
+      
+      return minStock === Infinity ? 0 : Math.max(0, minStock)
+    }
+
+    // Group compositions by product
+    const compositionsByProduct = new Map<string, CompositionToCreate[]>()
+    for (const comp of compositionsToCreate) {
+      const key = comp.productId
+      if (!compositionsByProduct.has(key)) {
+        compositionsByProduct.set(key, [])
+      }
+      compositionsByProduct.get(key)!.push(comp)
+    }
+
+    // Apply auto-calculations
+    let hppAutoCalculated = 0
+    let stockAutoAdjusted = 0
+
+    for (const prod of productsToCreate) {
+      let prodComps: CompositionToCreate[] | undefined
+      
+      // Find compositions for this product
+      for (const [batchKey] of batchCreatedProducts) {
+        if (prod.name.toLowerCase() === batchKey) {
+          prodComps = compositionsByProduct.get(`batch-${batchKey}`)
+          break
+        }
+      }
+      
+      if (!prodComps) {
+        const existingProdInfo = preloadedData.productCacheByName.get(prod.name.toLowerCase())
+        if (existingProdInfo) {
+          prodComps = compositionsByProduct.get(existingProdInfo.id)
+        }
+      }
+
+      if (!prodComps || prodComps.length === 0) continue
+
+      // Auto-calculate HPP
+      const calculatedHPP = calculateHPPFromCompositions(prodComps)
+      
+      if (calculatedHPP > 0) {
+        if (prod.hpp === 0 || prod.hpp === null) {
+          prod.hpp = calculatedHPP
+          hppAutoCalculated++
+        } else if (Math.abs(prod.hpp - calculatedHPP) > calculatedHPP * 0.2) {
+          result.warnings.push(
+            `Produk "${prod.name}": HPP input (Rp${prod.hpp.toLocaleString('id-ID')}) ` +
+            `berbeda signifikan dari kalkulasi komposisi (Rp${calculatedHPP.toLocaleString('id-ID')}).`
+          )
+        }
+      }
+
+      // Auto-adjust stock based on composition availability
+      const calculatedMaxStock = calculateMaxStockFromCompositions(prodComps)
+      
+      if (calculatedMaxStock !== Infinity && calculatedMaxStock > 0) {
+        if (prod.stock > calculatedMaxStock || prod.stock === 999) {
+          const originalStock = prod.stock
+          prod.stock = calculatedMaxStock
+          
+          if (originalStock !== 999) {
+            result.warnings.push(
+              `Produk "${prod.name}": Stok disesuaikan dari ${originalStock} → ${calculatedMaxStock} ` +
+              `(maksimal berdasarkan ketersediaan bahan)`
+            )
+          }
+          stockAutoAdjusted++
+        } else if (calculatedMaxStock < 10) {
+          result.warnings.push(
+            `Produk "${prod.name}": Stok bahan komposisi hanya cukup untuk ${calculatedMaxStock} produk.`
+          )
+        }
+      } else if (calculatedMaxStock === 0) {
+        result.warnings.push(
+          `Produk "${prod.name}": TIDAK DAPAT diproduksi! Bahan tidak mencukupi. Stok di-set ke 0.`
+        )
+        prod.stock = 0
+        stockAutoAdjusted++
+      }
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // PHASE 6: CHUNKED PROCESSING (Optimization #3)
+    // Process data in chunks to avoid transaction timeouts
+    // Each chunk gets its own transaction for reliability
+    // ══════════════════════════════════════════════════════════════════
+
+    const txStartTime = Date.now()
+
+    // Split products into chunks
+    const productChunks: ProductToCreate[][] = []
+    for (let i = 0; i < productsToCreate.length; i += CHUNK_SIZE) {
+      productChunks.push(productsToCreate.slice(i, i + CHUNK_SIZE))
+    }
+
+    // Track all created IDs across chunks
+    const globalProductNameToIdMap = new Map<string, string>()
+    const globalCreatedVariantMap = new Map<string, string>() // "productId|variantName" → variantId
+    const globalProductIdsWithVariants = new Set<string>()
+
+    for (let chunkIndex = 0; chunkIndex < productChunks.length; chunkIndex++) {
+      const chunk = productChunks[chunkIndex]
+      const isLastChunk = chunkIndex === productChunks.length - 1
+
+      await db.$transaction(async (tx) => {
+        // ── SAFETY NET: Re-verify limit inside each chunk ──
+        if (!isUnlimited(outletPlan.features.maxProducts)) {
+          const actualCount = await tx.product.count({ where: { outletId } })
+          
+          if (actualCount >= outletPlan.features.maxProducts) {
+            throw new Error(`Batas produk sudah tercapai (${outletPlan.features.maxProducts}). Upload dihentikan.`)
+          }
+          
+          const availableSlots = outletPlan.features.maxProducts - actualCount
+          if (availableSlots < chunk.length && chunkIndex === 0) {
+            result.warnings.push(`Limit hampir tercapai. Hanya ${Math.min(availableSlots, chunk.length)} produk yang akan dibuat.`)
           }
         }
 
-        // Generate SKU in-memory (tracks both pre-loaded AND newly generated)
-        const finalSku = sku || generateSKUInMemory(name, existingProductSkus, newlyGeneratedSkus).sku
-        const finalBarcode = barcode || finalSku
-
-        // Create product
-        const newProduct = await tx.product.create({
-          data: {
-            name,
-            sku: finalSku,
-            barcode: finalBarcode,
-            hpp,
-            price,
-            stock,
-            unit,
-            categoryId,
-            hasVariants,
-            outletId,
-          },
-        })
-
-        // Update caches for subsequent processing
-        batchCreatedProducts.set(nameLower, newProduct.id)
-        productCacheByName.set(nameLower, { id: newProduct.id, hasVariants: false })
-        existingProductNames.add(nameLower)
-        if (finalSku) {
-          existingProductSkus.add(finalSku)
+        // ── STEP 1: Create categories (only in first chunk) ──
+        if (chunkIndex === 0 && categoriesToCreate.length > 0) {
+          const uniqueCategories = [...new Map(categoriesToCreate.map(c => [c.name.toLowerCase(), c])).values()]
+          
+          for (const cat of uniqueCategories) {
+            const catKey = cat.name.toLowerCase()
+            
+            // Double-check not created between preload and now
+            if (preloadedData.categoryCache.has(catKey)) {
+              batchCreatedCategories.set(catKey, preloadedData.categoryCache.get(catKey)!)
+              continue
+            }
+            
+            const newCategory = await tx.category.create({
+              data: { name: cat.name, outletId, color: 'zinc' },
+            })
+            
+            preloadedData.categoryCache.set(catKey, newCategory.id)
+            batchCreatedCategories.set(catKey, newCategory.id)
+          }
         }
 
-        result.created++
-        consecutiveLimitHits = 0 // Reset - successful creation
-      }
+        // Update category IDs for this chunk's products
+        for (const prod of chunk) {
+          if (prod.categoryId && prod.categoryId.toString().startsWith('new-')) {
+            const realCatId = batchCreatedCategories.get(prod.categoryId.replace('new-', ''))
+            if (realCatId && !realCatId.toString().startsWith('new-')) {
+              prod.categoryId = realCatId
+            }
+          }
+        }
 
-      // === Process "Varian Produk" sheet ===
-      const variantSheetName = workbook.SheetNames.find(
-        (n) => normalizeHeader(n).includes('varian')
-      )
+        // ── STEP 2: Create products in this chunk ──
+        for (const prodData of chunk) {
+          const newProduct = await tx.product.create({
+            data: {
+              name: prodData.name,
+              sku: prodData.sku,
+              barcode: prodData.barcode,
+              hpp: prodData.hpp,
+              price: prodData.price,
+              stock: prodData.stock,
+              unit: prodData.unit,
+              categoryId: prodData.categoryId,
+              hasVariants: prodData.hasVariants,
+              outletId: prodData.outletId,
+            },
+          })
 
-      if (variantSheetName) {
-        const variantSheet = workbook.Sheets[variantSheetName]
-        const variantRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(variantSheet, { defval: '' })
+          globalProductNameToIdMap.set(newProduct.name.toLowerCase(), newProduct.id)
+          batchCreatedProducts.set(newProduct.name.toLowerCase(), newProduct.id)
+          preloadedData.existingProductNames.add(newProduct.name.toLowerCase())
+          if (newProduct.sku) {
+            preloadedData.existingProductSkus.add(newProduct.sku)
+          }
+          result.created++
+        }
 
-        console.log(`[Bulk Upload] Processing ${variantRows.length} variant rows...`)
-
-        // Merge pre-loaded + newly created products
-        const allProductsLookup = new Map(productCacheByName)
-
-        for (let i = 0; i < variantRows.length; i++) {
-          try {
-            const vRow = variantRows[i]
-            const rowNum = i + 2
-
-            const parentName = String(findColumn(vRow, ['NAMA PRODUK*', 'NAMA PRODUK', 'Nama Produk', 'Nama', 'NAME', 'name', 'Product Name', 'Produk']) || '').trim()
-            const variantName = String(findColumn(vRow, ['NAMA VARIAN*', 'NAMA VARIAN', 'Nama Varian', 'Variant Name', 'Varian']) || '').trim()
-            const variantSku = String(findColumn(vRow, ['SKU VARIAN', 'SKU Varian', 'SKU', 'sku']) || '').trim() || null
-            const variantBarcode = String(findColumn(vRow, ['BARCODE VARIAN', 'Barcode Varian', 'BARCODE', 'Barcode', 'barcode']) || '').trim() || null
-            const variantHpp = sanitizeNumber(findColumn(vRow, ['HPP (Rp)', 'HPP', 'Harga Pokok', 'harga_pokok', 'Cost', 'Modal']))
-            const variantPrice = sanitizeNumber(findColumn(vRow, ['HARGA JUAL* (Rp)', 'HARGA JUAL (Rp)', 'HARGA JUAL', 'Harga Jual', 'Harga', 'Price', 'harga_jual', 'harga', 'price', 'Sell Price', 'Jual']))
-            const variantStock = sanitizeNumber(findColumn(vRow, ['STOK', 'Stok', 'stok', 'Stock', 'stock', 'QTY', 'qty', 'Quantity', 'Jumlah']))
-
-            if (!parentName) {
-              result.errors.push(`Baris ${rowNum} (Varian): Nama Produk wajib diisi`)
-              continue
+        // ── STEP 3: Create variants (only in last chunk to ensure all products exist) ──
+        if (isLastChunk && variantsToCreate.length > 0) {
+          for (const varData of variantsToCreate) {
+            let resolvedProductId = varData.productId
+            
+            if (resolvedProductId.toString().startsWith('batch-')) {
+              const nameKey = resolvedProductId.replace('batch-', '')
+              resolvedProductId = batchCreatedProducts.get(nameKey) || 
+                               globalProductNameToIdMap.get(nameKey) || ''
             }
 
-            if (!variantName) {
-              result.errors.push(`Baris ${rowNum} (Varian): Nama Varian wajib diisi`)
-              continue
-            }
-
-            if (!variantPrice || variantPrice <= 0) {
-              result.errors.push(`Baris ${rowNum} (Varian): Harga Jual harus lebih dari 0 (Produk: ${parentName}, Varian: ${variantName})`)
-              continue
-            }
-
-            if (variantStock < 0) {
-              result.errors.push(`Baris ${rowNum} (Varian): Stok tidak boleh negatif (Produk: ${parentName}, Varian: ${variantName})`)
-              continue
-            }
-
-            // Find parent product
-            const parentProduct = allProductsLookup.get(parentName.toLowerCase())
-            if (!parentProduct) {
-              result.errors.push(`Baris ${rowNum}: Produk "${parentName}" tidak ditemukan`)
+            if (!resolvedProductId) {
+              result.errors.push(`Baris ${varData.rowNum}: Tidak dapat menemukan ID produk untuk "${varData.parentName}"`)
               result.variantsSkipped++
               continue
             }
 
-            // Generate variant SKU
-            const finalVariantSku = variantSku || generateVariantSKUInMemory(parentName, variantName, variantSkuSet, newlyGeneratedVariantSkus).sku
-            const finalVariantBarcode = variantBarcode || finalVariantSku
-
-            // Check duplicate (pre-loaded + batch-created)
-            const variantKey = `${parentProduct.id}|${variantName.toLowerCase()}`
-            if (variantKeySet.has(variantKey)) {
+            // Final duplicate check
+            const variantKey = `${resolvedProductId}|${varData.name.toLowerCase()}`
+            if (preloadedData.variantKeySet.has(variantKey)) {
               result.variantsSkipped++
               continue
             }
@@ -535,155 +877,107 @@ export async function POST(request: NextRequest) {
             // Create variant
             const newVariant = await tx.productVariant.create({
               data: {
-                name: variantName,
-                sku: finalVariantSku,
-                barcode: finalVariantBarcode,
-                hpp: variantHpp,
-                price: variantPrice,
-                stock: variantStock,
-                productId: parentProduct.id,
-                outletId,
+                name: varData.name,
+                sku: varData.sku,
+                barcode: varData.barcode,
+                hpp: varData.hpp,
+                price: varData.price,
+                stock: varData.stock,
+                productId: resolvedProductId,
+                outletId: varData.outletId,
               },
             })
 
-            // Update caches
-            variantKeySet.add(variantKey)
-            if (finalVariantSku) variantSkuSet.add(finalVariantSku)
-
-            // Update parent's hasVariants flag
-            if (!parentProduct.hasVariants) {
-              await tx.product.update({
-                where: { id: parentProduct.id },
-                data: { hasVariants: true },
-              })
-              parentProduct.hasVariants = true
-            }
-
+            // Store for composition resolution
+            globalCreatedVariantMap.set(`${resolvedProductId}|${varData.name.toLowerCase()}`, newVariant.id)
+            preloadedData.variantKeySet.add(variantKey)
+            globalProductIdsWithVariants.add(resolvedProductId)
             result.variantsCreated++
-          } catch (variantError) {
-            const rowNum = i + 2
-            const errMessage = variantError instanceof Error ? variantError.message : 'Unknown error'
-            console.error(`[Bulk Upload] Variant row ${rowNum} error:`, variantError)
-            result.errors.push(`Baris ${rowNum} (Varian): Gagal memproses — ${errMessage}`)
-            result.variantsSkipped++
+          }
+
+          // Update hasVariants flag
+          for (const productId of globalProductIdsWithVariants) {
+            await tx.product.update({
+              where: { id: productId },
+              data: { hasVariants: true },
+            })
           }
         }
-      }
 
-      // === Process "Komposisi" sheet ===
-      const compSheetName = workbook.SheetNames.find(
-        (n) => normalizeHeader(n).includes('komposisi')
-      )
-
-      if (compSheetName) {
-        const compSheet = workbook.Sheets[compSheetName]
-        const compRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(compSheet, { defval: '' })
-
-        console.log(`[Bulk Upload] Processing ${compRows.length} composition rows...`)
-
-        // Build combined product lookup
-        const compProductLookup = new Map<string, string>()
-        for (const p of existingProducts) {
-          compProductLookup.set(p.name.toLowerCase(), p.id)
-        }
-        for (const [nameLower, id] of batchCreatedProducts) {
-          compProductLookup.set(nameLower, id)
-        }
-
-        for (let i = 0; i < compRows.length; i++) {
-          try {
-            const cRow = compRows[i]
-            const rowNum = i + 2
-
-            const parentName = String(findColumn(cRow, ['NAMA PRODUK*', 'NAMA PRODUK', 'Nama Produk', 'Nama', 'NAME', 'name', 'Product Name', 'Produk']) || '').trim()
-            const variantName = String(findColumn(cRow, ['NAMA VARIAN', 'Nama Varian', 'Varian', 'Variant Name']) || '').trim()
-            const bahanName = String(findColumn(cRow, ['NAMA BAHAN*', 'NAMA BAHAN', 'Nama Bahan', 'Bahan', 'BAHAN']) || '').trim()
-            const qty = sanitizeNumber(findColumn(cRow, ['QTY*', 'QTY', 'Qty', 'qty', 'Jumlah', 'Quantity']))
-
-            if (!parentName) {
-              result.errors.push(`Baris ${rowNum} (Komposisi): Nama Produk wajib diisi`)
-              continue
-            }
-            if (!bahanName) {
-              result.errors.push(`Baris ${rowNum} (Komposisi): Nama Bahan wajib diisi (Produk: ${parentName})`)
-              continue
-            }
-            if (!qty || qty <= 0) {
-              result.errors.push(`Baris ${rowNum} (Komposisi): QTY harus lebih dari 0 (Produk: ${parentName}, Bahan: ${bahanName})`)
-              continue
+        // ── STEP 4: Create compositions (only in last chunk) ──
+        if (isLastChunk && compositionsToCreate.length > 0) {
+          for (const compData of compositionsToCreate) {
+            let resolvedProductId = compData.productId
+            
+            if (resolvedProductId.toString().startsWith('batch-')) {
+              const nameKey = resolvedProductId.replace('batch-', '')
+              resolvedProductId = batchCreatedProducts.get(nameKey) || 
+                               globalProductNameToIdMap.get(nameKey) || ''
             }
 
-            // Find parent product
-            const productId = compProductLookup.get(parentName.toLowerCase())
-            if (!productId) {
-              result.errors.push(`Baris ${rowNum} (Komposisi): Produk "${parentName}" tidak ditemukan`)
+            if (!resolvedProductId) {
               result.compSkipped++
               continue
             }
 
-            // Find inventory item
-            const invItem = inventoryItemCache.get(bahanName)
-            if (!invItem) {
-              result.errors.push(`Baris ${rowNum} (Komposisi): Item "${bahanName}" tidak ditemukan`)
-              result.compSkipped++
-              continue
-            }
-
-            // Find variant if specified
-            let variantId: string | null = null
-            if (variantName) {
-              // Look up variant from our cache or DB
-              const foundVariant = await tx.productVariant.findFirst({
-                where: { 
-                  name: variantName, 
-                  productId, 
-                  outletId,
-                },
-                select: { id: true },
-              })
-              if (!foundVariant) {
-                result.errors.push(`Baris ${rowNum} (Komposisi): Varian "${variantName}" tidak ditemukan`)
-                result.compSkipped++
-                continue
+            // Resolve variant ID if specified
+            let resolvedVariantId: string | null = null
+            
+            if (compData.variantName) {
+              // Look up from newly created variants map first
+              const variantLookupKey = `${resolvedProductId}|${compData.variantName.toLowerCase()}`
+              resolvedVariantId = globalCreatedVariantMap.get(variantLookupKey) || null
+              
+              // Fallback to DB query for pre-existing variants
+              if (!resolvedVariantId) {
+                const existingVariant = await tx.productVariant.findFirst({
+                  where: {
+                    name: compData.variantName,
+                    productId: resolvedProductId,
+                    outletId,
+                  },
+                  select: { id: true },
+                })
+                if (existingVariant) {
+                  resolvedVariantId = existingVariant.id
+                } else {
+                  result.errors.push(`Baris ${compData.rowNum} (Komposisi): Varian "${compData.variantName}" tidak ditemukan`)
+                  result.compSkipped++
+                  continue
+                }
               }
-              variantId = foundVariant.id
             }
-
+            
             // Skip duplicates
-            const compKey = `${productId}|${variantId || ''}|${invItem.id}`
-            if (compositionKeySet.has(compKey)) {
+            const compKey = `${resolvedProductId}|${resolvedVariantId || ''}|${compData.inventoryItemId}`
+            if (preloadedData.compositionKeySet.has(compKey)) {
               result.compSkipped++
               continue
             }
 
             await tx.productComposition.create({
               data: {
-                productId,
-                variantId,
-                inventoryItemId: invItem.id,
-                qty,
-                baseUnit: invItem.baseUnit,
+                productId: resolvedProductId,
+                variantId: resolvedVariantId,
+                inventoryItemId: compData.inventoryItemId,
+                qty: compData.qty,
+                baseUnit: compData.baseUnit,
               },
             })
 
-            compositionKeySet.add(compKey)
+            preloadedData.compositionKeySet.add(compKey)
             result.compCreated++
-          } catch (compError) {
-            const rowNum = i + 2
-            const errMessage = compError instanceof Error ? compError.message : 'Unknown error'
-            console.error(`[Bulk Upload] Composition row ${rowNum} error:`, compError)
-            result.errors.push(`Baris ${rowNum} (Komposisi): Gagal memproses — ${errMessage}`)
-            result.compSkipped++
           }
         }
-      }
-    }) // End of transaction
+      }, {
+        timeout: 30000 // 30 seconds per chunk (more than enough for 50 items)
+      }) // End of chunk transaction
+    } // End of chunk loop
 
     const totalTime = Date.now() - startTime
     
-    console.log(`[Bulk Upload] Completed in ${totalTime}ms:`)
-    console.log(`  Created: ${result.created}, Skipped: ${result.skipped}`)
-    console.log(`  Variants: ${result.variantsCreated}, Compositions: ${result.compCreated}`)
+    // Optimization #6: Reduce logging output
+    console.log(`[Bulk Upload] Done in ${totalTime}ms: ${result.created} created, ${result.skipped} skipped, ${result.variantsCreated} variants, ${result.compCreated} comps`)
 
     // Audit log
     await safeAuditLog({
