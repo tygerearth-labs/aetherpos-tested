@@ -80,6 +80,9 @@ export async function GET(request: NextRequest) {
         { orderNumber: { contains: search } },
         { supplier: { name: { contains: search } } },
         { notes: { contains: search } },
+        { items: { some: { inventoryItem: { name: { contains: search } } } } },
+        { items: { some: { inventoryItem: { sku: { contains: search } } } } },
+        { createdBy: { name: { contains: search } } },
       ]
     }
 

@@ -24,6 +24,8 @@ export async function GET(request: NextRequest) {
       where.OR = [
         { name: { contains: search } },
         { sku: { contains: search } },
+        { baseUnit: { contains: search } },
+        { category: { name: { contains: search } } },
       ]
     }
     if (categoryId) {
