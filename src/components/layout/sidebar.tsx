@@ -61,6 +61,7 @@ interface NavItem {
   shortLabel: string
   section?: 'main' | 'operations' | 'management'
   groupOnly?: boolean
+  hideWhenNoInventory?: boolean
 }
 
 // ============================================================
@@ -75,8 +76,8 @@ const navItems: NavItem[] = [
   // ── Operasional ──
   { label: 'POS', shortLabel: 'POS', icon: <ShoppingCart className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'pos', section: 'operations' },
   { label: 'Transaksi', shortLabel: 'Txn', icon: <Receipt className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'transactions', section: 'operations' },
-  { label: 'Pembelian', shortLabel: 'PO', icon: <PackagePlus className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'purchase', section: 'operations' },
-  { label: 'Stok & Opname', shortLabel: 'Stok', icon: <ClipboardCheck className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'stock-opname', section: 'operations' },
+  { label: 'Pembelian & Inventori', shortLabel: 'PO', icon: <PackagePlus className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'purchase', section: 'operations' },
+  { label: 'Stock Opname', shortLabel: 'Stok', icon: <ClipboardCheck className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'stock-opname', section: 'operations', hideWhenNoInventory: true },
   { label: 'Kirim Stock/Barang', shortLabel: 'Kirim', icon: <Send className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'transfer', section: 'operations', groupOnly: true },
   // ── Manajemen ──
   { label: 'Audit Log', shortLabel: 'Log', icon: <ClipboardList className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'audit-log', section: 'management' },
@@ -127,6 +128,7 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
   const [allowedPages, setAllowedPages] = useState<string[] | null>(null)
   const [permissionsLoaded, setPermissionsLoaded] = useState(false)
   const [hasOutletGroup, setHasOutletGroup] = useState(false)
+  const [hasInventoryItems, setHasInventoryItems] = useState<boolean | null>(null)
 
   const fetchPermissions = useCallback(async () => {
     if (isOwner) {
@@ -165,6 +167,21 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
     return () => { cancelled = true }
   }, [])
 
+  // ---- Inventory items check (for Stock Opname visibility) ----
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/inventory/items?limit=1')
+        if (res.ok) {
+          const data = await res.json()
+          if (!cancelled) setHasInventoryItems(Array.isArray(data.items) && data.items.length > 0)
+        }
+      } catch { /* ignore */ }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
   useEffect(() => {
     void fetchPermissions()
   }, [fetchPermissions])
@@ -189,13 +206,15 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
     return map
   }, [isOwner, allowedPages, hasOutletGroup, features])
 
-  // Group all items by section (filter out hidden group-only items)
+  // Group all items by section (filter out hidden group-only / no-inventory items)
   const groupedItems = useMemo(() => {
     const groups: { key: string; label: string; items: NavItem[] }[] = []
     const seen = new Set<string>()
     for (const item of navItems) {
       // Skip group-only items if no group
       if (item.groupOnly && (!hasOutletGroup || !(features?.multiOutlet ?? false))) continue
+      // Skip Stock Opname if no inventory items
+      if (item.hideWhenNoInventory && hasInventoryItems === false) continue
       const sec = item.section || 'main'
       if (!seen.has(sec)) {
         seen.add(sec)
@@ -204,7 +223,7 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
       groups[groups.length - 1].items.push(item)
     }
     return groups
-  }, [navItemAccess, hasOutletGroup])
+  }, [navItemAccess, hasOutletGroup, hasInventoryItems])
 
   const handleNav = (page: PageType) => {
     if (isOwner || !allowedPages || allowedPages.includes(page)) {

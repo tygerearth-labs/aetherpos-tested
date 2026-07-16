@@ -167,7 +167,6 @@ export async function POST(request: NextRequest) {
           where: {
             OR: [
               { inventoryItemId: item.id },
-              { ingredientId: item.id },
             ],
           },
           select: {
@@ -274,8 +273,6 @@ export async function POST(request: NextRequest) {
         where: { 
           OR: [
             { inventoryItemId: { in: idsToDelete } },
-            { ingredientId: { in: idsToDelete } },
-            { productId: { in: idsToDelete } },
           ]
         } 
       })

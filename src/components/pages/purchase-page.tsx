@@ -2719,7 +2719,7 @@ export default function PurchasePage() {
               className="text-xs font-medium h-7 rounded-md data-[state=active]:bg-white/[0.08] data-[state=active]:text-white text-slate-400 px-3 gap-1.5"
             >
               <ShoppingCart className="h-3 w-3" />
-              Pembelian
+              Pembelian & Inventori
             </TabsTrigger>
             <TabsTrigger
               value="inventory"
