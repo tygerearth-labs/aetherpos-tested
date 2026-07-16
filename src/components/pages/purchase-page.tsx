@@ -2107,6 +2107,18 @@ export default function PurchasePage() {
   }
 
   // Pre-fetch inventory item details when opening delete dialog
+  // LOGIC FULLY ALIGNED WITH BACKEND API (/api/inventory/items/[id] DELETE & /api/inventory/items/bulk-delete POST)
+  //
+  // DEFINITE BLOCKERS (CANNOT delete - must use Archive):
+  // - purchaseItems: Real purchase history from supplier
+  // - inventoryTransferItems: Inter-outlet transfer history  
+  // - consumptionSnapshots: Sales/consumption transactions
+  // - realCompositions: Manual BOM recipes (qty != 1)
+  // - realMovements: Non-migration stock adjustments
+  //
+  // SOFT WARNERS (CAN delete - backend will clean up):
+  // - autoCompositions: Auto 1:1 product links (qty=1) - will be cascade deleted
+  // - migrationMovements: Initial stock from migration - will be deleted
   const openDeleteInvDialog = async (id: string) => {
     setDeleteInvId(id)
     setInvDeleteBlocked(null)
@@ -2115,29 +2127,28 @@ export default function PurchasePage() {
       const res = await fetch(`/api/inventory/items/${id}`)
       if (res.ok) {
         const data = await res.json()
-        // Check business history that blocks deletion
-        // LOGIC ALIGNED WITH getDeleteSafetyStatus() AND BACKEND API
-        // 
-        // DEFINITE BLOCKERS (real business history - cannot delete):
         const counts = data._count || {}
-        const hasPurchaseItems = (counts.purchaseItems || 0) > 0  // Ada riwayat pembelian dari supplier
-        const hasLinkedProducts = data.linkedProducts && data.linkedProducts.length > 0
+        
+        // DEFINITE BLOCKERS - Real business history that CANNOT be deleted
+        const hasPurchaseItems = (counts.purchaseItems || 0) > 0
         const hasTransfers = (counts.inventoryTransferItems || 0) > 0
         const hasConsumption = (counts.consumptionSnapshots || 0) > 0
         
-        // SOFT WARNERS (data that will be cleaned up on delete - can delete):
-        const hasCompositions = (counts.compositions || 0) > 0   // Auto links or BOM (backend decides)
-        const hasMovements = (counts.movements || 0) > 0       // Could be migration or real adjustments
+        // For compositions & movements, we need detailed analysis (like backend does)
+        // But for pre-fetch optimization, we use simple heuristic:
+        // - If ONLY has compositions (no other blockers) → let backend decide
+        // - If has movements → let backend decide (could be migration)
+        const hasCompositions = (counts.compositions || 0) > 0
+        const hasMovements = (counts.movements || 0) > 0
         
-        // Only DEFINITE BLOCKERS should prevent deletion
+        // Only block if DEFINITE BLOCKERS exist
         // Compositions and movements are handled by backend smart-delete logic
-        const shouldBlock = hasPurchaseItems || hasLinkedProducts || hasTransfers || hasConsumption
+        const shouldBlock = hasPurchaseItems || hasTransfers || hasConsumption
         
         if (shouldBlock) {
           const blockers: string[] = []
           if (hasPurchaseItems) blockers.push(`${counts.purchaseItems} riwayat pembelian`)
           if (hasCompositions) blockers.push(`${counts.compositions} komposisi produk`)
-          if (hasLinkedProducts) blockers.push(`${data.linkedProducts.length} link ke produk`)
           if (hasTransfers) blockers.push(`${counts.inventoryTransferItems} riwayat transfer`)
           if (hasConsumption) blockers.push(`${counts.consumptionSnapshots} riwayat konsumsi`)
           
@@ -2145,16 +2156,16 @@ export default function PurchasePage() {
             blockType: hasPurchaseItems ? 'hasPurchases' : 'hasHistory',
             message: hasPurchaseItems 
               ? 'Item ini sudah memiliki riwayat pembelian dan tidak dapat dihapus' 
-              : 'Item ini terhubung ke data lain dan tidak dapat dihapus',
+              : 'Item ini memiliki histori bisnis dan tidak dapat dihapus',
             blockers,
             suggestion: hasPurchaseItems
               ? 'Gunakan "Nonaktifkan" untuk menyembunyikan item tanpa kehilangan data pembelian.'
               : 'Gunakan "Nonaktifkan" untuk menyembunyikan item tanpa menghapus data.',
-            linkedProducts: hasLinkedProducts ? data.linkedProducts : [],
+            linkedProducts: [], // No longer blocking on linked products
           })
         }
-        // Jika hanya ada compositions/movements (data sistem/migrasi) → izinkan hapus
-        // Backend akan membersihkan data otomatis (smart delete logic)
+        // Jika hanya ada compositions/movements (auto-links/migration) → IZINKAN hapus
+        // Backend smart-delete logic akan membersihkan data otomatis
       }
     } catch {
       // Non-critical — dialog will still work, just without pre-fetched data
