@@ -14,6 +14,7 @@ import {
   MoreHorizontal,
   Users,
   ClipboardList,
+  ClipboardCheck,
   Settings,
   UserCog,
   LogOut,
@@ -71,12 +72,14 @@ interface MoreMenuItem {
   section?: string
   danger?: boolean
   groupOnly?: boolean
+  hideWhenNoInventory?: boolean
   action?: () => void
 }
 
 const allMoreMenuItems: MoreMenuItem[] = [
   { page: 'customers', icon: <Users className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Pelanggan', section: 'Utama' },
   { page: 'purchase', icon: <PackagePlus className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Pembelian', section: 'Operasional' },
+  { page: 'stock-opname', icon: <ClipboardCheck className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Stock Opname', section: 'Operasional', hideWhenNoInventory: true },
   { page: 'transfer', icon: <Send className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Kirim Stock/Barang', section: 'Operasional', groupOnly: true },
   { page: 'audit-log', icon: <ClipboardList className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Audit Log', section: 'Manajemen' },
   { page: 'settings', icon: <Settings className="h-[18px] w-[18px]" strokeWidth={1.5} />, label: 'Pengaturan', section: 'Manajemen' },
@@ -92,6 +95,7 @@ export default function MobileBottomNav() {
   const router = useRouter()
   const [moreOpen, setMoreOpen] = useState(false)
   const [hasOutletGroup, setHasOutletGroup] = useState(false)
+  const [hasInventoryItems, setHasInventoryItems] = useState<boolean | null>(null)
   const isOwner = session?.user?.role === 'OWNER'
 
   // ---- Outlet group check ----
@@ -103,6 +107,21 @@ export default function MobileBottomNav() {
         if (res.ok) {
           const data = await res.json()
           if (!cancelled) setHasOutletGroup(!!data.hasGroup || !!data.group)
+        }
+      } catch { /* ignore */ }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  // ---- Inventory items check (for Stock Opname visibility) ----
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/inventory/items?limit=1')
+        if (res.ok) {
+          const data = await res.json()
+          if (!cancelled) setHasInventoryItems(Array.isArray(data.items) && data.items.length > 0)
         }
       } catch { /* ignore */ }
     })()
@@ -164,7 +183,11 @@ export default function MobileBottomNav() {
   }
 
   const multiOutletEnabled = features?.multiOutlet ?? false
-  const moreItems = allMoreMenuItems.filter(i => !i.groupOnly || (hasOutletGroup && multiOutletEnabled))
+  const moreItems = allMoreMenuItems.filter(i => {
+    if (i.groupOnly && !(hasOutletGroup && multiOutletEnabled)) return false
+    if (i.hideWhenNoInventory && hasInventoryItems === false) return false
+    return true
+  })
   const sections = ['Utama', 'Operasional', 'Manajemen']
 
   const isActive = (page: PageType) => currentPage === page
