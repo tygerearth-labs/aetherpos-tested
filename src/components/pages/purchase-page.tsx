@@ -2274,15 +2274,21 @@ export default function PurchasePage() {
         body: JSON.stringify({ ids: idsArray }),
       })
       
-      // Log status first for debugging
+      // Log status first for debugging - DETAILED LOGGING
       console.log('[Bulk Delete] HTTP Status:', res.status, res.statusText)
+      console.log('[Bulk Delete] Response Headers:', Object.fromEntries(res.headers.entries()))
       
       const data = await res.json().catch((e) => {
         console.error('[Bulk Delete] Failed to parse response:', e)
         return { error: 'Gagal membaca response server' }
       })
       
-      console.log('[Bulk Delete] Response:', { status: res.ok, data })
+      // DETAILED LOG - show full response
+      console.log('[Bulk Delete] Full Response:', JSON.stringify({ 
+        status: res.ok, 
+        httpStatus: res.status,
+        data: data 
+      }, null, 2))
       
       if (res.ok) {
         if (data.blockedCount > 0 && data.deletedCount > 0) {
@@ -2323,16 +2329,17 @@ export default function PurchasePage() {
         setSelectedInvIds(new Set())
         void fetchInventoryItems()
       } else {
-        // HTTP error - show detailed error
+        // HTTP error - show detailed error with HTTP status
         const errorMsg = data.error || data.details || data.message || `HTTP ${res.status}: Gagal menghapus`
-        console.error('[Bulk Delete] Error:', errorMsg)
+        console.error('[Bulk Delete] Error:', { httpStatus: res.status, errorMsg, fullResponse: data })
         
         toast.error(
           <div className="space-y-1">
-            <p className="font-semibold">Gagal menghapus item</p>
+            <p className="font-semibold">Gagal menghapus item (HTTP {res.status})</p>
             <p className="text-[11px] opacity-80 break-all">{errorMsg}</p>
+            <p className="text-[9px] opacity-60 mt-1">Detail: {JSON.stringify(data).slice(0, 200)}</p>
           </div>,
-          { duration: 5000 }
+          { duration: 8000 }
         )
         
         // Keep dialog open so user can see error and retry

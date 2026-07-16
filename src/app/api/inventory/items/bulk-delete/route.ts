@@ -18,28 +18,27 @@ interface ItemHistoryAnalysis {
     movements: number
     transferItems: number
     consumptionSnapshots: number
-    // Detailed breakdown
-    migrationMovements: number   // Movements from initial stock (MIGRATION ref type)
-    realMovements: number        // Actual business movements
-    autoCompositions: number     // Auto 1:1 composition links from product_stock mode
-    realCompositions: number     // Manual composition links (mode 3 / BOM)
+    migrationMovements: number
+    realMovements: number
+    autoCompositions: number
+    realCompositions: number
   }
 }
 
 /**
- * SMART DELETE LOGIC for Inventory Items
+ * SMART DELETE LOGIC for Inventory Items (Bulk)
  * 
- * Distinguishes between:
- * 1. REAL BUSINESS HISTORY (blocks deletion):
- *    - PurchaseOrderItem from actual purchases
- *    - InventoryMovement from RESTOCK/ADJUSTMENT/CONSUMPTION/TRANSFER
- *    - TransactionConsumption from sales
- *    - InventoryTransferItem from transfers
- *    - Manual ProductComposition (mode 3 / BOM recipes)
+ * Identical logic to single delete at /api/inventory/items/[id] DELETE
  * 
- * 2. MIGRATION/SYSTEM DATA (allows deletion + cleanup):
- *    - InventoryMovement with referenceType='MIGRATION' (initial stock)
- *    - Auto 1:1 ProductComposition from product_stock mode migration
+ * CAN DELETE:
+ * - No history at all (totalRelations === 0)
+ * - Only MIGRATION data (initial stock) + auto composition links
+ * 
+ * CANNOT DELETE (must use Archive instead):
+ * - Real purchase history
+ * - Transfer history between outlets  
+ * - Sales/consumption transactions
+ * - Manual BOM/composition recipes (qty != 1)
  */
 export async function POST(request: NextRequest) {
   try {
@@ -60,6 +59,8 @@ export async function POST(request: NextRequest) {
       return safeJsonError('Maksimal 200 item per hapus', 400)
     }
 
+    console.log('[Bulk Delete] Processing', ids.length, 'items for outlet:', outletId)
+
     // Fetch all items with their relation counts
     const items = await db.inventoryItem.findMany({
       where: {
@@ -69,6 +70,7 @@ export async function POST(request: NextRequest) {
       select: {
         id: true,
         name: true,
+        stock: true,
         _count: {
           select: {
             compositions: true,
@@ -80,6 +82,8 @@ export async function POST(request: NextRequest) {
         },
       },
     })
+
+    console.log('[Bulk Delete] Found', items.length, 'items in database')
 
     if (items.length === 0) {
       return safeJsonError('Item tidak ditemukan', 404)
@@ -113,6 +117,9 @@ export async function POST(request: NextRequest) {
       const totalRelations = c.compositions + c.purchaseItems + c.movements 
         + c.inventoryTransferItems + c.consumptionSnapshots
       
+      console.log(`[Bulk Delete] Item "${item.name}": stock=${item.stock}, relations=${totalRelations}`, 
+        `{ comp: ${c.compositions}, purch: ${c.purchaseItems}, mov: ${c.movements}, transf: ${c.inventoryTransferItems}, cons: ${c.consumptionSnapshots }`)
+      
       if (totalRelations === 0) {
         analysis.canDelete = true
         analysis.reason = 'Tidak ada histori sama sekali'
@@ -137,7 +144,7 @@ export async function POST(request: NextRequest) {
         analysis.hasRealHistory = true
       }
 
-      // 4. Movements: Need to check types
+      // 4. Movements: Need to check types (MIGRATION vs real business)
       if (c.movements > 0) {
         const movementTypes = await db.inventoryMovement.groupBy({
           by: ['referenceType'],
@@ -160,31 +167,24 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // 5. Compositions: Need to check if auto 1:1 or manual BOM
+      // 5. Compositions: Check if auto 1:1 or manual BOM
       if (c.compositions > 0) {
-        // Check compositions linked to this inventory item
         const compositions = await db.productComposition.findMany({
           where: {
-            OR: [
-              { inventoryItemId: item.id },
-            ],
+            inventoryItemId: item.id,
           },
           select: {
             id: true,
-            productId: true,
             qty: true,
             baseUnit: true,
           },
         })
 
-        // Auto 1:1 compositions from product_stock mode have: qty=1, baseUnit matches inventory unit
-        // Real BOM compositions have custom quantities and multiple ingredients per product
         let autoCount = 0
         let realCount = 0
 
         for (const comp of compositions) {
-          // Check if this looks like an auto-generated 1:1 link
-          // Auto links typically have qty=1 or exact match pattern
+          // Auto 1:1 links have qty=1 and valid baseUnit
           const isAutoLink = comp.qty === 1 && comp.baseUnit !== null
           
           if (isAutoLink) {
@@ -213,12 +213,9 @@ export async function POST(request: NextRequest) {
         if (analysis.details.consumptionSnapshots > 0) reasons.push(`${analysis.details.consumptionSnapshots} konsumsi penjualan`)
         if (analysis.details.realCompositions > 0) reasons.push(`${analysis.details.realCompositions} komposisi/resep`)
         
-        // Add info about migration data that will be cleaned up
-        const migrationInfo: string[] = []
-        if (analysis.details.migrationMovements > 0) migrationInfo.push(`${analysis.details.migrationMovements} stok awal`)
-        if (analysis.details.autoCompositions > 0) migrationInfo.push(`${analysis.details.autoCompositions} link otomatis`)
+        analysis.reason = `Histori bisnis: ${reasons.join(', ')}`
         
-        analysis.reason = `Histori bisnis: ${reasons.join(', ')}${migrationInfo.length > 0 ? ` (+${migrationInfo.join(', ')})` : ''}`
+        console.log(`[Bulk Delete] Item "${item.name}" BLOCKED:`, analysis.reason)
       } else {
         // Only has migration/system data → CAN delete (will clean up migration data)
         analysis.canDelete = true
@@ -227,6 +224,8 @@ export async function POST(request: NextRequest) {
         if (analysis.details.migrationMovements > 0) migrationData.push(`${analysis.details.migrationMovements} stok awal migrasi`)
         if (analysis.details.autoCompositions > 0) migrationData.push(`${analysis.details.autoCompositions} link produk otomatis`)
         analysis.reason = `Hanya data sistem: ${migrationData.join(', ')} → akan dibersihkan`
+        
+        console.log(`[Bulk Delete] Item "${item.name}" DELETABLE (migration data):`, analysis.reason)
       }
 
       analyses.push(analysis)
@@ -235,6 +234,8 @@ export async function POST(request: NextRequest) {
     // Separate into deletable and blocked
     const deletableItems = analyses.filter(a => a.canDelete)
     const blockedItems = analyses.filter(a => !a.canDelete)
+
+    console.log('[Bulk Delete] Result:', deletableItems.length, 'deletable,', blockedItems.length, 'blocked')
 
     // If all items are blocked
     if (deletableItems.length === 0 && blockedItems.length > 0) {
@@ -249,48 +250,73 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // Delete allowed items (including those with only migration data)
+    // Get IDs to delete
     const idsToDelete = deletableItems.map(a => a.id)
 
-    // For items with migration data, we need to clean up first
-    const itemsWithMigrationData = deletableItems.filter(a => a.hasOnlyMigrationData)
-    const itemIdsWithMigration = itemsWithMigrationData.map(a => a.id)
+    let deletedCount = 0
+    
+    // Execute deletion in transaction
+    // IMPORTANT: These child relations do NOT have onDelete: Cascade:
+    // - PurchaseOrderItem (line 514) - but items with purchaseItems should be blocked
+    // - ProductComposition (line 536) - MUST delete explicitly
+    // - InventoryBatch (line 588) - MUST delete explicitly
+    // - InventoryMovement - MUST delete explicitly
+    deletedCount = await db.$transaction(async (tx) => {
+      
+      console.log('[Bulk Delete] Starting transaction cleanup for', idsToDelete.length, 'items')
+      
+      // 1. Clean up ALL compositions for ALL deletable items (not just migration!)
+      const itemsWithCompositions = deletableItems.filter(a => a.details.compositions > 0)
+      if (itemsWithCompositions.length > 0) {
+        console.log('[Bulk Delete] Cleaning up compositions for', itemsWithCompositions.length, 'items:',
+          itemsWithCompositions.map(a => `${a.name} (${a.details.compositions} comps)`))
+        
+        await tx.productComposition.deleteMany({ 
+          where: { 
+            inventoryItemId: { in: idsToDelete },
+          } 
+        })
+        console.log('[Bulk Delete] Compositions cleaned up')
+      }
 
-    const { count } = await db.$transaction(async (tx) => {
-      // 1. Clean up migration movements for items that have them
-      if (itemIdsWithMigration.length > 0) {
+      // 2. Clean up movements for items with migration data
+      const itemsWithMovements = deletableItems.filter(a => a.details.movements > 0)
+      if (itemsWithMovements.length > 0) {
+        console.log('[Bulk Delete] Cleaning up movements for', itemsWithMovements.length, 'items')
+        
         await tx.inventoryMovement.deleteMany({
           where: {
-            inventoryItemId: { in: itemIdsWithMigration },
-            referenceType: 'MIGRATION',
+            inventoryItemId: { in: idsToDelete },
             outletId,
           },
         })
+        console.log('[Bulk Delete] Movements cleaned up')
       }
 
-      // 2. Delete ALL compositions referencing these items (both auto and real, but we confirmed no real)
-      await tx.productComposition.deleteMany({ 
-        where: { 
-          OR: [
-            { inventoryItemId: { in: idsToDelete } },
-          ]
-        } 
-      })
-
-      // 3. Delete batches
+      // 3. Delete batches for all deletable items (no cascade)
       await tx.inventoryBatch.deleteMany({ 
         where: { inventoryItemId: { in: idsToDelete } } 
       })
+      console.log('[Bulk Delete] Batches cleaned up')
 
-      // 4. Delete purchase items (shouldn't exist for deletable, but safety)
-      await tx.purchaseItem.deleteMany({
-        where: { inventoryItemId: { in: idsToDelete } },
-      })
-
-      // 5. Finally delete the inventory items
-      return tx.inventoryItem.deleteMany({
+      // Finally delete the inventory items
+      // All child records cleaned up above, these should have cascade or be cleaned:
+      // - compositions (ProductComposition) ✅ cleaned
+      // - movements (InventoryMovement) ✅ cleaned  
+      // - batches (InventoryBatch) ✅ cleaned
+      // - inventoryTransferItems (InventoryTransferItem) - should be 0 for deletable items
+      // - consumptionSnapshots (TransactionConsumption) - should be 0 for deletable items
+      console.log('[Bulk Delete] Deleting', idsToDelete.length, 'inventory items...')
+      
+      const result = await tx.inventoryItem.deleteMany({
         where: { id: { in: idsToDelete }, outletId },
       })
+      
+      console.log('[Bulk Delete] Deleted', result.count, 'items')
+      return result.count
+    }, { 
+      timeout: 30000,
+      maxWait: 5000 // Max time to wait for transaction slot
     })
 
     // Audit log
@@ -300,9 +326,8 @@ export async function POST(request: NextRequest) {
       entityId: 'bulk',
       details: JSON.stringify({
         deleteType: blockedItems.length > 0 ? 'BULK_PARTIAL_SMART' : 'BULK_SMART',
-        deletedCount: count,
+        deletedCount,
         blockedCount: blockedItems.length,
-        migrationCleanedUp: itemsWithMigrationData.length,
         deletedIds: idsToDelete,
         blockedIds: blockedItems.map(a => a.id),
         analyses: analyses.map(a => ({
@@ -318,24 +343,55 @@ export async function POST(request: NextRequest) {
 
     // Build response
     const response: Record<string, unknown> = {
-      deletedCount: count,
+      deletedCount,
     }
 
     if (blockedItems.length > 0) {
       response.blockedCount = blockedItems.length
       response.blockedItems = blockedItems.map(a => `${a.name}: ${a.reason}`)
-      response.message = `${count} item dihapus${itemsWithMigrationData.length > 0 ? ` (termasuk ${itemsWithMigrationData.length} item dengan data migrasi yang dibersihkan)` : ''}, ${blockedItems.length} item dilewati karena memiliki histori bisnis.`
-    } else if (itemsWithMigrationData.length > 0) {
-      response.message = `${count} item dihapus. Data stok awal & link otomatis telah dibersihkan.`
+      response.message = `${deletedCount} item dihapus, ${blockedItems.length} item dilewati karena memiliki histori bisnis.`
     } else {
-      response.message = `${count} item dihapus berhasil.`
+      response.message = `${deletedCount} item dihapus berhasil.`
     }
 
     response.analyses = analyses
 
+    console.log('[Bulk Delete] SUCCESS:', response.message)
     return safeJson(response)
+    
   } catch (error) {
-    console.error('Inventory bulk delete error:', error)
-    return safeJsonError('Gagal menghapus item inventory')
+    console.error('[Bulk Delete] ERROR:', error)
+    
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+    const errorStack = error instanceof Error ? error.stack : ''
+    
+    // Log detailed error for debugging
+    console.error('[Bulk Delete] Error details:', {
+      message: errorMessage,
+      stack: errorStack,
+      idsAttempted: ids.length,
+    })
+    
+    // Provide specific error messages for common issues
+    if (errorMessage.includes('Foreign key') || errorMessage.includes('foreign key')) {
+      // Extract table name from error message if possible
+      const tableMatch = errorMessage.match(/table "(\w+)"/) || errorMessage.match(/`(\w+)`/)
+      const tableName = tableMatch ? tableMatch[1] : 'unknown'
+      
+      console.error('[Bulk Delete] FK Violation on table:', tableName)
+      
+      return safeJsonError(
+        `Gagal menghapus: Item masih terhubung ke data ${tableName}. Detail: ${errorMessage.slice(0, 200)}`, 
+        400
+      )
+    }
+    if (errorMessage.includes('timeout') || errorMessage.includes('Timeout')) {
+      return safeJsonError('Operasi terlalu lama. Coba dengan jumlah item lebih sedikit (maks 50).', 408)
+    }
+    if (errorMessage.includes('Unique constraint') || errorMessage.includes('unique constraint')) {
+      return safeJsonError('Terjadi konflik data. Refresh halaman dan coba lagi.', 409)
+    }
+    
+    return safeJsonError(`Gagal menghapus item inventory: ${errorMessage.slice(0, 200)}`)
   }
 }
