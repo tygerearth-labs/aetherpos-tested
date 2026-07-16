@@ -1831,140 +1831,118 @@ export default function ProductsPage() {
         )}
       </div>
 
-      {/* Feature Instructions - Modern Redesigned Header */}
+      {/* Feature Instructions - Compact Grid Design */}
       <div className={cn(
-        "rounded-2xl overflow-hidden transition-all duration-500 ease-out",
+        "rounded-xl overflow-hidden transition-all duration-500 ease-out",
         featureHelpOpen 
           ? "bg-gradient-to-br from-white/[0.05] to-white/[0.02] border border-amber-500/30 shadow-lg shadow-amber-500/5" 
           : "bg-gradient-to-r from-amber-500/[0.08] via-orange-500/[0.05] to-yellow-500/[0.08] border border-amber-500/20 hover:border-amber-40 hover:shadow-lg hover:shadow-amber-500/10"
       )}>
-        {/* Gradient accent bar */}
+        {/* Gradient accent bar - thinner */}
         <div className={cn(
-          "h-0.5 transition-all duration-500",
+          "h-px transition-all duration-500",
           featureHelpOpen 
             ? "bg-gradient-to-r from-amber-400 via-orange-400 to-yellow-400" 
             : "bg-gradient-to-r from-amber-500/50 via-orange-500/50 to-yellow-500/50"
         )} />
         <button
           onClick={() => setFeatureHelpOpen(prev => !prev)}
-          className="w-full flex items-center justify-between gap-3 p-4 text-left group relative overflow-hidden"
+          className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left group relative overflow-hidden"
         >
           {/* Subtle background glow on hover */}
           <div className="absolute inset-0 bg-gradient-to-r from-amber-500/0 via-orange-500/0 to-yellow-500/0 group-hover:from-amber-500/[0.03] group-hover:via-orange-500/[0.02] group-hover:to-yellow-500/[0.03] transition-all duration-500 pointer-events-none" />
           
-          <div className="flex items-center gap-3 relative z-10">
-            {/* Icon container with gradient and animation */}
+          <div className="flex items-center gap-2.5 relative z-10">
+            {/* Icon container - compact */}
             <div className={cn(
-              "relative flex items-center justify-center w-10 h-10 rounded-xl transition-all duration-500",
+              "relative flex items-center justify-center w-7 h-7 rounded-lg transition-all duration-500",
               featureHelpOpen 
-                ? "bg-gradient-to-br from-amber-500/20 to-orange-500/20 shadow-lg shadow-amber-500/20 scale-105" 
+                ? "bg-gradient-to-br from-amber-500/20 to-orange-500/20 shadow-md shadow-amber-500/20 scale-105" 
                 : "bg-gradient-to-br from-amber-500/15 to-orange-500/10 group-hover:from-amber-500/25 group-hover:to-orange-500/15 group-hover:scale-105"
             )}>
               <Lightbulb className={cn(
-                "h-5 w-5 shrink-0 transition-all duration-300",
+                "h-4 w-4 shrink-0 transition-all duration-300",
                 featureHelpOpen ? "text-amber-400 drop-shadow-sm" : "text-amber-400/80 group-hover:text-amber-300"
               )} />
-              {/* Pulse ring when closed */}
-              {!featureHelpOpen && (
-                <span className="absolute inset-0 rounded-xl animate-ping bg-amber-500/20 opacity-75" style={{ animationDuration: '2s' }} />
-              )}
             </div>
             
             <div className="flex flex-col">
-              <div className="flex items-center gap-2">
-                <span className={cn(
-                  "text-sm font-semibold transition-all duration-300",
-                  featureHelpOpen 
-                    ? "bg-gradient-to-r from-amber-300 via-orange-300 to-yellow-300 bg-clip-text text-transparent" 
-                    : "text-slate-200 group-hover:text-white"
-                )}>Panduan Fitur Produk</span>
-                {!featureHelpOpen && (
-                  <>
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-gradient-to-r from-rose-500/20 to-pink-500/20 text-rose-400 border border-rose-500/30 animate-pulse">
-                      NEW
-                    </span>
-                  </>
-                )}
-              </div>
-              <span className="text-[10px] text-slate-500 mt-0.5">6 fitur penting untuk kelola produk</span>
+              <span className={cn(
+                "text-xs font-semibold transition-all duration-300",
+                featureHelpOpen 
+                  ? "bg-gradient-to-r from-amber-300 via-orange-300 to-yellow-300 bg-clip-text text-transparent" 
+                  : "text-slate-200 group-hover:text-white"
+              )}>Panduan Fitur Produk</span>
+              <span className="text-[9px] text-slate-500 mt-px">6 fitur penting untuk kelola produk</span>
             </div>
           </div>
           
-          {/* Animated chevron with glow */}
+          {/* Animated chevron - compact */}
           <div className={cn(
-            "flex items-center justify-center w-8 h-8 rounded-lg transition-all duration-300 relative z-10",
+            "flex items-center justify-center w-6 h-6 rounded-md transition-all duration-300 relative z-10",
             featureHelpOpen 
               ? "bg-amber-500/15 rotate-0" 
               : "bg-white/[0.04] group-hover:bg-white/[0.08]"
           )}>
             <ChevronDown className={cn(
-              'h-4 w-4 transition-all duration-500 ease-out',
+              'h-3.5 w-3.5 transition-all duration-500 ease-out',
               featureHelpOpen ? 'rotate-180 text-amber-400' : 'text-slate-400 group-hover:text-slate-300'
             )} />
           </div>
         </button>
         {featureHelpOpen && (
-          <div className="px-4 pb-4 pt-2 space-y-3">
+          <div className="px-3 pb-3 pt-1">
             {/* Divider with gradient */}
-            <div className="h-px bg-gradient-to-r from-transparent via-white/[0.08] to-transparent" />
+            <div className="h-px bg-gradient-to-r from-transparent via-white/[0.08] to-transparent mb-2" />
             
-            {[
-              { icon: <FileSpreadsheet className="h-4 w-4" />, label: 'Excel Dropdown', desc: 'Kumpulan aksi Excel dalam satu menu: Export untuk download, Upload untuk tambah produk baru massal, dan Edit untuk update produk yang sudah ada. Format file tersedia di masing-masing dialog.', color: 'emerald' },
-              { icon: <ListChecks className="h-4 w-4" />, label: 'Edit Massal', desc: 'Centang beberapa produk di tabel, lalu ubah harga, stok, atau kategori secara bersamaan. Tersedia untuk akun Pro & Owner.', color: 'blue' },
-              { icon: <Printer className="h-4 w-4" />, label: 'Cetak Barcode', desc: 'Pilih produk (satu atau banyak) lalu cetak barcode dalam format yang siap tempel ke label produk.', color: 'violet' },
-              { icon: <ScanBarcode className="h-4 w-4" />, label: 'Barcode & SKU', desc: 'Setiap produk bisa punya SKU manual dan/atau barcode. Di POS, scan barcode langsung menambahkan produk ke keranjang.', color: 'cyan' },
-              { icon: <Tags className="h-4 w-4" />, label: 'Kategori', desc: 'Klik kategori di atas untuk filter. Di POS, kategori muncul sebagai tab filter untuk mempercepat pencarian.', color: 'pink' },
-              { icon: <AlertTriangle className="h-4 w-4" />, label: 'Stok Rendah', desc: 'Atur "Peringatan Stok Rendah" di form produk. Jika stok ≤ batas, produk ditandai kuning di tabel dan POS.', color: 'amber' },
-            ].map((item, index) => (
-              <div key={item.label} className="flex gap-3 group/feature">
-                {/* Step number or icon container */}
-                <div className="relative flex-shrink-0">
+            {/* 2x3 Grid Layout for compact display */}
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { icon: <FileSpreadsheet className="h-3.5 w-3.5" />, label: 'Excel Dropdown', desc: 'Kumpulan aksi Excel dalam satu menu untuk export, upload, dan edit massal.', color: 'emerald' },
+                { icon: <ListChecks className="h-3.5 w-3.5" />, label: 'Edit Massal', desc: 'Centang beberapa produk lalu ubah harga, stok, atau kategori bersamaan.', color: 'blue' },
+                { icon: <Printer className="h-3.5 w-3.5" />, label: 'Cetak Barcode', desc: 'Pilih produk lalu cetak barcode dalam format siap tempel ke label.', color: 'violet' },
+                { icon: <ScanBarcode className="h-3.5 w-3.5" />, label: 'Barcode & SKU', desc: 'Setiap produk bisa punya SKU manual. Scan langsung tambah ke keranjang.', color: 'cyan' },
+                { icon: <Tags className="h-3.5 w-3.5" />, label: 'Kategori', desc: 'Klik kategori di atas untuk filter. Di POS muncul sebagai tab filter.', color: 'pink' },
+                { icon: <AlertTriangle className="h-3.5 w-3.5" />, label: 'Stok Rendah', desc: 'Atur peringatan stok rendah. Produk ditandai kuning jika stok ≤ batas.', color: 'amber' },
+              ].map((item) => (
+                <div key={item.label} className={cn(
+                  "flex items-start gap-2 p-2 rounded-lg transition-all duration-300 border group/feature",
+                  item.color === 'emerald' && "bg-gradient-to-br from-emerald-500/10 to-teal-500/5 border-emerald-500/20 hover:from-emerald-500/15 hover:border-emerald-500/30",
+                  item.color === 'blue' && "bg-gradient-to-br from-blue-500/10 to-indigo-500/5 border-blue-500/20 hover:from-blue-500/15 hover:border-blue-500/30",
+                  item.color === 'violet' && "bg-gradient-to-br from-violet-500/10 to-purple-500/5 border-violet-500/20 hover:from-violet-500/15 hover:border-violet-500/30",
+                  item.color === 'cyan' && "bg-gradient-to-br from-cyan-500/10 to-teal-500/5 border-cyan-500/20 hover:from-cyan-500/15 hover:border-cyan-500/30",
+                  item.color === 'pink' && "bg-gradient-to-br from-pink-500/10 to-rose-500/5 border-pink-500/20 hover:from-pink-500/15 hover:border-pink-500/30",
+                  item.color === 'amber' && "bg-gradient-to-br from-amber-500/10 to-orange-500/5 border-amber-500/20 hover:from-amber-500/15 hover:border-amber-500/30"
+                )}>
+                  {/* Icon container - small */}
                   <div className={cn(
-                    "w-8 h-8 rounded-xl flex items-center justify-center transition-all duration-300 border",
-                    item.color === 'emerald' && "bg-gradient-to-br from-emerald-500/15 to-teal-500/10 border-emerald-500/25 group-hover/feature:from-emerald-500/25 group-hover/feature:border-emerald-400/40",
-                    item.color === 'blue' && "bg-gradient-to-br from-blue-500/15 to-indigo-500/10 border-blue-500/25 group-hover/feature:from-blue-500/25 group-hover/feature:border-blue-400/40",
-                    item.color === 'violet' && "bg-gradient-to-br from-violet-500/15 to-purple-500/10 border-violet-500/25 group-hover/feature:from-violet-500/25 group-hover/feature:border-violet-400/40",
-                    item.color === 'cyan' && "bg-gradient-to-br from-cyan-500/15 to-teal-500/10 border-cyan-500/25 group-hover/feature:from-cyan-500/25 group-hover/feature:border-cyan-400/40",
-                    item.color === 'pink' && "bg-gradient-to-br from-pink-500/15 to-rose-500/10 border-pink-500/25 group-hover/feature:from-pink-500/25 group-hover/feature:border-pink-400/40",
-                    item.color === 'amber' && "bg-gradient-to-br from-amber-500/15 to-orange-500/10 border-amber-500/25 group-hover/feature:from-amber-500/25 group-hover/feature:border-amber-400/40"
+                    "flex-shrink-0 w-6 h-6 rounded-md flex items-center justify-center mt-px",
+                    item.color === 'emerald' && "bg-emerald-500/15 text-emerald-400",
+                    item.color === 'blue' && "bg-blue-500/15 text-blue-400",
+                    item.color === 'violet' && "bg-violet-500/15 text-violet-400",
+                    item.color === 'cyan' && "bg-cyan-500/15 text-cyan-400",
+                    item.color === 'pink' && "bg-pink-500/15 text-pink-400",
+                    item.color === 'amber' && "bg-amber-500/15 text-amber-400"
                   )}>
-                    <span className={cn(
-                      "transition-colors duration-300",
-                      item.color === 'emerald' && "text-emerald-400",
-                      item.color === 'blue' && "text-blue-400",
-                      item.color === 'violet' && "text-violet-400",
-                      item.color === 'cyan' && "text-cyan-400",
-                      item.color === 'pink' && "text-pink-400",
-                      item.color === 'amber' && "text-amber-400"
-                    )}>{item.icon}</span>
+                    {item.icon}
                   </div>
-                  {/* Connector line (except for last item) */}
-                  {index < 5 && (
-                    <div className={cn(
-                      "absolute left-1/2 top-8 w-px h-[calc(100%+0.5rem)] bg-gradient-to-b to-transparent -translate-x-1/2",
-                      item.color === 'emerald' && "from-emerald-500/30",
-                      item.color === 'blue' && "from-blue-500/30",
-                      item.color === 'violet' && "from-violet-500/30",
-                      item.color === 'cyan' && "from-cyan-500/30",
-                      item.color === 'pink' && "from-pink-500/30",
-                      item.color === 'amber' && "from-amber-500/30"
-                    )} />
-                  )}
+                  
+                  {/* Text content */}
+                  <div className="flex-1 min-w-0">
+                    <p className={cn(
+                      "text-[11px] font-semibold leading-tight truncate transition-colors",
+                      item.color === 'emerald' && "text-slate-200 group-hover/feature:text-emerald-300",
+                      item.color === 'blue' && "text-slate-200 group-hover/feature:text-blue-300",
+                      item.color === 'violet' && "text-slate-200 group-hover/feature:text-violet-300",
+                      item.color === 'cyan' && "text-slate-200 group-hover/feature:text-cyan-300",
+                      item.color === 'pink' && "text-slate-200 group-hover/feature:text-pink-300",
+                      item.color === 'amber' && "text-slate-200 group-hover/feature:text-amber-300"
+                    )}>{item.label}</p>
+                    <p className="text-[10px] text-slate-400 leading-snug line-clamp-2 mt-0.5">{item.desc}</p>
+                  </div>
                 </div>
-                <div className="flex-1 pt-1">
-                  <p className={cn(
-                    "text-xs font-semibold mb-1 transition-colors group-hover/feature:text-opacity-80",
-                    item.color === 'emerald' && "text-slate-200 group-hover/feature:text-emerald-300",
-                    item.color === 'blue' && "text-slate-200 group-hover/feature:text-blue-300",
-                    item.color === 'violet' && "text-slate-200 group-hover/feature:text-violet-300",
-                    item.color === 'cyan' && "text-slate-200 group-hover/feature:text-cyan-300",
-                    item.color === 'pink' && "text-slate-200 group-hover/feature:text-pink-300",
-                    item.color === 'amber' && "text-slate-200 group-hover/feature:text-amber-300"
-                  )}>{item.label}</p>
-                  <p className="text-[11px] text-slate-400 leading-relaxed">{item.desc}</p>
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         )}
       </div>
