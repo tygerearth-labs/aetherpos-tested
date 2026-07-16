@@ -643,6 +643,8 @@ export default function PurchasePage() {
   const [poDetailLoading, setPoDetailLoading] = useState(false)
   const [poDetailHasLinked, setPoDetailHasLinked] = useState(false)
   const [poDetailHasUsageHistory, setPoDetailHasUsageHistory] = useState(false)
+  // Track real business history for consistent edit/disable logic with table
+  const [poDetailHasRealBusinessHistory, setPoDetailHasRealBusinessHistory] = useState(false)
 
   // Purchase create dialog
   const [poCreateOpen, setPoCreateOpen] = useState(false)
@@ -1086,6 +1088,8 @@ export default function PurchasePage() {
     setPoDetailLoading(true)
     setPoDetailHasLinked(!!po.hasLinkedItems)
     setPoDetailHasUsageHistory(!!po.hasUsageHistory)
+    // Sync with table logic - use same hasRealBusinessHistory flag
+    setPoDetailHasRealBusinessHistory(!!po.hasRealBusinessHistory)
     try {
       const res = await fetch(`/api/purchases/${po.id}`)
       if (res.ok) {
@@ -2254,16 +2258,24 @@ export default function PurchasePage() {
   }
 
   const handleInvBulkDelete = async () => {
-    if (selectedInvIds.size === 0) return
+    if (selectedInvIds.size === 0) {
+      console.warn('[Bulk Delete] No items selected!')
+      toast.error('Tidak ada item yang dipilih')
+      return
+    }
     setInvBulkDeleting(true)
     try {
-      console.log('[Bulk Delete] Attempting to delete', selectedInvIds.size, 'items:', Array.from(selectedInvIds))
+      const idsArray = Array.from(selectedInvIds)
+      console.log('[Bulk Delete] Attempting to delete', idsArray.length, 'items:', idsArray)
       
       const res = await fetch('/api/inventory/items/bulk-delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: Array.from(selectedInvIds) }),
+        body: JSON.stringify({ ids: idsArray }),
       })
+      
+      // Log status first for debugging
+      console.log('[Bulk Delete] HTTP Status:', res.status, res.statusText)
       
       const data = await res.json().catch((e) => {
         console.error('[Bulk Delete] Failed to parse response:', e)
@@ -4774,37 +4786,78 @@ export default function PurchasePage() {
               {isOwner && (
               <div>
                 <div className="flex gap-2 pt-2 border-t border-white/[0.04]">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="flex-1 h-8 text-xs gap-1.5 text-slate-400 hover:text-white hover:bg-white/[0.04]"
-                    onClick={() => { openPoEdit(poDetailData!) }}
-                  >
-                    <Edit3 className="h-3.5 w-3.5" />
-                    Edit
-                  </Button>
+                  {/* EDIT BUTTON - SINKRON DENGAN TABLE LOGIC */}
                   <Button
                     size="sm"
                     variant="ghost"
                     className={cn(
                       "flex-1 h-8 text-xs gap-1.5",
-                      (poDetailHasLinked || poDetailHasUsageHistory)
-                        ? "text-red-400/40 cursor-not-allowed"
-                        : "text-red-400 hover:text-red-300 hover:bg-red-500/[0.06]"
+                      poDetailHasRealBusinessHistory
+                        ? "text-slate-600 cursor-not-allowed"
+                        : "text-slate-400 hover:text-white hover:bg-white/[0.04]"
                     )}
-                    onClick={() => { if (!poDetailHasLinked && !poDetailHasUsageHistory) setDeletePoId(poDetailData!.id) }}
-                    disabled={poDetailHasLinked || poDetailHasUsageHistory}
+                    onClick={() => {
+                      if (poDetailHasRealBusinessHistory) {
+                        toast.error('Pembelian memiliki riwayat bisnis (transfer/penjualan) — tidak bisa diedit')
+                        return
+                      }
+                      openPoEdit(poDetailData!)
+                    }}
+                    disabled={poDetailHasRealBusinessHistory}
+                    title={poDetailHasRealBusinessHistory ? 'Ada riwayat transfer/penjualan' : 'Edit pembelian'}
+                  >
+                    <Edit3 className="h-3.5 w-3.5" />
+                    Edit
+                  </Button>
+                  {/* HAPUS BUTTON - SINKRON DENGAN TABLE LOGIC */}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className={cn(
+                      "flex-1 h-8 text-xs gap-1.5",
+                      (poDetailHasRealBusinessHistory || poDetailHasUsageHistory)
+                        ? "text-red-400/40 cursor-not-allowed"
+                        : poDetailHasLinked
+                          ? "text-amber-400 hover:text-amber-300 hover:bg-amber-500/[0.06]"
+                          : "text-red-400 hover:text-red-300 hover:bg-red-500/[0.06]"
+                    )}
+                    onClick={() => {
+                      if (poDetailHasRealBusinessHistory || poDetailHasUsageHistory) {
+                        toast.error('Pembelian memiliki riwayat bisnis — tidak bisa dihapus')
+                        return
+                      }
+                      if (poDetailHasLinked) {
+                        toast.warning('Link ke produk akan dibersihkan otomatis')
+                      }
+                      setDeletePoId(poDetailData!.id)
+                    }}
+                    disabled={poDetailHasRealBusinessHistory || poDetailHasUsageHistory}
+                    title={
+                      (poDetailHasRealBusinessHistory || poDetailHasUsageHistory)
+                        ? 'Ada riwayat bisnis — tidak bisa dihapus'
+                        : poDetailHasLinked
+                          ? 'Hapus (link produk akan dibersihkan)'
+                          : 'Hapus pembelian'
+                    }
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                     Hapus
                   </Button>
                 </div>
-                {(poDetailHasLinked || poDetailHasUsageHistory) && (
+                {/* Warning message - sinkron dengan table logic */}
+                {poDetailHasRealBusinessHistory && (
+                  <p className="text-[10px] text-red-400/70 text-center -mt-1">
+                    ⚠ Pembelian memiliki riwayat transfer/penjualan — tidak bisa edit/hapus
+                  </p>
+                )}
+                {!poDetailHasRealBusinessHistory && poDetailHasLinked && (
                   <p className="text-[10px] text-amber-400/70 text-center -mt-1">
-                    {poDetailHasUsageHistory
-                      ? '⚠ Item sudah terpakai dalam transaksi — tidak bisa dihapus'
-                      : '⚠ Item terkait produk — hapus pembelian bisa mengubah komposisi'
-                    }
+                    ⚠ Item terkait produk — hapus pembelian bisa mengubah komposisi
+                  </p>
+                )}
+                {!poDetailHasRealBusinessHistory && !poDetailHasLinked && poDetailHasUsageHistory && (
+                  <p className="text-[10px] text-amber-400/70 text-center -mt-1">
+                    ⚠ Item sudah terpakai dalam transaksi — tidak bisa dihapus
                   </p>
                 )}
               </div>
