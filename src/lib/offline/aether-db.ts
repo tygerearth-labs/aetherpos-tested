@@ -231,6 +231,53 @@ export interface OfflineMetadata {
 }
 
 // ════════════════════════════════════════════════════════════
+// Stock Opname Snapshot (Transient Workspace)
+// ════════════════════════════════════════════════════════════
+// 
+// This is a TEMPORARY workspace for stock counting.
+// NOT synced to server — cleared after opname completes.
+//
+// Flow:
+//   Start Opname → Snapshot from server → User counts → Complete
+//   → Server validates & applies adjustments → Clear Dexie
+
+export interface StockOpnameSnapshot {
+  id: string                    // Auto-generated UUID
+  inventoryItemId: string       // FK to InventoryItem
+  batchId: string | null        // FK to InventoryBatch (null = no batch)
+  
+  // Item info (snapshot at start time)
+  itemName: string
+  itemSku: string | null
+  itemUnit: string
+  batchNumber: string | null
+  categoryId: string | null
+  categoryName: string | null
+  
+  // Quantities
+  systemQty: number             // System stock at snapshot time (frozen)
+  physicalQty: number | null    // Physical count (user input, null = not counted)
+  
+  // Metadata
+  isCounted: boolean            // Quick flag for filtering
+  notes: string | null          // Reason for variance (optional)
+  
+  createdAt: string             // ISO 8601 - when snapshot was taken
+  updatedAt: string             // ISO 8601 - last update time
+}
+
+// Session metadata for current/active opname
+export interface StockOpnameSession {
+  id: string                    // Always 'current' (singleton)
+  status: 'DRAFT' | 'COUNTING' | 'REVIEW' | 'COMPLETING'
+  startedAt: string             // ISO 8601
+  totalItems: number            // Total items in this session
+  countedItems: number          // Items that have physicalQty
+  varianceItems: number         // Items where physicalQty !== systemQty
+  notes: string | null
+}
+
+// ════════════════════════════════════════════════════════════
 // Dexie Database
 // ════════════════════════════════════════════════════════════
 
@@ -250,11 +297,15 @@ class AetherDB extends Dexie {
   syncQueue!: EntityTable<SyncQueueItem, 'id'>
   settings!: EntityTable<OfflineSetting, 'key'>
   metadata!: EntityTable<OfflineMetadata, 'key'>
+  
+  // ── Stock Opname (Transient Workspace) ──
+  stockOpnameSnapshots!: EntityTable<StockOpnameSnapshot, 'id'>
+  stockOpnameSession!: EntityTable<StockOpnameSession, 'id'>
 
   constructor() {
     super('aetherpos-offline')
 
-    this.version(1).stores({
+    this.version(2).stores({
       // ── Master Data ──
       products:             'id, name, sku, barcode, categoryId, outletId, syncStatus, deletedAt',
       variants:             'id, productId, name, sku, barcode, outletId, syncStatus, deletedAt',
@@ -277,6 +328,10 @@ class AetherDB extends Dexie {
       // ── Settings & Metadata ──
       settings:             'key',
       metadata:             'key',
+
+      // ── Stock Opname (Transient - NOT synced) ──
+      stockOpnameSnapshots: 'id, inventoryItemId, batchId, itemName, isCounted, createdAt',
+      stockOpnameSession:   'id, status',  // Singleton: id = 'current'
     })
   }
 }

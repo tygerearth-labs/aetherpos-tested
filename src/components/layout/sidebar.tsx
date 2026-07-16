@@ -18,6 +18,7 @@ import {
   ShoppingCart,
   Receipt,
   ClipboardList,
+  ClipboardCheck,
   LogOut,
   Settings,
   ShieldAlert,
@@ -75,6 +76,7 @@ const navItems: NavItem[] = [
   { label: 'POS', shortLabel: 'POS', icon: <ShoppingCart className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'pos', section: 'operations' },
   { label: 'Transaksi', shortLabel: 'Txn', icon: <Receipt className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'transactions', section: 'operations' },
   { label: 'Pembelian', shortLabel: 'PO', icon: <PackagePlus className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'purchase', section: 'operations' },
+  { label: 'Stok & Opname', shortLabel: 'Stok', icon: <ClipboardCheck className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'stock-opname', section: 'operations' },
   { label: 'Kirim Stock/Barang', shortLabel: 'Kirim', icon: <Send className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'transfer', section: 'operations', groupOnly: true },
   // ── Manajemen ──
   { label: 'Audit Log', shortLabel: 'Log', icon: <ClipboardList className="h-[18px] w-[18px]" strokeWidth={1.5} />, page: 'audit-log', section: 'management' },
