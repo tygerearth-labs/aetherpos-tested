@@ -104,6 +104,9 @@ import {
   TrendingDown,
   AlertCircle,
   FolderInput,
+  Ban,
+  Lock,
+  Lightbulb,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import SupplierSearchInput from '@/components/purchase/supplier-search-input'
@@ -1870,25 +1873,41 @@ export default function PurchasePage() {
       const res = await fetch(`/api/inventory/items/${id}`)
       if (res.ok) {
         const data = await res.json()
-        // Check ALL business history types (not just linked products)
+        // Check business history that blocks deletion
+        // NOTE: "movements" (stok awal migrasi) does NOT block deletion — user may be testing migration
+        // Only real business transactions block deletion:
         const counts = data._count || {}
-        const totalHistory = (counts.compositions || 0) + (counts.purchaseItems || 0) + (counts.movements || 0) + (counts.inventoryTransferItems || 0) + (counts.consumptionSnapshots || 0)
+        const hasPurchaseItems = (counts.purchaseItems || 0) > 0  // Ada riwayat pembelian dari supplier
+        const hasCompositions = (counts.compositions || 0) > 0   // Ada komposisi/resep produk
         const hasLinkedProducts = data.linkedProducts && data.linkedProducts.length > 0
-        if (totalHistory > 0 || hasLinkedProducts) {
+        const hasTransfers = (counts.inventoryTransferItems || 0) > 0
+        const hasConsumption = (counts.consumptionSnapshots || 0) > 0
+        
+        // Item dengan pembelian → TIDAK BISA DIHAPUS (hanya nonaktifkan)
+        // Item migrasi-only (hanya movements/stok awal) → BISA DIHAPUS
+        const shouldBlock = hasPurchaseItems || hasCompositions || hasLinkedProducts || hasTransfers || hasConsumption
+        
+        if (shouldBlock) {
           const blockers: string[] = []
-          if (counts.compositions > 0) blockers.push(`${counts.compositions} komposisi produk`)
-          if (counts.purchaseItems > 0) blockers.push(`${counts.purchaseItems} riwayat pembelian`)
-          if (counts.movements > 0) blockers.push(`${counts.movements} riwayat stok`)
-          if (counts.inventoryTransferItems > 0) blockers.push(`${counts.inventoryTransferItems} riwayat transfer`)
-          if (counts.consumptionSnapshots > 0) blockers.push(`${counts.consumptionSnapshots} riwayat konsumsi`)
+          if (hasPurchaseItems) blockers.push(`${counts.purchaseItems} riwayat pembelian`)
+          if (hasCompositions) blockers.push(`${counts.compositions} komposisi produk`)
+          if (hasLinkedProducts) blockers.push(`${data.linkedProducts.length} link ke produk`)
+          if (hasTransfers) blockers.push(`${counts.inventoryTransferItems} riwayat transfer`)
+          if (hasConsumption) blockers.push(`${counts.consumptionSnapshots} riwayat konsumsi`)
+          
           setInvDeleteBlocked({
-            blockType: 'hasHistory',
-            message: 'Item ini memiliki histori bisnis dan tidak dapat dihapus',
+            blockType: hasPurchaseItems ? 'hasPurchases' : 'hasHistory',
+            message: hasPurchaseItems 
+              ? 'Item ini sudah memiliki riwayat pembelian dan tidak dapat dihapus' 
+              : 'Item ini terhubung ke data lain dan tidak dapat dihapus',
             blockers,
-            suggestion: 'Gunakan "Nonaktifkan" untuk menyembunyikan item tanpa menghapus data.',
+            suggestion: hasPurchaseItems
+              ? 'Gunakan "Nonaktifkan" untuk menyembunyikan item tanpa kehilangan data pembelian.'
+              : 'Gunakan "Nonaktifkan" untuk menyembunyikan item tanpa menghapus data.',
             linkedProducts: hasLinkedProducts ? data.linkedProducts : [],
           })
         }
+        // Jika hanya ada movements (stok awal migrasi) → izinkan hapus (tidak set invDeleteBlocked)
       }
     } catch {
       // Non-critical — dialog will still work, just without pre-fetched data
@@ -2644,41 +2663,26 @@ export default function PurchasePage() {
 
             {/* Panduan Alur Pembelian - dengan Pulse Highlight */}
             <div className={cn(
-              "rounded-xl border overflow-hidden transition-all duration-300",
-              showPurchaseGuide 
-                ? "bg-white/[0.02] border-white/[0.06]" 
-                : "bg-gradient-to-r from-amber-500/[0.08] via-orange-500/[0.05] to-yellow-500/[0.08] border-amber-500/30 shadow-lg shadow-amber-500/5"
+              "rounded-xl border overflow-hidden transition-all duration-300 bg-white/[0.02] border-white/[0.06]"
             )}>
               <button
-                className="w-full flex items-center justify-between gap-2 p-3 text-left hover:bg-white/[0.03] transition-colors relative"
+                className="w-full flex items-center justify-between gap-2 p-3 text-left hover:bg-white/[0.03] transition-colors"
                 onClick={() => setShowPurchaseGuide(prev => !prev)}
               >
-                {/* Pulse indicator when closed */}
-                {!showPurchaseGuide && (
-                  <span className="absolute top-2 right-2 flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
-                  </span>
-                )}
                 <div className="flex items-center gap-2">
                   <div className={cn(
                     "flex items-center justify-center w-6 h-6 rounded-md transition-colors",
-                    showPurchaseGuide ? "bg-emerald-500/10" : "bg-amber-500/15 animate-pulse"
+                    showPurchaseGuide ? "bg-emerald-500/10" : "bg-slate-500/10"
                   )}>
                     <Info className={cn(
                       "h-3.5 w-3.5 shrink-0 transition-colors",
-                      showPurchaseGuide ? "text-emerald-400" : "text-amber-400"
+                      showPurchaseGuide ? "text-emerald-400" : "text-slate-400"
                     )} />
                   </div>
                   <span className={cn(
                     "text-[11px] font-medium transition-colors",
-                    showPurchaseGuide ? "text-slate-300" : "text-amber-300"
-                  )}>Panduan Pembelian & Inventory</span>
-                  {!showPurchaseGuide && (
-                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-medium animate-pulse">
-                      NEW
-                    </span>
-                  )}
+                    showPurchaseGuide ? "text-slate-300" : "text-slate-400"
+                  )}>Panduan Pembelian</span>
                 </div>
                 <ChevronDown className={cn('h-3.5 w-3.5 text-slate-500 transition-transform duration-200', showPurchaseGuide && 'rotate-180')} />
               </button>
@@ -2892,22 +2896,22 @@ export default function PurchasePage() {
             </div>
 
             {/* Mobile Cards */}
-            <div className="md:hidden space-y-2">
+            <div className="md:hidden space-y-3">
               {poList.length === 0 ? (
                 <Card className="bg-nebula border-white/[0.06] rounded-xl">
                   <CardContent className="py-12 text-center">
                     <div className="flex flex-col items-center">
-                      <div className="w-12 h-12 rounded-2xl bg-white/[0.04] flex items-center justify-center mb-3">
-                        <ShoppingCart className="h-6 w-6 text-slate-600" />
+                      <div className="w-14 h-14 rounded-2xl bg-white/[0.04] flex items-center justify-center mb-3">
+                        <ShoppingCart className="h-7 w-7 text-slate-600" />
                       </div>
-                      <p className="text-sm text-slate-400 mb-1">Belum ada pembelian</p>
+                      <p className="text-sm text-slate-400 mb-1 font-medium">Belum ada pembelian</p>
                       <p className="text-xs text-slate-600 mb-4">Catat pembelian pertama untuk mulai melacak stok</p>
                       <Button
                         size="sm"
                         onClick={() => { resetPoCreateForm(); openPoCreate() }}
-                        className="theme-bg theme-hover text-white text-xs h-8 px-4 rounded-lg gap-1.5"
+                        className="theme-bg theme-hover text-white text-xs h-9 px-5 rounded-lg gap-1.5"
                       >
-                        <Plus className="h-3.5 w-3.5" />
+                        <Plus className="h-4 w-4" />
                         Buat Pembelian
                       </Button>
                     </div>
@@ -2915,7 +2919,16 @@ export default function PurchasePage() {
                 </Card>
               ) : (
                 <AnimatePresence>
-                  {poList.map((po) => (
+                  {poList.map((po) => {
+                    // Determine card accent based on expiry status
+                    const hasExpiredItems = po._batchSummary?.expiredItems > 0
+                    const hasExpiringSoon = po._batchSummary?.nearestExp && !hasExpiredItems
+                    
+                    let cardBorder = 'border-white/[0.06]'
+                    if (hasExpiredItems) cardBorder = 'border-red-500/25'
+                    else if (hasExpiringSoon) cardBorder = 'border-amber-500/25'
+                    
+                    return (
                     <motion.div
                       key={po.id}
                       initial={{ opacity: 0, y: 8 }}
@@ -2923,78 +2936,96 @@ export default function PurchasePage() {
                       exit={{ opacity: 0, y: -8 }}
                       transition={{ duration: 0.2 }}
                     >
-                      <Card className="bg-nebula border-white/[0.06] rounded-xl hover:border-white/[0.1] transition-colors">
-                        <CardContent className="p-3 space-y-2">
+                      <Card className={cn(
+                        "bg-nebula border rounded-xl transition-colors",
+                        hasExpiredItems ? "border-red-500/25 bg-red-500/[0.02]" : hasExpiringSoon ? "border-amber-500/25 bg-amber-500/[0.02]" : "border-white/[0.06] hover:border-white/[0.1]"
+                      )}>
+                        <CardContent className="p-4 space-y-3">
+                          {/* Header Row - PO Number + Total */}
                           <div className="flex items-center justify-between gap-2">
-                            <span className="text-xs text-white font-medium font-mono truncate">{po.orderNumber}</span>
-                            <div className="flex items-center gap-0.5 shrink-0">
-                              <span className="text-[11px] text-emerald-400 font-medium mr-1">{formatCurrency(po.totalCost)}</span>
-                              <button
-                                className="w-7 h-7 rounded-md flex items-center justify-center text-slate-500 hover:text-white hover:bg-white/[0.06] transition-colors"
-                                onClick={() => openPoDetail(po)}
-                              >
-                                <Eye className="h-3.5 w-3.5" />
-                              </button>
-                              <button
-                                className="w-7 h-7 rounded-md flex items-center justify-center text-slate-500 hover:text-white hover:bg-white/[0.06] transition-colors"
-                                onClick={() => openPoEdit(po)}
-                              >
-                                <Pencil className="h-3.5 w-3.5" />
-                              </button>
-                              {isOwner && (
-                              <button
-                                className={cn(
-                                  "w-7 h-7 rounded-md flex items-center justify-center transition-colors",
-                                  (po.hasLinkedItems || po.hasUsageHistory)
-                                    ? "text-red-400/30 cursor-not-allowed"
-                                    : "text-slate-500 hover:text-red-400 hover:bg-red-500/[0.06]"
-                                )}
-                                onClick={() => !(po.hasLinkedItems || po.hasUsageHistory) && setDeletePoId(po.id)}
-                                disabled={po.hasLinkedItems || po.hasUsageHistory}
-                                title={
-                                  (po.hasLinkedItems || po.hasUsageHistory)
-                                    ? 'Sudah ada link ke produk/pembelian/transfer'
-                                    : 'Hapus'
-                                }
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                              )}
+                            <div className="flex items-center gap-2 min-w-0">
+                              <div className="h-9 w-9 rounded-lg bg-white/[0.04] flex items-center justify-center shrink-0">
+                                <FileText className="h-4 w-4 text-slate-500" />
+                              </div>
+                              <span className="text-sm text-white font-semibold font-mono truncate">{po.orderNumber}</span>
                             </div>
+                            <span className="text-sm font-bold text-emerald-400 tabular-nums">{formatCurrency(po.totalCost)}</span>
                           </div>
+                          
+                          {/* Supplier + Date Row */}
                           <div className="flex items-center justify-between text-slate-400">
-                            <span className="text-[11px]">{po.supplierName || '-'}</span>
+                            <span className="text-[12px] truncate">{po.supplierName || '-'}</span>
                             <span className="text-[11px]">{formatDate(po.createdAt)}</span>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <div className="flex items-center gap-1.5 text-slate-500">
-                              <Package className="h-3 w-3" />
-                              <span className="text-[11px]">{po.itemCount ?? po._count?.items ?? 0} item</span>
-                            </div>
-                            {po._batchSummary && (po._batchSummary.itemsWithBatch > 0 || po._batchSummary.itemsWithExp > 0) && (
-                              <div className="flex items-center gap-1">
-                                {po._batchSummary.itemsWithBatch > 0 && (
-                                  <span className="text-[9px] font-mono text-blue-400/70 bg-blue-500/10 px-1.5 py-0.5 rounded leading-none">
-                                    B:{po._batchSummary.sampleBatch || `${po._batchSummary.itemsWithBatch}`}
-                                  </span>
-                                )}
-                                {po._batchSummary.nearestExp && (
-                                  <span className={cn(
-                                    "text-[9px] px-1.5 py-0.5 rounded font-medium leading-none",
-                                    po._batchSummary.expiredItems > 0
-                                      ? "text-red-400 bg-red-500/10"
-                                      : "text-amber-400/70 bg-amber-500/10"
-                                  )}>
-                                    Exp: {formatDate(po._batchSummary.nearestExp).split(' ')[0]}
-                                  </span>
-                                )}
+                          
+                          {/* Batch/Exp Info + Actions Row */}
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <div className="flex items-center gap-1.5 text-slate-500">
+                                <Package className="h-3.5 w-3.5" />
+                                <span className="text-[12px] font-medium">{po.itemCount ?? po._count?.items ?? 0} item</span>
                               </div>
-                            )}
+                              {po._batchSummary && (po._batchSummary.itemsWithBatch > 0 || po._batchSummary.itemsWithExp > 0) && (
+                                <div className="flex items-center gap-1">
+                                  {po._batchSummary.itemsWithBatch > 0 && (
+                                    <span className="text-[10px] font-mono text-blue-400/80 bg-blue-500/10 px-1.5 py-0.5 rounded leading-none">
+                                      B:{po._batchSummary.sampleBatch || `${po._batchSummary.itemsWithBatch}`}
+                                    </span>
+                                  )}
+                                  {po._batchSummary.nearestExp && (
+                                    <span className={cn(
+                                      "text-[10px] px-1.5 py-0.5 rounded font-medium leading-none",
+                                      po._batchSummary.expiredItems > 0
+                                        ? "text-red-400 bg-red-500/10"
+                                        : "text-amber-400/70 bg-amber-500/10"
+                                    )}>
+                                      Exp: {formatDate(po._batchSummary.nearestExp).split(' ')[0]}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                            
+                            {/* Action buttons */}
+                            <div className="flex items-center gap-1 bg-white/[0.03] rounded-lg p-0.5 shrink-0">
+                              <button
+                                className="h-8 w-8 rounded-md flex items-center justify-center text-slate-500 hover:text-sky-400 hover:bg-sky-500/10 transition-colors"
+                                onClick={() => openPoDetail(po)}
+                              >
+                                <Eye className="h-4 w-4" />
+                              </button>
+                              <button
+                                className="h-8 w-8 rounded-md flex items-center justify-center text-slate-500 hover:text-white hover:bg-white/[0.06] transition-colors"
+                                onClick={() => openPoEdit(po)}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </button>
+                              {isOwner && (
+                                <button
+                                  className={cn(
+                                    "h-8 w-8 rounded-md flex items-center justify-center transition-colors",
+                                    (po.hasLinkedItems || po.hasUsageHistory)
+                                      ? "text-red-400/30 cursor-not-allowed"
+                                      : "text-slate-500 hover:text-red-400 hover:bg-red-500/[0.06]"
+                                  )}
+                                  onClick={() => !(po.hasLinkedItems || po.hasUsageHistory) && setDeletePoId(po.id)}
+                                  disabled={po.hasLinkedItems || po.hasUsageHistory}
+                                  title={
+                                    (po.hasLinkedItems || po.hasUsageHistory)
+                                      ? 'Sudah ada link ke produk/pembelian/transfer'
+                                      : 'Hapus'
+                                  }
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              )}
+                            </div>
                           </div>
                         </CardContent>
                       </Card>
                     </motion.div>
-                  ))}
+                  )
+                })}
                 </AnimatePresence>
               )}
             </div>
@@ -3201,41 +3232,26 @@ export default function PurchasePage() {
 
             {/* Panduan Alur Inventory - dengan Pulse Highlight */}
             <div className={cn(
-              "rounded-xl border overflow-hidden transition-all duration-300",
-              showInventoryGuide 
-                ? "bg-white/[0.02] border-white/[0.06]" 
-                : "bg-gradient-to-r from-cyan-500/[0.08] via-blue-500/[0.05] to-teal-500/[0.08] border-cyan-500/30 shadow-lg shadow-cyan-500/5"
+              "rounded-xl border overflow-hidden transition-all duration-300 bg-white/[0.02] border-white/[0.06]"
             )}>
               <button
-                className="w-full flex items-center justify-between gap-2 p-3 text-left hover:bg-white/[0.03] transition-colors relative"
+                className="w-full flex items-center justify-between gap-2 p-3 text-left hover:bg-white/[0.03] transition-colors"
                 onClick={() => setShowInventoryGuide(prev => !prev)}
               >
-                {/* Pulse indicator when closed */}
-                {!showInventoryGuide && (
-                  <span className="absolute top-2 right-2 flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-500"></span>
-                  </span>
-                )}
                 <div className="flex items-center gap-2">
                   <div className={cn(
                     "flex items-center justify-center w-6 h-6 rounded-md transition-colors",
-                    showInventoryGuide ? "bg-emerald-500/10" : "bg-cyan-500/15 animate-pulse"
+                    showInventoryGuide ? "bg-emerald-500/10" : "bg-slate-500/10"
                   )}>
                     <Info className={cn(
                       "h-3.5 w-3.5 shrink-0 transition-colors",
-                      showInventoryGuide ? "text-emerald-400" : "text-cyan-400"
+                      showInventoryGuide ? "text-emerald-400" : "text-slate-400"
                     )} />
                   </div>
                   <span className={cn(
                     "text-[11px] font-medium transition-colors",
-                    showInventoryGuide ? "text-slate-300" : "text-cyan-300"
-                  )}>Panduan Inventory &amp; Produk</span>
-                  {!showInventoryGuide && (
-                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-medium animate-pulse">
-                      NEW
-                    </span>
-                  )}
+                    showInventoryGuide ? "text-slate-300" : "text-slate-400"
+                  )}>Panduan Inventory</span>
                 </div>
                 <ChevronDown className={cn('h-3.5 w-3.5 text-slate-500 transition-transform duration-200', showInventoryGuide && 'rotate-180')} />
               </button>
@@ -5479,7 +5495,7 @@ n                            {/* Action Buttons */}
               onClick={(e) => { e.preventDefault(); handleInvBulkDelete() }}
               disabled={invBulkDeleting}
             >
-              {invBulkDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : '🗑 Hapus'}
+              {invBulkDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : (<><Trash2 className="h-3.5 w-3.5 inline mr-1" />Hapus</>)}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -5581,16 +5597,46 @@ n                            {/* Action Buttons */}
         <AlertDialogContent className="bg-nebula border-white/[0.06]">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-white">
-              {deleteInvLoading ? 'Memeriksa item...' : invDeleteBlocked?.blockType === 'hasHistory' ? '🚫 Item Tidak Dapat Dihapus' : 'Hapus Item?'}
+              {deleteInvLoading ? 'Memeriksa item...' : 
+                invDeleteBlocked?.blockType === 'hasPurchases' ? (<><ShoppingCart className="h-4 w-4 inline mr-1.5 -mt-0.5" />Item Ada Riwayat Pembelian</>) :
+                invDeleteBlocked?.blockType === 'hasHistory' ? (<><Link2 className="h-4 w-4 inline mr-1.5 -mt-0.5" />Item Terhubung ke Data Lain</>) : 
+                'Hapus Item?'
+              }
             </AlertDialogTitle>
             {!invDeleteBlocked && !deleteInvLoading ? (
               <AlertDialogDescription className="text-slate-400">
-                Item yang dihapus tidak dapat dikembalikan.
+                Item ini bisa dihapus (belum ada riwayat pembelian).
+                Stok awal dari migrasi akan ikut terhapus.
               </AlertDialogDescription>
             ) : null}
           </AlertDialogHeader>
 
-          {/* Blocked: has business history → suggest archive */}
+          {/* Blocked: has purchase history → suggest archive */}
+          {invDeleteBlocked && invDeleteBlocked.blockType === 'hasPurchases' && (
+            <div className="space-y-3 my-2">
+              <div className="flex items-start gap-2 rounded-lg bg-red-500/10 border border-red-500/20 p-3">
+                <ShoppingCart className="h-4 w-4 text-red-400 mt-0.5 shrink-0" />
+                <div className="text-sm">
+                  <p className="text-red-300 font-medium">{invDeleteBlocked.message}</p>
+                  <p className="text-slate-400 text-xs mt-2 leading-relaxed">
+                    Item yang sudah dibeli dari supplier tidak dapat dihapus untuk menjaga integritas data keuangan.
+                  </p>
+                  <div className="mt-2 space-y-1">
+                    {invDeleteBlocked.blockers?.map((b, i) => (
+                      <div key={i} className="flex items-center gap-2 text-slate-400 text-xs">
+                        <span className="text-slate-600">•</span> {b}
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-amber-400/80 text-xs mt-2.5 leading-relaxed italic font-medium">
+                    <Lightbulb className="h-3 w-3 inline text-amber-400" /> {invDeleteBlocked.suggestion}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Blocked: other history (compositions, links, etc) → suggest archive */}
           {invDeleteBlocked && invDeleteBlocked.blockType === 'hasHistory' && (
             <div className="space-y-3 my-2">
               <div className="flex items-start gap-2 rounded-lg bg-amber-500/10 border border-amber-500/20 p-3">
@@ -5632,13 +5678,15 @@ n                            {/* Action Buttons */}
 
           <AlertDialogFooter className="gap-2">
             <AlertDialogCancel className="text-slate-400 hover:text-white hover:bg-white/[0.04]">Batal</AlertDialogCancel>
-            {invDeleteBlocked?.blockType === 'hasHistory' ? (
+            {invDeleteBlocked?.blockType === 'hasPurchases' || invDeleteBlocked?.blockType === 'hasHistory' ? (
               <AlertDialogAction
-                className="bg-amber-500/15 text-amber-400 hover:bg-amber-500/25 border border-amber-500/20"
+                className={`${invDeleteBlocked?.blockType === 'hasPurchases' ? 'bg-red-500/15 text-red-400 hover:bg-red-500/25 border border-red-500/20' : 'bg-amber-500/15 text-amber-400 hover:bg-amber-500/25 border border-amber-500/20'}`}
                 onClick={(e) => handleArchiveInv(e)}
                 disabled={archivingInv || deleteInvLoading}
               >
-                {archivingInv ? <Loader2 className="h-4 w-4 animate-spin" /> : '🚫 Nonaktifkan'}
+                {archivingInv ? <Loader2 className="h-4 w-4 animate-spin" /> : (
+                  invDeleteBlocked?.blockType === 'hasPurchases' ? (<><Lock className="h-3.5 w-3.5 inline mr-1" />Nonaktifkan Saja</>) : (<><Ban className="h-3.5 w-3.5 inline mr-1" />Nonaktifkan</>)
+                )}
               </AlertDialogAction>
             ) : (
               <AlertDialogAction
@@ -5646,7 +5694,7 @@ n                            {/* Action Buttons */}
                 onClick={(e) => handleDeleteInv(e)}
                 disabled={archivingInv || deleteInvLoading}
               >
-                {deleteInvLoading || archivingInv ? <Loader2 className="h-4 w-4 animate-spin" /> : '🗑 Hapus'}
+                {deleteInvLoading || archivingInv ? <Loader2 className="h-4 w-4 animate-spin" /> : (<><Trash2 className="h-3.5 w-3.5 inline mr-1" />Hapus</>)}
               </AlertDialogAction>
             )}
           </AlertDialogFooter>
@@ -6566,7 +6614,7 @@ n                            {/* Action Buttons */}
                 </div>
               </div>
 
-              {/* Tabs: Produk Terkait, Movement, Batch */}
+              {/* Tabs: Produk Terkait, Stok/Movement, Batch */}
               <Tabs value={invDetailTab} onValueChange={(v) => {
                 setInvDetailTab(v)
                 if (v === 'batch' && invDetailData) void fetchBatchTimeline(invDetailData.id)
@@ -6578,7 +6626,7 @@ n                            {/* Action Buttons */}
                   </TabsTrigger>
                   <TabsTrigger value="movements" className="text-[10px] h-7 gap-1 data-[state=active]:bg-white/[0.08] text-slate-400 data-[state=active]:text-white">
                     <Activity className="h-3 w-3" />
-                    Movement ({invDetailData._count.movements})
+                    Stok ({invDetailData._count.movements})
                   </TabsTrigger>
                   <TabsTrigger value="batch" className="text-[10px] h-7 gap-1 data-[state=active]:bg-white/[0.08] text-slate-400 data-[state=active]:text-white">
                     <Hash className="h-3 w-3" />
@@ -6819,6 +6867,30 @@ n                            {/* Action Buttons */}
               </div>
             )}
 
+            {!batchSearchLoading && !batchSearchResult && (
+              <div className="py-8 text-center">
+                <Hash className="h-8 w-8 text-slate-600 mx-auto mb-3" />
+                <p className="text-sm text-slate-400 mb-1">Cari Nomor Batch</p>
+                <p className="text-xs text-slate-500 mb-4">Masukkan nomor batch untuk melacak stok, expiry, dan riwayat penggunaan</p>
+                <div className="rounded-lg bg-white/[0.02] border border-white/[0.04] p-3 text-left max-w-xs mx-auto">
+                  <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wider mb-2">Contoh Format Batch</p>
+                  <ul className="text-[11px] text-slate-400 space-y-1">
+                    <li>• <span className="font-mono text-white">FM24001</span> — Format tanggal + urut</li>
+                    <li>• <span className="font-mono text-white">BTH-2024-001</span> — Format supplier + tanggal</li>
+                    <li>• <span className="font-mono text-white">EXP0724</span> — Format bulan/tahun expired</li>
+                  </ul>
+                </div>
+              </div>
+            )}
+
+            {!batchSearchLoading && batchSearchQuery.trim() && !batchSearchResult && (
+              <div className="py-6 text-center rounded-xl bg-red-500/[0.03] border border-red-500/10">
+                <Search className="h-6 w-6 text-slate-600 mx-auto mb-2" />
+                <p className="text-sm text-slate-400">Batch <span className="font-mono text-white">"{batchSearchQuery.trim()}"</span> tidak ditemukan</p>
+                <p className="text-xs text-slate-500 mt-1">Pastikan nomor batch sudah benar dan tercatat di sistem</p>
+              </div>
+            )}
+
             {batchSearchResult && !batchSearchLoading && (
               <div className="space-y-3">
                 {/* Batch Info Card */}
@@ -6910,8 +6982,8 @@ n                            {/* Action Buttons */}
                 <Flame className="h-4 w-4 text-red-400" />
               </div>
               <div>
-                <span>Laporan Waste (Sisa Mati)</span>
-                <p className="text-[11px] text-slate-500 font-normal mt-0.5">Rincian barang kadaluarsa & kerugian</p>
+                <span>Laporan Kadaluarsa</span>
+                <p className="text-[11px] text-slate-500 font-normal mt-0.5">Item expired & estimasi kerugian modal</p>
               </div>
             </ResponsiveDialogTitle>
             <ResponsiveDialogDescription className="text-slate-400 text-xs sr-only">
@@ -6953,6 +7025,23 @@ n                            {/* Action Buttons */}
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="h-5 w-5 text-red-400 animate-spin" />
                 <span className="text-xs text-slate-400 ml-2">Memuat laporan...</span>
+              </div>
+            )}
+
+            {!wasteReportLoading && !wasteReportData && (
+              <div className="py-6 text-center">
+                <Flame className="h-8 w-8 text-slate-600 mx-auto mb-3" />
+                <p className="text-sm text-slate-400 mb-1">Cek Kerugian Kadaluarsa</p>
+                <p className="text-xs text-slate-500 mb-4 max-w-xs mx-auto">Lihat item yang sudah kadaluarsa dan hitung estimasi kerugian modal berdasarkan HPP</p>
+                <div className="rounded-lg bg-white/[0.02] border border-white/[0.04] p-3 text-left max-w-xs mx-auto">
+                  <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wider mb-2">Yang Ditampilkan</p>
+                  <ul className="text-[11px] text-slate-400 space-y-1.5">
+                    <li>• Item dengan status <span className="text-red-400 font-medium">EXPIRED</span></li>
+                    <li>• Sisa qty yang terbuang (tidak terjual)</li>
+                    <li>• Estimasi kerugian = sisa qty × HPP</li>
+                    <li>• Filter berdasarkan tanggal expired</li>
+                  </ul>
+                </div>
               </div>
             )}
 
