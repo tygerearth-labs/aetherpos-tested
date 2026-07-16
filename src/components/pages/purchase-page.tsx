@@ -3211,158 +3211,120 @@ export default function PurchasePage() {
               </div>
             )}
 
-            {/* Panduan Alur Pembelian - Compact Design */}
+            {/* Panduan Alur Pembelian — Linear / Stripe / Mercury Style */}
             <div className={cn(
-              "rounded-xl overflow-hidden transition-all duration-300 ease-out",
-              showPurchaseGuide 
-                ? "bg-gradient-to-br from-white/[0.04] to-white/[0.02] border border-emerald-500/25" 
-                : "bg-gradient-to-r from-emerald-500/[0.06] via-teal-500/[0.03] to-cyan-500/[0.06] border border-emerald-500/15 hover:border-emerald-500/30"
+              "rounded-lg border transition-all duration-200",
+              showPurchaseGuide
+                ? "bg-white/[0.03] border-white/[0.08]"
+                : "bg-white/[0.02] border-white/[0.06] hover:border-white/[0.1]"
             )}>
-              {/* Gradient accent bar */}
-              <div className={cn(
-                "h-[2px] transition-all duration-300",
-                showPurchaseGuide 
-                  ? "bg-gradient-to-r from-emerald-400 via-teal-400 to-cyan-400" 
-                  : "bg-gradient-to-r from-emerald-500/40 via-teal-500/40 to-cyan-500/40"
-              )} />
               <button
-                className="w-full flex items-center justify-between gap-2.5 px-3 py-2.5 text-left group relative overflow-hidden"
+                className="w-full flex items-center justify-between px-4 py-3 text-left group"
                 onClick={() => setShowPurchaseGuide(prev => !prev)}
               >
-                <div className="flex items-center gap-2.5 relative z-10">
-                  {/* Icon container - compact */}
-                  <div className={cn(
-                    "relative flex items-center justify-center w-7 h-7 rounded-lg transition-all duration-300",
-                    showPurchaseGuide 
-                      ? "bg-emerald-500/20" 
-                      : "bg-emerald-500/12 group-hover:bg-emerald-500/18"
-                  )}>
-                    <BookOpen className={cn(
-                      "h-3.5 w-3.5 shrink-0 transition-colors duration-200",
-                      showPurchaseGuide ? "text-emerald-400" : "text-emerald-400/80 group-hover:text-emerald-300"
-                    )} />
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center justify-center w-7 h-7 rounded-md bg-white/[0.04]">
+                    <BookOpen className="h-3.5 w-3.5 text-slate-400 group-hover:text-slate-200 transition-colors" />
                   </div>
-                  
-                  <div className="flex flex-col">
-                    <div className="flex items-center gap-1.5">
-                      <span className={cn(
-                        "text-xs font-semibold transition-colors duration-200",
-                        showPurchaseGuide ? "text-emerald-400" : "text-slate-300 group-hover:text-white"
-                      )}>Panduan Pembelian</span>
-                      {!showPurchaseGuide && (
-                        <span className="inline-flex items-center px-1.5 py-0 rounded-full text-[8px] font-bold uppercase tracking-wider bg-amber-500/15 text-amber-400 border border-amber-500/25">
-                          TIPS
-                        </span>
-                      )}
-                    </div>
-                    <span className="text-[9px] text-slate-600">4 langkah mudah membuat pembelian</span>
+                  <div>
+                    <span className="text-xs font-medium text-slate-200 group-hover:text-white transition-colors">Panduan Pembelian</span>
+                    <p className="text-[11px] text-slate-500 mt-px">4 langkah untuk mencatat pembelian</p>
                   </div>
                 </div>
-                
-                {/* Chevron - compact */}
                 <ChevronDown className={cn(
-                  'h-3.5 w-3.5 transition-transform duration-300 text-slate-500 group-hover:text-slate-400',
-                  showPurchaseGuide ? 'rotate-180 text-emerald-400' : ''
+                  'h-4 w-4 text-slate-500 transition-transform duration-200',
+                  showPurchaseGuide ? 'rotate-180 text-slate-300' : ''
                 )} />
               </button>
+
               {showPurchaseGuide && (
-                <div className="px-3 pb-3 space-y-2 pt-1.5">
+                <div className="px-4 pb-4 space-y-0">
+                  <div className="h-px bg-white/[0.06] -mx-4 mb-4" />
+
                   {/* Step 1 */}
-                  <div className="flex gap-2 group/step">
-                    <div className="flex-shrink-0">
-                      <div className="w-5 h-5 rounded-md bg-gradient-to-br from-emerald-500/15 to-teal-500/10 border border-emerald-500/25 flex items-center justify-center group-hover/step:from-emerald-500/25 group-hover/step:border-emerald-400/40 transition-all duration-300">
-                        <span className="text-[10px] text-emerald-400 font-bold">1</span>
-                      </div>
-                    </div>
-                    <div className="flex-1 pt-0.5">
-                      <p className="text-[11px] text-slate-300 font-medium mb-0.5 group-hover/step:text-emerald-300 transition-colors">Tambah Item ke Pembelian</p>
-                      <p className="text-[10px] text-slate-500 leading-snug">
-                        Klik <code className="px-1 py-0.5 rounded bg-gradient-to-r from-emerald-500/10 to-teal-500/10 text-emerald-300 text-[9px] font-mono border border-emerald-500/20">Buat Pembelian</code> lalu gunakan input bar untuk mencari item. Ketik nama item, scan barcode, atau pisahkan beberapa item dengan <code className="px-1 py-0.5 rounded bg-white/[0.06] text-slate-300 text-[9px] font-mono border border-white/[0.08]">koma</code>.
+                  <div className="flex gap-3 py-3">
+                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-white/[0.06] flex items-center justify-center text-[10px] font-medium text-slate-300 mt-px">1</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-slate-200 mb-1">Tambah Item ke Pembelian</p>
+                      <p className="text-[11px] text-slate-400 leading-relaxed">
+                        Klik <code className="px-1.5 py-0.5 rounded bg-white/[0.06] text-slate-200 text-[11px] font-mono">Buat Pembelian</code> lalu gunakan input bar untuk mencari item. Ketik nama, scan barcode, atau pisahkan beberapa item dengan <code className="px-1.5 py-0.5 rounded bg-white/[0.06] text-slate-200 text-[11px] font-mono">koma</code>.
                       </p>
                     </div>
                   </div>
+                  <div className="h-px bg-white/[0.04] -mx-4" />
+
                   {/* Step 2 */}
-                  <div className="flex gap-2 group/step">
-                    <div className="flex-shrink-0">
-                      <div className="w-5 h-5 rounded-md bg-gradient-to-br from-violet-500/15 to-purple-500/10 border border-violet-500/25 flex items-center justify-center group-hover/step:from-violet-500/25 group-hover/step:border-violet-400/40 transition-all duration-300">
-                        <span className="text-[10px] text-violet-400 font-bold">2</span>
-                      </div>
-                    </div>
-                    <div className="flex-1 pt-0.5">
-                      <p className="text-[11px] text-slate-300 font-medium mb-0.5 group-hover/step:text-violet-300 transition-colors">Item Baru? Isi SKU &amp; Satuan</p>
-                      <p className="text-[10px] text-slate-500 leading-snug">
-                        Jika item <span className="text-amber-400 font-medium">belum ada di inventory</span>, form akan muncul otomatis. Kamu <span className="text-white font-medium">wajib isi SKU</span> (kode unik) dan <span className="text-white font-medium">pilih satuan</span> (kg, gr, ml, liter, pcs, dll). Item ini berstatus <span className="text-amber-400 font-medium">pending</span> — belum tersimpan sampai pembelian disimpan.
+                  <div className="flex gap-3 py-3">
+                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-white/[0.06] flex items-center justify-center text-[10px] font-medium text-slate-300 mt-px">2</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-slate-200 mb-1">Item Baru? Isi SKU &amp; Satuan</p>
+                      <p className="text-[11px] text-slate-400 leading-relaxed">
+                        Jika item belum ada di inventory, form akan muncul otomatis. Wajib isi <span className="text-slate-200 font-medium">SKU</span> (kode unik) dan <span className="text-slate-200 font-medium">pilih satuan</span> (kg, gr, ml, liter, pcs, dll). Item berstatus pending sampai pembelian disimpan.
                       </p>
                     </div>
                   </div>
+                  <div className="h-px bg-white/[0.04] -mx-4" />
+
                   {/* Step 3 */}
-                  <div className="flex gap-2 group/step">
-                    <div className="flex-shrink-0">
-                      <div className="w-5 h-5 rounded-md bg-gradient-to-br from-blue-500/15 to-indigo-500/10 border border-blue-500/25 flex items-center justify-center group-hover/step:from-blue-500/25 group-hover/step:border-blue-400/40 transition-all duration-300">
-                        <span className="text-[10px] text-blue-400 font-bold">3</span>
-                      </div>
-                    </div>
-                    <div className="flex-1 pt-0.5">
-                      <p className="text-[11px] text-slate-300 font-medium mb-0.5 group-hover/step:text-blue-300 transition-colors">Isi Detail Pembelian</p>
-                      <p className="text-[10px] text-slate-500 leading-snug mb-1.5">
-                        Untuk tiap item, isi:
-                      </p>
-                      <div className="grid grid-cols-4 gap-1.5">
-                        <div className="rounded-md bg-gradient-to-br from-white/[0.04] to-white/[0.02] border border-white/[0.08] px-2 py-1.5 hover:border-white/[0.12] transition-colors">
-                          <p className="text-[8px] text-slate-500 uppercase tracking-wider font-medium">Satuan Beli</p>
-                          <p className="text-[9px] text-slate-300 mt-0.5">Cth: <span className="text-white font-medium">sak</span>, <span className="text-white font-medium">ekor</span></p>
-                        </div>
-                        <div className="rounded-md bg-gradient-to-br from-white/[0.04] to-white/[0.02] border border-white/[0.08] px-2 py-1.5 hover:border-white/[0.12] transition-colors">
-                          <p className="text-[8px] text-slate-500 uppercase tracking-wider font-medium">Jumlah</p>
-                          <p className="text-[9px] text-slate-300 mt-0.5">Berapa <span className="text-white font-medium">satuan beli</span></p>
-                        </div>
-                        <div className="rounded-md bg-gradient-to-br from-white/[0.04] to-white/[0.02] border border-white/[0.08] px-2 py-1.5 hover:border-white/[0.12] transition-colors">
-                          <p className="text-[8px] text-slate-500 uppercase tracking-wider font-medium">Isi / Unit</p>
-                          <p className="text-[9px] text-slate-300 mt-0.5">Isi per satuan (<span className="text-white font-medium">base unit</span>)</p>
-                        </div>
-                        <div className="rounded-md bg-gradient-to-br from-white/[0.04] to-white/[0.02] border border-white/[0.08] px-2 py-1.5 hover:border-white/[0.12] transition-colors">
-                          <p className="text-[8px] text-slate-500 uppercase tracking-wider font-medium">Harga / Unit</p>
-                          <p className="text-[9px] text-slate-300 mt-0.5">Harga per <span className="text-white font-medium">satuan beli</span></p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  {/* Step 4 */}
-                  <div className="flex gap-2 group/step">
-                    <div className="flex-shrink-0">
-                      <div className="w-5 h-5 rounded-md bg-gradient-to-br from-rose-500/15 to-pink-500/10 border border-rose-500/25 flex items-center justify-center group-hover/step:from-rose-500/25 group-hover/step:border-rose-400/40 transition-all duration-300">
-                        <span className="text-[10px] text-rose-400 font-bold">4</span>
-                      </div>
-                    </div>
-                    <div className="flex-1 pt-0.5">
-                      <p className="text-[11px] text-slate-300 font-medium mb-0.5 group-hover/step:text-rose-300 transition-colors">Simpan &amp; Stok Otomatis Masuk</p>
-                      <p className="text-[10px] text-slate-500 leading-snug">
-                        Klik <code className="px-1 py-0.5 rounded bg-gradient-to-r from-emerald-500/10 to-teal-500/10 text-emerald-300 text-[9px] font-mono border border-emerald-500/20">Simpan Pembelian</code>. Stok otomatis bertambah dan <span className="text-white font-medium">HPP dihitung otomatis</span>.
-                      </p>
-                      {/* Formula box - compact */}
-                      <div className="mt-1.5 rounded-lg bg-gradient-to-r from-amber-500/[0.08] to-orange-500/[0.05] border border-amber-500/20 px-2.5 py-2">
-                        <div className="flex items-start gap-1.5">
-                          <Calculator className="h-3 w-3 text-amber-400 mt-0.5 shrink-0" />
-                          <div>
-                            <p className="text-[10px] text-amber-300 font-semibold mb-0.5">Rumus HPP</p>
-                            <p className="text-[9px] text-slate-400 font-mono bg-black/20 rounded px-1.5 py-0.5 inline-block">HPP = Harga per Satuan Beli ÷ Isi per Unit</p>
-                            <p className="text-[9px] text-slate-500 mt-1">Contoh: Beli 1 sak @ Rp90.000, isi 25kg → HPP = <span className="text-amber-400 font-semibold">Rp3.600/kg</span></p>
+                  <div className="flex gap-3 py-3">
+                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-white/[0.06] flex items-center justify-center text-[10px] font-medium text-slate-300 mt-px">3</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-slate-200 mb-1">Isi Detail Pembelian</p>
+                      <p className="text-[11px] text-slate-400 leading-relaxed mb-3">Untuk tiap item, isi kolom berikut:</p>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        {[
+                          { label: 'Satuan Beli', desc: 'Cth: sak, ekor, dus' },
+                          { label: 'Jumlah', desc: 'Jml satuan beli' },
+                          { label: 'Isi / Unit', desc: 'Isi per satuan (base)' },
+                          { label: 'Harga / Unit', desc: 'Harga per satuan beli' },
+                        ].map((f) => (
+                          <div key={f.label} className="rounded-md bg-white/[0.02] border border-white/[0.04] px-3 py-2">
+                            <p className="text-[10px] text-slate-500 uppercase tracking-wide font-medium">{f.label}</p>
+                            <p className="text-[11px] text-slate-300 mt-0.5">{f.desc}</p>
                           </div>
-                        </div>
+                        ))}
                       </div>
                     </div>
                   </div>
-                  {/* Tips Section - compact */}
-                  <div className="rounded-lg bg-gradient-to-br from-cyan-500/[0.05] to-blue-500/[0.03] border border-cyan-500/15 px-2.5 py-2">
-                    <div className="flex items-center gap-1.5 mb-1.5">
-                      <Sparkles className="h-3 w-3 text-cyan-400" />
-                      <p className="text-[10px] text-cyan-300 font-semibold uppercase tracking-wider">Tips & Trik</p>
+                  <div className="h-px bg-white/[0.04] -mx-4" />
+
+                  {/* Step 4 */}
+                  <div className="flex gap-3 py-3">
+                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-white/[0.06] flex items-center justify-center text-[10px] font-medium text-slate-300 mt-px">4</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-slate-200 mb-1">Simpan &amp; Stok Otomatis Masuk</p>
+                      <p className="text-[11px] text-slate-400 leading-relaxed">
+                        Klik <code className="px-1.5 py-0.5 rounded bg-white/[0.06] text-slate-200 text-[11px] font-mono">Simpan Pembelian</code>. Stok otomatis bertambah dan HPP dihitung otomatis.
+                      </p>
+                      {/* Formula — Stripe-style callout */}
+                      <div className="mt-3 rounded-md bg-white/[0.02] border border-white/[0.06] border-l-2 border-l-amber-500/60 px-3 py-2.5">
+                        <p className="text-[10px] text-slate-500 uppercase tracking-wide font-medium mb-1">Rumus HPP</p>
+                        <code className="text-[11px] text-slate-300 font-mono">HPP = Harga per Satuan Beli ÷ Isi per Unit</code>
+                        <p className="text-[11px] text-slate-500 mt-1.5">Contoh: 1 sak @ Rp90.000, isi 25kg → HPP = <span className="text-slate-200 font-medium">Rp3.600/kg</span></p>
+                      </div>
                     </div>
-                    <ul className="text-[10px] text-slate-500 space-y-1">
-                      <li className="flex items-start gap-1.5"><span className="text-cyan-500 mt-0.5">•</span><span>Scan barcode langsung dari input bar — tidak perlu tekan Enter</span></li>
-                      <li className="flex items-start gap-1.5"><span className="text-cyan-500 mt-0.5">•</span><span>Ketik beberapa nama pisah <code className="px-1 py-0.5 rounded bg-white/[0.06] text-slate-300 text-[9px] font-mono">koma</code> untuk tambah banyak item sekaligus</span></li>
-                      <li className="flex items-start gap-1.5"><span className="text-cyan-500 mt-0.5">•</span><span>Item baru muncul dengan badge <span className="text-amber-400 font-medium">Baru</span> — bisa di-ganti sebelum simpan</span></li>
-                      <li className="flex items-start gap-1.5"><span className="text-red-400 mt-0.5">⚠</span><span>Pembelian yang sudah terkait produk <span className="text-red-400 font-medium">tidak bisa dihapus</span></span></li>
+                  </div>
+
+                  {/* Tips — minimal list */}
+                  <div className="mt-1 rounded-md bg-white/[0.02] border border-white/[0.06] px-3 py-2.5">
+                    <p className="text-[10px] text-slate-500 uppercase tracking-wide font-medium mb-2">Tips</p>
+                    <ul className="text-[11px] text-slate-400 space-y-1.5">
+                      <li className="flex items-start gap-2">
+                        <span className="text-slate-600 mt-1">—</span>
+                        <span>Scan barcode langsung dari input bar, tidak perlu tekan Enter</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-slate-600 mt-1">—</span>
+                        <span>Pisahkan beberapa nama item dengan <code className="px-1 py-0.5 rounded bg-white/[0.06] text-slate-200 text-[10px] font-mono">koma</code> untuk tambah sekaligus</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-slate-600 mt-1">—</span>
+                        <span>Item baru muncul dengan badge <span className="text-amber-400 font-medium">Baru</span>, bisa diganti sebelum simpan</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-red-400/70 mt-1">!</span>
+                        <span>Pembelian yang sudah terkait produk <span className="text-slate-200 font-medium">tidak bisa dihapus</span></span>
+                      </li>
                     </ul>
                   </div>
                 </div>
@@ -3870,176 +3832,148 @@ export default function PurchasePage() {
               </div>
             </div>
 
-            {/* Panduan Alur Inventory - Modern Redesigned Header */}
+            {/* Panduan Inventory — Linear / Stripe / Mercury Style */}
             <div className={cn(
-              "rounded-2xl overflow-hidden transition-all duration-500 ease-out",
-              showInventoryGuide 
-                ? "bg-gradient-to-br from-white/[0.05] to-white/[0.02] border border-violet-500/30 shadow-lg shadow-violet-500/5" 
-                : "bg-gradient-to-r from-violet-500/[0.08] via-purple-500/[0.05] to-fuchsia-500/[0.08] border border-violet-500/20 hover:border-violet-40 hover:shadow-lg hover:shadow-violet-500/10"
+              "rounded-lg border transition-all duration-200",
+              showInventoryGuide
+                ? "bg-white/[0.03] border-white/[0.08]"
+                : "bg-white/[0.02] border-white/[0.06] hover:border-white/[0.1]"
             )}>
-              {/* Gradient accent bar */}
-              <div className={cn(
-                "h-0.5 transition-all duration-500",
-                showInventoryGuide 
-                  ? "bg-gradient-to-r from-violet-400 via-purple-400 to-fuchsia-400" 
-                  : "bg-gradient-to-r from-violet-500/50 via-purple-500/50 to-fuchsia-500/50"
-              )} />
               <button
-                className="w-full flex items-center justify-between gap-2.5 px-3 py-2.5 text-left group relative overflow-hidden"
+                className="w-full flex items-center justify-between px-4 py-3 text-left group"
                 onClick={() => setShowInventoryGuide(prev => !prev)}
               >
-                <div className="flex items-center gap-2.5 relative z-10">
-                  {/* Icon container - compact */}
-                  <div className={cn(
-                    "relative flex items-center justify-center w-7 h-7 rounded-lg transition-all duration-300",
-                    showInventoryGuide 
-                      ? "bg-violet-500/20" 
-                      : "bg-violet-500/12 group-hover:bg-violet-500/18"
-                  )}>
-                    <PackageOpen className={cn(
-                      "h-3.5 w-3.5 shrink-0 transition-colors duration-200",
-                      showInventoryGuide ? "text-violet-400" : "text-violet-400/80 group-hover:text-violet-300"
-                    )} />
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center justify-center w-7 h-7 rounded-md bg-white/[0.04]">
+                    <PackageOpen className="h-3.5 w-3.5 text-slate-400 group-hover:text-slate-200 transition-colors" />
                   </div>
-                  
-                  <div className="flex flex-col">
-                    <div className="flex items-center gap-1.5">
-                      <span className={cn(
-                        "text-xs font-semibold transition-colors duration-200",
-                        showInventoryGuide ? "text-violet-400" : "text-slate-300 group-hover:text-white"
-                      )}>Panduan Inventory</span>
-                      {!showInventoryGuide && (
-                        <span className="inline-flex items-center px-1.5 py-0 rounded-full text-[8px] font-bold uppercase tracking-wider bg-cyan-500/15 text-cyan-400 border border-cyan-500/25">
-                          INFO
-                        </span>
-                      )}
-                    </div>
-                    <span className="text-[9px] text-slate-600">Kelola stok, kategori, dan kebijakan inventory</span>
+                  <div>
+                    <span className="text-xs font-medium text-slate-200 group-hover:text-white transition-colors">Panduan Inventory</span>
+                    <p className="text-[11px] text-slate-500 mt-px">Kelola stok, kategori, dan kebijakan inventory</p>
                   </div>
                 </div>
-                
-                {/* Chevron - compact */}
                 <ChevronDown className={cn(
-                  'h-3.5 w-3.5 transition-transform duration-300 text-slate-500 group-hover:text-slate-400',
-                  showInventoryGuide ? 'rotate-180 text-violet-400' : ''
+                  'h-4 w-4 text-slate-500 transition-transform duration-200',
+                  showInventoryGuide ? 'rotate-180 text-slate-300' : ''
                 )} />
               </button>
+
               {showInventoryGuide && (
-                <div className="px-3 pb-3 space-y-2 pt-1.5">
-                  {/* Apa itu Inventory Item - Info Card */}
-                  <div className="flex gap-2 group/step">
-                    <div className="flex-shrink-0">
-                      <div className="w-5 h-5 rounded-md bg-gradient-to-br from-indigo-500/15 to-blue-500/10 border border-indigo-500/25 flex items-center justify-center group-hover/step:from-indigo-500/25 group-hover/step:border-indigo-400/40 transition-all duration-300">
-                        <Package className="h-3 w-3 text-indigo-400" />
-                      </div>
+                <div className="px-4 pb-4 space-y-0">
+                  <div className="h-px bg-white/[0.06] -mx-4 mb-4" />
+
+                  {/* Apa itu Inventory Item */}
+                  <div className="flex gap-3 py-3">
+                    <div className="flex-shrink-0 mt-px">
+                      <Package className="h-4 w-4 text-slate-500" />
                     </div>
-                    <div className="flex-1 pt-0.5">
-                      <p className="text-[11px] text-slate-300 font-medium mb-0.5 group-hover/step:text-indigo-300 transition-colors">Apa itu Inventory Item?</p>
-                      <p className="text-[10px] text-slate-500 leading-snug">
-                        Inventory item adalah <span className="text-white font-medium">bahan baku atau stok toko</span> yang kamu beli dari supplier. Setiap item punya <code className="px-1 py-0.5 rounded bg-indigo-500/15 text-indigo-300 text-[9px] font-mono border border-indigo-500/20">SKU</code>, <code className="px-1 py-0.5 rounded bg-indigo-500/15 text-indigo-300 text-[9px] font-mono border border-indigo-500/20">base unit</code>, <code className="px-1 py-0.5 rounded bg-indigo-500/15 text-indigo-300 text-[9px] font-mono border border-indigo-500/20">stok</code>, dan <code className="px-1 py-0.5 rounded bg-indigo-500/15 text-indigo-300 text-[9px] font-mono border border-indigo-500/20">HPP</code>.
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-slate-200 mb-1">Apa itu Inventory Item?</p>
+                      <p className="text-[11px] text-slate-400 leading-relaxed">
+                        Bahan baku atau stok toko yang kamu beli dari supplier. Setiap item punya <code className="px-1 py-0.5 rounded bg-white/[0.06] text-slate-200 text-[10px] font-mono">SKU</code>, <code className="px-1 py-0.5 rounded bg-white/[0.06] text-slate-200 text-[10px] font-mono">base unit</code>, <code className="px-1 py-0.5 rounded bg-white/[0.06] text-slate-200 text-[10px] font-mono">stok</code>, dan <code className="px-1 py-0.5 rounded bg-white/[0.06] text-slate-200 text-[10px] font-mono">HPP</code>.
                       </p>
                     </div>
                   </div>
-                  {/* Cara Stok Masuk */}
-                  <div className="flex gap-2 group/step">
-                    <div className="flex-shrink-0">
-                      <div className="w-5 h-5 rounded-md bg-gradient-to-br from-emerald-500/15 to-teal-500/10 border border-emerald-500/25 flex items-center justify-center group-hover/step:from-emerald-500/25 group-hover/step:border-emerald-400/40 transition-all duration-300">
-                        <span className="text-[10px] text-emerald-400 font-bold">1</span>
-                      </div>
-                    </div>
-                    <div className="flex-1 pt-0.5">
-                      <p className="text-[11px] text-slate-300 font-medium mb-0.5 group-hover/step:text-emerald-300 transition-colors">Cara Stok Masuk</p>
-                      <p className="text-[10px] text-slate-500 leading-snug">
-                        Stok bertambah otomatis saat kamu <span className="text-emerald-400 font-semibold">menyimpan pembelian</span> di tab Pembelian. HPP dihitung otomatis dari rata-rata harga beli.
+                  <div className="h-px bg-white/[0.04] -mx-4" />
+
+                  {/* Step 1 — Stok Masuk */}
+                  <div className="flex gap-3 py-3">
+                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-white/[0.06] flex items-center justify-center text-[10px] font-medium text-slate-300 mt-px">1</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-slate-200 mb-1">Cara Stok Masuk</p>
+                      <p className="text-[11px] text-slate-400 leading-relaxed">
+                        Stok bertambah otomatis saat kamu <span className="text-slate-200 font-medium">menyimpan pembelian</span> di tab Pembelian. HPP dihitung otomatis dari rata-rata harga beli.
                       </p>
                     </div>
                   </div>
-                  {/* Post ke Produk */}
-                  <div className="flex gap-2 group/step">
-                    <div className="flex-shrink-0">
-                      <div className="w-5 h-5 rounded-md bg-gradient-to-br from-amber-500/15 to-orange-500/10 border border-amber-500/25 flex items-center justify-center group-hover/step:from-amber-500/25 group-hover/step:border-amber-400/40 transition-all duration-300">
-                        <span className="text-[10px] text-amber-400 font-bold">2</span>
-                      </div>
-                    </div>
-                    <div className="flex-1 pt-0.5">
-                      <p className="text-[11px] text-slate-300 font-medium mb-0.5 group-hover/step:text-amber-300 transition-colors">Post ke Produk Jual</p>
-                      <p className="text-[10px] text-slate-500 leading-snug mb-1.5">
-                        Inventory item bisa dijadikan <span className="text-white font-medium">produk jual</span> dengan klik <code className="px-1 py-0.5 rounded bg-gradient-to-r from-amber-500/10 to-orange-500/10 text-amber-300 text-[9px] font-mono border border-amber-500/20">Post Produk</code>. Ada 2 mode:
+                  <div className="h-px bg-white/[0.04] -mx-4" />
+
+                  {/* Step 2 — Post ke Produk */}
+                  <div className="flex gap-3 py-3">
+                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-white/[0.06] flex items-center justify-center text-[10px] font-medium text-slate-300 mt-px">2</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-slate-200 mb-1">Post ke Produk Jual</p>
+                      <p className="text-[11px] text-slate-400 leading-relaxed mb-3">
+                        Inventory item bisa dijadikan <span className="text-slate-200 font-medium">produk jual</span> dengan klik <code className="px-1 py-0.5 rounded bg-white/[0.06] text-slate-200 text-[10px] font-mono">Post Produk</code>. Ada 2 mode:
                       </p>
-                      <div className="space-y-1.5">
-                        <div className="rounded-lg bg-gradient-to-br from-rose-500/[0.06] to-pink-500/[0.03] border border-rose-500/15 px-2.5 py-2 hover:border-rose-500/25 transition-colors">
-                          <div className="flex items-center gap-1.5 mb-1">
-                            <ChefHat className="h-3 w-3 text-rose-400" />
-                            <p className="text-[10px] text-rose-300 font-semibold">Komposisi (F&amp;B)</p>
+                      <div className="space-y-2">
+                        <div className="rounded-md bg-white/[0.02] border border-white/[0.06] border-l-2 border-l-rose-500/50 px-3 py-2.5">
+                          <div className="flex items-center gap-2 mb-1">
+                            <ChefHat className="h-3.5 w-3.5 text-slate-400" />
+                            <p className="text-[11px] font-medium text-slate-200">Komposisi (F&amp;B)</p>
                           </div>
-                          <p className="text-[10px] text-slate-500">Beberapa inventory → <span className="text-slate-300 font-medium">1 produk</span>. Cth: Tepung 200gr + Gula 50gr → Kue Bolu</p>
+                          <p className="text-[11px] text-slate-400 leading-relaxed">Beberapa inventory → 1 produk. Cth: Tepung 200gr + Gula 50gr → Kue Bolu</p>
                         </div>
-                        <div className="rounded-lg bg-gradient-to-br from-blue-500/[0.06] to-indigo-500/[0.03] border border-blue-500/15 px-2.5 py-2 hover:border-blue-500/25 transition-colors">
-                          <div className="flex items-center gap-1.5 mb-1">
-                            <ShoppingBag className="h-3 w-3 text-blue-400" />
-                            <p className="text-[10px] text-blue-300 font-semibold">Satu-satu (Ritel)</p>
+                        <div className="rounded-md bg-white/[0.02] border border-white/[0.06] border-l-2 border-l-blue-500/50 px-3 py-2.5">
+                          <div className="flex items-center gap-2 mb-1">
+                            <ShoppingBag className="h-3.5 w-3.5 text-slate-400" />
+                            <p className="text-[11px] font-medium text-slate-200">Satu-satu (Ritel)</p>
                           </div>
-                          <p className="text-[10px] text-slate-500">1 inventory → <span className="text-slate-300 font-medium">1 produk</span> langsung. Cth: Susu UHT 1L → produk Susu UHT 1L</p>
+                          <p className="text-[11px] text-slate-400 leading-relaxed">1 inventory → 1 produk langsung. Cth: Susu UHT 1L → produk Susu UHT 1L</p>
                         </div>
                       </div>
                     </div>
                   </div>
-                  {/* Kategori */}
-                  <div className="flex gap-2 group/step">
-                    <div className="flex-shrink-0">
-                      <div className="w-5 h-5 rounded-md bg-gradient-to-br from-cyan-500/15 to-teal-500/10 border border-cyan-500/25 flex items-center justify-center group-hover/step:from-cyan-500/25 group-hover/step:border-cyan-400/40 transition-all duration-300">
-                        <span className="text-[10px] text-cyan-400 font-bold">3</span>
-                      </div>
-                    </div>
-                    <div className="flex-1 pt-0.5">
-                      <p className="text-[11px] text-slate-300 font-medium mb-0.5 group-hover/step:text-cyan-300 transition-colors">Kategori &amp; Low Stock Alert</p>
-                      <p className="text-[10px] text-slate-500 leading-snug">
-                        Gunakan <span className="text-white font-medium">Kategori</span> untuk mengelompokkan item. Set <span className="text-white font-medium">Low Stock Alert</span> agar item yang stoknya menipis ditandai <span className="text-red-400 font-medium">merah</span>.
+                  <div className="h-px bg-white/[0.04] -mx-4" />
+
+                  {/* Step 3 — Kategori */}
+                  <div className="flex gap-3 py-3">
+                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-white/[0.06] flex items-center justify-center text-[10px] font-medium text-slate-300 mt-px">3</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-slate-200 mb-1">Kategori &amp; Low Stock Alert</p>
+                      <p className="text-[11px] text-slate-400 leading-relaxed">
+                        Gunakan <span className="text-slate-200 font-medium">Kategori</span> untuk mengelompokkan item. Set <span className="text-slate-200 font-medium">Low Stock Alert</span> agar item yang stoknya menipis ditandai merah.
                       </p>
                     </div>
                   </div>
-                  {/* Kebijakan Hapus vs Nonaktifkan - compact */}
-                  <div className="rounded-lg bg-gradient-to-br from-violet-500/[0.08] to-purple-500/[0.04] border border-violet-500/20 px-2.5 py-2">
-                    <div className="flex items-center gap-1.5 mb-1.5">
-                      <ShieldAlert className="h-3 w-3 text-violet-400" />
-                      <p className="text-[10px] text-violet-300 font-semibold uppercase tracking-wider">Kebijakan Hapus & Nonaktifkan</p>
-                    </div>
-                    <div className="space-y-1.5">
-                      <div className="rounded-md bg-gradient-to-br from-emerald-500/[0.08] to-green-500/[0.04] border border-emerald-500/20 px-2 py-1.5">
-                        <div className="flex items-center gap-1.5 mb-1">
+
+                  {/* Kebijakan Hapus vs Nonaktifkan — Stripe-style callout */}
+                  <div className="mt-3 rounded-md bg-white/[0.02] border border-white/[0.06] border-l-2 border-l-violet-500/50 px-3 py-3">
+                    <p className="text-[10px] text-slate-500 uppercase tracking-wide font-medium mb-3">Kebijakan Hapus &amp; Nonaktifkan</p>
+                    <div className="space-y-3">
+                      <div>
+                        <div className="flex items-center gap-1.5 mb-1.5">
                           <CheckCircle2 className="h-3 w-3 text-emerald-400" />
-                          <p className="text-[10px] text-emerald-400 font-semibold">Bisa DIHAPUS</p>
+                          <p className="text-[11px] font-medium text-slate-200">Bisa dihapus</p>
                         </div>
-                        <ul className="text-[9px] text-slate-500 space-y-0.5">
-                          <li className="flex items-start gap-1.5"><span className="text-emerald-500 mt-0.5">•</span><span>Item baru tanpa histori sama sekali</span></li>
-                          <li className="flex items-start gap-1.5"><span className="text-emerald-500 mt-0.5">•</span><span>Item yang hanya punya <span className="text-emerald-300">stok awal migrasi</span></span></li>
-                          <li className="flex items-start gap-1.5"><span className="text-emerald-500 mt-0.5">•</span><span>Data stok awal & link akan dibersihkan</span></li>
+                        <ul className="text-[11px] text-slate-400 space-y-1 ml-5">
+                          <li>Item baru tanpa histori sama sekali</li>
+                          <li>Item yang hanya punya stok awal migrasi</li>
+                          <li>Data stok awal &amp; link akan dibersihkan</li>
                         </ul>
                       </div>
-                      <div className="rounded-md bg-gradient-to-br from-red-500/[0.08] to-rose-500/[0.04] border border-red-500/20 px-2 py-1.5">
-                        <div className="flex items-center gap-1.5 mb-1">
+                      <div className="h-px bg-white/[0.04]" />
+                      <div>
+                        <div className="flex items-center gap-1.5 mb-1.5">
                           <XCircle className="h-3 w-3 text-red-400" />
-                          <p className="text-[10px] text-red-400 font-semibold">Harus NONAKTIFKAN</p>
+                          <p className="text-[11px] font-medium text-slate-200">Harus nonaktifkan</p>
                         </div>
-                        <ul className="text-[9px] text-slate-500 space-y-0.5">
-                          <li className="flex items-start gap-1.5"><span className="text-red-500 mt-0.5">•</span><span>Item dengan <span className="text-red-300">riwayat pembelian</span></span></li>
-                          <li className="flex items-start gap-1.5"><span className="text-red-500 mt-0.5">•</span><span>Item yang sudah <span className="text-red-300">terjual / terkonsumsi</span></span></li>
-                          <li className="flex items-start gap-1.5"><span className="text-red-500 mt-0.5">•</span><span>Item dengan <span className="text-red-300">riwayat transfer</span></span></li>
-                          <li className="flex items-start gap-1.5"><span className="text-red-500 mt-0.5">•</span><span>Item dengan <span className="text-red-300">komposisi/resep</span> manual</span></li>
+                        <ul className="text-[11px] text-slate-400 space-y-1 ml-5">
+                          <li>Item dengan riwayat pembelian</li>
+                          <li>Item yang sudah terjual / terkonsumsi</li>
+                          <li>Item dengan riwayat transfer</li>
+                          <li>Item dengan komposisi/resep manual</li>
                         </ul>
                       </div>
                     </div>
                   </div>
-                  {/* Catatan - compact */}
-                  <div className="rounded-lg bg-gradient-to-br from-slate-500/[0.05] to-zinc-500/[0.03] border border-slate-500/15 px-2.5 py-2">
-                    <div className="flex items-center gap-1.5 mb-1.5">
-                      <StickyNote className="h-3 w-3 text-slate-400" />
-                      <p className="text-[10px] text-slate-300 font-semibold uppercase tracking-wider">Catatan Penting</p>
-                    </div>
-                    <ul className="text-[10px] text-slate-500 space-y-1">
-                      <li className="flex items-start gap-1.5"><span className="text-slate-500 mt-0.5">•</span><span>Kolom <code className="px-1 py-0.5 rounded bg-white/[0.06] text-slate-300 text-[9px] font-mono">Digunakan</code> = jumlah produk yang memakai item ini</span></li>
-                      <li className="flex items-start gap-1.5"><span className="text-slate-500 mt-0.5">•</span><span>HPP selalu dihitung otomatis — tidak bisa di-edit manual</span></li>
-                      <li className="flex items-start gap-1.5"><span className="text-slate-500 mt-0.5">•</span><span>Item nonaktif tetap muncul di laporan tapi <span className="text-slate-500 font-medium">tersembunyi</span> di tabel utama</span></li>
+
+                  {/* Catatan Penting */}
+                  <div className="mt-3 rounded-md bg-white/[0.02] border border-white/[0.06] px-3 py-2.5">
+                    <p className="text-[10px] text-slate-500 uppercase tracking-wide font-medium mb-2">Catatan</p>
+                    <ul className="text-[11px] text-slate-400 space-y-1.5">
+                      <li className="flex items-start gap-2">
+                        <span className="text-slate-600 mt-0.5">—</span>
+                        <span>Kolom <code className="px-1 py-0.5 rounded bg-white/[0.06] text-slate-200 text-[10px] font-mono">Digunakan</code> = jumlah produk yang memakai item ini</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-slate-600 mt-0.5">—</span>
+                        <span>HPP selalu dihitung otomatis — tidak bisa di-edit manual</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-slate-600 mt-0.5">—</span>
+                        <span>Item nonaktif tetap muncul di laporan tapi tersembunyi di tabel utama</span>
+                      </li>
                     </ul>
                   </div>
                 </div>
@@ -4901,135 +4835,116 @@ export default function PurchasePage() {
           <div className="space-y-4 mt-1 flex-1 overflow-y-auto">
 
             {/* ══════════════════════════════════════════════════════ */}
-            {/* STEP-BY-STEP GUIDE (collapsible)                      */}
+            {/* STEP-BY-STEP GUIDE (collapsible) — Linear / Stripe Style */}
             {/* ══════════════════════════════════════════════════════ */}
             <div className={cn(
-              "rounded-xl border overflow-hidden transition-all duration-300",
-              showPurchaseDialogGuide 
-                ? "bg-white/[0.02] border-white/[0.06]" 
-                : "bg-gradient-to-r from-violet-500/[0.08] via-purple-500/[0.05] to-fuchsia-500/[0.08] border-violet-500/30 shadow-lg shadow-violet-500/5"
+              "rounded-lg border transition-all duration-200",
+              showPurchaseDialogGuide
+                ? "bg-white/[0.03] border-white/[0.08]"
+                : "bg-white/[0.02] border-white/[0.06] hover:border-white/[0.1]"
             )}>
               <button
                 type="button"
-                className="w-full flex items-center justify-between gap-2 px-3.5 py-2.5 text-left hover:bg-white/[0.03] transition-colors relative"
+                className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-white/[0.01] transition-colors"
                 onClick={() => setShowPurchaseDialogGuide(prev => !prev)}
               >
-                {/* Pulse indicator when closed */}
-                {!showPurchaseDialogGuide && (
-                  <span className="absolute top-2 right-2 flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-violet-500"></span>
-                  </span>
-                )}
-                <div className="flex items-center gap-2">
-                  <div className={cn(
-                    "w-5 h-5 rounded-md flex items-center justify-center shrink-0 transition-colors",
-                    showPurchaseDialogGuide ? "bg-emerald-500/10" : "bg-violet-500/15 animate-pulse"
-                  )}>
-                    <Info className={cn(
-                      "h-3 w-3 transition-colors",
-                      showPurchaseDialogGuide ? "text-emerald-400" : "text-violet-400"
-                    )} />
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center justify-center w-6 h-6 rounded-md bg-white/[0.04]">
+                    <Info className="h-3.5 w-3.5 text-slate-400" />
                   </div>
-                  <span className={cn(
-                    "text-[11px] font-medium transition-colors",
-                    showPurchaseDialogGuide ? "text-slate-400" : "text-violet-300"
-                  )}>Panduan 3 Langkah</span>
-                  {!showPurchaseDialogGuide && (
-                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-violet-500/20 text-violet-300 font-medium animate-pulse">
-                      TIPS
-                    </span>
-                  )}
+                  <span className="text-xs font-medium text-slate-300">Panduan 3 Langkah</span>
                 </div>
-                <ChevronDown className={cn("h-3.5 w-3.5 text-slate-500 transition-transform duration-200", showPurchaseDialogGuide && 'rotate-180')} />
+                <ChevronDown className={cn(
+                  "h-4 w-4 text-slate-500 transition-transform duration-200",
+                  showPurchaseDialogGuide && 'rotate-180 text-slate-300'
+                )} />
               </button>
 
               {showPurchaseDialogGuide && (
-                <div className="px-3.5 pb-3.5 space-y-2.5 border-t border-white/[0.04] pt-3">
+                <div className="px-4 pb-4 space-y-0 border-t border-white/[0.04] pt-4">
                   {/* Step 1 */}
-                  <div className="flex gap-2.5">
-                    <div className="w-5 h-5 rounded-md bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0 mt-0.5">
-                      <span className="text-[9px] text-emerald-400 font-bold">1</span>
-                    </div>
-                    <div>
-                      <p className="text-[11px] text-slate-300 font-medium">Cari atau ketik nama barang</p>
-                      <p className="text-[10px] text-slate-500 leading-relaxed">
-                        Ketik nama item di kolom pencarian. Jika barang <span className="text-amber-400">belum ada</span>, sistem akan otomatis meminta SKU dan satuan — item baru langsung tercatat saat pembelian disimpan.
+                  <div className="flex gap-3 py-3">
+                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-white/[0.06] flex items-center justify-center text-[10px] font-medium text-slate-300 mt-px">1</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-slate-200 mb-1">Cari atau ketik nama barang</p>
+                      <p className="text-[11px] text-slate-400 leading-relaxed">
+                        Ketik nama item di kolom pencarian. Jika barang belum ada, sistem akan otomatis meminta SKU dan satuan — item baru langsung tercatat saat pembelian disimpan.
                       </p>
                     </div>
                   </div>
+                  <div className="h-px bg-white/[0.04]" />
+
                   {/* Step 2 */}
-                  <div className="flex gap-2.5">
-                    <div className="w-5 h-5 rounded-md bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0 mt-0.5">
-                      <span className="text-[9px] text-emerald-400 font-bold">2</span>
-                    </div>
-                    <div>
-                      <p className="text-[11px] text-slate-300 font-medium">Isi detail pembelian tiap item</p>
-                      <div className="text-[10px] text-slate-500 leading-relaxed mt-0.5 space-y-1">
-                        <div className="flex items-start gap-1.5">
-                          <span className="text-emerald-400/60 shrink-0">•</span>
-                          <span><span className="text-white font-medium">Satuan Beli</span> — Cara supplier menjual (cth: sak, karung, dus, ekor)</span>
-                        </div>
-                        <div className="flex items-start gap-1.5">
-                          <span className="text-emerald-400/60 shrink-0">•</span>
-                          <span><span className="text-white font-medium">Jumlah</span> — Berapa satuan beli yang dipesan (cth: 5 sak)</span>
-                        </div>
-                        <div className="flex items-start gap-1.5">
-                          <span className="text-emerald-400/60 shrink-0">•</span>
-                          <span><span className="text-white font-medium">Isi per Satuan</span> — Isi dalam satuan dasar (cth: 1 sak = 25 kg)</span>
-                        </div>
-                        <div className="flex items-start gap-1.5">
-                          <span className="text-emerald-400/60 shrink-0">•</span>
-                          <span><span className="text-white font-medium">Harga per Satuan Beli</span> — Harga dari supplier per satuan beli (cth: Rp320.000/sak)</span>
-                        </div>
-                        <div className="flex items-start gap-1.5">
-                          <span className="text-emerald-400/60 shrink-0">•</span>
-                          <span><span className="text-white font-medium">Batch / No. Lot</span> — Nomor batch dari supplier <span className="text-slate-500">(opsional, otomatis dibuat jika kosong)</span></span>
-                        </div>
-                        <div className="flex items-start gap-1.5">
-                          <span className="text-emerald-400/60 shrink-0">•</span>
-                          <span><span className="text-white font-medium">Tanggal Kadaluarsa</span> — Tanggal expired barang <span className="text-slate-500">(opsional, untuk tracking FEFO)</span></span>
-                        </div>
-                      </div>
+                  <div className="flex gap-3 py-3">
+                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-white/[0.06] flex items-center justify-center text-[10px] font-medium text-slate-300 mt-px">2</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-slate-200 mb-1">Isi detail pembelian tiap item</p>
+                      <ul className="text-[11px] text-slate-400 leading-relaxed space-y-1.5 mt-1.5 ml-0.5">
+                        <li className="flex items-start gap-2">
+                          <span className="text-slate-600 shrink-0 mt-0.5">—</span>
+                          <span><span className="text-slate-200 font-medium">Satuan Beli</span> — Cara supplier menjual (cth: sak, karung, dus, ekor)</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-slate-600 shrink-0 mt-0.5">—</span>
+                          <span><span className="text-slate-200 font-medium">Jumlah</span> — Berapa satuan beli yang dipesan (cth: 5 sak)</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-slate-600 shrink-0 mt-0.5">—</span>
+                          <span><span className="text-slate-200 font-medium">Isi per Satuan</span> — Isi dalam satuan dasar (cth: 1 sak = 25 kg)</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-slate-600 shrink-0 mt-0.5">—</span>
+                          <span><span className="text-slate-200 font-medium">Harga per Satuan Beli</span> — Harga dari supplier per satuan beli (cth: Rp320.000/sak)</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-slate-600 shrink-0 mt-0.5">—</span>
+                          <span><span className="text-slate-200 font-medium">Batch / No. Lot</span> — Nomor batch dari supplier <span className="text-slate-500">(opsional, otomatis dibuat jika kosong)</span></span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-slate-600 shrink-0 mt-0.5">—</span>
+                          <span><span className="text-slate-200 font-medium">Tanggal Kadaluarsa</span> — Tanggal expired barang <span className="text-slate-500">(opsional, untuk tracking FEFO)</span></span>
+                        </li>
+                      </ul>
                     </div>
                   </div>
+                  <div className="h-px bg-white/[0.04]" />
+
                   {/* Step 3 */}
-                  <div className="flex gap-2.5">
-                    <div className="w-5 h-5 rounded-md bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0 mt-0.5">
-                      <span className="text-[9px] text-emerald-400 font-bold">3</span>
-                    </div>
-                    <div>
-                      <p className="text-[11px] text-slate-300 font-medium">Klik "Simpan Pembelian"</p>
-                      <p className="text-[10px] text-slate-500 leading-relaxed">
+                  <div className="flex gap-3 py-3">
+                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-white/[0.06] flex items-center justify-center text-[10px] font-medium text-slate-300 mt-px">3</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-slate-200 mb-1">Klik "Simpan Pembelian"</p>
+                      <p className="text-[11px] text-slate-400 leading-relaxed">
                         Stok otomatis bertambah di inventory. HPP (Harga Pokok) dihitung rata-rata dari semua pembelian. Item baru otomatis tercatat.
                       </p>
                     </div>
                   </div>
-                  {/* Quick example */}
-                  <div className="rounded-lg bg-white/[0.03] border border-white/[0.04] px-3 py-2.5">
-                    <p className="text-[10px] text-slate-500 font-medium mb-1.5">💡 Contoh: Beli Tepung Segitiga</p>
-                    <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px]">
-                      <div className="flex items-center justify-between text-slate-500">
+
+                  {/* Example — Stripe-style callout */}
+                  <div className="mt-1 rounded-md bg-white/[0.02] border border-white/[0.06] border-l-2 border-l-amber-500/50 px-3 py-3">
+                    <p className="text-[10px] text-slate-500 uppercase tracking-wide font-medium mb-2">Contoh: Beli Tepung Segitiga</p>
+                    <div className="space-y-1 text-[11px]">
+                      <div className="flex justify-between text-slate-400">
                         <span>Satuan Beli</span>
-                        <span className="text-white font-mono">sak</span>
+                        <span className="text-slate-200 font-mono">sak</span>
                       </div>
-                      <div className="flex items-center justify-between text-slate-500">
+                      <div className="flex justify-between text-slate-400">
                         <span>Jumlah</span>
-                        <span className="text-white font-mono">10</span>
+                        <span className="text-slate-200 font-mono">10</span>
                       </div>
-                      <div className="flex items-center justify-between text-slate-500">
+                      <div className="flex justify-between text-slate-400">
                         <span>Isi per sak</span>
-                        <span className="text-white font-mono">25 kg</span>
+                        <span className="text-slate-200 font-mono">25 kg</span>
                       </div>
-                      <div className="flex items-center justify-between text-slate-500">
+                      <div className="flex justify-between text-slate-400">
                         <span>Harga/sak</span>
-                        <span className="text-white font-mono">Rp320.000</span>
+                        <span className="text-slate-200 font-mono">Rp320.000</span>
                       </div>
                     </div>
-                    <div className="mt-1.5 pt-1.5 border-t border-white/[0.04] text-[10px] text-slate-500 space-y-0.5">
+                    <div className="mt-2 pt-2 border-t border-white/[0.04] text-[11px] text-slate-400 space-y-1">
                       <div className="flex justify-between">
                         <span>Subtotal</span>
-                        <span className="text-slate-300 font-medium">Rp3.200.000</span>
+                        <span className="text-slate-200 font-medium">Rp3.200.000</span>
                       </div>
                       <div className="flex justify-between">
                         <span>Stok masuk</span>
