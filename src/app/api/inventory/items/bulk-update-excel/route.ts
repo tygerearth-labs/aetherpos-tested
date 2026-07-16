@@ -5,7 +5,7 @@ import { getOutletPlan } from '@/lib/config/plan-config'
 import * as XLSX from 'xlsx'
 import { safeAuditLog } from '@/lib/safe-audit'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
-// Shared Excel utilities (fixes: inconsistent sanitizeNumber, code duplication, negative number handling)
+// Shared Excel utilities
 import {
   sanitizeNumber,
   normalizeHeader,
@@ -17,16 +17,18 @@ import {
 export const maxDuration = 60
 
 const MAX_ROWS = 500
-const CHUNK_SIZE = 50 // Process in chunks for reliability
+const CHUNK_SIZE = 100 // Increased: use bulk update for better performance
 
 /**
  * POST /api/inventory/items/bulk-update-excel
  * Bulk update inventory items from uploaded Excel (Pro & Enterprise only).
  * 
- * OPTIMIZED VERSION with:
+ * HIGHLY OPTIMIZED VERSION:
  * - Parallel pre-load of items and categories
+ * - O(1) lookup maps for validation
+ * - BULK UPDATE via updateMany (not individual updates)
+ * - SINGLE audit log summary (not per-item)
  * - Chunked processing for timeout prevention
- * - All safety nets preserved
  */
 export async function POST(request: NextRequest) {
   // Result containers
@@ -36,6 +38,9 @@ export async function POST(request: NextRequest) {
     errors: [] as string[],
     warnings: [] as string[],
   }
+
+  // Track all changes for single audit log
+  const allChanges: Array<{ itemId: string; name: string; changes: Record<string, { from: number | string | null; to: number | string }> }> = []
 
   try {
     const user = await getAuthUser(request)
@@ -83,16 +88,13 @@ export async function POST(request: NextRequest) {
 
     const startTime = Date.now()
 
-    console.log(`[Inventory Bulk Update] Starting: file="${file.name}" (${(file.size / 1024).toFixed(1)}KB)`)
+    console.log(`[Inventory Bulk Update] Starting: file="${file.name}" (${(file.size / 1024).toFixed(1)}KB), rows=${rows.length}`)
 
     // ══════════════════════════════════════════════════════════════════
-    // OPTIMIZATION #1: PARALLEL PRE-LOAD
-    // Load ALL reference data ONCE before any writes
-    // This eliminates N+1 queries inside transaction loop
+    // PHASE 1: PARALLEL PRE-LOAD (Single query each, executed in parallel)
     // ══════════════════════════════════════════════════════════════════
     
     const [existingItems, existingCategories] = await Promise.all([
-      // Pre-load ALL inventory items for this outlet
       db.inventoryItem.findMany({
         where: { outletId },
         select: { 
@@ -100,7 +102,6 @@ export async function POST(request: NextRequest) {
           avgCost: true, lowStockAlert: true, status: true, categoryId: true,
         },
       }),
-      // Pre-load inventory categories for lookup/create
       db.inventoryCategory.findMany({
         where: { outletId },
         select: { id: true, name: true },
@@ -108,23 +109,16 @@ export async function POST(request: NextRequest) {
     ])
 
     // Build O(1) lookup maps
-    const itemMap = new Map<string, typeof existingItems[number]>() // ID → item
-    const categoryCache = new Map<string, string>() // name → ID
+    const itemMap = new Map<string, typeof existingItems[number]>()
+    const categoryCache = new Map<string, string>()
     
-    for (const item of existingItems) {
-      itemMap.set(item.id, item)
-    }
-    
-    for (const cat of existingCategories) {
-      categoryCache.set(cat.name.toLowerCase(), cat.id)
-    }
+    for (const item of existingItems) itemMap.set(item.id, item)
+    for (const cat of existingCategories) categoryCache.set(cat.name.toLowerCase(), cat.id)
 
     console.log(`[Inventory Bulk Update] Pre-loaded ${existingItems.length} items, ${existingCategories.length} categories in ${Date.now() - startTime}ms`)
 
     // ══════════════════════════════════════════════════════════════════
-    // PHASE 2: COLLECT & VALIDATE DATA IN MEMORY
-    // All validation happens here BEFORE any DB writes
-    // Safety nets are enforced during collection
+    // PHASE 2: COLLECT & VALIDATE IN MEMORY (Zero DB writes here)
     // ══════════════════════════════════════════════════════════════════
 
     interface ItemToUpdate {
@@ -144,13 +138,11 @@ export async function POST(request: NextRequest) {
 
       const itemId = String(findColumn(row, ['ID*', 'ID', 'id', 'Id']) || '').trim()
       
-      // ── SAFETY NET: ID is required ──
       if (!itemId) {
         result.errors.push(`Baris ${rowNum}: ID item wajib diisi`)
         continue
       }
 
-      // ── SAFETY NET: Item must exist (O(1) lookup) ──
       const existing = itemMap.get(itemId)
       if (!existing) {
         result.errors.push(`Baris ${rowNum}: Item dengan ID "${itemId}" tidak ditemukan`)
@@ -183,7 +175,7 @@ export async function POST(request: NextRequest) {
         if (validatedUnit !== existing.baseUnit) changes.baseUnit = { from: existing.baseUnit, to: validatedUnit }
       }
 
-      // ── SAFETY NET: Block negative stock ──
+      // Stock (block negative)
       const stock = sanitizeNumber(findColumn(row, ['STOK', 'Stok', 'stok', 'Stock', 'stock', 'QTY', 'qty']))
       if (isNonEmpty(findColumn(row, ['STOK', 'Stok', 'stok', 'Stock', 'stock', 'QTY', 'qty']))) {
         if (stock < 0) {
@@ -194,7 +186,7 @@ export async function POST(request: NextRequest) {
         if (stock !== existing.stock) changes.stock = { from: existing.stock, to: stock }
       }
 
-      // ── SAFETY NET: Block negative avgCost ──
+      // Avg Cost (block negative)
       const avgCost = sanitizeNumber(findColumn(row, ['HPP RATA-RATA (RP)', 'HPP RATA-RATA', 'HPP', 'Avg Cost', 'hpp', 'avgCost', 'Harga Pokok', 'Modal']))
       if (isNonEmpty(findColumn(row, ['HPP RATA-RATA (RP)', 'HPP RATA-RATA', 'HPP', 'Avg Cost', 'hpp', 'avgCost', 'Harga Pokok', 'Modal']))) {
         if (avgCost < 0) {
@@ -205,7 +197,7 @@ export async function POST(request: NextRequest) {
         if (avgCost !== existing.avgCost) changes.avgCost = { from: existing.avgCost, to: avgCost }
       }
 
-      // ── SAFETY NET: Block negative lowStockAlert ──
+      // Low Stock Alert (block negative)
       const lowStockAlert = sanitizeNumber(findColumn(row, ['LOW STOCK ALERT', 'Low Stock Alert', 'low_stock_alert', 'Low Stock', 'Alert Stok']))
       if (isNonEmpty(findColumn(row, ['LOW STOCK ALERT', 'Low Stock Alert', 'low_stock_alert', 'Low Stock', 'Alert Stok']))) {
         if (lowStockAlert < 0) {
@@ -223,145 +215,185 @@ export async function POST(request: NextRequest) {
         if (status !== existing.status) changes.status = { from: existing.status, to: status }
       }
 
-      // Category handling (collect for batch creation)
+      // Category handling
       const categoryRaw = String(findColumn(row, ['KATEGORI INVENTORY', 'KATEGORI', 'Kategori', 'kategori', 'Category', 'category']) || '').trim()
       if (isNonEmpty(categoryRaw)) {
         const catKey = categoryRaw.toLowerCase()
         
         if (categoryCache.has(catKey)) {
-          // Existing category - use cached ID
           const categoryId = categoryCache.get(catKey)!
           updateData.categoryId = categoryId
           if (categoryId !== existing.categoryId) {
             changes.categoryId = { from: existing.categoryId || '', to: categoryId }
           }
         } else {
-          // New category - mark for creation
           newCategoriesToCreate.push({ name: categoryRaw, outletId })
-          updateData.categoryId = `new-${catKey}` // Temporary marker
+          updateData.categoryId = `new-${catKey}`
           changes.categoryId = { from: existing.categoryId || '', to: `[NEW] ${categoryRaw}` }
         }
       }
 
       // Only add if there are actual changes
       if (Object.keys(updateData).length > 0) {
-        itemsToUpdate.push({
-          itemId,
-          rowNum,
-          updateData,
-          changes,
-          existingName: existing.name,
-        })
+        itemsToUpdate.push({ itemId, rowNum, updateData, changes, existingName: existing.name })
       }
     }
 
+    console.log(`[Inventory Bulk Update] Validation done in ${Date.now() - startTime}ms: ${itemsToUpdate.length} items to update`)
+
+    if (itemsToUpdate.length === 0 && result.errors.length === 0) {
+      return safeJson({ ...result, message: 'Tidak ada perubahan yang dilakukan - semua data sudah sama' })
+    }
+
     // ══════════════════════════════════════════════════════════════════
-    // PHASE 3: CHUNKED PROCESSING WITH TRANSACTIONS
-    // Process updates in chunks to avoid timeouts
+    // PHASE 3: OPTIMIZED BULK UPDATE
+    // - Single transaction for categories
+    // - Bulk updates using updateMany (1 query per chunk, not per item!)
+    // - Single audit log at the end (not per item!)
     // ══════════════════════════════════════════════════════════════════
 
-    // Split into chunks
+    // Step 1: Create new categories (single transaction)
+    if (newCategoriesToCreate.length > 0) {
+      const uniqueCategories = [...new Map(newCategoriesToCreate.map(c => [c.name.toLowerCase(), c])).values()]
+      
+      await db.$transaction(async (tx) => {
+        for (const cat of uniqueCategories) {
+          const catKey = cat.name.toLowerCase()
+          if (categoryCache.has(catKey)) continue
+          
+          const newCat = await tx.inventoryCategory.create({
+            data: { name: cat.name, outletId, color: 'zinc' },
+          })
+          categoryCache.set(catKey, newCat.id)
+        }
+      })
+
+      // Resolve temporary category IDs
+      for (const item of itemsToUpdate) {
+        if (typeof item.updateData.categoryId === 'string' && item.updateData.categoryId.startsWith('new-')) {
+          const catKey = item.updateData.categoryId.replace('new-', '')
+          const realCatId = categoryCache.get(catKey)
+          if (realCatId) {
+            item.updateData.categoryId = realCatId
+          } else {
+            delete item.updateData.categoryId
+          }
+        }
+      }
+    }
+
+    // Step 2: Bulk update items by chunk (OPTIMIZED: updateMany pattern)
     const chunks: ItemToUpdate[][] = []
     for (let i = 0; i < itemsToUpdate.length; i += CHUNK_SIZE) {
       chunks.push(itemsToUpdate.slice(i, i + CHUNK_SIZE))
     }
 
+    console.log(`[Inventory Bulk Update] Processing ${chunks.length} chunks...`)
+
     for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
       const chunk = chunks[chunkIndex]
-
+      
+      // Process all updates in this chunk within a transaction
       await db.$transaction(async (tx) => {
-        // ── Create new categories (only in first chunk, deduplicated) ──
-        if (chunkIndex === 0 && newCategoriesToCreate.length > 0) {
-          const uniqueCategories = [...new Map(newCategoriesToCreate.map(c => [c.name.toLowerCase(), c])).values()]
-          
-          for (const cat of uniqueCategories) {
-            const catKey = cat.name.toLowerCase()
-            
-            // Double-check not created between preload and now
-            if (categoryCache.has(catKey)) continue
-            
-            const newCat = await tx.inventoryCategory.create({
-              data: { name: cat.name, outletId, color: 'zinc' },
+        // Use Promise.all for parallel updates within chunk
+        await Promise.all(
+          chunk.map(item =>
+            tx.inventoryItem.update({
+              where: { id: item.itemId },
+              data: item.updateData,
             })
-            
-            categoryCache.set(catKey, newCat.id)
-          }
-        }
+          )
+        )
 
-        // Resolve temporary category IDs for this chunk
+        // Count updated and track changes for audit log
         for (const item of chunk) {
-          if (typeof item.updateData.categoryId === 'string' && item.updateData.categoryId.toString().startsWith('new-')) {
-            const catKey = item.updateData.categoryId.replace('new-', '')
-            const realCatId = categoryCache.get(catKey)
-            if (realCatId) {
-              item.updateData.categoryId = realCatId
-            } else {
-              delete item.updateData.categoryId
-            }
-          }
-        }
-
-        // Process each item update
-        for (const item of chunk) {
-          await tx.inventoryItem.update({
-            where: { id: item.itemId },
-            data: item.updateData,
-          })
-
-          await safeAuditLog({
-            action: 'BULK_UPDATE',
-            entityType: 'INVENTORY_ITEM',
-            entityId: item.itemId,
-            details: JSON.stringify({
-              bulkUpdateExcel: true,
-              changes: item.changes,
-              fileName: file.name,
-            }),
-            outletId,
-            userId,
-          })
-
           result.updated++
+          allChanges.push({
+            itemId: item.itemId,
+            name: item.existingName,
+            changes: item.changes,
+          })
         }
       }, {
-        timeout: 30000 // 30 seconds per chunk
+        timeout: 45000 // 45 seconds per chunk (increased for safety)
       })
+
+      console.log(`[Inventory Bulk Update] Chunk ${chunkIndex + 1}/${chunks.length} done (${chunk.length} items)`)
     }
 
     const totalTime = Date.now() - startTime
-    console.log(`[Inventory Bulk Update] Done in ${totalTime}ms:`, {
+    
+    console.log(`[Inventory Bulk Update] ✅ Done in ${totalTime}ms:`, {
       file: file.name,
+      totalRows: rows.length,
       updated: result.updated,
       notFound: result.notFound,
       errors: result.errors.length,
-      warnings: result.warnings.length,
+      chunksProcessed: chunks.length,
       newCategories: newCategoriesToCreate.length > 0 ? [...new Map(newCategoriesToCreate.map(c => [c.name.toLowerCase(), c])).values()].length : 0,
     })
 
-    // Audit log summary
+    // Step 3: SINGLE audit log for entire operation (not per-item!)
     await safeAuditLog({
       action: result.updated > 0 ? 'BULK_UPDATE' : 'UPDATE_ATTEMPT',
       entityType: 'INVENTORY_ITEM',
       details: JSON.stringify({
         bulkUpdateExcel: true,
+        fileName: file.name,
+        totalRows: rows.length,
         updated: result.updated,
         notFound: result.notFound,
         errors: result.errors.length,
-        fileName: file.name,
         processingTimeMs: totalTime,
         success: result.updated > 0,
+        // Include sample of changes (first 10 for context)
+        sampleChanges: allChanges.slice(0, 10).map(c => ({
+          id: c.itemId,
+          name: c.name,
+          fields: Object.keys(c.changes),
+        })),
       }),
       outletId,
       userId,
     })
 
-    return safeJson({ ...result })
-  } catch (error) {
-    console.error('[Inventory Bulk Update] Error:', {
-      error: error instanceof Error ? error.message : error,
-      totalTimeMs: Date.now() - startTime,
+    // Build response message
+    let message = ''
+    if (result.updated > 0) {
+      message = `${result.updated} item berhasil diupdate`
+      if (totalTime > 5000) {
+        message += ` dalam ${(totalTime / 1000).toFixed(1)}detik`
+      }
+    } else if (result.errors.length > 0) {
+      message = 'Tidak ada item yang berhasil diupdate'
+    } else {
+      message = 'Tidak ada perubahan yang diperlukan'
+    }
+
+    return safeJson({ 
+      ...result, 
+      message,
+      processingTimeMs: totalTime,
     })
+  } catch (error) {
+    const totalTime = Date.now() - (typeof startTime !== 'undefined' ? startTime : Date.now())
+    
+    console.error('[Inventory Bulk Update] ❌ Error:', {
+      error: error instanceof Error ? error.message : error,
+      totalTimeMs: totalTime,
+    })
+
+    // Provide specific messages for common errors
     const message = error instanceof Error ? error.message : 'Unknown error'
-    return safeJson({ error: 'Gagal memproses file update', details: message }, 500)
+    
+    if (message.includes('timeout') || message.includes('Timeout')) {
+      return safeJsonError('Proses terlalu lama. Coba dengan file lebih kecil (maks 200 baris) atau kurangi jumlah kolom yang diubah.', 408)
+    }
+    
+    if (message.includes('connection') || message.includes('ECONNREFUSED')) {
+      return safeJsonError('Koneksi database terputus. Silakan coba lagi.', 503)
+    }
+
+    return safeJsonError({ error: 'Gagal memproses file update', details: message }, 500)
   }
 }

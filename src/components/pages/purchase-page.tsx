@@ -584,6 +584,7 @@ export default function PurchasePage() {
   const [invEditExcelOpen, setInvEditExcelOpen] = useState(false)
   const [invEditExcelFile, setInvEditExcelFile] = useState<File | null>(null)
   const [invEditExcelUploading, setInvEditExcelUploading] = useState(false)
+  const [invEditExcelProgress, setInvEditExcelProgress] = useState<string>('') // Progress message
   const [invEditExcelResult, setInvEditExcelResult] = useState<{
     updated: number; notFound: number; errors: string[]
   } | null>(null)
@@ -605,6 +606,7 @@ export default function PurchasePage() {
 
   // Post as Product feature
   const [selectedInvIds, setSelectedInvIds] = useState<Set<string>>(new Set())
+  const [allInvIds, setAllInvIds] = useState<string[]>([]) // All item IDs across pages for select-all
   const [postProductOpen, setPostProductOpen] = useState(false)
   const [postMode, setPostMode] = useState<'select'|'composition'|'retail'>('select')
   const [postStep, setPostStep] = useState<1|2|3>(1)
@@ -696,6 +698,8 @@ export default function PurchasePage() {
         const pageItems = sorted.slice(start, start + invPerPage)
         setInvList(pageItems)
         setInvTotalPages(totalPages)
+        // Store all IDs for select-all functionality
+        setAllInvIds(sorted.map(i => i.id))
         // Client-side stats
         const totalValue = allItems.reduce((sum, i) => sum + i.stock * i.avgCost, 0)
         const lowStockCount = allItems.filter(i => i.stock <= i.lowStockAlert).length
@@ -1992,17 +1996,43 @@ export default function PurchasePage() {
       })
       if (res.ok) {
         const data = await res.json()
-        if (data.blockedCount > 0) {
-          toast.warning(`${data.deletedCount} item dihapus, ${data.blockedCount} dilewati (punya histori)`)
+        if (data.blockedCount > 0 && data.deletedCount > 0) {
+          // Partial success - some deleted, some blocked
+          const blockedList = data.blockedItems?.slice(0, 3).join('; ') || ''
+          const moreMsg = data.blockedCount > 3 ? ` +${data.blockedCount - 3} lainnya` : ''
+          toast.warning(
+            <div className="space-y-1">
+              <p className="font-semibold">{data.deletedCount} dihapus, {data.blockedCount} dilewati</p>
+              <p className="text-[11px] opacity-80">{blockedList}{moreMsg}</p>
+            </div>,
+            { duration: 5000 }
+          )
+        } else if (data.blockedCount > 0 && data.deletedCount === 0) {
+          // All blocked
+          toast.error(
+            <div className="space-y-1">
+              <p className="font-semibold">Semua item tidak dapat dihapus</p>
+              <p className="text-[11px] opacity-80">Item memiliki histori bisnis (pembelian/transaksi). Gunakan Nonaktifkan.</p>
+            </div>,
+            { duration: 5000 }
+          )
         } else {
-          toast.success(`${data.deletedCount} item berhasil dihapus`)
+          // All deleted successfully
+          const msg = data.message || `${data.deletedCount} item berhasil dihapus`
+          const hasMigrationCleaned = msg.includes('migrasi') || msg.includes('dibersihkan')
+          toast.success(
+            <div className="space-y-1">
+              <p className="font-semibold">{data.deletedCount} item berhasil dihapus</p>
+              {hasMigrationCleaned && <p className="text-[11px] opacity-80">Data stok awal & link otomatis dibersihkan</p>}
+            </div>
+          )
         }
         setInvBulkDeleteOpen(false)
         setSelectedInvIds(new Set())
         void fetchInventoryItems()
       } else {
         const data = await res.json().catch(() => ({}))
-        toast.error(data.error || 'Gagal menghapus item')
+        toast.error(data.error || data.details || 'Gagal menghapus item')
       }
     } catch {
       toast.error('Gagal menghapus item')
@@ -2042,24 +2072,103 @@ export default function PurchasePage() {
   const handleInvEditExcelUpload = async () => {
     if (!invEditExcelFile) return
     setInvEditExcelUploading(true)
+    setInvEditExcelProgress('Mengupload & memvalidasi file...')
     setInvEditExcelResult(null)
+    
+    // Set timeout controller (90 seconds max - increased for large files)
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 90000)
+    
     try {
       const formData = new FormData()
       formData.append('file', invEditExcelFile)
+      
+      // Progressive status updates based on typical timing
+      const progressSteps = [
+        { delay: 1000, msg: 'Membaca file Excel...' },
+        { delay: 3000, msg: 'Memvalidasi data (ID, stok, HPP)...' },
+        { delay: 6000, msg: 'Mengupdate database (bulk mode)...' },
+        { delay: 15000, msg: 'Masih memproses banyak item...' },
+        { delay: 30000, msg: 'Hampir selesai...' },
+      ]
+      
+      const timers = progressSteps.map(({ delay, msg }) => 
+        setTimeout(() => {
+          if (invEditExcelUploading) setInvEditExcelProgress(msg)
+        }, delay)
+      )
+      
       const res = await fetch('/api/inventory/items/bulk-update-excel', {
         method: 'POST',
         body: formData,
+        signal: controller.signal,
       })
+      
+      // Clear all pending timers
+      clearTimeout(timeoutId)
+      timers.forEach(t => clearTimeout(t))
+      
       const data = await res.json()
+      
       if (res.ok) {
-        setInvEditExcelResult({ updated: data.updated || 0, notFound: data.notFound || 0, errors: data.errors || [] })
+        setInvEditExcelProgress('Selesai!')
+        
+        // Show processing time if available
+        const timeInfo = data.processingTimeMs && data.processingTimeMs > 1000 
+          ? ` (${(data.processingTimeMs / 1000).toFixed(1)}s)` 
+          : ''
+        
+        setInvEditExcelResult({ 
+          updated: data.updated || 0, 
+          notFound: data.notFound || 0, 
+          errors: data.errors || [] 
+        })
+        
+        // Show toast with result summary
+        if (data.updated > 0) {
+          toast.success(
+            <div className="space-y-1">
+              <p className="font-semibold">{data.updated} item berhasil diupdate{timeInfo}</p>
+              {data.message && <p className="text-[11px] opacity-80">{data.message}</p>}
+            </div>,
+            { duration: 5000 }
+          )
+        } else if (data.errors.length > 0) {
+          toast.warning(`${data.errors.length} error ditemukan, ${data.updated || 0} diupdate`)
+        } else {
+          toast.info(data.message || 'Tidak ada perubahan yang dilakukan')
+        }
+        
         void fetchInventoryItems()
       } else {
-        // Fix Bug #11: Show details message for better debugging
-        toast.error(data.details || data.error || 'Gagal mengupdate inventory')
+        // Handle specific error messages
+        const errorMsg = typeof data === 'object' ? (data.details || data.error || data.message || '') : ''
+        
+        if (res.status === 403) {
+          toast.error('Fitur ini hanya tersedia untuk akun Pro ke atas')
+        } else if (res.status === 400) {
+          toast.error(`Error file: ${errorMsg}`)
+        } else if (res.status === 408) {
+          toast.error(errorMsg || 'Timeout: Proses terlalu lama')
+        } else if (res.status === 503) {
+          toast.error('Database sibuk, silakan coba lagi dalam beberapa detik')
+        } else {
+          toast.error(errorMsg || 'Gagal mengupdate inventory')
+        }
+        
+        setInvEditExcelProgress('')
       }
-    } catch {
-      toast.error('Gagal mengupdate inventory')
+    } catch (err) {
+      clearTimeout(timeoutId)
+      console.error('Upload error:', err)
+      
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        toast.error('Timeout: Proses melebihi batas waktu. Coba dengan file lebih keil (maks 200 baris).')
+      } else {
+        toast.error('Gagal mengupload file. Periksa koneksi internet dan coba lagi.')
+      }
+      
+      setInvEditExcelProgress('')
     } finally {
       setInvEditExcelUploading(false)
     }
@@ -2486,10 +2595,13 @@ export default function PurchasePage() {
   }
 
   const toggleSelectAllInv = () => {
-    if (invList.every(i => selectedInvIds.has(i.id))) {
+    // Check if ALL items (across all pages) are selected
+    if (allInvIds.length > 0 && allInvIds.every(id => selectedInvIds.has(id))) {
+      // Deselect all
       setSelectedInvIds(new Set())
     } else {
-      setSelectedInvIds(new Set(invList.map(i => i.id)))
+      // Select all items across all pages
+      setSelectedInvIds(new Set(allInvIds))
     }
   }
 
@@ -3504,11 +3616,18 @@ export default function PurchasePage() {
                     <TableHeader>
                       <TableRow className="border-white/[0.06] hover:bg-transparent bg-white/[0.02]">
                         <TableHead className="w-12 pl-4">
-                          <Checkbox
-                            checked={invList.length > 0 && invList.every(i => selectedInvIds.has(i.id)) ? true : invList.length > 0 ? 'indeterminate' : false}
-                            onCheckedChange={() => toggleSelectAllInv()}
-                            className="h-4 w-4"
-                          />
+                          <div className="flex items-center gap-1.5">
+                            <Checkbox
+                              checked={allInvIds.length > 0 && allInvIds.every(id => selectedInvIds.has(id)) ? true : selectedInvIds.size > 0 ? 'indeterminate' : false}
+                              onCheckedChange={() => toggleSelectAllInv()}
+                              className="h-4 w-4"
+                            />
+                            {selectedInvIds.size > 0 && (
+                              <span className="text-[10px] text-slate-500 font-medium tabular-nums">
+                                {selectedInvIds.size}/{allInvIds.length}
+                              </span>
+                            )}
+                          </div>
                         </TableHead>
                         <TableHead className="text-[11px] text-slate-500 font-semibold uppercase tracking-wider min-w-[220px]">Nama Item</TableHead>
                         <TableHead className="text-[11px] text-slate-500 font-semibold uppercase tracking-wider w-[130px]">Kategori</TableHead>
@@ -3952,7 +4071,7 @@ n                            {/* Action Buttons */}
             </div>
 
             {/* Pagination */}
-            <Pagination currentPage={invPage} totalPages={invTotalPages} onPageChange={(p) => { setInvPage(p); setSelectedInvIds(new Set()) }} />
+            <Pagination currentPage={invPage} totalPages={invTotalPages} onPageChange={(p) => { setInvPage(p) }} />
           </TabsContent>
         </Tabs>
       </motion.div>
@@ -5484,8 +5603,12 @@ n                            {/* Action Buttons */}
         <AlertDialogContent className="bg-nebula border-white/[0.06]">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-white">Hapus {selectedInvIds.size} Item Inventory?</AlertDialogTitle>
-            <AlertDialogDescription className="text-slate-400 text-sm">
-              Item yang dihapus tidak dapat dikembalikan. Semua batch, komposisi, dan riwayat akan ikut terhapus.
+            <AlertDialogDescription className="text-slate-400 text-sm space-y-2">
+              <p>Setiap item akan diperiksa terlebih dahulu:</p>
+              <ul className="list-disc list-inside text-[11px] space-y-0.5 text-slate-500 ml-1">
+                <li>Item dengan hanya stok awal migrasi <span className="text-emerald-400">akan dihapus</span> (data migrasi dibersihkan)</li>
+                <li>Item dengan histori pembelian/transaksi <span className="text-amber-400">akan dilewati</span> (gunakan Nonaktifkan)</li>
+              </ul>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="gap-2">
@@ -5495,14 +5618,14 @@ n                            {/* Action Buttons */}
               onClick={(e) => { e.preventDefault(); handleInvBulkDelete() }}
               disabled={invBulkDeleting}
             >
-              {invBulkDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : (<><Trash2 className="h-3.5 w-3.5 inline mr-1" />Hapus</>)}
+              {invBulkDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : (<><Trash2 className="h-3.5 w-3.5 inline mr-1" />Hapus yang Bisa</>)}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
       {/* Edit Inventory Excel Dialog */}
-      <ResponsiveDialog open={invEditExcelOpen} onOpenChange={(open) => { if (!open) { setInvEditExcelOpen(false); setInvEditExcelFile(null); setInvEditExcelResult(null) } }}>
+      <ResponsiveDialog open={invEditExcelOpen} onOpenChange={(open) => { if (!open) { setInvEditExcelOpen(false); setInvEditExcelFile(null); setInvEditExcelResult(null); setInvEditExcelProgress('') } }}>
         <ResponsiveDialogContent className="sm:max-w-md">
           <ResponsiveDialogHeader>
             <ResponsiveDialogTitle className="text-white text-sm font-semibold">Edit Inventory via Excel</ResponsiveDialogTitle>
@@ -5517,7 +5640,7 @@ n                            {/* Action Buttons */}
                 <div className="space-y-1.5">
                   <div className="flex items-start gap-2 text-[11px] text-slate-300">
                     <span className="flex-shrink-0 h-4 w-4 rounded-full bg-emerald-500/15 border border-emerald-500/20 flex items-center justify-center text-[10px] text-emerald-400 font-bold">1</span>
-                    <span>Download template edit berisi data inventory saat ini</span>
+                    <span>Download data inventori saat ini</span>
                   </div>
                   <div className="flex items-start gap-2 text-[11px] text-slate-300">
                     <span className="flex-shrink-0 h-4 w-4 rounded-full bg-emerald-500/15 border border-emerald-500/20 flex items-center justify-center text-[10px] text-emerald-400 font-bold">2</span>
@@ -5529,10 +5652,24 @@ n                            {/* Action Buttons */}
                   </div>
                 </div>
               </div>
-              <Button onClick={() => void downloadBlob('/api/inventory/items/export', `inventory-edit-template-${new Date().toISOString().slice(0, 10)}.xlsx`, setInvEditExcelUploading)} disabled={invEditExcelUploading} variant="outline" className="w-full bg-white/[0.04] border-white/[0.04] text-slate-300 hover:text-white hover:bg-white/[0.04] h-9 text-xs">
+              <Button onClick={() => void downloadBlob('/api/inventory/items/export', `inventory-data-${new Date().toISOString().slice(0, 10)}.xlsx`, setInvEditExcelUploading)} disabled={invEditExcelUploading} variant="outline" className="w-full bg-white/[0.04] border-white/[0.04] text-slate-300 hover:text-white hover:bg-white/[0.04] h-9 text-xs">
                 {invEditExcelUploading ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Download className="mr-1.5 h-3.5 w-3.5" />}
-                Download Template Edit
+                Download Data Inventori
               </Button>
+              {/* Progress Indicator */}
+              {invEditExcelUploading && invEditExcelProgress && (
+                <div className="rounded-lg bg-blue-500/10 border border-blue-500/20 p-3 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin text-blue-400" />
+                    <span className="text-xs text-blue-300 font-medium">{invEditExcelProgress}</span>
+                  </div>
+                  <div className="w-full bg-white/[0.08] rounded-full h-1.5 overflow-hidden">
+                    <div className="bg-blue-500 h-full rounded-full animate-pulse" style={{ width: '60%' }} />
+                  </div>
+                  <p className="text-[10px] text-slate-500">Mohon tunggu, proses ini bisa memakan waktu beberapa detik...</p>
+                </div>
+              )}
+              
               <div
                 onDragOver={(e) => { e.preventDefault(); setInvEditExcelDragOver(true) }}
                 onDragLeave={() => setInvEditExcelDragOver(false)}
@@ -5543,10 +5680,10 @@ n                            {/* Action Buttons */}
                     setInvEditExcelFile(file)
                   }
                 }}
-                className={`relative rounded-xl border-2 border-dashed p-6 text-center transition-all ${invEditExcelDragOver ? 'border-emerald-500/50 bg-emerald-500/[0.05]' : invEditExcelFile ? 'border-emerald-500/30 bg-emerald-500/[0.03]' : 'border-white/[0.1] hover:border-white/[0.2]'}`}
+                className={`relative rounded-xl border-2 border-dashed p-6 text-center transition-all ${invEditExcelUploading ? 'pointer-events-none opacity-50' : ''} ${invEditExcelDragOver ? 'border-emerald-500/50 bg-emerald-500/[0.05]' : invEditExcelFile ? 'border-emerald-500/30 bg-emerald-500/[0.03]' : 'border-white/[0.1] hover:border-white/[0.2]'}`}
               >
-                <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) setInvEditExcelFile(f); e.target.value = '' }} id="inv-edit-excel-input" />
-                <label htmlFor="inv-edit-excel-input" className="cursor-pointer">
+                <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) setInvEditExcelFile(f); e.target.value = '' }} id="inv-edit-excel-input" disabled={invEditExcelUploading} />
+                <label htmlFor="inv-edit-excel-input" className={`cursor-pointer ${invEditExcelUploading ? 'cursor-not-allowed' : ''}`}>
                   {invEditExcelFile ? (
                     <div className="flex flex-col items-center gap-2">
                       <FileSpreadsheet className="h-8 w-8 text-emerald-400" />
@@ -5563,7 +5700,7 @@ n                            {/* Action Buttons */}
                 </label>
               </div>
               <Button onClick={handleInvEditExcelUpload} disabled={!invEditExcelFile || invEditExcelUploading} className="w-full h-9 text-xs">
-                {invEditExcelUploading ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> Mengupdate...</> : <><Upload className="h-3.5 w-3.5 mr-1.5" /> Upload & Update</>}
+                {invEditExcelUploading ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> Memproses...</> : <><Upload className="h-3.5 w-3.5 mr-1.5" /> Upload & Update</>}
               </Button>
             </div>
           ) : (
@@ -6586,7 +6723,7 @@ n                            {/* Action Buttons */}
                 </div>
                 <div className="bg-white/[0.03] rounded-lg p-2.5 border border-white/[0.04] text-center">
                   <p className="text-sm font-bold text-white">{invDetailData._count.movements}</p>
-                  <p className="text-[10px] text-slate-500">Movement</p>
+                  <p className="text-[10px] text-slate-500">Riwayat Stok</p>
                 </div>
               </div>
 
@@ -6626,7 +6763,7 @@ n                            {/* Action Buttons */}
                   </TabsTrigger>
                   <TabsTrigger value="movements" className="text-[10px] h-7 gap-1 data-[state=active]:bg-white/[0.08] text-slate-400 data-[state=active]:text-white">
                     <Activity className="h-3 w-3" />
-                    Stok ({invDetailData._count.movements})
+                    Riwayat ({invDetailData._count.movements})
                   </TabsTrigger>
                   <TabsTrigger value="batch" className="text-[10px] h-7 gap-1 data-[state=active]:bg-white/[0.08] text-slate-400 data-[state=active]:text-white">
                     <Hash className="h-3 w-3" />
@@ -6675,15 +6812,24 @@ n                            {/* Action Buttons */}
                   )}
                 </TabsContent>
 
-                {/* Movements Tab */}
+                {/* Movements Tab - menampilkan stok awal migrasi & pergerakan stok */}
                 <TabsContent value="movements" className="mt-3">
                   {invDetailData.movements.length === 0 ? (
                     <div className="py-8 text-center">
-                      <Activity className="h-6 w-6 text-slate-600 mx-auto mb-2" />
-                      <p className="text-xs text-slate-500">Belum ada riwayat pergerakan stok.</p>
+                      <PackageOpen className="h-6 w-6 text-slate-600 mx-auto mb-2" />
+                      <p className="text-xs text-slate-400 mb-1">Belum ada riwayat stok</p>
+                      <p className="text-[10px] text-slate-600">Stok akan tercatat setelah pembelian pertama atau migrasi data</p>
                     </div>
                   ) : (
-                    <div className="space-y-1.5 max-h-64 overflow-y-auto overflow-x-hidden pr-1">
+                    <div className="space-y-2">
+                      {/* Info card menjelaskan apa ini */}
+                      <div className="rounded-lg bg-sky-500/5 border border-sky-500/10 px-3 py-2 flex items-start gap-2">
+                        <Info className="h-3.5 w-3.5 text-sky-400 mt-0.5 shrink-0" />
+                        <p className="text-[10px] text-slate-400 leading-relaxed">
+                          <span className="text-sky-300 font-medium">Riwayat stok</span> mencatat perubahan qty: stok awal migrasi, pembelian, konsumsi, & penyesuaian.
+                        </p>
+                      </div>
+                      <div className="space-y-1.5 max-h-64 overflow-y-auto overflow-x-hidden pr-1">
                       {invDetailData.movements.map((m) => (
                         <div key={m.id} className="flex items-center gap-2.5 py-2 px-2.5 rounded-lg bg-white/[0.02] border border-white/[0.03] min-w-0">
                           <div className={cn(
@@ -6721,6 +6867,7 @@ n                            {/* Action Buttons */}
                           </div>
                         </div>
                       ))}
+                      </div>
                     </div>
                   )}
 
