@@ -16,19 +16,58 @@ import {
 
 export const maxDuration = 60
 
-const MAX_ROWS = 500
-const CHUNK_SIZE = 100 // Increased: use bulk update for better performance
+const GLOBAL_MAX_ROWS = 500       // Absolute maximum (safety net)
+const DEFAULT_CHUNK_SIZE = 100    // Items per transaction chunk
+
+// Plan-based limits
+const PLAN_LIMITS: Record<string, number> = {
+  free: 0,     // Blocked by bulkUpload flag anyway
+  pro: 200,    // Pro plan limit
+  enterprise: 500, // Enterprise limit
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════
+ * FIELD EDITABILITY MATRIX
+ * ═══════════════════════════════════════════════════════════════════
+ * 
+ * ✅ EDITABLE (safe to change via Excel):
+ *    - Nama Item        → Just a label change
+ *    - SKU              → Just a code change  
+ *    - Satuan Dasar     → Unit label (note: existing batches use original unit)
+ *    - Low Stock Alert  → Threshold configuration
+ *    - Status           → ACTIVE / ARCHIVED toggle
+ *    - Kategori         → Category assignment
+ * 
+ * ⚠️  READ-ONLY (displayed in export but CANNOT edit via Excel):
+ *    - Stok             → DENORMALIZED: calculated from batch remainingQty
+ *                         Direct edit would desync with batches!
+ *    - HPP Rata-rata   → CALCULATED: weighted average from purchase prices
+ *                         Direct edit would be overwritten on next purchase!
+ * 
+ * To adjust stock properly, use:
+ *    - Stock Opname (inventory count)
+ *    - Purchase Order (receive goods)
+ *    - Manual Adjustment (creates audit trail)
+ * ═══════════════════════════════════════════════════════════════════
+ */
+
+// Fields that CAN be edited via Excel
+const EDITABLE_FIELDS = ['name', 'sku', 'baseUnit', 'lowStockAlert', 'status', 'categoryId']
+
+// Read-only info fields (shown in export but changes ignored with warning)
+const READ_ONLY_FIELDS = ['stock', 'avgCost']
 
 /**
  * POST /api/inventory/items/bulk-update-excel
  * Bulk update inventory items from uploaded Excel (Pro & Enterprise only).
  * 
- * HIGHLY OPTIMIZED VERSION:
+ * HIGHLY OPTIMIZED VERSION with CORRECT field handling:
+ * - Only editable fields are processed
+ * - Read-only fields (Stok, HPP) show warnings but don't block
  * - Parallel pre-load of items and categories
- * - O(1) lookup maps for validation
- * - BULK UPDATE via updateMany (not individual updates)
- * - SINGLE audit log summary (not per-item)
- * - Chunked processing for timeout prevention
+ * - BULK UPDATE via Promise.all (not sequential)
+ * - SINGLE audit log summary
  */
 export async function POST(request: NextRequest) {
   // Result containers
@@ -37,6 +76,7 @@ export async function POST(request: NextRequest) {
     notFound: 0,
     errors: [] as string[],
     warnings: [] as string[],
+    skippedReadOnly: [] as string[], // Track read-only field edits that were skipped
   }
 
   // Track all changes for single audit log
@@ -48,12 +88,19 @@ export async function POST(request: NextRequest) {
     const outletId = user.outletId
     const userId = user.id
 
-    // Plan gate
+    // Plan gate with tier-based limits
     const outletPlan = await getOutletPlan(outletId, db)
     if (!outletPlan) return safeJsonError('Outlet not found', 404)
+    
     if (!outletPlan.features.bulkUpload) {
       return safeJsonError('Fitur edit inventory via Excel hanya tersedia untuk akun Pro ke atas. Upgrade sekarang!', 403)
     }
+    
+    // Determine max rows for this plan
+    const planMaxRows = outletPlan.features.maxBulkUploadRows > 0 
+      ? outletPlan.features.maxBulkUploadRows 
+      : PLAN_LIMITS[outletPlan.accountType] || 200
+    const effectiveMaxRows = Math.min(planMaxRows, GLOBAL_MAX_ROWS)
 
     const formData = await request.formData()
     const file = formData.get('file') as File | null
@@ -82,8 +129,16 @@ export async function POST(request: NextRequest) {
     const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' })
 
     if (rows.length === 0) return safeJsonError('File Excel tidak memiliki data baris', 400)
-    if (rows.length > MAX_ROWS) {
-      return safeJsonError(`Maksimal ${MAX_ROWS} baris per upload. File Anda memiliki ${rows.length} baris.`, 400)
+    
+    // Plan-based row limit check
+    if (rows.length > effectiveMaxRows) {
+      const planName = outletPlan.accountType === 'pro' ? 'Pro' : outletPlan.accountType === 'enterprise' ? 'Enterprise' : 'Anda'
+      return safeJsonError(
+        `Batas upload untuk plan ${planName}: ${effectiveMaxRows} baris per file. ` +
+        `File Anda memiliki ${rows.length} baris. ` +
+        (outletPlan.accountType === 'pro' ? 'Upgrade ke Enterprise untuk batas 500 baris.' : ''),
+        400
+      )
     }
 
     const startTime = Date.now()
@@ -91,7 +146,7 @@ export async function POST(request: NextRequest) {
     console.log(`[Inventory Bulk Update] Starting: file="${file.name}" (${(file.size / 1024).toFixed(1)}KB), rows=${rows.length}`)
 
     // ══════════════════════════════════════════════════════════════════
-    // PHASE 1: PARALLEL PRE-LOAD (Single query each, executed in parallel)
+    // PHASE 1: PARALLEL PRE-LOAD
     // ══════════════════════════════════════════════════════════════════
     
     const [existingItems, existingCategories] = await Promise.all([
@@ -118,7 +173,7 @@ export async function POST(request: NextRequest) {
     console.log(`[Inventory Bulk Update] Pre-loaded ${existingItems.length} items, ${existingCategories.length} categories in ${Date.now() - startTime}ms`)
 
     // ══════════════════════════════════════════════════════════════════
-    // PHASE 2: COLLECT & VALIDATE IN MEMORY (Zero DB writes here)
+    // PHASE 2: COLLECT & VALIDATE IN MEMORY
     // ══════════════════════════════════════════════════════════════════
 
     interface ItemToUpdate {
@@ -153,21 +208,21 @@ export async function POST(request: NextRequest) {
       const updateData: Record<string, unknown> = {}
       const changes: Record<string, { from: number | string | null; to: number | string }> = {}
 
-      // Name
+      // ── ✅ EDITABLE: Name ──
       const name = String(findColumn(row, ['NAMA ITEM*', 'NAMA ITEM', 'Nama Item', 'Nama', 'NAME', 'name']) || '').trim()
       if (isNonEmpty(name) && name !== existing.name) {
         updateData.name = name
         changes.name = { from: existing.name, to: name }
       }
 
-      // SKU
+      // ── ✅ EDITABLE: SKU ──
       const sku = String(findColumn(row, ['SKU', 'sku', 'Kode']) || '').trim()
       if (isNonEmpty(sku)) {
         updateData.sku = sku || null
         if (sku !== (existing.sku || '')) changes.sku = { from: existing.sku || '', to: sku }
       }
 
-      // Base Unit with validation
+      // ── ✅ EDITABLE: Base Unit ──
       const baseUnit = String(findColumn(row, ['SATUAN DASAR', 'Satuan Dasar', 'SATUAN', 'Satuan', 'satuan', 'Unit', 'unit', 'Base Unit']) || '').trim().toLowerCase()
       if (isNonEmpty(baseUnit)) {
         const validatedUnit = validateUnit(baseUnit)
@@ -175,29 +230,35 @@ export async function POST(request: NextRequest) {
         if (validatedUnit !== existing.baseUnit) changes.baseUnit = { from: existing.baseUnit, to: validatedUnit }
       }
 
-      // Stock (block negative)
-      const stock = sanitizeNumber(findColumn(row, ['STOK', 'Stok', 'stok', 'Stock', 'stock', 'QTY', 'qty']))
-      if (isNonEmpty(findColumn(row, ['STOK', 'Stok', 'stok', 'Stock', 'stock', 'QTY', 'qty']))) {
-        if (stock < 0) {
-          result.errors.push(`Baris ${rowNum}: Stok tidak boleh negatif (Item: ${existing.name}, Stok: ${stock})`)
-          continue
+      // ── ⚠️ READ-ONLY: Stock (show warning, skip update) ──
+      const stockValue = findColumn(row, ['STOK', 'Stok', 'stok', 'Stock', 'stock', 'QTY', 'qty'])
+      if (isNonEmpty(stockValue)) {
+        const stock = sanitizeNumber(stockValue)
+        if (stock !== existing.stock) {
+          result.warnings.push(
+            `Baris ${rowNum} (${existing.name}): Stok diabaikan. Stok adalah nilai otomatis dari batch. ` +
+            `Gunakan "Stok Opname" atau "Penyesuaian Stok" untuk mengubah stok.`
+          )
+          result.skippedReadOnly.push(`${existing.name}:Stok`)
         }
-        updateData.stock = stock
-        if (stock !== existing.stock) changes.stock = { from: existing.stock, to: stock }
+        // Do NOT add to updateData - stock is read-only!
       }
 
-      // Avg Cost (block negative)
-      const avgCost = sanitizeNumber(findColumn(row, ['HPP RATA-RATA (RP)', 'HPP RATA-RATA', 'HPP', 'Avg Cost', 'hpp', 'avgCost', 'Harga Pokok', 'Modal']))
-      if (isNonEmpty(findColumn(row, ['HPP RATA-RATA (RP)', 'HPP RATA-RATA', 'HPP', 'Avg Cost', 'hpp', 'avgCost', 'Harga Pokok', 'Modal']))) {
-        if (avgCost < 0) {
-          result.errors.push(`Baris ${rowNum}: HPP rata-rata tidak boleh negatif (Item: ${existing.name})`)
-          continue
+      // ── ⚠️ READ-ONLY: Avg Cost (show warning, skip update) ──
+      const avgCostValue = findColumn(row, ['HPP RATA-RATA (RP)', 'HPP RATA-RATA', 'HPP', 'Avg Cost', 'hpp', 'avgCost', 'Harga Pokok', 'Modal'])
+      if (isNonEmpty(avgCostValue)) {
+        const avgCost = sanitizeNumber(avgCostValue)
+        if (avgCost !== existing.avgCost) {
+          result.warnings.push(
+            `Baris ${rowNum} (${existing.name}): HPP diabaikan. HPP rata-rata dihitung otomatis dari pembelian. ` +
+            `Nilai akan berubah saat ada pembelian baru.`
+          )
+          result.skippedReadOnly.push(`${existing.name}:HPP`)
         }
-        updateData.avgCost = avgCost
-        if (avgCost !== existing.avgCost) changes.avgCost = { from: existing.avgCost, to: avgCost }
+        // Do NOT add to updateData - avgCost is read-only!
       }
 
-      // Low Stock Alert (block negative)
+      // ── ✅ EDITABLE: Low Stock Alert ──
       const lowStockAlert = sanitizeNumber(findColumn(row, ['LOW STOCK ALERT', 'Low Stock Alert', 'low_stock_alert', 'Low Stock', 'Alert Stok']))
       if (isNonEmpty(findColumn(row, ['LOW STOCK ALERT', 'Low Stock Alert', 'low_stock_alert', 'Low Stock', 'Alert Stok']))) {
         if (lowStockAlert < 0) {
@@ -208,14 +269,14 @@ export async function POST(request: NextRequest) {
         if (lowStockAlert !== existing.lowStockAlert) changes.lowStockAlert = { from: existing.lowStockAlert, to: lowStockAlert }
       }
 
-      // Status validation
+      // ── ✅ EDITABLE: Status ──
       const status = String(findColumn(row, ['STATUS', 'Status', 'status']) || '').trim().toUpperCase()
       if (isNonEmpty(status) && ['ACTIVE', 'ARCHIVED'].includes(status)) {
         updateData.status = status
         if (status !== existing.status) changes.status = { from: existing.status, to: status }
       }
 
-      // Category handling
+      // ── ✅ EDITABLE: Category ──
       const categoryRaw = String(findColumn(row, ['KATEGORI INVENTORY', 'KATEGORI', 'Kategori', 'kategori', 'Category', 'category']) || '').trim()
       if (isNonEmpty(categoryRaw)) {
         const catKey = categoryRaw.toLowerCase()
@@ -233,23 +294,29 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Only add if there are actual changes
+      // Only add if there are actual changes to editable fields
       if (Object.keys(updateData).length > 0) {
         itemsToUpdate.push({ itemId, rowNum, updateData, changes, existingName: existing.name })
       }
     }
 
-    console.log(`[Inventory Bulk Update] Validation done in ${Date.now() - startTime}ms: ${itemsToUpdate.length} items to update`)
+    console.log(`[Inventory Bulk Update] Validation done in ${Date.now() - startTime}ms: ${itemsToUpdate.length} items to update, ${result.warnings.length} read-only warnings`)
 
-    if (itemsToUpdate.length === 0 && result.errors.length === 0) {
+    if (itemsToUpdate.length === 0 && result.errors.length === 0 && result.warnings.length === 0) {
       return safeJson({ ...result, message: 'Tidak ada perubahan yang dilakukan - semua data sudah sama' })
+    }
+
+    // If only read-only fields were changed, return early with warnings
+    if (itemsToUpdate.length === 0 && result.warnings.length > 0) {
+      return safeJson({ 
+        ...result, 
+        updated: 0,
+        message: 'Tidak ada perubahan yang disimpan. Kolom Stok dan HPP bersifat read-only (lihat warning).',
+      })
     }
 
     // ══════════════════════════════════════════════════════════════════
     // PHASE 3: OPTIMIZED BULK UPDATE
-    // - Single transaction for categories
-    // - Bulk updates using updateMany (1 query per chunk, not per item!)
-    // - Single audit log at the end (not per item!)
     // ══════════════════════════════════════════════════════════════════
 
     // Step 1: Create new categories (single transaction)
@@ -282,18 +349,18 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Step 2: Bulk update items by chunk (OPTIMIZED: updateMany pattern)
+    // Step 2: Bulk update items by chunk
+    const chunkSize = Math.min(DEFAULT_CHUNK_SIZE, effectiveMaxRows)
     const chunks: ItemToUpdate[][] = []
-    for (let i = 0; i < itemsToUpdate.length; i += CHUNK_SIZE) {
-      chunks.push(itemsToUpdate.slice(i, i + CHUNK_SIZE))
+    for (let i = 0; i < itemsToUpdate.length; i += chunkSize) {
+      chunks.push(itemsToUpdate.slice(i, i + chunkSize))
     }
 
-    console.log(`[Inventory Bulk Update] Processing ${chunks.length} chunks...`)
+    console.log(`[Inventory Bulk Update] Processing ${chunks.length} chunks (chunkSize=${chunkSize}, plan=${outletPlan.accountType}, maxRows=${effectiveMaxRows})...`)
 
     for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
       const chunk = chunks[chunkIndex]
       
-      // Process all updates in this chunk within a transaction
       await db.$transaction(async (tx) => {
         // Use Promise.all for parallel updates within chunk
         await Promise.all(
@@ -315,7 +382,7 @@ export async function POST(request: NextRequest) {
           })
         }
       }, {
-        timeout: 45000 // 45 seconds per chunk (increased for safety)
+        timeout: 45000
       })
 
       console.log(`[Inventory Bulk Update] Chunk ${chunkIndex + 1}/${chunks.length} done (${chunk.length} items)`)
@@ -329,11 +396,12 @@ export async function POST(request: NextRequest) {
       updated: result.updated,
       notFound: result.notFound,
       errors: result.errors.length,
+      warnings: result.warnings.length,
+      skippedReadOnly: result.skippedReadOnly.length,
       chunksProcessed: chunks.length,
-      newCategories: newCategoriesToCreate.length > 0 ? [...new Map(newCategoriesToCreate.map(c => [c.name.toLowerCase(), c])).values()].length : 0,
     })
 
-    // Step 3: SINGLE audit log for entire operation (not per-item!)
+    // Single audit log for entire operation
     await safeAuditLog({
       action: result.updated > 0 ? 'BULK_UPDATE' : 'UPDATE_ATTEMPT',
       entityType: 'INVENTORY_ITEM',
@@ -344,9 +412,10 @@ export async function POST(request: NextRequest) {
         updated: result.updated,
         notFound: result.notFound,
         errors: result.errors.length,
+        warnings: result.warnings.length,
+        skippedReadOnly: result.skippedReadOnly.length,
         processingTimeMs: totalTime,
         success: result.updated > 0,
-        // Include sample of changes (first 10 for context)
         sampleChanges: allChanges.slice(0, 10).map(c => ({
           id: c.itemId,
           name: c.name,
@@ -361,13 +430,11 @@ export async function POST(request: NextRequest) {
     let message = ''
     if (result.updated > 0) {
       message = `${result.updated} item berhasil diupdate`
-      if (totalTime > 5000) {
-        message += ` dalam ${(totalTime / 1000).toFixed(1)}detik`
+      if (result.warnings.length > 0) {
+        message += `, ${result.warnings.length} kolom read-only diabaikan`
       }
-    } else if (result.errors.length > 0) {
-      message = 'Tidak ada item yang berhasil diupdate'
     } else {
-      message = 'Tidak ada perubahan yang diperlukan'
+      message = 'Tidak ada item yang berhasil diupdate'
     }
 
     return safeJson({ 
@@ -383,7 +450,6 @@ export async function POST(request: NextRequest) {
       totalTimeMs: totalTime,
     })
 
-    // Provide specific messages for common errors
     const message = error instanceof Error ? error.message : 'Unknown error'
     
     if (message.includes('timeout') || message.includes('Timeout')) {

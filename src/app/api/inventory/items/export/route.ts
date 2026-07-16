@@ -11,7 +11,10 @@ export const maxDuration = 60
 /**
  * GET /api/inventory/items/export
  * Export all inventory items to Excel (Pro & Enterprise only).
- * Includes: items, categories, batch summary, composition links.
+ * 
+ * TEMPLATE STRUCTURE:
+ * - ✅ EDITABLE fields: Nama, SKU, Satuan Dasar, Low Stock Alert, Status, Kategori
+ * - 📊 READ-ONLY info: Stok, HPP Rata-rata (displayed for reference only)
  */
 export async function GET(request: NextRequest) {
   try {
@@ -53,16 +56,17 @@ export async function GET(request: NextRequest) {
     const wb = XLSX.utils.book_new()
 
     // === Sheet 1: Inventory Items ===
+    // Headers with emoji indicators: ✅ = editable, 📊 = read-only info
     const header = [
       'ID*',
-      'Nama Item*',
-      'SKU',
-      'Satuan Dasar',
-      'Stok',
-      'HPP Rata-rata (Rp)',
-      'Low Stock Alert',
-      'Status',
-      'Kategori Inventory',
+      '✅ Nama Item*',
+      '✅ SKU',
+      '✅ Satuan Dasar',
+      '📊 Stok (Read-Only)',
+      '📊 HPP Rata-rata (Read-Only)',
+      '✅ Low Stock Alert',
+      '✅ Status',
+      '✅ Kategori Inventory',
     ]
 
     const rows = items.map((item) => [
@@ -80,11 +84,11 @@ export async function GET(request: NextRequest) {
     const ws = XLSX.utils.aoa_to_sheet([header, ...rows])
     ws['!cols'] = [
       { wch: 28 }, // ID
-      { wch: 30 }, // Nama Item
+      { wch: 32 }, // Nama Item (slightly wider for emoji)
       { wch: 18 }, // SKU
       { wch: 14 }, // Satuan Dasar
-      { wch: 10 }, // Stok
-      { wch: 20 }, // HPP Rata-rata
+      { wch: 18 }, // Stok (wider for "Read-Only" label)
+      { wch: 24 }, // HPP Rata-rata (wider)
       { wch: 16 }, // Low Stock Alert
       { wch: 12 }, // Status
       { wch: 22 }, // Kategori
@@ -97,6 +101,25 @@ export async function GET(request: NextRequest) {
       sqref: 'H2:H5000',
       formulas: ['"ACTIVE,ARCHIVED"'],
     }]
+
+    // Header styling (row 1 = headers)
+    // Color editable columns light green, read-only columns light gray
+    for (let col = 0; col < header.length; col++) {
+      const cellRef = XLSX.utils.encode_cell({ r: 0, c: col })
+      if (!ws[cellRef]) continue
+      
+      const isEditable = header[col].includes('✅')
+      const isReadOnly = header[col].includes('📊')
+      
+      ws[cellRef].s = {
+        font: { bold: true, color: { rgb: isReadOnly ? '808080' : 'FFFFFF' } },
+        fill: { 
+          fgColor: { rgb: isReadOnly ? 'E0E0E0' : '2D7D46' },  // Gray for read-only, green for editable
+          patternType: 'solid' 
+        },
+        alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+      }
+    }
 
     XLSX.utils.book_append_sheet(wb, ws, 'Inventory Items')
 
@@ -143,40 +166,65 @@ export async function GET(request: NextRequest) {
     ]
     XLSX.utils.book_append_sheet(wb, wsBatch, 'Batch Detail')
 
-    // === Sheet 3: Panduan ===
+    // === Sheet 3: Panduan (Updated with clear field explanation) ===
     const guideData = [
       ['PANDUAN EDIT INVENTORY VIA EXCEL — AETHER POS (Pro & Enterprise)'],
       [''],
+      ['⚠️ PENTING: BACA SEBELUM EDIT!'],
+      [''],
       ['CARA EDIT INVENTORY:'],
       ['1. Download file ini (data inventory saat ini)'],
-      ['2. Edit kolom yang ingin diubah di sheet "Inventory Items"'],
-      ['3. Kolom ID tidak boleh diubah — digunakan untuk pencocokan'],
-      ['4. Upload kembali file yang sudah diedit melalui menu "Edit Excel" di halaman Inventory'],
+      ['2. Edit HANYA kolom dengan tanda ✅ di sheet "Inventory Items"'],
+      ['3. Kolom dengan tanda 📊 adalah INFO saja - perubahan akan DIABAIKAN'],
+      ['4. Kolom ID tidak boleh diubah — digunakan untuk pencocokan data'],
+      ['5. Upload kembali file yang sudah diedit melalui menu "Edit Excel"'],
       [''],
-      ['KOLOM SHEET INVENTORY ITEMS:', 'DESKRIPSI', 'WAJIB?'],
-      ['ID*', 'ID inventory item (jangan diubah)', 'Ya'],
-      ['Nama Item*', 'Nama item bahan baku', 'Tidak'],
-      ['SKU', 'Kode SKU item', 'Tidak'],
-      ['Satuan Dasar', 'Unit dasar: gr, kg, ml, lt, pcs, meter', 'Tidak'],
-      ['Stok', 'Jumlah stok saat ini (akan overwrite!)', 'Tidak'],
-      ['HPP Rata-rata (Rp)', 'Harga pokok rata-rata per unit', 'Tidak'],
-      ['Low Stock Alert', 'Batas peringatan stok rendah', 'Tidak'],
-      ['Status', 'ACTIVE atau ARCHIVED', 'Tidak'],
-      ['Kategori Inventory', 'Nama kategori (auto-create jika belum ada)', 'Tidak'],
+      ['═══════════════════════════════════════════════════════════════'],
+      ['KOLOM YANG BISA DIEDIT (✅):', '', ''],
+      ['Kolom', 'Deskripsi', 'Contoh Isi'],
+      ['✅ Nama Item*', 'Nama item bahan baku', 'Tepung Terigu'],
+      ['✅ SKU', 'Kode SKU item', 'BRG-001'],
+      ['✅ Satuan Dasar', 'Unit dasar', 'kg, gram, ml, liter, pcs'],
+      ['✅ Low Stock Alert', 'Batas stok minimum sebelum warning', '10'],
+      ['✅ Status', 'Status item', 'ACTIVE atau ARCHIVED'],
+      ['✅ Kategori Inventory', 'Kategori item (auto-create jika baru)', 'Bahan Kering'],
       [''],
-      ['CATATAN:'],
-      ['• Hanya kolom yang diisi (tidak kosong) yang akan diperbarui'],
-      ['• Kolom ID wajib dan tidak boleh diubah'],
-      ['• Maksimal 500 baris per upload'],
-      ['• Stok diisi dalam satuan dasar (base unit)'],
-      ['• Harga harus dalam format angka (contoh: 25000)'],
-      ['• Status harus ACTIVE atau ARCHIVED'],
+      ['═══════════════════════════════════════════════════════════════'],
+      ['KOLOM INFO SAJA (📊 TIDAK BISA DIEDIT):', '', ''],
+      ['Kolom', 'Alasan Tidak Bisa Edit', 'Cara Ubah'],
+      ['📊 Stok', 'Stok dihitung otomatis dari batch/pembelian', 'Gunakan fitur "Stok Opname" atau "Penyesuaian Stok"'],
+      ['📊 HPP Rata-rata', 'HPP dihitung otomatis dari harga pembelian', 'Akan berubah otomatis saat ada pembelian baru'],
       [''],
-      ['FITUR INI KHUSUS AKUN PRO & ENTERPRISE'],
+      ['═══════════════════════════════════════════════════════════════'],
+      ['ATURAN UMUM:', ''],
+      ['• Kolom ID* WAJIB dan tidak boleh diubah/dikosongkan', ''],
+      ['• Hanya kolom terisi (tidak kosong) yang akan diperbarui', ''],
+      ['• Maksimal baris sesuai plan Anda (Pro: 200, Enterprise: 500)', ''],
+      ['• Status harus ACTIVE atau ARCHIVED (huruf kapital semua)', ''],
+      ['• Jika ada error pada suatu baris, baris tersebut dilewati', ''],
+      ['• Error dan warning ditampilkan setelah upload selesai', ''],
+      [''],
+      ['UNTUK MENGUBAH STOK:', ''],
+      ['→ Gunakan menu "Stok Opname" di halaman Inventory', ''],
+      ['→ Atau gunakan fitur "Penyesuaian Stok" pada detail item', ''],
+      ['→ Atau buat Pembelian untuk menambah stok dari supplier', ''],
+      [''],
+      ['FITUR INI KHUSUS AKUN PRO & ENTERPRISE', ''],
     ]
 
     const wsGuide = XLSX.utils.aoa_to_sheet(guideData)
-    wsGuide['!cols'] = [{ wch: 35 }, { wch: 55 }, { wch: 10 }]
+    wsGuide['!cols'] = [{ wch: 40 }, { wch: 50 }, { wch: 35 }]
+    
+    // Style the guide header
+    const titleCell = 'A1'
+    if (wsGuide[titleCell]) {
+      wsGuide[titleCell].s = {
+        font: { bold: true, sz: 14, color: { rgb: 'FFFFFF' } },
+        fill: { fgColor: { rgb: '4472C4' }, patternType: 'solid' },
+        alignment: { horizontal: 'center' }
+      }
+    }
+
     XLSX.utils.book_append_sheet(wb, wsGuide, 'Panduan')
 
     const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
@@ -194,7 +242,7 @@ export async function GET(request: NextRequest) {
       userId,
     })
 
-    const filename = `inventory-export-${new Date().toISOString().slice(0, 10)}.xlsx`
+    const filename = `inventory-data-${new Date().toISOString().slice(0, 10)}.xlsx`
     return new Response(buffer, {
       status: 200,
       headers: {

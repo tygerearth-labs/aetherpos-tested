@@ -50,6 +50,7 @@ export interface PlanFeatures {
   offlineMode: boolean           // Offline POS (IndexedDB)
   multiOutlet: boolean           // Multiple outlets
   bulkUpload: boolean            // Bulk upload products via Excel
+  maxBulkUploadRows: number      // Max rows per bulk upload (-1 = use MAX_ROWS default)
   transactionSummary: boolean    // Transaction summary per outlet
   apiAccess: boolean             // Command Center API access
   prioritySupport: boolean
@@ -89,6 +90,7 @@ export const PLANS: Record<AccountType, PlanFeatures> = {
     offlineMode: true,
     multiOutlet: false,
     bulkUpload: false,
+    maxBulkUploadRows: 0,         // Free: tidak bisa bulk upload
     transactionSummary: false,
     apiAccess: false,
     prioritySupport: false,
@@ -123,6 +125,7 @@ export const PLANS: Record<AccountType, PlanFeatures> = {
     offlineMode: true,
     multiOutlet: true,
     bulkUpload: true,
+    maxBulkUploadRows: 200,       // Pro: max 200 rows per upload
     transactionSummary: true,
     apiAccess: true,
     prioritySupport: true,
@@ -157,6 +160,7 @@ export const PLANS: Record<AccountType, PlanFeatures> = {
     offlineMode: true,
     multiOutlet: true,
     bulkUpload: true,
+    maxBulkUploadRows: 500,       // Enterprise: max 500 rows per upload
     transactionSummary: true,
     apiAccess: true,
     prioritySupport: true,

@@ -103,6 +103,7 @@ import {
   Hash,
   TrendingDown,
   AlertCircle,
+  XCircle,
   FolderInput,
   Ban,
   Lock,
@@ -586,7 +587,7 @@ export default function PurchasePage() {
   const [invEditExcelUploading, setInvEditExcelUploading] = useState(false)
   const [invEditExcelProgress, setInvEditExcelProgress] = useState<string>('') // Progress message
   const [invEditExcelResult, setInvEditExcelResult] = useState<{
-    updated: number; notFound: number; errors: string[]
+    updated: number; notFound: number; errors: string[]; warnings: string[]
   } | null>(null)
   const [invEditExcelDragOver, setInvEditExcelDragOver] = useState(false)
 
@@ -1989,13 +1990,22 @@ export default function PurchasePage() {
     if (selectedInvIds.size === 0) return
     setInvBulkDeleting(true)
     try {
+      console.log('[Bulk Delete] Attempting to delete', selectedInvIds.size, 'items:', Array.from(selectedInvIds))
+      
       const res = await fetch('/api/inventory/items/bulk-delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids: Array.from(selectedInvIds) }),
       })
+      
+      const data = await res.json().catch((e) => {
+        console.error('[Bulk Delete] Failed to parse response:', e)
+        return { error: 'Gagal membaca response server' }
+      })
+      
+      console.log('[Bulk Delete] Response:', { status: res.ok, data })
+      
       if (res.ok) {
-        const data = await res.json()
         if (data.blockedCount > 0 && data.deletedCount > 0) {
           // Partial success - some deleted, some blocked
           const blockedList = data.blockedItems?.slice(0, 3).join('; ') || ''
@@ -2016,6 +2026,9 @@ export default function PurchasePage() {
             </div>,
             { duration: 5000 }
           )
+        } else if (data.deletedCount === 0 && data.blockedCount === 0) {
+          // Nothing happened?
+          toast.error('Tidak ada item yang dihapus. Coba refresh halaman.')
         } else {
           // All deleted successfully
           const msg = data.message || `${data.deletedCount} item berhasil dihapus`
@@ -2031,11 +2044,23 @@ export default function PurchasePage() {
         setSelectedInvIds(new Set())
         void fetchInventoryItems()
       } else {
-        const data = await res.json().catch(() => ({}))
-        toast.error(data.error || data.details || 'Gagal menghapus item')
+        // HTTP error - show detailed error
+        const errorMsg = data.error || data.details || data.message || `HTTP ${res.status}: Gagal menghapus`
+        console.error('[Bulk Delete] Error:', errorMsg)
+        
+        toast.error(
+          <div className="space-y-1">
+            <p className="font-semibold">Gagal menghapus item</p>
+            <p className="text-[11px] opacity-80 break-all">{errorMsg}</p>
+          </div>,
+          { duration: 5000 }
+        )
+        
+        // Keep dialog open so user can see error and retry
       }
-    } catch {
-      toast.error('Gagal menghapus item')
+    } catch (err) {
+      console.error('[Bulk Delete] Exception:', err)
+      toast.error('Gagal menghapus item. Periksa koneksi internet dan coba lagi.')
     } finally {
       setInvBulkDeleting(false)
     }
@@ -2118,14 +2143,28 @@ export default function PurchasePage() {
           ? ` (${(data.processingTimeMs / 1000).toFixed(1)}s)` 
           : ''
         
+        const warnings = data.warnings || []
+        
         setInvEditExcelResult({ 
           updated: data.updated || 0, 
           notFound: data.notFound || 0, 
-          errors: data.errors || [] 
+          errors: data.errors || [],
+          warnings: warnings,
         })
         
         // Show toast with result summary
-        if (data.updated > 0) {
+        if (data.updated > 0 && warnings.length > 0) {
+          // Partial success - some updates, some read-only fields ignored
+          toast.success(
+            <div className="space-y-1.5">
+              <p className="font-semibold">{data.updated} item berhasil diupdate{timeInfo}</p>
+              <p className="text-[11px] text-amber-300/80">
+                ⚠️ {warnings.length} kolom read-only diabaikan (Stok/HPP)
+              </p>
+            </div>,
+            { duration: 6000 }
+          )
+        } else if (data.updated > 0) {
           toast.success(
             <div className="space-y-1">
               <p className="font-semibold">{data.updated} item berhasil diupdate{timeInfo}</p>
@@ -2133,8 +2172,18 @@ export default function PurchasePage() {
             </div>,
             { duration: 5000 }
           )
+        } else if (warnings.length > 0 && data.errors.length === 0) {
+          // Only read-only fields were changed
+          toast.warning(
+            <div className="space-y-1">
+              <p className="font-semibold">Tidak ada perubahan tersimpan</p>
+              <p className="text-[11px]">Kolom Stok & HPP bersifat read-only</p>
+              <p className="text-[10px] opacity-70">Gunakan Stok Opname untuk ubah stok</p>
+            </div>,
+            { duration: 5000 }
+          )
         } else if (data.errors.length > 0) {
-          toast.warning(`${data.errors.length} error ditemukan, ${data.updated || 0} diupdate`)
+          toast.error(`${data.errors.length} error ditemukan`)
         } else {
           toast.info(data.message || 'Tidak ada perubahan yang dilakukan')
         }
@@ -5705,14 +5754,56 @@ n                            {/* Action Buttons */}
             </div>
           ) : (
             <div className="space-y-3 py-1">
-              <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-4 text-center space-y-2">
-                <CheckCircle2 className="h-8 w-8 text-emerald-400 mx-auto" />
-                <p className="text-sm font-medium text-white">Update Selesai!</p>
-                <div className="flex justify-center gap-4 text-xs text-slate-400">
-                  <span><span className="text-emerald-400 font-semibold">{invEditExcelResult.updated}</span> diupdate</span>
-                  {invEditExcelResult.notFound > 0 && <span><span className="text-amber-400 font-semibold">{invEditExcelResult.notFound}</span> tidak ditemukan</span>}
-                </div>
+              <div className={`rounded-lg border p-4 text-center space-y-2 ${
+                invEditExcelResult.updated > 0 
+                  ? 'bg-emerald-500/10 border-emerald-500/20' 
+                  : invEditExcelResult.warnings.length > 0 && invEditExcelResult.errors.length === 0
+                    ? 'bg-amber-500/10 border-amber-500/20'
+                    : 'bg-red-500/10 border-red-500/20'
+              }`}>
+                {invEditExcelResult.updated > 0 ? (
+                  <>
+                    <CheckCircle2 className="h-8 w-8 text-emerald-400 mx-auto" />
+                    <p className="text-sm font-medium text-white">Update Selesai!</p>
+                    <div className="flex justify-center gap-4 text-xs text-slate-400">
+                      <span><span className="text-emerald-400 font-semibold">{invEditExcelResult.updated}</span> diupdate</span>
+                      {invEditExcelResult.notFound > 0 && <span><span className="text-amber-400 font-semibold">{invEditExcelResult.notFound}</span> tidak ditemukan</span>}
+                      {invEditExcelResult.warnings.length > 0 && <span><span className="text-amber-400 font-semibold">{invEditExcelResult.warnings.length}</span> diabaikan</span>}
+                    </div>
+                  </>
+                ) : invEditExcelResult.warnings.length > 0 && invEditExcelResult.errors.length === 0 ? (
+                  <>
+                    <AlertCircle className="h-8 w-8 text-amber-400 mx-auto" />
+                    <p className="text-sm font-medium text-white">Tidak Ada Perubahan Tersimpan</p>
+                    <p className="text-[11px] text-slate-400">Kolom Stok & HPP bersifat read-only</p>
+                  </>
+                ) : (
+                  <>
+                    <XCircle className="h-8 w-8 text-red-400 mx-auto" />
+                    <p className="text-sm font-medium text-white">Update Gagal</p>
+                    <p className="text-[11px] text-slate-400">{invEditExcelResult.errors.length} error ditemukan</p>
+                  </>
+                )}
               </div>
+              
+              {/* Warnings section (read-only fields) */}
+              {invEditExcelResult.warnings.length > 0 && (
+                <div className="rounded-lg bg-amber-500/5 border border-amber-500/15 p-3 max-h-24 overflow-y-auto custom-scrollbar">
+                  <p className="text-[11px] text-amber-300 font-medium mb-1.5 flex items-center gap-1.5">
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                    {invEditExcelResult.warnings.length} kolom read-only diabaikan:
+                  </p>
+                  <p className="text-[10px] text-slate-500 mb-2">Stok & HPP dihitung otomatis dari batch/pembelian</p>
+                  {invEditExcelResult.warnings.slice(0, 5).map((w, i) => (
+                    <p key={i} className="text-[11px] text-slate-400 truncate">• {w}</p>
+                  ))}
+                  {invEditExcelResult.warnings.length > 5 && (
+                    <p className="text-[10px] text-slate-500">...dan {invEditExcelResult.warnings.length - 5} lainnya</p>
+                  )}
+                </div>
+              )}
+              
+              {/* Errors section */}
               {invEditExcelResult.errors.length > 0 && (
                 <div className="rounded-lg bg-red-500/10 border border-red-500/20 p-3 max-h-28 overflow-y-auto custom-scrollbar">
                   <p className="text-[11px] text-red-300 font-medium mb-1.5">{invEditExcelResult.errors.length} error:</p>
@@ -5721,6 +5812,7 @@ n                            {/* Action Buttons */}
                   ))}
                 </div>
               )}
+              
               <Button onClick={() => { setInvEditExcelFile(null); setInvEditExcelResult(null) }} className="w-full bg-white/[0.04] border border-white/[0.06] text-slate-300 hover:text-white hover:bg-white/[0.04] h-8 text-xs">
                 Selesai
               </Button>
@@ -6721,10 +6813,22 @@ n                            {/* Action Buttons */}
                   <p className="text-sm font-bold text-white">{invDetailData._count.compositions}</p>
                   <p className="text-[10px] text-slate-500">Komposisi</p>
                 </div>
-                <div className="bg-white/[0.03] rounded-lg p-2.5 border border-white/[0.04] text-center">
-                  <p className="text-sm font-bold text-white">{invDetailData._count.movements}</p>
-                  <p className="text-[10px] text-slate-500">Riwayat Stok</p>
-                </div>
+                {(() => {
+                  // Check if all movements are migration (initial stock only)
+                  const isMigrationOnly = invDetailData.movements.length > 0 && 
+                    invDetailData.movements.every(m => m.referenceType === 'MIGRATION')
+                  const hasMovements = invDetailData._count.movements > 0
+                  
+                  return (
+                    <div className="bg-white/[0.03] rounded-lg p-2.5 border border-white/[0.04] text-center">
+                      <p className="text-sm font-bold text-white">{invDetailData._count.movements}</p>
+                      <p className="text-[10px] text-slate-500">
+                        {!hasMovements ? 'Riwayat Stok' : 
+                         isMigrationOnly ? 'Stok Awal' : 'Riwayat Stok'}
+                      </p>
+                    </div>
+                  )
+                })()}
               </div>
 
               {/* Detail fields */}
@@ -6756,20 +6860,31 @@ n                            {/* Action Buttons */}
                 setInvDetailTab(v)
                 if (v === 'batch' && invDetailData) void fetchBatchTimeline(invDetailData.id)
               }} className="w-full min-w-0">
-                <TabsList className="bg-white/[0.04] h-8 w-full grid grid-cols-3 min-w-0">
-                  <TabsTrigger value="products" className="text-[10px] h-7 gap-1 data-[state=active]:bg-white/[0.08] text-slate-400 data-[state=active]:text-white">
-                    <Link2 className="h-3 w-3" />
-                    Produk ({invDetailData.linkedProducts.length})
-                  </TabsTrigger>
-                  <TabsTrigger value="movements" className="text-[10px] h-7 gap-1 data-[state=active]:bg-white/[0.08] text-slate-400 data-[state=active]:text-white">
-                    <Activity className="h-3 w-3" />
-                    Riwayat ({invDetailData._count.movements})
-                  </TabsTrigger>
-                  <TabsTrigger value="batch" className="text-[10px] h-7 gap-1 data-[state=active]:bg-white/[0.08] text-slate-400 data-[state=active]:text-white">
-                    <Hash className="h-3 w-3" />
-                    Batch
-                  </TabsTrigger>
-                </TabsList>
+                {(() => {
+                  // Calculate once for both stats card and tab
+                  const isMigrationOnly = invDetailData.movements.length > 0 && 
+                    invDetailData.movements.every(m => m.referenceType === 'MIGRATION')
+                  const movementCount = invDetailData._count.movements
+                  const movementLabel = !movementCount ? 'Riwayat' : 
+                    isMigrationOnly ? 'Stok Awal' : 'Riwayat'
+                  
+                  return (
+                    <TabsList className="bg-white/[0.04] h-8 w-full grid grid-cols-3 min-w-0">
+                      <TabsTrigger value="products" className="text-[10px] h-7 gap-1 data-[state=active]:bg-white/[0.08] text-slate-400 data-[state=active]:text-white">
+                        <Link2 className="h-3 w-3" />
+                        Produk ({invDetailData.linkedProducts.length})
+                      </TabsTrigger>
+                      <TabsTrigger value="movements" className="text-[10px] h-7 gap-1 data-[state=active]:bg-white/[0.08] text-slate-400 data-[state=active]:text-white">
+                        <Activity className="h-3 w-3" />
+                        {movementLabel} ({movementCount})
+                      </TabsTrigger>
+                      <TabsTrigger value="batch" className="text-[10px] h-7 gap-1 data-[state=active]:bg-white/[0.08] text-slate-400 data-[state=active]:text-white">
+                        <Hash className="h-3 w-3" />
+                        Batch
+                      </TabsTrigger>
+                    </TabsList>
+                  )
+                })()}
 
                 {/* Linked Products Tab */}
                 <TabsContent value="products" className="mt-3">
