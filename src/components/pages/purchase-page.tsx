@@ -112,7 +112,6 @@ import {
   Tag,
   ShieldCheck,
   ShieldAlert,
-  ShoppingCart,
   ArrowRightLeft,
   Receipt,
 } from 'lucide-react'
