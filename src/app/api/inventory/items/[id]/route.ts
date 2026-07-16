@@ -388,15 +388,13 @@ export async function DELETE(
     if (counts.compositions > 0) {
       const compositions = await db.productComposition.findMany({
         where: {
-          OR: [
-            { inventoryItemId: id },
-            { ingredientId: id },
-          ],
+          inventoryItemId: id,
         },
         select: {
           id: true,
           qty: true,
           baseUnit: true,
+          productId: true,
         },
       })
 
@@ -456,11 +454,7 @@ export async function DELETE(
       // 2. Clean up compositions (auto 1:1 links)
       await tx.productComposition.deleteMany({
         where: {
-          OR: [
-            { inventoryItemId: id },
-            { ingredientId: id },
-            { productId: id },
-          ],
+          inventoryItemId: id,
         },
       })
 

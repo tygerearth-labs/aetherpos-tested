@@ -110,6 +110,11 @@ import {
   Lightbulb,
   Coins,
   Tag,
+  ShieldCheck,
+  ShieldAlert,
+  ShoppingCart,
+  ArrowRightLeft,
+  Receipt,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import SupplierSearchInput from '@/components/purchase/supplier-search-input'
@@ -202,7 +207,22 @@ interface InventoryItem {
   lowStockAlert: number
   status?: string // ACTIVE, ARCHIVED
   updatedAt?: string
-  _count?: { compositions: number; purchaseItems: number }
+  _count?: {
+    compositions: number
+    purchaseItems: number
+    movements: number
+    inventoryTransferItems: number
+    consumptionSnapshots: number
+  }
+}
+
+// Delete Safety Status for inventory items
+interface DeleteSafetyStatus {
+  canDelete: boolean
+  riskLevel: 'safe' | 'warning' | 'blocked'
+  label: string
+  description: string
+  blockers: Array<{ type: string; label: string; icon: string }>
 }
 
 interface InventoryStats {
@@ -367,6 +387,103 @@ function getCategoryColorClasses(color: string) {
     pink: { bg: 'bg-pink-500/10', text: 'text-pink-400', border: 'border-pink-500/20', dot: 'bg-pink-400' },
   }
   return map[color] || map['zinc']
+}
+
+/**
+ * Delete Safety Status Checker
+ * 
+ * Determines if an inventory item can be safely deleted based on its relations.
+ * 
+ * SAFE (can delete):
+ * - No history at all
+ * - Only MIGRATION data (initial stock upload)
+ * 
+ * WARNING (can delete with cleanup):
+ * - Has auto-generated composition links (from product_stock mode)
+ * 
+ * BLOCKED (cannot delete, must archive):
+ * - Has real purchase history
+ * - Has transfer history between outlets
+ * - Has sales/consumption transactions
+ * - Has manual BOM/composition recipes
+ */
+function getDeleteSafetyStatus(item: InventoryItem): DeleteSafetyStatus {
+  const c = item._count || {}
+  const compositions = c.compositions || 0
+  const purchaseItems = c.purchaseItems || 0
+  const movements = c.movements || 0
+  const transferItems = c.inventoryTransferItems || 0
+  const consumptionSnapshots = c.consumptionSnapshots || 0
+  
+  const blockers: Array<{ type: string; label: string; icon: string }> = []
+  
+  // Check each blocker condition
+  if (purchaseItems > 0) {
+    blockers.push({
+      type: 'purchaseItems',
+      label: `${purchaseItems} pembelian`,
+      icon: 'ShoppingCart',
+    })
+  }
+  
+  if (transferItems > 0) {
+    blockers.push({
+      type: 'transferItems',
+      label: `${transferItems} transfer`,
+      icon: 'ArrowRightLeft',
+    })
+  }
+  
+  if (consumptionSnapshots > 0) {
+    blockers.push({
+      type: 'consumptionSnapshots',
+      label: `${consumptionSnapshots} transaksi`,
+      icon: 'Receipt',
+    })
+  }
+  
+  // For compositions and movements, we'd need detailed API check to distinguish
+  // auto/migration vs real. Here we use conservative approach:
+  if (compositions > 0) {
+    blockers.push({
+      type: 'compositions',
+      label: `${compositions} link produk`,
+      icon: 'Package',
+    })
+  }
+  
+  // Determine status
+  const totalRelations = compositions + purchaseItems + movements + transferItems + consumptionSnapshots
+  
+  if (totalRelations === 0) {
+    return {
+      canDelete: true,
+      riskLevel: 'safe',
+      label: 'Bisa Dihapus',
+      description: 'Item tidak memiliki histori, aman untuk dihapus',
+      blockers: [],
+    }
+  }
+  
+  if (blockers.length === 0 && movements > 0) {
+    // Only movements (likely migration data) - warning but deletable
+    return {
+      canDelete: true,
+      riskLevel: 'warning',
+      label: 'Hapus + Bersihkan',
+      description: 'Item hanya memiliki stok awal migrasi, akan dibersihkan otomatis',
+      blockers: [],
+    }
+  }
+  
+  // Has real business history - blocked
+  return {
+    canDelete: false,
+    riskLevel: 'blocked',
+    label: 'Tidak Bisa Dihapus',
+    description: `Item memiliki histori bisnis: ${blockers.map(b => b.label).join(', ')}`,
+    blockers,
+  }
 }
 
 // Animation variants
@@ -1935,10 +2052,19 @@ export default function PurchasePage() {
     const preFetchedLinked = invDeleteBlocked?.linkedProducts || []
     setInvDeleteBlocked(null)
     try {
+      console.log('[Delete Item] Deleting inventory item:', deleteInvId)
       const res = await fetch(`/api/inventory/items/${deleteInvId}`, { method: 'DELETE' })
+      console.log('[Delete Item] Response status:', res.status, res.statusText)
+      
       if (res.ok) {
-        const data = await res.json().catch(() => ({}))
+        const data = await res.json().catch((err) => {
+          console.error('[Delete Item] Failed to parse response:', err)
+          return {}
+        })
+        console.log('[Delete Item] Response data:', data)
+        
         if (data.blocked) {
+          console.log('[Delete Item] Item blocked:', data.blockers)
           setInvDeleteBlocked({
             blockType: data.blockType || 'hasHistory',
             message: data.message,
@@ -1953,13 +2079,18 @@ export default function PurchasePage() {
           void fetchInventoryItems()
         }
       } else {
-        const data = await res.json().catch(() => ({}))
-        toast.error(data.error || 'Gagal menghapus item')
+        const data = await res.json().catch((err) => {
+          console.error('[Delete Item] Failed to parse error response:', err)
+          return {}
+        })
+        console.error('[Delete Item] Error response:', data)
+        toast.error(data.error || `Gagal menghapus item (HTTP ${res.status})`)
         setDeleteInvId(null)
         setInvDeleteBlocked(null)
       }
-    } catch {
-      toast.error('Gagal menghapus item')
+    } catch (err) {
+      console.error('[Delete Item] Exception:', err)
+      toast.error('Gagal menghapus item - koneksi gagal')
       setDeleteInvId(null)
       setInvDeleteBlocked(null)
     } finally {
@@ -3832,6 +3963,8 @@ export default function PurchasePage() {
                           const isSelected = selectedInvIds.has(item.id)
                           const colorClasses = item.category ? getCategoryColorClasses(item.category.color) : null
                           const isArchived = item.status === 'ARCHIVED'
+                          // Calculate delete safety status for visual indicator
+                          const deleteStatus = getDeleteSafetyStatus(item)
                           return (
                             <TableRow 
                               key={item.id} 
@@ -3865,7 +3998,7 @@ export default function PurchasePage() {
                               <TableCell className="py-3">
                                 <div className="flex items-center gap-2">
                                   <span className={cn(
-                                    'text-xs font-medium truncate max-w-[180px] block',
+                                    'text-xs font-medium truncate max-w-[160px] block',
                                     isArchived ? 'text-slate-500 line-through decoration-slate-600' : 'text-slate-100'
                                   )}>
                                     {item.name}
@@ -3882,6 +4015,25 @@ export default function PurchasePage() {
                                       Stok Rendah
                                     </Badge>
                                   )}
+                                  {/* Delete Safety Indicator */}
+                                  {!isArchived && deleteStatus.riskLevel === 'safe' && (
+            <Badge variant="secondary" className="text-[8px] px-1.5 py-0 bg-emerald-500/10 text-emerald-400 border-emerald-500/20 rounded-full shrink-0" title={deleteStatus.description}>
+              <ShieldCheck className="h-2.5 w-2.5 mr-0.5" />
+              Aman
+            </Badge>
+          )}
+          {!isArchived && deleteStatus.riskLevel === 'warning' && (
+            <Badge variant="secondary" className="text-[8px] px-1.5 py-0 bg-amber-500/10 text-amber-400 border-amber-500/20 rounded-full shrink-0" title={deleteStatus.description}>
+              <AlertCircle className="h-2.5 w-2.5 mr-0.5" />
+              Migrasi
+            </Badge>
+          )}
+          {!isArchived && deleteStatus.riskLevel === 'blocked' && (
+            <Badge variant="secondary" className="text-[8px] px-1.5 py-0 bg-red-500/10 text-red-400 border-red-500/20 rounded-full shrink-0" title={deleteStatus.description}>
+              <Lock className="h-2.5 w-2.5 mr-0.5" />
+              Terkunci
+            </Badge>
+          )}
                                 </div>
                               </TableCell>
                               <TableCell>
@@ -4068,6 +4220,8 @@ export default function PurchasePage() {
                     const isSelected = selectedInvIds.has(item.id)
                     const colorClasses = item.category ? getCategoryColorClasses(item.category.color) : null
                     const isArchived = item.status === 'ARCHIVED'
+                    // Calculate delete safety status for visual indicator
+                    const deleteStatus = getDeleteSafetyStatus(item)
                     return (
                       <motion.div
                         key={item.id}
@@ -4134,6 +4288,22 @@ export default function PurchasePage() {
                                       <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-red-500/15 text-red-400 text-[9px] font-semibold uppercase tracking-wide animate-pulse">
                                         <AlertTriangle className="h-2.5 w-2.5" />
                                         Stok Rendah
+                                      </span>
+                                    )}
+                                    {/* Delete Safety Indicator - Mobile */}
+                                    {!isArchived && deleteStatus.riskLevel === 'safe' && (
+                                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 text-[8px] font-semibold" title={deleteStatus.description}>
+                                        <ShieldCheck className="h-2.5 w-2.5" />
+                                      </span>
+                                    )}
+                                    {!isArchived && deleteStatus.riskLevel === 'warning' && (
+                                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-400 text-[8px] font-semibold" title={deleteStatus.description}>
+                                        <AlertCircle className="h-2.5 w-2.5" />
+                                      </span>
+                                    )}
+                                    {!isArchived && deleteStatus.riskLevel === 'blocked' && (
+                                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-red-500/15 text-red-400 text-[8px] font-semibold" title={deleteStatus.description}>
+                                        <Lock className="h-2.5 w-2.5" />
                                       </span>
                                     )}
                                   </div>
