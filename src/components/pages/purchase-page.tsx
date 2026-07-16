@@ -3192,181 +3192,158 @@ export default function PurchasePage() {
               </div>
             )}
 
-            {/* Panduan Alur Pembelian - Modern Redesigned Header */}
+            {/* Panduan Alur Pembelian - Compact Design */}
             <div className={cn(
-              "rounded-2xl overflow-hidden transition-all duration-500 ease-out",
+              "rounded-xl overflow-hidden transition-all duration-300 ease-out",
               showPurchaseGuide 
-                ? "bg-gradient-to-br from-white/[0.05] to-white/[0.02] border border-emerald-500/30 shadow-lg shadow-emerald-500/5" 
-                : "bg-gradient-to-r from-emerald-500/[0.08] via-teal-500/[0.05] to-cyan-500/[0.08] border border-emerald-500/20 hover:border-emerald-40 hover:shadow-lg hover:shadow-emerald-500/10"
+                ? "bg-gradient-to-br from-white/[0.04] to-white/[0.02] border border-emerald-500/25" 
+                : "bg-gradient-to-r from-emerald-500/[0.06] via-teal-500/[0.03] to-cyan-500/[0.06] border border-emerald-500/15 hover:border-emerald-500/30"
             )}>
               {/* Gradient accent bar */}
               <div className={cn(
-                "h-0.5 transition-all duration-500",
+                "h-[2px] transition-all duration-300",
                 showPurchaseGuide 
                   ? "bg-gradient-to-r from-emerald-400 via-teal-400 to-cyan-400" 
-                  : "bg-gradient-to-r from-emerald-500/50 via-teal-500/50 to-cyan-500/50"
+                  : "bg-gradient-to-r from-emerald-500/40 via-teal-500/40 to-cyan-500/40"
               )} />
               <button
-                className="w-full flex items-center justify-between gap-3 p-4 text-left group relative overflow-hidden"
+                className="w-full flex items-center justify-between gap-2.5 px-3 py-2.5 text-left group relative overflow-hidden"
                 onClick={() => setShowPurchaseGuide(prev => !prev)}
               >
-                {/* Subtle background glow on hover */}
-                <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/0 via-teal-500/0 to-cyan-500/0 group-hover:from-emerald-500/[0.03] group-hover:via-teal-500/[0.02] group-hover:to-cyan-500/[0.03] transition-all duration-500 pointer-events-none" />
-                
-                <div className="flex items-center gap-3 relative z-10">
-                  {/* Icon container with gradient and animation */}
+                <div className="flex items-center gap-2.5 relative z-10">
+                  {/* Icon container - compact */}
                   <div className={cn(
-                    "relative flex items-center justify-center w-10 h-10 rounded-xl transition-all duration-500",
+                    "relative flex items-center justify-center w-7 h-7 rounded-lg transition-all duration-300",
                     showPurchaseGuide 
-                      ? "bg-gradient-to-br from-emerald-500/20 to-teal-500/20 shadow-lg shadow-emerald-500/20 scale-105" 
-                      : "bg-gradient-to-br from-emerald-500/15 to-teal-500/10 group-hover:from-emerald-500/25 group-hover:to-teal-500/15 group-hover:scale-105"
+                      ? "bg-emerald-500/20" 
+                      : "bg-emerald-500/12 group-hover:bg-emerald-500/18"
                   )}>
                     <BookOpen className={cn(
-                      "h-5 w-5 shrink-0 transition-all duration-300",
-                      showPurchaseGuide ? "text-emerald-400 drop-shadow-sm" : "text-emerald-400/80 group-hover:text-emerald-300"
+                      "h-3.5 w-3.5 shrink-0 transition-colors duration-200",
+                      showPurchaseGuide ? "text-emerald-400" : "text-emerald-400/80 group-hover:text-emerald-300"
                     )} />
-                    {/* Pulse ring when closed */}
-                    {!showPurchaseGuide && (
-                      <span className="absolute inset-0 rounded-xl animate-ping bg-emerald-500/20 opacity-75" style={{ animationDuration: '2s' }} />
-                    )}
                   </div>
                   
                   <div className="flex flex-col">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5">
                       <span className={cn(
-                        "text-sm font-semibold transition-all duration-300",
-                        showPurchaseGuide 
-                          ? "bg-gradient-to-r from-emerald-300 via-teal-300 to-cyan-300 bg-clip-text text-transparent" 
-                          : "text-slate-200 group-hover:text-white"
+                        "text-xs font-semibold transition-colors duration-200",
+                        showPurchaseGuide ? "text-emerald-400" : "text-slate-300 group-hover:text-white"
                       )}>Panduan Pembelian</span>
                       {!showPurchaseGuide && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-gradient-to-r from-amber-500/20 to-orange-500/20 text-amber-400 border border-amber-500/30">
+                        <span className="inline-flex items-center px-1.5 py-0 rounded-full text-[8px] font-bold uppercase tracking-wider bg-amber-500/15 text-amber-400 border border-amber-500/25">
                           TIPS
                         </span>
                       )}
                     </div>
-                    <span className="text-[10px] text-slate-500 mt-0.5">4 langkah mudah membuat pembelian baru</span>
+                    <span className="text-[9px] text-slate-600">4 langkah mudah membuat pembelian</span>
                   </div>
                 </div>
                 
-                {/* Animated chevron with glow */}
-                <div className={cn(
-                  "flex items-center justify-center w-8 h-8 rounded-lg transition-all duration-300 relative z-10",
-                  showPurchaseGuide 
-                    ? "bg-emerald-500/15 rotate-0" 
-                    : "bg-white/[0.04] group-hover:bg-white/[0.08]"
-                )}>
-                  <ChevronDown className={cn(
-                    'h-4 w-4 transition-all duration-500 ease-out',
-                    showPurchaseGuide ? 'rotate-180 text-emerald-400' : 'text-slate-400 group-hover:text-slate-300'
-                  )} />
-                </div>
+                {/* Chevron - compact */}
+                <ChevronDown className={cn(
+                  'h-3.5 w-3.5 transition-transform duration-300 text-slate-500 group-hover:text-slate-400',
+                  showPurchaseGuide ? 'rotate-180 text-emerald-400' : ''
+                )} />
               </button>
               {showPurchaseGuide && (
-                <div className="px-4 pb-4 space-y-4 pt-2">
-                  {/* Divider with gradient */}
-                  <div className="h-px bg-gradient-to-r from-transparent via-white/[0.08] to-transparent" />
-                  
+                <div className="px-3 pb-3 space-y-2 pt-1.5">
                   {/* Step 1 */}
-                  <div className="flex gap-3 group/step">
-                    <div className="relative flex-shrink-0">
-                      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-emerald-500/15 to-teal-500/10 border border-emerald-500/25 flex items-center justify-center group-hover/step:from-emerald-500/25 group-hover/step:border-emerald-400/40 transition-all duration-300">
-                        <span className="text-xs text-emerald-400 font-bold">1</span>
+                  <div className="flex gap-2 group/step">
+                    <div className="flex-shrink-0">
+                      <div className="w-5 h-5 rounded-md bg-gradient-to-br from-emerald-500/15 to-teal-500/10 border border-emerald-500/25 flex items-center justify-center group-hover/step:from-emerald-500/25 group-hover/step:border-emerald-400/40 transition-all duration-300">
+                        <span className="text-[10px] text-emerald-400 font-bold">1</span>
                       </div>
-                      {/* Connector line */}
-                      <div className="absolute left-1/2 top-8 w-px h-[calc(100%+0.5rem)] bg-gradient-to-b from-emerald-500/30 to-transparent -translate-x-1/2" />
                     </div>
-                    <div className="flex-1 pt-1">
-                      <p className="text-xs text-slate-200 font-semibold mb-1 group-hover/step:text-emerald-300 transition-colors">Tambah Item ke Pembelian</p>
-                      <p className="text-[11px] text-slate-400 leading-relaxed">
-                        Klik <code className="px-1.5 py-0.5 rounded-md bg-gradient-to-r from-emerald-500/10 to-teal-500/10 text-emerald-300 text-[10px] font-mono border border-emerald-500/20">Buat Pembelian</code> lalu gunakan input bar untuk mencari item. Ketik nama item, scan barcode, atau pisahkan beberapa item dengan <code className="px-1.5 py-0.5 rounded-md bg-white/[0.06] text-slate-300 text-[10px] font-mono border border-white/[0.08]">koma</code>.
+                    <div className="flex-1 pt-0.5">
+                      <p className="text-[11px] text-slate-300 font-medium mb-0.5 group-hover/step:text-emerald-300 transition-colors">Tambah Item ke Pembelian</p>
+                      <p className="text-[10px] text-slate-500 leading-snug">
+                        Klik <code className="px-1 py-0.5 rounded bg-gradient-to-r from-emerald-500/10 to-teal-500/10 text-emerald-300 text-[9px] font-mono border border-emerald-500/20">Buat Pembelian</code> lalu gunakan input bar untuk mencari item. Ketik nama item, scan barcode, atau pisahkan beberapa item dengan <code className="px-1 py-0.5 rounded bg-white/[0.06] text-slate-300 text-[9px] font-mono border border-white/[0.08]">koma</code>.
                       </p>
                     </div>
                   </div>
                   {/* Step 2 */}
-                  <div className="flex gap-3 group/step">
-                    <div className="relative flex-shrink-0">
-                      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-violet-500/15 to-purple-500/10 border border-violet-500/25 flex items-center justify-center group-hover/step:from-violet-500/25 group-hover/step:border-violet-400/40 transition-all duration-300">
-                        <span className="text-xs text-violet-400 font-bold">2</span>
+                  <div className="flex gap-2 group/step">
+                    <div className="flex-shrink-0">
+                      <div className="w-5 h-5 rounded-md bg-gradient-to-br from-violet-500/15 to-purple-500/10 border border-violet-500/25 flex items-center justify-center group-hover/step:from-violet-500/25 group-hover/step:border-violet-400/40 transition-all duration-300">
+                        <span className="text-[10px] text-violet-400 font-bold">2</span>
                       </div>
-                      <div className="absolute left-1/2 top-8 w-px h-[calc(100%+0.5rem)] bg-gradient-to-b from-violet-500/30 to-transparent -translate-x-1/2" />
                     </div>
-                    <div className="flex-1 pt-1">
-                      <p className="text-xs text-slate-200 font-semibold mb-1 group-hover/step:text-violet-300 transition-colors">Item Baru? Isi SKU &amp; Satuan</p>
-                      <p className="text-[11px] text-slate-400 leading-relaxed">
+                    <div className="flex-1 pt-0.5">
+                      <p className="text-[11px] text-slate-300 font-medium mb-0.5 group-hover/step:text-violet-300 transition-colors">Item Baru? Isi SKU &amp; Satuan</p>
+                      <p className="text-[10px] text-slate-500 leading-snug">
                         Jika item <span className="text-amber-400 font-medium">belum ada di inventory</span>, form akan muncul otomatis. Kamu <span className="text-white font-medium">wajib isi SKU</span> (kode unik) dan <span className="text-white font-medium">pilih satuan</span> (kg, gr, ml, liter, pcs, dll). Item ini berstatus <span className="text-amber-400 font-medium">pending</span> — belum tersimpan sampai pembelian disimpan.
                       </p>
                     </div>
                   </div>
                   {/* Step 3 */}
-                  <div className="flex gap-3 group/step">
-                    <div className="relative flex-shrink-0">
-                      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-500/15 to-indigo-500/10 border border-blue-500/25 flex items-center justify-center group-hover/step:from-blue-500/25 group-hover/step:border-blue-400/40 transition-all duration-300">
-                        <span className="text-xs text-blue-400 font-bold">3</span>
+                  <div className="flex gap-2 group/step">
+                    <div className="flex-shrink-0">
+                      <div className="w-5 h-5 rounded-md bg-gradient-to-br from-blue-500/15 to-indigo-500/10 border border-blue-500/25 flex items-center justify-center group-hover/step:from-blue-500/25 group-hover/step:border-blue-400/40 transition-all duration-300">
+                        <span className="text-[10px] text-blue-400 font-bold">3</span>
                       </div>
-                      <div className="absolute left-1/2 top-8 w-px h-[calc(100%+0.5rem)] bg-gradient-to-b from-blue-500/30 to-transparent -translate-x-1/2" />
                     </div>
-                    <div className="flex-1 pt-1">
-                      <p className="text-xs text-slate-200 font-semibold mb-1 group-hover/step:text-blue-300 transition-colors">Isi Detail Pembelian</p>
-                      <p className="text-[11px] text-slate-400 leading-relaxed mb-2">
+                    <div className="flex-1 pt-0.5">
+                      <p className="text-[11px] text-slate-300 font-medium mb-0.5 group-hover/step:text-blue-300 transition-colors">Isi Detail Pembelian</p>
+                      <p className="text-[10px] text-slate-500 leading-snug mb-1.5">
                         Untuk tiap item, isi:
                       </p>
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="rounded-lg bg-gradient-to-br from-white/[0.04] to-white/[0.02] border border-white/[0.08] px-3 py-2.5 hover:border-white/[0.12] transition-colors">
-                          <p className="text-[9px] text-slate-500 uppercase tracking-wider font-medium">Satuan Beli</p>
-                          <p className="text-[11px] text-slate-300 mt-0.5">Cth: <span className="text-white font-medium">sak</span>, <span className="text-white font-medium">ekor</span>, <span className="text-white font-medium">karung</span></p>
+                      <div className="grid grid-cols-4 gap-1.5">
+                        <div className="rounded-md bg-gradient-to-br from-white/[0.04] to-white/[0.02] border border-white/[0.08] px-2 py-1.5 hover:border-white/[0.12] transition-colors">
+                          <p className="text-[8px] text-slate-500 uppercase tracking-wider font-medium">Satuan Beli</p>
+                          <p className="text-[9px] text-slate-300 mt-0.5">Cth: <span className="text-white font-medium">sak</span>, <span className="text-white font-medium">ekor</span></p>
                         </div>
-                        <div className="rounded-lg bg-gradient-to-br from-white/[0.04] to-white/[0.02] border border-white/[0.08] px-3 py-2.5 hover:border-white/[0.12] transition-colors">
-                          <p className="text-[9px] text-slate-500 uppercase tracking-wider font-medium">Jumlah</p>
-                          <p className="text-[11px] text-slate-300 mt-0.5">Berapa <span className="text-white font-medium">satuan beli</span> yang dibeli</p>
+                        <div className="rounded-md bg-gradient-to-br from-white/[0.04] to-white/[0.02] border border-white/[0.08] px-2 py-1.5 hover:border-white/[0.12] transition-colors">
+                          <p className="text-[8px] text-slate-500 uppercase tracking-wider font-medium">Jumlah</p>
+                          <p className="text-[9px] text-slate-300 mt-0.5">Berapa <span className="text-white font-medium">satuan beli</span></p>
                         </div>
-                        <div className="rounded-lg bg-gradient-to-br from-white/[0.04] to-white/[0.02] border border-white/[0.08] px-3 py-2.5 hover:border-white/[0.12] transition-colors">
-                          <p className="text-[9px] text-slate-500 uppercase tracking-wider font-medium">Isi / Unit</p>
-                          <p className="text-[11px] text-slate-300 mt-0.5">Isi per 1 satuan beli (dalam <span className="text-white font-medium">base unit</span>)</p>
+                        <div className="rounded-md bg-gradient-to-br from-white/[0.04] to-white/[0.02] border border-white/[0.08] px-2 py-1.5 hover:border-white/[0.12] transition-colors">
+                          <p className="text-[8px] text-slate-500 uppercase tracking-wider font-medium">Isi / Unit</p>
+                          <p className="text-[9px] text-slate-300 mt-0.5">Isi per satuan (<span className="text-white font-medium">base unit</span>)</p>
                         </div>
-                        <div className="rounded-lg bg-gradient-to-br from-white/[0.04] to-white/[0.02] border border-white/[0.08] px-3 py-2.5 hover:border-white/[0.12] transition-colors">
-                          <p className="text-[9px] text-slate-500 uppercase tracking-wider font-medium">Harga / Unit</p>
-                          <p className="text-[11px] text-slate-300 mt-0.5">Harga per 1 <span className="text-white font-medium">satuan beli</span> (Rp)</p>
+                        <div className="rounded-md bg-gradient-to-br from-white/[0.04] to-white/[0.02] border border-white/[0.08] px-2 py-1.5 hover:border-white/[0.12] transition-colors">
+                          <p className="text-[8px] text-slate-500 uppercase tracking-wider font-medium">Harga / Unit</p>
+                          <p className="text-[9px] text-slate-300 mt-0.5">Harga per <span className="text-white font-medium">satuan beli</span></p>
                         </div>
                       </div>
                     </div>
                   </div>
                   {/* Step 4 */}
-                  <div className="flex gap-3 group/step">
-                    <div className="relative flex-shrink-0">
-                      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-rose-500/15 to-pink-500/10 border border-rose-500/25 flex items-center justify-center group-hover/step:from-rose-500/25 group-hover/step:border-rose-400/40 transition-all duration-300">
-                        <span className="text-xs text-rose-400 font-bold">4</span>
+                  <div className="flex gap-2 group/step">
+                    <div className="flex-shrink-0">
+                      <div className="w-5 h-5 rounded-md bg-gradient-to-br from-rose-500/15 to-pink-500/10 border border-rose-500/25 flex items-center justify-center group-hover/step:from-rose-500/25 group-hover/step:border-rose-400/40 transition-all duration-300">
+                        <span className="text-[10px] text-rose-400 font-bold">4</span>
                       </div>
                     </div>
-                    <div className="flex-1 pt-1">
-                      <p className="text-xs text-slate-200 font-semibold mb-1 group-hover/step:text-rose-300 transition-colors">Simpan &amp; Stok Otomatis Masuk</p>
-                      <p className="text-[11px] text-slate-400 leading-relaxed">
-                        Klik <code className="px-1.5 py-0.5 rounded-md bg-gradient-to-r from-emerald-500/10 to-teal-500/10 text-emerald-300 text-[10px] font-mono border border-emerald-500/20">Simpan Pembelian</code>. Stok otomatis bertambah dan <span className="text-white font-medium">HPP dihitung otomatis</span>.
+                    <div className="flex-1 pt-0.5">
+                      <p className="text-[11px] text-slate-300 font-medium mb-0.5 group-hover/step:text-rose-300 transition-colors">Simpan &amp; Stok Otomatis Masuk</p>
+                      <p className="text-[10px] text-slate-500 leading-snug">
+                        Klik <code className="px-1 py-0.5 rounded bg-gradient-to-r from-emerald-500/10 to-teal-500/10 text-emerald-300 text-[9px] font-mono border border-emerald-500/20">Simpan Pembelian</code>. Stok otomatis bertambah dan <span className="text-white font-medium">HPP dihitung otomatis</span>.
                       </p>
-                      {/* Formula box with icon */}
-                      <div className="mt-2.5 rounded-xl bg-gradient-to-r from-amber-500/[0.08] to-orange-500/[0.05] border border-amber-500/20 px-3.5 py-3">
-                        <div className="flex items-start gap-2">
-                          <Calculator className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
+                      {/* Formula box - compact */}
+                      <div className="mt-1.5 rounded-lg bg-gradient-to-r from-amber-500/[0.08] to-orange-500/[0.05] border border-amber-500/20 px-2.5 py-2">
+                        <div className="flex items-start gap-1.5">
+                          <Calculator className="h-3 w-3 text-amber-400 mt-0.5 shrink-0" />
                           <div>
-                            <p className="text-[11px] text-amber-300 font-semibold mb-1">Rumus HPP</p>
-                            <p className="text-[11px] text-slate-400 font-mono bg-black/20 rounded px-2 py-1 inline-block">HPP = Harga per Satuan Beli ÷ Isi per Unit</p>
-                            <p className="text-[11px] text-slate-500 mt-1.5">Contoh: Beli 1 sak @ Rp90.000, isi 25kg → HPP = <span className="text-amber-400 font-semibold">Rp3.600/kg</span></p>
+                            <p className="text-[10px] text-amber-300 font-semibold mb-0.5">Rumus HPP</p>
+                            <p className="text-[9px] text-slate-400 font-mono bg-black/20 rounded px-1.5 py-0.5 inline-block">HPP = Harga per Satuan Beli ÷ Isi per Unit</p>
+                            <p className="text-[9px] text-slate-500 mt-1">Contoh: Beli 1 sak @ Rp90.000, isi 25kg → HPP = <span className="text-amber-400 font-semibold">Rp3.600/kg</span></p>
                           </div>
                         </div>
                       </div>
                     </div>
                   </div>
-                  {/* Tips Section - Enhanced */}
-                  <div className="rounded-xl bg-gradient-to-br from-cyan-500/[0.05] to-blue-500/[0.03] border border-cyan-500/15 px-4 py-3.5">
-                    <div className="flex items-center gap-2 mb-2.5">
-                      <Sparkles className="h-3.5 w-3.5 text-cyan-400" />
-                      <p className="text-[11px] text-cyan-300 font-semibold uppercase tracking-wider">Tips & Trik</p>
+                  {/* Tips Section - compact */}
+                  <div className="rounded-lg bg-gradient-to-br from-cyan-500/[0.05] to-blue-500/[0.03] border border-cyan-500/15 px-2.5 py-2">
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <Sparkles className="h-3 w-3 text-cyan-400" />
+                      <p className="text-[10px] text-cyan-300 font-semibold uppercase tracking-wider">Tips & Trik</p>
                     </div>
-                    <ul className="text-[11px] text-slate-400 space-y-1.5">
-                      <li className="flex items-start gap-2"><span className="text-cyan-500 mt-1">•</span><span>Scan barcode langsung dari input bar — tidak perlu tekan Enter</span></li>
-                      <li className="flex items-start gap-2"><span className="text-cyan-500 mt-1">•</span><span>Ketik beberapa nama pisah <code className="px-1 py-0.5 rounded bg-white/[0.06] text-slate-300 text-[10px] font-mono">koma</code> untuk tambah banyak item sekaligus</span></li>
-                      <li className="flex items-start gap-2"><span className="text-cyan-500 mt-1">•</span><span>Item baru muncul dengan badge <span className="text-amber-400 font-medium">Baru</span> — bisa di-ganti sebelum simpan</span></li>
-                      <li className="flex items-start gap-2"><span className="text-red-400 mt-1">⚠</span><span>Pembelian yang sudah terkait produk <span className="text-red-400 font-medium">tidak bisa dihapus</span></span></li>
+                    <ul className="text-[10px] text-slate-500 space-y-1">
+                      <li className="flex items-start gap-1.5"><span className="text-cyan-500 mt-0.5">•</span><span>Scan barcode langsung dari input bar — tidak perlu tekan Enter</span></li>
+                      <li className="flex items-start gap-1.5"><span className="text-cyan-500 mt-0.5">•</span><span>Ketik beberapa nama pisah <code className="px-1 py-0.5 rounded bg-white/[0.06] text-slate-300 text-[9px] font-mono">koma</code> untuk tambah banyak item sekaligus</span></li>
+                      <li className="flex items-start gap-1.5"><span className="text-cyan-500 mt-0.5">•</span><span>Item baru muncul dengan badge <span className="text-amber-400 font-medium">Baru</span> — bisa di-ganti sebelum simpan</span></li>
+                      <li className="flex items-start gap-1.5"><span className="text-red-400 mt-0.5">⚠</span><span>Pembelian yang sudah terkait produk <span className="text-red-400 font-medium">tidak bisa dihapus</span></span></li>
                     </ul>
                   </div>
                 </div>
@@ -3889,183 +3866,161 @@ export default function PurchasePage() {
                   : "bg-gradient-to-r from-violet-500/50 via-purple-500/50 to-fuchsia-500/50"
               )} />
               <button
-                className="w-full flex items-center justify-between gap-3 p-4 text-left group relative overflow-hidden"
+                className="w-full flex items-center justify-between gap-2.5 px-3 py-2.5 text-left group relative overflow-hidden"
                 onClick={() => setShowInventoryGuide(prev => !prev)}
               >
-                {/* Subtle background glow on hover */}
-                <div className="absolute inset-0 bg-gradient-to-r from-violet-500/0 via-purple-500/0 to-fuchsia-500/0 group-hover:from-violet-500/[0.03] group-hover:via-purple-500/[0.02] group-hover:to-fuchsia-500/[0.03] transition-all duration-500 pointer-events-none" />
-                
-                <div className="flex items-center gap-3 relative z-10">
-                  {/* Icon container with gradient and animation */}
+                <div className="flex items-center gap-2.5 relative z-10">
+                  {/* Icon container - compact */}
                   <div className={cn(
-                    "relative flex items-center justify-center w-10 h-10 rounded-xl transition-all duration-500",
+                    "relative flex items-center justify-center w-7 h-7 rounded-lg transition-all duration-300",
                     showInventoryGuide 
-                      ? "bg-gradient-to-br from-violet-500/20 to-purple-500/20 shadow-lg shadow-violet-500/20 scale-105" 
-                      : "bg-gradient-to-br from-violet-500/15 to-purple-500/10 group-hover:from-violet-500/25 group-hover:to-purple-500/15 group-hover:scale-105"
+                      ? "bg-violet-500/20" 
+                      : "bg-violet-500/12 group-hover:bg-violet-500/18"
                   )}>
                     <PackageOpen className={cn(
-                      "h-5 w-5 shrink-0 transition-all duration-300",
-                      showInventoryGuide ? "text-violet-400 drop-shadow-sm" : "text-violet-400/80 group-hover:text-violet-300"
+                      "h-3.5 w-3.5 shrink-0 transition-colors duration-200",
+                      showInventoryGuide ? "text-violet-400" : "text-violet-400/80 group-hover:text-violet-300"
                     )} />
-                    {/* Pulse ring when closed */}
-                    {!showInventoryGuide && (
-                      <span className="absolute inset-0 rounded-xl animate-ping bg-violet-500/20 opacity-75" style={{ animationDuration: '2.5s' }} />
-                    )}
                   </div>
                   
                   <div className="flex flex-col">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5">
                       <span className={cn(
-                        "text-sm font-semibold transition-all duration-300",
-                        showInventoryGuide 
-                          ? "bg-gradient-to-r from-violet-300 via-purple-300 to-fuchsia-300 bg-clip-text text-transparent" 
-                          : "text-slate-200 group-hover:text-white"
+                        "text-xs font-semibold transition-colors duration-200",
+                        showInventoryGuide ? "text-violet-400" : "text-slate-300 group-hover:text-white"
                       )}>Panduan Inventory</span>
                       {!showInventoryGuide && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-gradient-to-r from-cyan-500/20 to-blue-500/20 text-cyan-400 border border-cyan-500/30">
+                        <span className="inline-flex items-center px-1.5 py-0 rounded-full text-[8px] font-bold uppercase tracking-wider bg-cyan-500/15 text-cyan-400 border border-cyan-500/25">
                           INFO
                         </span>
                       )}
                     </div>
-                    <span className="text-[10px] text-slate-500 mt-0.5">Kelola stok, kategori, dan kebijakan inventory</span>
+                    <span className="text-[9px] text-slate-600">Kelola stok, kategori, dan kebijakan inventory</span>
                   </div>
                 </div>
                 
-                {/* Animated chevron with glow */}
-                <div className={cn(
-                  "flex items-center justify-center w-8 h-8 rounded-lg transition-all duration-300 relative z-10",
-                  showInventoryGuide 
-                    ? "bg-violet-500/15 rotate-0" 
-                    : "bg-white/[0.04] group-hover:bg-white/[0.08]"
-                )}>
-                  <ChevronDown className={cn(
-                    'h-4 w-4 transition-all duration-500 ease-out',
-                    showInventoryGuide ? 'rotate-180 text-violet-400' : 'text-slate-400 group-hover:text-slate-300'
-                  )} />
-                </div>
+                {/* Chevron - compact */}
+                <ChevronDown className={cn(
+                  'h-3.5 w-3.5 transition-transform duration-300 text-slate-500 group-hover:text-slate-400',
+                  showInventoryGuide ? 'rotate-180 text-violet-400' : ''
+                )} />
               </button>
               {showInventoryGuide && (
-                <div className="px-4 pb-4 space-y-4 pt-2">
-                  {/* Divider with gradient */}
-                  <div className="h-px bg-gradient-to-r from-transparent via-white/[0.08] to-transparent" />
-                  
+                <div className="px-3 pb-3 space-y-2 pt-1.5">
                   {/* Apa itu Inventory Item - Info Card */}
-                  <div className="flex gap-3 group/step">
-                    <div className="relative flex-shrink-0">
-                      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500/15 to-blue-500/10 border border-indigo-500/25 flex items-center justify-center group-hover/step:from-indigo-500/25 group-hover/step:border-indigo-400/40 transition-all duration-300">
-                        <Package className="h-4 w-4 text-indigo-400" />
+                  <div className="flex gap-2 group/step">
+                    <div className="flex-shrink-0">
+                      <div className="w-5 h-5 rounded-md bg-gradient-to-br from-indigo-500/15 to-blue-500/10 border border-indigo-500/25 flex items-center justify-center group-hover/step:from-indigo-500/25 group-hover/step:border-indigo-400/40 transition-all duration-300">
+                        <Package className="h-3 w-3 text-indigo-400" />
                       </div>
-                      <div className="absolute left-1/2 top-8 w-px h-[calc(100%+0.5rem)] bg-gradient-to-b from-indigo-500/30 to-transparent -translate-x-1/2" />
                     </div>
-                    <div className="flex-1 pt-1">
-                      <p className="text-xs text-slate-200 font-semibold mb-1 group-hover/step:text-indigo-300 transition-colors">Apa itu Inventory Item?</p>
-                      <p className="text-[11px] text-slate-400 leading-relaxed">
-                        Inventory item adalah <span className="text-white font-medium">bahan baku atau stok toko</span> yang kamu beli dari supplier. Setiap item punya <code className="px-1.5 py-0.5 rounded-md bg-indigo-500/15 text-indigo-300 text-[10px] font-mono border border-indigo-500/20">SKU</code> (kode unik), <code className="px-1.5 py-0.5 rounded-md bg-indigo-500/15 text-indigo-300 text-[10px] font-mono border border-indigo-500/20">base unit</code> (satuan dasar: kg, gr, ml, pcs), <code className="px-1.5 py-0.5 rounded-md bg-indigo-500/15 text-indigo-300 text-[10px] font-mono border border-indigo-500/20">stok</code>, dan <code className="px-1.5 py-0.5 rounded-md bg-indigo-500/15 text-indigo-300 text-[10px] font-mono border border-indigo-500/20">HPP</code> (Harga Pokok Penjualan).
+                    <div className="flex-1 pt-0.5">
+                      <p className="text-[11px] text-slate-300 font-medium mb-0.5 group-hover/step:text-indigo-300 transition-colors">Apa itu Inventory Item?</p>
+                      <p className="text-[10px] text-slate-500 leading-snug">
+                        Inventory item adalah <span className="text-white font-medium">bahan baku atau stok toko</span> yang kamu beli dari supplier. Setiap item punya <code className="px-1 py-0.5 rounded bg-indigo-500/15 text-indigo-300 text-[9px] font-mono border border-indigo-500/20">SKU</code>, <code className="px-1 py-0.5 rounded bg-indigo-500/15 text-indigo-300 text-[9px] font-mono border border-indigo-500/20">base unit</code>, <code className="px-1 py-0.5 rounded bg-indigo-500/15 text-indigo-300 text-[9px] font-mono border border-indigo-500/20">stok</code>, dan <code className="px-1 py-0.5 rounded bg-indigo-500/15 text-indigo-300 text-[9px] font-mono border border-indigo-500/20">HPP</code>.
                       </p>
                     </div>
                   </div>
                   {/* Cara Stok Masuk */}
-                  <div className="flex gap-3 group/step">
-                    <div className="relative flex-shrink-0">
-                      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-emerald-500/15 to-teal-500/10 border border-emerald-500/25 flex items-center justify-center group-hover/step:from-emerald-500/25 group-hover/step:border-emerald-400/40 transition-all duration-300">
-                        <span className="text-xs text-emerald-400 font-bold">1</span>
+                  <div className="flex gap-2 group/step">
+                    <div className="flex-shrink-0">
+                      <div className="w-5 h-5 rounded-md bg-gradient-to-br from-emerald-500/15 to-teal-500/10 border border-emerald-500/25 flex items-center justify-center group-hover/step:from-emerald-500/25 group-hover/step:border-emerald-400/40 transition-all duration-300">
+                        <span className="text-[10px] text-emerald-400 font-bold">1</span>
                       </div>
-                      <div className="absolute left-1/2 top-8 w-px h-[calc(100%+0.5rem)] bg-gradient-to-b from-emerald-500/30 to-transparent -translate-x-1/2" />
                     </div>
-                    <div className="flex-1 pt-1">
-                      <p className="text-xs text-slate-200 font-semibold mb-1 group-hover/step:text-emerald-300 transition-colors">Cara Stok Masuk</p>
-                      <p className="text-[11px] text-slate-400 leading-relaxed">
-                        Stok bertambah otomatis saat kamu <span className="text-emerald-400 font-semibold">menyimpan pembelian</span> di tab Pembelian. HPP dihitung otomatis dari rata-rata harga beli. Semua item baru akan otomatis tercatat di inventory saat pembelian disimpan.
+                    <div className="flex-1 pt-0.5">
+                      <p className="text-[11px] text-slate-300 font-medium mb-0.5 group-hover/step:text-emerald-300 transition-colors">Cara Stok Masuk</p>
+                      <p className="text-[10px] text-slate-500 leading-snug">
+                        Stok bertambah otomatis saat kamu <span className="text-emerald-400 font-semibold">menyimpan pembelian</span> di tab Pembelian. HPP dihitung otomatis dari rata-rata harga beli.
                       </p>
                     </div>
                   </div>
                   {/* Post ke Produk */}
-                  <div className="flex gap-3 group/step">
-                    <div className="relative flex-shrink-0">
-                      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-500/15 to-orange-500/10 border border-amber-500/25 flex items-center justify-center group-hover/step:from-amber-500/25 group-hover/step:border-amber-400/40 transition-all duration-300">
-                        <span className="text-xs text-amber-400 font-bold">2</span>
+                  <div className="flex gap-2 group/step">
+                    <div className="flex-shrink-0">
+                      <div className="w-5 h-5 rounded-md bg-gradient-to-br from-amber-500/15 to-orange-500/10 border border-amber-500/25 flex items-center justify-center group-hover/step:from-amber-500/25 group-hover/step:border-amber-400/40 transition-all duration-300">
+                        <span className="text-[10px] text-amber-400 font-bold">2</span>
                       </div>
-                      <div className="absolute left-1/2 top-8 w-px h-[calc(100%+0.5rem)] bg-gradient-to-b from-amber-500/30 to-transparent -translate-x-1/2" />
                     </div>
-                    <div className="flex-1 pt-1">
-                      <p className="text-xs text-slate-200 font-semibold mb-1 group-hover/step:text-amber-300 transition-colors">Post ke Produk Jual</p>
-                      <p className="text-[11px] text-slate-400 leading-relaxed mb-2.5">
-                        Inventory item bisa dijadikan <span className="text-white font-medium">produk jual</span> dengan memilih item → klik <code className="px-1.5 py-0.5 rounded-md bg-gradient-to-r from-amber-500/10 to-orange-500/10 text-amber-300 text-[10px] font-mono border border-amber-500/20">Post Produk</code>. Ada 2 mode:
+                    <div className="flex-1 pt-0.5">
+                      <p className="text-[11px] text-slate-300 font-medium mb-0.5 group-hover/step:text-amber-300 transition-colors">Post ke Produk Jual</p>
+                      <p className="text-[10px] text-slate-500 leading-snug mb-1.5">
+                        Inventory item bisa dijadikan <span className="text-white font-medium">produk jual</span> dengan klik <code className="px-1 py-0.5 rounded bg-gradient-to-r from-amber-500/10 to-orange-500/10 text-amber-300 text-[9px] font-mono border border-amber-500/20">Post Produk</code>. Ada 2 mode:
                       </p>
-                      <div className="space-y-2">
-                        <div className="rounded-xl bg-gradient-to-br from-rose-500/[0.06] to-pink-500/[0.03] border border-rose-500/15 px-3.5 py-3 hover:border-rose-500/25 transition-colors">
-                          <div className="flex items-center gap-2 mb-1.5">
-                            <ChefHat className="h-4 w-4 text-rose-400" />
-                            <p className="text-[11px] text-rose-300 font-semibold">Komposisi (F&amp;B)</p>
+                      <div className="space-y-1.5">
+                        <div className="rounded-lg bg-gradient-to-br from-rose-500/[0.06] to-pink-500/[0.03] border border-rose-500/15 px-2.5 py-2 hover:border-rose-500/25 transition-colors">
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <ChefHat className="h-3 w-3 text-rose-400" />
+                            <p className="text-[10px] text-rose-300 font-semibold">Komposisi (F&amp;B)</p>
                           </div>
-                          <p className="text-[11px] text-slate-400">Beberapa item inventory → <span className="text-slate-300 font-medium">1 produk</span>. Cth: Tepung 200gr + Gula 50gr + Telur 2pcs → Kue Bolu</p>
+                          <p className="text-[10px] text-slate-500">Beberapa inventory → <span className="text-slate-300 font-medium">1 produk</span>. Cth: Tepung 200gr + Gula 50gr → Kue Bolu</p>
                         </div>
-                        <div className="rounded-xl bg-gradient-to-br from-blue-500/[0.06] to-indigo-500/[0.03] border border-blue-500/15 px-3.5 py-3 hover:border-blue-500/25 transition-colors">
-                          <div className="flex items-center gap-2 mb-1.5">
-                            <ShoppingBag className="h-4 w-4 text-blue-400" />
-                            <p className="text-[11px] text-blue-300 font-semibold">Satu-satu (Ritel)</p>
+                        <div className="rounded-lg bg-gradient-to-br from-blue-500/[0.06] to-indigo-500/[0.03] border border-blue-500/15 px-2.5 py-2 hover:border-blue-500/25 transition-colors">
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <ShoppingBag className="h-3 w-3 text-blue-400" />
+                            <p className="text-[10px] text-blue-300 font-semibold">Satu-satu (Ritel)</p>
                           </div>
-                          <p className="text-[11px] text-slate-400">1 item inventory → <span className="text-slate-300 font-medium">1 produk</span> langsung. Cth: Susu UHT 1L → produk Susu UHT 1L dengan harga jual sendiri</p>
+                          <p className="text-[10px] text-slate-500">1 inventory → <span className="text-slate-300 font-medium">1 produk</span> langsung. Cth: Susu UHT 1L → produk Susu UHT 1L</p>
                         </div>
                       </div>
                     </div>
                   </div>
                   {/* Kategori */}
-                  <div className="flex gap-3 group/step">
-                    <div className="relative flex-shrink-0">
-                      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-cyan-500/15 to-teal-500/10 border border-cyan-500/25 flex items-center justify-center group-hover/step:from-cyan-500/25 group-hover/step:border-cyan-400/40 transition-all duration-300">
-                        <span className="text-xs text-cyan-400 font-bold">3</span>
+                  <div className="flex gap-2 group/step">
+                    <div className="flex-shrink-0">
+                      <div className="w-5 h-5 rounded-md bg-gradient-to-br from-cyan-500/15 to-teal-500/10 border border-cyan-500/25 flex items-center justify-center group-hover/step:from-cyan-500/25 group-hover/step:border-cyan-400/40 transition-all duration-300">
+                        <span className="text-[10px] text-cyan-400 font-bold">3</span>
                       </div>
                     </div>
-                    <div className="flex-1 pt-1">
-                      <p className="text-xs text-slate-200 font-semibold mb-1 group-hover/step:text-cyan-300 transition-colors">Kategori &amp; Low Stock Alert</p>
-                      <p className="text-[11px] text-slate-400 leading-relaxed">
-                        Gunakan <span className="text-white font-medium">Kategori</span> untuk mengelompokkan item (Bahan Pokok, Minuman, Bumbu, dll). Set <span className="text-white font-medium">Low Stock Alert</span> agar item yang stoknya menipis ditandai <span className="text-red-400 font-medium">merah</span> di tabel.
+                    <div className="flex-1 pt-0.5">
+                      <p className="text-[11px] text-slate-300 font-medium mb-0.5 group-hover/step:text-cyan-300 transition-colors">Kategori &amp; Low Stock Alert</p>
+                      <p className="text-[10px] text-slate-500 leading-snug">
+                        Gunakan <span className="text-white font-medium">Kategori</span> untuk mengelompokkan item. Set <span className="text-white font-medium">Low Stock Alert</span> agar item yang stoknya menipis ditandai <span className="text-red-400 font-medium">merah</span>.
                       </p>
                     </div>
                   </div>
-                  {/* Kebijakan Hapus vs Nonaktifkan - Enhanced */}
-                  <div className="rounded-xl bg-gradient-to-br from-violet-500/[0.08] to-purple-500/[0.04] border border-violet-500/20 px-4 py-3.5">
-                    <div className="flex items-center gap-2 mb-3">
-                      <ShieldAlert className="h-4 w-4 text-violet-400" />
-                      <p className="text-[11px] text-violet-300 font-semibold uppercase tracking-wider">Kebijakan Hapus & Nonaktifkan</p>
+                  {/* Kebijakan Hapus vs Nonaktifkan - compact */}
+                  <div className="rounded-lg bg-gradient-to-br from-violet-500/[0.08] to-purple-500/[0.04] border border-violet-500/20 px-2.5 py-2">
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <ShieldAlert className="h-3 w-3 text-violet-400" />
+                      <p className="text-[10px] text-violet-300 font-semibold uppercase tracking-wider">Kebijakan Hapus & Nonaktifkan</p>
                     </div>
-                    <div className="space-y-2.5">
-                      <div className="rounded-lg bg-gradient-to-br from-emerald-500/[0.08] to-green-500/[0.04] border border-emerald-500/20 px-3 py-2.5">
-                        <div className="flex items-center gap-2 mb-1.5">
-                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
-                          <p className="text-[11px] text-emerald-400 font-semibold">Bisa DIHAPUS</p>
+                    <div className="space-y-1.5">
+                      <div className="rounded-md bg-gradient-to-br from-emerald-500/[0.08] to-green-500/[0.04] border border-emerald-500/20 px-2 py-1.5">
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <CheckCircle2 className="h-3 w-3 text-emerald-400" />
+                          <p className="text-[10px] text-emerald-400 font-semibold">Bisa DIHAPUS</p>
                         </div>
-                        <ul className="text-[10px] text-slate-400 space-y-1">
-                          <li className="flex items-start gap-2"><span className="text-emerald-500 mt-0.5">•</span><span>Item baru tanpa histori sama sekali</span></li>
-                          <li className="flex items-start gap-2"><span className="text-emerald-500 mt-0.5">•</span><span>Item yang hanya punya <span className="text-emerald-300">stok awal migrasi</span> (belum ada transaksi)</span></li>
-                          <li className="flex items-start gap-2"><span className="text-emerald-500 mt-0.5">•</span><span>Data stok awal & link otomatis akan dibersihkan</span></li>
+                        <ul className="text-[9px] text-slate-500 space-y-0.5">
+                          <li className="flex items-start gap-1.5"><span className="text-emerald-500 mt-0.5">•</span><span>Item baru tanpa histori sama sekali</span></li>
+                          <li className="flex items-start gap-1.5"><span className="text-emerald-500 mt-0.5">•</span><span>Item yang hanya punya <span className="text-emerald-300">stok awal migrasi</span></span></li>
+                          <li className="flex items-start gap-1.5"><span className="text-emerald-500 mt-0.5">•</span><span>Data stok awal & link akan dibersihkan</span></li>
                         </ul>
                       </div>
-                      <div className="rounded-lg bg-gradient-to-br from-red-500/[0.08] to-rose-500/[0.04] border border-red-500/20 px-3 py-2.5">
-                        <div className="flex items-center gap-2 mb-1.5">
-                          <XCircle className="h-3.5 w-3.5 text-red-400" />
-                          <p className="text-[11px] text-red-400 font-semibold">Harus NONAKTIFKAN</p>
+                      <div className="rounded-md bg-gradient-to-br from-red-500/[0.08] to-rose-500/[0.04] border border-red-500/20 px-2 py-1.5">
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <XCircle className="h-3 w-3 text-red-400" />
+                          <p className="text-[10px] text-red-400 font-semibold">Harus NONAKTIFKAN</p>
                         </div>
-                        <ul className="text-[10px] text-slate-400 space-y-1">
-                          <li className="flex items-start gap-2"><span className="text-red-500 mt-0.5">•</span><span>Item dengan <span className="text-red-300">riwayat pembelian</span> dari supplier</span></li>
-                          <li className="flex items-start gap-2"><span className="text-red-500 mt-0.5">•</span><span>Item yang sudah <span className="text-red-300">terjual / terkonsumsi</span></span></li>
-                          <li className="flex items-start gap-2"><span className="text-red-500 mt-0.5">•</span><span>Item dengan <span className="text-red-300">riwayat transfer</span> antar outlet</span></li>
-                          <li className="flex items-start gap-2"><span className="text-red-500 mt-0.5">•</span><span>Item dengan <span className="text-red-300">komposisi/resep</span> manual (BOM)</span></li>
+                        <ul className="text-[9px] text-slate-500 space-y-0.5">
+                          <li className="flex items-start gap-1.5"><span className="text-red-500 mt-0.5">•</span><span>Item dengan <span className="text-red-300">riwayat pembelian</span></span></li>
+                          <li className="flex items-start gap-1.5"><span className="text-red-500 mt-0.5">•</span><span>Item yang sudah <span className="text-red-300">terjual / terkonsumsi</span></span></li>
+                          <li className="flex items-start gap-1.5"><span className="text-red-500 mt-0.5">•</span><span>Item dengan <span className="text-red-300">riwayat transfer</span></span></li>
+                          <li className="flex items-start gap-1.5"><span className="text-red-500 mt-0.5">•</span><span>Item dengan <span className="text-red-300">komposisi/resep</span> manual</span></li>
                         </ul>
                       </div>
                     </div>
                   </div>
-                  {/* Catatan - Enhanced */}
-                  <div className="rounded-xl bg-gradient-to-br from-slate-500/[0.05] to-zinc-500/[0.03] border border-slate-500/15 px-4 py-3.5">
-                    <div className="flex items-center gap-2 mb-2.5">
-                      <StickyNote className="h-3.5 w-3.5 text-slate-400" />
-                      <p className="text-[11px] text-slate-300 font-semibold uppercase tracking-wider">Catatan Penting</p>
+                  {/* Catatan - compact */}
+                  <div className="rounded-lg bg-gradient-to-br from-slate-500/[0.05] to-zinc-500/[0.03] border border-slate-500/15 px-2.5 py-2">
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <StickyNote className="h-3 w-3 text-slate-400" />
+                      <p className="text-[10px] text-slate-300 font-semibold uppercase tracking-wider">Catatan Penting</p>
                     </div>
-                    <ul className="text-[11px] text-slate-400 space-y-1.5">
-                      <li className="flex items-start gap-2"><span className="text-slate-500 mt-1">•</span><span>Kolom <code className="px-1 py-0.5 rounded bg-white/[0.06] text-slate-300 text-[10px] font-mono">Digunakan</code> = jumlah produk yang memakai item ini</span></li>
-                      <li className="flex items-start gap-2"><span className="text-slate-500 mt-1">•</span><span>HPP selalu dihitung otomatis — tidak bisa di-edit manual</span></li>
-                      <li className="flex items-start gap-2"><span className="text-slate-500 mt-1">•</span><span>Item nonaktif tetap muncul di laporan tapi <span className="text-slate-500 font-medium">tersembunyi</span> di tabel utama</span></li>
+                    <ul className="text-[10px] text-slate-500 space-y-1">
+                      <li className="flex items-start gap-1.5"><span className="text-slate-500 mt-0.5">•</span><span>Kolom <code className="px-1 py-0.5 rounded bg-white/[0.06] text-slate-300 text-[9px] font-mono">Digunakan</code> = jumlah produk yang memakai item ini</span></li>
+                      <li className="flex items-start gap-1.5"><span className="text-slate-500 mt-0.5">•</span><span>HPP selalu dihitung otomatis — tidak bisa di-edit manual</span></li>
+                      <li className="flex items-start gap-1.5"><span className="text-slate-500 mt-0.5">•</span><span>Item nonaktif tetap muncul di laporan tapi <span className="text-slate-500 font-medium">tersembunyi</span> di tabel utama</span></li>
                     </ul>
                   </div>
                 </div>
@@ -6652,50 +6607,49 @@ export default function PurchasePage() {
             <div className="absolute bottom-0 left-0 w-24 h-24 bg-cyan-500/10 rounded-full blur-2xl translate-y-1/2 -translate-x-1/2" />
             <div className="absolute inset-0 opacity-[0.03]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '20px 20px' }} />
             
-            <div className="relative px-6 pt-6 pb-5">
-              <ResponsiveDialogHeader className="text-left border-none pb-0 space-y-2">
-                <ResponsiveDialogTitle className="text-white text-xl font-bold flex items-center gap-3.5">
-                  <div className="relative flex items-center justify-center w-11 h-11 rounded-xl bg-gradient-to-br from-emerald-500/20 to-cyan-500/15 border border-white/[0.10] shadow-lg shadow-emerald-500/10 backdrop-blur-sm">
-                    <Tags className="h-5 w-5 text-emerald-400" />
-                    <div className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-emerald-400 rounded-full animate-pulse" />
+            <div className="relative px-4 pt-4 pb-3">
+              <ResponsiveDialogHeader className="text-left border-none pb-0 space-y-1">
+                <ResponsiveDialogTitle className="text-white text-base font-bold flex items-center gap-2.5">
+                  <div className="relative flex items-center justify-center w-9 h-9 rounded-lg bg-gradient-to-br from-emerald-500/20 to-cyan-500/15 border border-white/[0.10]">
+                    <Tags className="h-4 w-4 text-emerald-400" />
                   </div>
                   <div className="flex flex-col">
                     <span>Kelola Kategori</span>
-                    <span className="text-xs font-normal text-slate-400 font-medium">Organisir item inventory Anda</span>
+                    <span className="text-[10px] font-normal text-slate-500 font-medium">Organisir item inventory Anda</span>
                   </div>
                 </ResponsiveDialogTitle>
               </ResponsiveDialogHeader>
               
-              {/* Quick Stats Bar */}
+              {/* Quick Stats Bar - compact */}
               {categories.length > 0 && (
-                <div className="flex items-center gap-3 mt-4 pt-4 border-t border-white/[0.06]">
-                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06]">
-                    <FolderOpen className="h-3.5 w-3.5 text-emerald-400" />
-                    <span className="text-xs text-slate-300 font-medium">{categories.length} Kategori</span>
+                <div className="flex items-center gap-2 mt-3 pt-3 border-t border-white/[0.06]">
+                  <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-white/[0.04] border border-white/[0.06]">
+                    <FolderOpen className="h-3 w-3 text-emerald-400" />
+                    <span className="text-[10px] text-slate-400 font-medium">{categories.length} Kategori</span>
                   </div>
-                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06]">
-                    <Package className="h-3.5 w-3.5 text-cyan-400" />
-                    <span className="text-xs text-slate-300 font-medium">{categories.reduce((sum, c) => sum + (c._count?.items || 0), 0)} Item</span>
+                  <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-white/[0.04] border border-white/[0.06]">
+                    <Package className="h-3 w-3 text-cyan-400" />
+                    <span className="text-[10px] text-slate-400 font-medium">{categories.reduce((sum, c) => sum + (c._count?.items || 0), 0)} Item</span>
                   </div>
                 </div>
               )}
             </div>
           </div>
 
-          <div className="space-y-4 mt-3 px-1 flex-1 overflow-y-auto custom-scrollbar">
-            {/* Add/Edit Form - Redesigned with Always-Visible Color Picker */}
+          <div className="space-y-3 mt-2 px-1 flex-1 overflow-y-auto custom-scrollbar">
+            {/* Add/Edit Form - Compact Design */}
             {editingCatId ? (
-              /* Edit Mode Form - Modern Card Design */
-              <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-amber-500/[0.08] to-orange-500/[0.03] border border-amber-500/20">
+              /* Edit Mode Form - Compact */
+              <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-amber-500/[0.08] to-orange-500/[0.03] border border-amber-500/20">
                 <div className="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-amber-500/40 to-transparent" />
-                <div className="p-5 space-y-4 relative">
+                <div className="p-3.5 space-y-3 relative">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-500/15 border border-amber-500/25 w-fit">
-                      <Pencil className="h-3.5 w-3.5 text-amber-400" />
-                      <span className="text-xs text-amber-400 font-semibold uppercase tracking-wider">Mode Edit</span>
+                    <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-500/15 border border-amber-500/25 w-fit">
+                      <Pencil className="h-3 w-3 text-amber-400" />
+                      <span className="text-[10px] text-amber-400 font-semibold uppercase tracking-wider">Mode Edit</span>
                     </div>
-                    <button onClick={cancelEditCategory} className="p-1.5 rounded-lg hover:bg-white/[0.08] transition-colors text-slate-400 hover:text-white">
-                      <X className="h-4 w-4" />
+                    <button onClick={cancelEditCategory} className="p-1 rounded-md hover:bg-white/[0.08] transition-colors text-slate-400 hover:text-white">
+                      <X className="h-3.5 w-3.5" />
                     </button>
                   </div>
                   
@@ -6703,17 +6657,17 @@ export default function PurchasePage() {
                     value={catFormName}
                     onChange={(e) => setCatFormName(e.target.value)}
                     placeholder="Nama kategori..."
-                    className='w-full h-12 text-sm rounded-xl bg-white/[0.05] border-white/[0.10] focus:border-amber-500/40 focus:ring-amber-500/20'
+                    className='w-full h-10 text-sm rounded-lg bg-white/[0.05] border-white/[0.10] focus:border-amber-500/40 focus:ring-amber-500/20'
                     onKeyDown={(e) => { if (e.key === 'Enter') handleEditCategorySave() }}
                     autoFocus
                   />
                   
-                  <div className="space-y-3">
-                    <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider flex items-center gap-2">
-                      <Palette className="h-3.5 w-3.5 text-amber-400" />
+                  <div className="space-y-2">
+                    <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider flex items-center gap-1.5">
+                      <Palette className="h-3 w-3 text-amber-400" />
                       Pilih Warna
                     </p>
-                    <div className="grid grid-cols-6 gap-2.5 p-3 rounded-xl bg-black/10 border border-white/[0.04]">
+                    <div className="grid grid-cols-6 gap-2 p-2 rounded-lg bg-black/10 border border-white/[0.04]">
                       {CATEGORY_COLORS.map((color) => {
                         const colorClass = getCategoryColorClasses(color)
                         const isSelected = catFormColor === color
@@ -6723,16 +6677,16 @@ export default function PurchasePage() {
                             type="button"
                             onClick={() => setCatFormColor(color)}
                             className={cn(
-                              'flex flex-col items-center gap-1.5 p-2 rounded-xl transition-all duration-200',
+                              'flex flex-col items-center gap-1 p-1.5 rounded-lg transition-all duration-200',
                               isSelected ? 'bg-white/[0.10] ring-2 ring-white/30 scale-105' : 'hover:bg-white/[0.06] hover:scale-102'
                             )}
                           >
                             <span className={cn(
-                              'w-8 h-8 rounded-full transition-all duration-200 ring-offset-2 ring-offset-nebula shadow-md',
+                              'w-6 h-6 rounded-full transition-all duration-200 ring-offset-1 ring-offset-nebula shadow-sm',
                               colorClass.dot,
                               isSelected ? 'ring-2 ring-white scale-110 ring-offset-amber-500/20' : 'hover:ring-2 hover:ring-white/20'
                             )} />
-                            <span className={cn('text-[9px] font-bold leading-none truncate w-full text-center uppercase', isSelected ? 'text-white' : 'text-slate-500')}>
+                            <span className={cn('text-[8px] font-bold leading-none truncate w-full text-center uppercase', isSelected ? 'text-white' : 'text-slate-500')}>
                               {color.slice(0, 3)}
                             </span>
                           </button>
@@ -6741,38 +6695,38 @@ export default function PurchasePage() {
                     </div>
                   </div>
                   
-                  <div className="flex gap-3 pt-2">
-                    <Button size="sm" variant="outline" className="flex-1 h-11 text-sm border-white/[0.10] text-slate-300 hover:bg-white/[0.06] hover:text-white rounded-xl font-medium" onClick={cancelEditCategory}>Batal</Button>
-                    <Button size="sm" className="flex-1 h-11 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-white border-0 text-sm font-semibold shadow-lg shadow-amber-500/25 rounded-xl disabled:opacity-50" disabled={catFormLoading} onClick={handleEditCategorySave}>
-                      {catFormLoading ? <><Loader2 className="h-4 w-4 animate-spin mr-1.5" />Menyimpan...</> : <><Check className="h-4 w-4 mr-1.5" />Simpan Perubahan</>}
+                  <div className="flex gap-2 pt-1">
+                    <Button size="sm" variant="outline" className="flex-1 h-9 text-xs border-white/[0.10] text-slate-300 hover:bg-white/[0.06] hover:text-white rounded-lg font-medium" onClick={cancelEditCategory}>Batal</Button>
+                    <Button size="sm" className="flex-1 h-9 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-white border-0 text-xs font-semibold shadow-md shadow-amber-500/25 rounded-lg disabled:opacity-50" disabled={catFormLoading} onClick={handleEditCategorySave}>
+                      {catFormLoading ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />Menyimpan...</> : <><Check className="h-3.5 w-3.5 mr-1" />Simpan</>}
                     </Button>
                   </div>
                 </div>
               </div>
             ) : (
-              /* Add Mode Form - Modern Card Design */
-              <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-500/[0.06] to-cyan-500/[0.03] border border-emerald-500/15">
+              /* Add Mode Form - Compact */
+              <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-emerald-500/[0.06] to-cyan-500/[0.03] border border-emerald-500/15">
                 <div className="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-emerald-500/30 to-transparent" />
-                <div className="p-5 space-y-4">
-                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/25 w-fit">
-                    <Plus className="h-3.5 w-3.5 text-emerald-400" />
-                    <span className="text-xs text-emerald-400 font-semibold uppercase tracking-wider">Tambah Baru</span>
+                <div className="p-3.5 space-y-3">
+                  <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-emerald-500/15 border border-emerald-500/25 w-fit">
+                    <Plus className="h-3 w-3 text-emerald-400" />
+                    <span className="text-[10px] text-emerald-400 font-semibold uppercase tracking-wider">Tambah Baru</span>
                   </div>
                   
                   <Input
                     value={catFormName}
                     onChange={(e) => setCatFormName(e.target.value)}
                     placeholder="Nama kategori baru..."
-                    className='w-full h-12 text-sm rounded-xl bg-white/[0.05] border-white/[0.10] focus:border-emerald-500/40 focus:ring-emerald-500/20 placeholder:text-slate-500'
+                    className='w-full h-10 text-sm rounded-lg bg-white/[0.05] border-white/[0.10] focus:border-emerald-500/40 focus:ring-emerald-500/20 placeholder:text-slate-500'
                     onKeyDown={(e) => { if (e.key === 'Enter') handleCategorySubmit() }}
                   />
                   
-                  <div className="space-y-3">
-                    <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider flex items-center gap-2">
-                      <Palette className="h-3.5 w-3.5 text-emerald-400" />
+                  <div className="space-y-2">
+                    <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider flex items-center gap-1.5">
+                      <Palette className="h-3 w-3 text-emerald-400" />
                       Pilih Warna
                     </p>
-                    <div className="grid grid-cols-6 gap-2.5 p-3 rounded-xl bg-black/10 border border-white/[0.04]">
+                    <div className="grid grid-cols-6 gap-2 p-2 rounded-lg bg-black/10 border border-white/[0.04]">
                       {CATEGORY_COLORS.map((color) => {
                         const colorClass = getCategoryColorClasses(color)
                         const isSelected = catFormColor === color
@@ -6782,16 +6736,16 @@ export default function PurchasePage() {
                             type="button"
                             onClick={() => setCatFormColor(color)}
                             className={cn(
-                              'flex flex-col items-center gap-1.5 p-2 rounded-xl transition-all duration-200',
+                              'flex flex-col items-center gap-1 p-1.5 rounded-lg transition-all duration-200',
                               isSelected ? 'bg-white/[0.10] ring-2 ring-white/30 scale-105' : 'hover:bg-white/[0.06] hover:scale-102'
                             )}
                           >
                             <span className={cn(
-                              'w-8 h-8 rounded-full transition-all duration-200 ring-offset-2 ring-offset-nebula shadow-md',
+                              'w-6 h-6 rounded-full transition-all duration-200 ring-offset-1 ring-offset-nebula shadow-sm',
                               colorClass.dot,
                               isSelected ? 'ring-2 ring-white scale-110 ring-offset-emerald-500/20' : 'hover:ring-2 hover:ring-white/20'
                             )} />
-                            <span className={cn('text-[9px] font-bold leading-none truncate w-full text-center uppercase', isSelected ? 'text-white' : 'text-slate-500')}>
+                            <span className={cn('text-[8px] font-bold leading-none truncate w-full text-center uppercase', isSelected ? 'text-white' : 'text-slate-500')}>
                               {color.slice(0, 3)}
                             </span>
                           </button>
@@ -6801,40 +6755,40 @@ export default function PurchasePage() {
                   </div>
                   
                   <Button
-                    className="w-full h-12 bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-white text-sm font-semibold gap-2 rounded-xl shadow-lg shadow-emerald-500/20 disabled:opacity-50 transition-all duration-200"
+                    className="w-full h-9 bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-white text-xs font-semibold gap-1.5 rounded-lg shadow-md shadow-emerald-500/20 disabled:opacity-50 transition-all duration-200"
                     disabled={catFormLoading || !catFormName.trim()}
                     onClick={handleCategorySubmit}
                   >
-                    {catFormLoading ? <><Loader2 className="h-4 w-4 animate-spin" /> Menambahkan...</> : <><Plus className="h-4 w-4" /> Tambah Kategori</>}
+                    {catFormLoading ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Menambahkan...</> : <><Plus className="h-3.5 w-3.5" /> Tambah Kategori</>}
                   </Button>
                 </div>
               </div>
             )}
 
-            {/* Category List Section - Modern Cards */}
+            {/* Category List Section - Compact Cards */}
             {categories.length === 0 ? (
-              /* Modern Empty State */
-              <div className="py-16 text-center rounded-2xl border border-dashed border-white/[0.08] bg-gradient-to-b from-white/[0.02] to-transparent relative overflow-hidden">
-                <div className="absolute top-8 left-1/2 -translate-x-1/2 w-40 h-40 bg-emerald-500/5 rounded-full blur-3xl" />
+              /* Compact Empty State */
+              <div className="py-10 text-center rounded-xl border border-dashed border-white/[0.08] bg-gradient-to-b from-white/[0.02] to-transparent relative overflow-hidden">
+                <div className="absolute top-6 left-1/2 -translate-x-1/2 w-28 h-28 bg-emerald-500/5 rounded-full blur-2xl" />
                 
                 <div className="relative">
-                  <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-br from-violet-500/10 to-emerald-500/10 border border-white/[0.08] mb-5 shadow-inner">
-                    <Tags className="h-9 w-9 text-slate-500" />
+                  <div className="inline-flex items-center justify-center w-14 h-14 rounded-xl bg-gradient-to-br from-violet-500/10 to-emerald-500/10 border border-white/[0.08] mb-3 shadow-inner">
+                    <Tags className="h-6 w-6 text-slate-500" />
                   </div>
-                  <p className="text-lg text-slate-200 font-bold mb-2">Belum Ada Kategori</p>
-                  <p className="text-sm text-slate-500 mb-6 max-w-[240px] mx-auto leading-relaxed">
-                    Buat kategori pertama untuk mengelompokkan item inventory dengan lebih terstruktur
+                  <p className="text-sm text-slate-300 font-semibold mb-1">Belum Ada Kategori</p>
+                  <p className="text-xs text-slate-500 mb-4 max-w-[220px] mx-auto leading-snug">
+                    Buat kategori pertama untuk mengelompokkan item inventory
                   </p>
                   <Button
                     variant="outline"
-                    className="h-12 px-6 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300 hover:border-emerald-500/50 gap-2 text-sm font-medium rounded-xl transition-all duration-200 shadow-lg shadow-emerald-500/5"
+                    className="h-9 px-4 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300 hover:border-emerald-500/50 gap-1.5 text-xs font-medium rounded-lg transition-all duration-200"
                     onClick={() => document.querySelector<HTMLInputElement>('input[placeholder*="kategori baru"]')?.focus()}
                   >
-                    <Plus className="h-4 w-4" />
+                    <Plus className="h-3.5 w-3.5" />
                     Buat Kategori Pertama
                   </Button>
-                  <p className="text-[11px] text-slate-600 mt-5 flex items-center justify-center gap-1.5">
-                    <Sparkles className="h-3 w-3" />
+                  <p className="text-[10px] text-slate-600 mt-3 flex items-center justify-center gap-1">
+                    <Sparkles className="h-2.5 w-2.5" />
                     Tip: Gunakan warna berbeda untuk membedakan tipe item
                   </p>
                 </div>
