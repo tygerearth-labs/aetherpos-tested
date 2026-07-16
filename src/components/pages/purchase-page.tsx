@@ -68,6 +68,11 @@ import {
   Package,
   PackagePlus,
   PackageOpen,
+  BookOpen,
+  Calculator,
+  ChefHat,
+  ShoppingBag,
+  StickyNote,
   X,
   Tags,
   AlertTriangle,
@@ -114,6 +119,9 @@ import {
   ShieldAlert,
   ArrowRightLeft,
   Receipt,
+  Check,
+  Palette,
+  FolderOpen,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import SupplierSearchInput from '@/components/purchase/supplier-search-input'
@@ -159,8 +167,14 @@ interface PurchaseOrder {
   updatedAt?: string
   supplierName?: string | null
   createdByName?: string
+  // Legacy flags for backward compatibility
   hasLinkedItems?: boolean
   hasUsageHistory?: boolean
+  // New granular flags for precise edit/delete control
+  hasProductLinks?: boolean      // Only linked to products (no transfers/sales)
+  hasTransferLinks?: boolean     // Has inter-outlet transfers
+  hasTransactionLinks?: boolean  // Has sales transactions
+  hasRealBusinessHistory?: boolean // Combined: transfers OR sales (blocks edit)
   supplier?: { id: string; name: string; phone: string | null; address: string | null } | null
   createdBy?: { id: string; name: string; email: string } | null
   _batchSummary?: {
@@ -406,6 +420,30 @@ function getCategoryColorClasses(color: string) {
  * - Has sales/consumption transactions
  * - Has manual BOM/composition recipes
  */
+/**
+ * Delete Safety Status Checker
+ * 
+ * Determines if an inventory item can be safely deleted based on its relations.
+ * LOGIC ALIGNED WITH BACKEND API (/api/inventory/items/[id] DELETE & /api/inventory/items/bulk-delete)
+ * 
+ * SAFE (can delete):
+ * - No history at all (totalRelations === 0)
+ * 
+ * WARNING (can delete with cleanup):
+ * - Only MIGRATION data (initial stock upload via movements)
+ * - Only auto-generated composition links (from product_stock mode, qty=1)
+ * - Combination of migration movements + auto compositions
+ * 
+ * BLOCKED (cannot delete, must archive):
+ * - Has real purchase history (purchaseItems > 0)
+ * - Has transfer history between outlets (inventoryTransferItems > 0)
+ * - Has sales/consumption transactions (consumptionSnapshots > 0)
+ * 
+ * NOTE: Compositions alone do NOT block deletion because backend distinguishes:
+ * - Auto 1:1 links (qty=1, from product_stock mode) → cleaned up on delete
+ * - Manual BOM recipes (custom qty) → would block, but frontend can't distinguish
+ *   → We treat compositions as "warning" to be consistent with backend behavior
+ */
 function getDeleteSafetyStatus(item: InventoryItem): DeleteSafetyStatus {
   const c = item._count || {}
   const compositions = c.compositions || 0
@@ -415,8 +453,9 @@ function getDeleteSafetyStatus(item: InventoryItem): DeleteSafetyStatus {
   const consumptionSnapshots = c.consumptionSnapshots || 0
   
   const blockers: Array<{ type: string; label: string; icon: string }> = []
+  const warnings: Array<{ type: string; label: string; icon: string }> = []
   
-  // Check each blocker condition
+  // ── DEFINITE BLOCKERS (real business history) ──
   if (purchaseItems > 0) {
     blockers.push({
       type: 'purchaseItems',
@@ -441,19 +480,34 @@ function getDeleteSafetyStatus(item: InventoryItem): DeleteSafetyStatus {
     })
   }
   
-  // For compositions and movements, we'd need detailed API check to distinguish
-  // auto/migration vs real. Here we use conservative approach:
+  // ── SOFT WARNERS (data that will be cleaned up on delete) ──
+  // Movements: Could be migration data (MIGRATION type) or real adjustments
+  // Backend checks the referenceType, but frontend treats as warning
+  if (movements > 0) {
+    warnings.push({
+      type: 'movements',
+      label: `${movements} catatan stok`,
+      icon: 'Activity',
+    })
+  }
+  
+  // Compositions: Could be auto 1:1 links (safe) or manual BOM (should block)
+  // Since frontend can't distinguish, we treat as warning (consistent with backend
+  // which allows deletion and cleans up auto-links)
   if (compositions > 0) {
-    blockers.push({
+    warnings.push({
       type: 'compositions',
       label: `${compositions} link produk`,
       icon: 'Package',
     })
   }
   
-  // Determine status
+  // Determine status based on DEFIMATE BLOCKERS first
+  const hasBlockers = blockers.length > 0
+  const hasWarnings = warnings.length > 0
   const totalRelations = compositions + purchaseItems + movements + transferItems + consumptionSnapshots
   
+  // ── CASE 1: No relations at all → SAFE ──
   if (totalRelations === 0) {
     return {
       canDelete: true,
@@ -464,24 +518,84 @@ function getDeleteSafetyStatus(item: InventoryItem): DeleteSafetyStatus {
     }
   }
   
-  if (blockers.length === 0 && movements > 0) {
-    // Only movements (likely migration data) - warning but deletable
+  // ── CASE 2: Has definite blockers (real business history) → BLOCKED ──
+  if (hasBlockers) {
+    return {
+      canDelete: false,
+      riskLevel: 'blocked',
+      label: 'Tidak Bisa Dihapus',
+      description: `Item memiliki histori bisnis: ${blockers.map(b => b.label).join(', ')}`,
+      blockers,
+    }
+  }
+  
+  // ── CASE 3: Only soft warnings (migration data / auto links) → WARNING ──
+  // This means only movements and/or compositions, no real business history
+  // Backend WILL allow deletion and clean up this data
+  if (hasWarnings) {
     return {
       canDelete: true,
       riskLevel: 'warning',
       label: 'Hapus + Bersihkan',
-      description: 'Item hanya memiliki stok awal migrasi, akan dibersihkan otomatis',
+      description: `Item hanya memiliki data sistem (${warnings.map(w => w.label).join(', ')}) yang akan dibersihkan otomatis`,
       blockers: [],
     }
   }
   
-  // Has real business history - blocked
+  // Fallback (shouldn't reach here, but just in case)
   return {
-    canDelete: false,
-    riskLevel: 'blocked',
-    label: 'Tidak Bisa Dihapus',
-    description: `Item memiliki histori bisnis: ${blockers.map(b => b.label).join(', ')}`,
-    blockers,
+    canDelete: true,
+    riskLevel: 'safe',
+    label: 'Bisa Dihapus',
+    description: 'Item dapat dihapus',
+    blockers: [],
+  }
+}
+
+// Edit Block Status - determines if editing should be disabled for inventory items
+interface EditBlockStatus {
+  isBlocked: boolean
+  reason: string | null
+  blockType: 'archived' | 'hasSales' | 'hasTransfers' | null
+}
+
+function getEditBlockStatus(item: InventoryItem): EditBlockStatus {
+  // Condition 1: Item is non-active (archived)
+  if (item.status === 'ARCHIVED') {
+    return {
+      isBlocked: true,
+      reason: 'Item non-aktif. Aktifkan kembali untuk mengedit.',
+      blockType: 'archived',
+    }
+  }
+  
+  const c = item._count || {}
+  const consumptionSnapshots = c.consumptionSnapshots || 0
+  const transferItems = c.inventoryTransferItems || 0
+  
+  // Condition 2: Has sales transactions
+  if (consumptionSnapshots > 0) {
+    return {
+      isBlocked: true,
+      reason: `Item memiliki ${consumptionSnapshots} riwayat penjualan. Tidak bisa diedit.`,
+      blockType: 'hasSales',
+    }
+  }
+  
+  // Condition 3: Has inter-outlet transfers
+  if (transferItems > 0) {
+    return {
+      isBlocked: true,
+      reason: `Item memiliki ${transferItems} riwayat transfer antar outlet. Tidak bisa diedit.`,
+      blockType: 'hasTransfers',
+    }
+  }
+  
+  // Editing is allowed
+  return {
+    isBlocked: false,
+    reason: null,
+    blockType: null,
   }
 }
 
@@ -2002,18 +2116,22 @@ export default function PurchasePage() {
       if (res.ok) {
         const data = await res.json()
         // Check business history that blocks deletion
-        // NOTE: "movements" (stok awal migrasi) does NOT block deletion — user may be testing migration
-        // Only real business transactions block deletion:
+        // LOGIC ALIGNED WITH getDeleteSafetyStatus() AND BACKEND API
+        // 
+        // DEFINITE BLOCKERS (real business history - cannot delete):
         const counts = data._count || {}
         const hasPurchaseItems = (counts.purchaseItems || 0) > 0  // Ada riwayat pembelian dari supplier
-        const hasCompositions = (counts.compositions || 0) > 0   // Ada komposisi/resep produk
         const hasLinkedProducts = data.linkedProducts && data.linkedProducts.length > 0
         const hasTransfers = (counts.inventoryTransferItems || 0) > 0
         const hasConsumption = (counts.consumptionSnapshots || 0) > 0
         
-        // Item dengan pembelian → TIDAK BISA DIHAPUS (hanya nonaktifkan)
-        // Item migrasi-only (hanya movements/stok awal) → BISA DIHAPUS
-        const shouldBlock = hasPurchaseItems || hasCompositions || hasLinkedProducts || hasTransfers || hasConsumption
+        // SOFT WARNERS (data that will be cleaned up on delete - can delete):
+        const hasCompositions = (counts.compositions || 0) > 0   // Auto links or BOM (backend decides)
+        const hasMovements = (counts.movements || 0) > 0       // Could be migration or real adjustments
+        
+        // Only DEFINITE BLOCKERS should prevent deletion
+        // Compositions and movements are handled by backend smart-delete logic
+        const shouldBlock = hasPurchaseItems || hasLinkedProducts || hasTransfers || hasConsumption
         
         if (shouldBlock) {
           const blockers: string[] = []
@@ -2035,7 +2153,8 @@ export default function PurchasePage() {
             linkedProducts: hasLinkedProducts ? data.linkedProducts : [],
           })
         }
-        // Jika hanya ada movements (stok awal migrasi) → izinkan hapus (tidak set invDeleteBlocked)
+        // Jika hanya ada compositions/movements (data sistem/migrasi) → izinkan hapus
+        // Backend akan membersihkan data otomatis (smart delete logic)
       }
     } catch {
       // Non-critical — dialog will still work, just without pre-fetched data
@@ -3062,112 +3181,181 @@ export default function PurchasePage() {
               </div>
             )}
 
-            {/* Panduan Alur Pembelian - dengan Pulse Highlight */}
+            {/* Panduan Alur Pembelian - Modern Redesigned Header */}
             <div className={cn(
-              "rounded-xl border overflow-hidden transition-all duration-300 bg-white/[0.02] border-white/[0.06]"
+              "rounded-2xl overflow-hidden transition-all duration-500 ease-out",
+              showPurchaseGuide 
+                ? "bg-gradient-to-br from-white/[0.05] to-white/[0.02] border border-emerald-500/30 shadow-lg shadow-emerald-500/5" 
+                : "bg-gradient-to-r from-emerald-500/[0.08] via-teal-500/[0.05] to-cyan-500/[0.08] border border-emerald-500/20 hover:border-emerald-40 hover:shadow-lg hover:shadow-emerald-500/10"
             )}>
+              {/* Gradient accent bar */}
+              <div className={cn(
+                "h-0.5 transition-all duration-500",
+                showPurchaseGuide 
+                  ? "bg-gradient-to-r from-emerald-400 via-teal-400 to-cyan-400" 
+                  : "bg-gradient-to-r from-emerald-500/50 via-teal-500/50 to-cyan-500/50"
+              )} />
               <button
-                className="w-full flex items-center justify-between gap-2 p-3 text-left hover:bg-white/[0.03] transition-colors"
+                className="w-full flex items-center justify-between gap-3 p-4 text-left group relative overflow-hidden"
                 onClick={() => setShowPurchaseGuide(prev => !prev)}
               >
-                <div className="flex items-center gap-2">
+                {/* Subtle background glow on hover */}
+                <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/0 via-teal-500/0 to-cyan-500/0 group-hover:from-emerald-500/[0.03] group-hover:via-teal-500/[0.02] group-hover:to-cyan-500/[0.03] transition-all duration-500 pointer-events-none" />
+                
+                <div className="flex items-center gap-3 relative z-10">
+                  {/* Icon container with gradient and animation */}
                   <div className={cn(
-                    "flex items-center justify-center w-6 h-6 rounded-md transition-colors",
-                    showPurchaseGuide ? "bg-emerald-500/10" : "bg-slate-500/10"
+                    "relative flex items-center justify-center w-10 h-10 rounded-xl transition-all duration-500",
+                    showPurchaseGuide 
+                      ? "bg-gradient-to-br from-emerald-500/20 to-teal-500/20 shadow-lg shadow-emerald-500/20 scale-105" 
+                      : "bg-gradient-to-br from-emerald-500/15 to-teal-500/10 group-hover:from-emerald-500/25 group-hover:to-teal-500/15 group-hover:scale-105"
                   )}>
-                    <Info className={cn(
-                      "h-3.5 w-3.5 shrink-0 transition-colors",
-                      showPurchaseGuide ? "text-emerald-400" : "text-slate-400"
+                    <BookOpen className={cn(
+                      "h-5 w-5 shrink-0 transition-all duration-300",
+                      showPurchaseGuide ? "text-emerald-400 drop-shadow-sm" : "text-emerald-400/80 group-hover:text-emerald-300"
                     )} />
+                    {/* Pulse ring when closed */}
+                    {!showPurchaseGuide && (
+                      <span className="absolute inset-0 rounded-xl animate-ping bg-emerald-500/20 opacity-75" style={{ animationDuration: '2s' }} />
+                    )}
                   </div>
-                  <span className={cn(
-                    "text-[11px] font-medium transition-colors",
-                    showPurchaseGuide ? "text-slate-300" : "text-slate-400"
-                  )}>Panduan Pembelian</span>
+                  
+                  <div className="flex flex-col">
+                    <div className="flex items-center gap-2">
+                      <span className={cn(
+                        "text-sm font-semibold transition-all duration-300",
+                        showPurchaseGuide 
+                          ? "bg-gradient-to-r from-emerald-300 via-teal-300 to-cyan-300 bg-clip-text text-transparent" 
+                          : "text-slate-200 group-hover:text-white"
+                      )}>Panduan Pembelian</span>
+                      {!showPurchaseGuide && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-gradient-to-r from-amber-500/20 to-orange-500/20 text-amber-400 border border-amber-500/30">
+                          TIPS
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[10px] text-slate-500 mt-0.5">4 langkah mudah membuat pembelian baru</span>
+                  </div>
                 </div>
-                <ChevronDown className={cn('h-3.5 w-3.5 text-slate-500 transition-transform duration-200', showPurchaseGuide && 'rotate-180')} />
+                
+                {/* Animated chevron with glow */}
+                <div className={cn(
+                  "flex items-center justify-center w-8 h-8 rounded-lg transition-all duration-300 relative z-10",
+                  showPurchaseGuide 
+                    ? "bg-emerald-500/15 rotate-0" 
+                    : "bg-white/[0.04] group-hover:bg-white/[0.08]"
+                )}>
+                  <ChevronDown className={cn(
+                    'h-4 w-4 transition-all duration-500 ease-out',
+                    showPurchaseGuide ? 'rotate-180 text-emerald-400' : 'text-slate-400 group-hover:text-slate-300'
+                  )} />
+                </div>
               </button>
               {showPurchaseGuide && (
-                <div className="px-3 pb-3 space-y-3 border-t border-white/[0.04] pt-3">
+                <div className="px-4 pb-4 space-y-4 pt-2">
+                  {/* Divider with gradient */}
+                  <div className="h-px bg-gradient-to-r from-transparent via-white/[0.08] to-transparent" />
+                  
                   {/* Step 1 */}
-                  <div className="flex gap-2.5">
-                    <div className="w-4 h-4 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0 mt-0.5">
-                      <span className="text-[9px] text-emerald-400 font-bold">1</span>
+                  <div className="flex gap-3 group/step">
+                    <div className="relative flex-shrink-0">
+                      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-emerald-500/15 to-teal-500/10 border border-emerald-500/25 flex items-center justify-center group-hover/step:from-emerald-500/25 group-hover/step:border-emerald-400/40 transition-all duration-300">
+                        <span className="text-xs text-emerald-400 font-bold">1</span>
+                      </div>
+                      {/* Connector line */}
+                      <div className="absolute left-1/2 top-8 w-px h-[calc(100%+0.5rem)] bg-gradient-to-b from-emerald-500/30 to-transparent -translate-x-1/2" />
                     </div>
-                    <div>
-                      <p className="text-[11px] text-slate-300 font-medium mb-0.5">Tambah Item ke Pembelian</p>
-                      <p className="text-[10px] text-slate-500 leading-relaxed">
-                        Klik <span className="text-white bg-white/[0.06] px-1 py-0.5 rounded text-[9px] font-mono">Buat Pembelian</span> lalu gunakan input bar untuk mencari item. Ketik nama item, scan barcode, atau pisahkan beberapa item dengan <span className="text-white bg-white/[0.06] px-1 py-0.5 rounded text-[9px] font-mono">koma</span>.
+                    <div className="flex-1 pt-1">
+                      <p className="text-xs text-slate-200 font-semibold mb-1 group-hover/step:text-emerald-300 transition-colors">Tambah Item ke Pembelian</p>
+                      <p className="text-[11px] text-slate-400 leading-relaxed">
+                        Klik <code className="px-1.5 py-0.5 rounded-md bg-gradient-to-r from-emerald-500/10 to-teal-500/10 text-emerald-300 text-[10px] font-mono border border-emerald-500/20">Buat Pembelian</code> lalu gunakan input bar untuk mencari item. Ketik nama item, scan barcode, atau pisahkan beberapa item dengan <code className="px-1.5 py-0.5 rounded-md bg-white/[0.06] text-slate-300 text-[10px] font-mono border border-white/[0.08]">koma</code>.
                       </p>
                     </div>
                   </div>
                   {/* Step 2 */}
-                  <div className="flex gap-2.5">
-                    <div className="w-4 h-4 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0 mt-0.5">
-                      <span className="text-[9px] text-emerald-400 font-bold">2</span>
+                  <div className="flex gap-3 group/step">
+                    <div className="relative flex-shrink-0">
+                      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-violet-500/15 to-purple-500/10 border border-violet-500/25 flex items-center justify-center group-hover/step:from-violet-500/25 group-hover/step:border-violet-400/40 transition-all duration-300">
+                        <span className="text-xs text-violet-400 font-bold">2</span>
+                      </div>
+                      <div className="absolute left-1/2 top-8 w-px h-[calc(100%+0.5rem)] bg-gradient-to-b from-violet-500/30 to-transparent -translate-x-1/2" />
                     </div>
-                    <div>
-                      <p className="text-[11px] text-slate-300 font-medium mb-0.5">Item Baru? Isi SKU &amp; Satuan</p>
-                      <p className="text-[10px] text-slate-500 leading-relaxed">
-                        Jika item <span className="text-amber-400">belum ada di inventory</span>, form akan muncul otomatis. Kamu <span className="text-white">wajib isi SKU</span> (kode unik) dan <span className="text-white">pilih satuan</span> (kg, gr, ml, liter, pcs, dll). Item ini berstatus <span className="text-amber-400">pending</span> — belum tersimpan sampai pembelian disimpan.
+                    <div className="flex-1 pt-1">
+                      <p className="text-xs text-slate-200 font-semibold mb-1 group-hover/step:text-violet-300 transition-colors">Item Baru? Isi SKU &amp; Satuan</p>
+                      <p className="text-[11px] text-slate-400 leading-relaxed">
+                        Jika item <span className="text-amber-400 font-medium">belum ada di inventory</span>, form akan muncul otomatis. Kamu <span className="text-white font-medium">wajib isi SKU</span> (kode unik) dan <span className="text-white font-medium">pilih satuan</span> (kg, gr, ml, liter, pcs, dll). Item ini berstatus <span className="text-amber-400 font-medium">pending</span> — belum tersimpan sampai pembelian disimpan.
                       </p>
                     </div>
                   </div>
                   {/* Step 3 */}
-                  <div className="flex gap-2.5">
-                    <div className="w-4 h-4 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0 mt-0.5">
-                      <span className="text-[9px] text-emerald-400 font-bold">3</span>
+                  <div className="flex gap-3 group/step">
+                    <div className="relative flex-shrink-0">
+                      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-500/15 to-indigo-500/10 border border-blue-500/25 flex items-center justify-center group-hover/step:from-blue-500/25 group-hover/step:border-blue-400/40 transition-all duration-300">
+                        <span className="text-xs text-blue-400 font-bold">3</span>
+                      </div>
+                      <div className="absolute left-1/2 top-8 w-px h-[calc(100%+0.5rem)] bg-gradient-to-b from-blue-500/30 to-transparent -translate-x-1/2" />
                     </div>
-                    <div>
-                      <p className="text-[11px] text-slate-300 font-medium mb-0.5">Isi Detail Pembelian</p>
-                      <p className="text-[10px] text-slate-500 leading-relaxed">
+                    <div className="flex-1 pt-1">
+                      <p className="text-xs text-slate-200 font-semibold mb-1 group-hover/step:text-blue-300 transition-colors">Isi Detail Pembelian</p>
+                      <p className="text-[11px] text-slate-400 leading-relaxed mb-2">
                         Untuk tiap item, isi:
                       </p>
-                      <div className="mt-1.5 grid grid-cols-2 gap-1.5">
-                        <div className="rounded-md bg-white/[0.03] border border-white/[0.04] px-2 py-1.5">
-                          <p className="text-[9px] text-slate-600 uppercase tracking-wider">Satuan Beli</p>
-                          <p className="text-[10px] text-slate-400">Cth: <span className="text-white">sak</span>, <span className="text-white">ekor</span>, <span className="text-white">karung</span></p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="rounded-lg bg-gradient-to-br from-white/[0.04] to-white/[0.02] border border-white/[0.08] px-3 py-2.5 hover:border-white/[0.12] transition-colors">
+                          <p className="text-[9px] text-slate-500 uppercase tracking-wider font-medium">Satuan Beli</p>
+                          <p className="text-[11px] text-slate-300 mt-0.5">Cth: <span className="text-white font-medium">sak</span>, <span className="text-white font-medium">ekor</span>, <span className="text-white font-medium">karung</span></p>
                         </div>
-                        <div className="rounded-md bg-white/[0.03] border border-white/[0.04] px-2 py-1.5">
-                          <p className="text-[9px] text-slate-600 uppercase tracking-wider">Jumlah</p>
-                          <p className="text-[10px] text-slate-400">Berapa <span className="text-white">satuan beli</span> yang dibeli</p>
+                        <div className="rounded-lg bg-gradient-to-br from-white/[0.04] to-white/[0.02] border border-white/[0.08] px-3 py-2.5 hover:border-white/[0.12] transition-colors">
+                          <p className="text-[9px] text-slate-500 uppercase tracking-wider font-medium">Jumlah</p>
+                          <p className="text-[11px] text-slate-300 mt-0.5">Berapa <span className="text-white font-medium">satuan beli</span> yang dibeli</p>
                         </div>
-                        <div className="rounded-md bg-white/[0.03] border border-white/[0.04] px-2 py-1.5">
-                          <p className="text-[9px] text-slate-600 uppercase tracking-wider">Isi / Unit</p>
-                          <p className="text-[10px] text-slate-400">Isi per 1 satuan beli (dalam <span className="text-white">base unit</span>)</p>
+                        <div className="rounded-lg bg-gradient-to-br from-white/[0.04] to-white/[0.02] border border-white/[0.08] px-3 py-2.5 hover:border-white/[0.12] transition-colors">
+                          <p className="text-[9px] text-slate-500 uppercase tracking-wider font-medium">Isi / Unit</p>
+                          <p className="text-[11px] text-slate-300 mt-0.5">Isi per 1 satuan beli (dalam <span className="text-white font-medium">base unit</span>)</p>
                         </div>
-                        <div className="rounded-md bg-white/[0.03] border border-white/[0.04] px-2 py-1.5">
-                          <p className="text-[9px] text-slate-600 uppercase tracking-wider">Harga / Unit</p>
-                          <p className="text-[10px] text-slate-400">Harga per 1 <span className="text-white">satuan beli</span> (Rp)</p>
+                        <div className="rounded-lg bg-gradient-to-br from-white/[0.04] to-white/[0.02] border border-white/[0.08] px-3 py-2.5 hover:border-white/[0.12] transition-colors">
+                          <p className="text-[9px] text-slate-500 uppercase tracking-wider font-medium">Harga / Unit</p>
+                          <p className="text-[11px] text-slate-300 mt-0.5">Harga per 1 <span className="text-white font-medium">satuan beli</span> (Rp)</p>
                         </div>
                       </div>
                     </div>
                   </div>
                   {/* Step 4 */}
-                  <div className="flex gap-2.5">
-                    <div className="w-4 h-4 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0 mt-0.5">
-                      <span className="text-[9px] text-emerald-400 font-bold">4</span>
+                  <div className="flex gap-3 group/step">
+                    <div className="relative flex-shrink-0">
+                      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-rose-500/15 to-pink-500/10 border border-rose-500/25 flex items-center justify-center group-hover/step:from-rose-500/25 group-hover/step:border-rose-400/40 transition-all duration-300">
+                        <span className="text-xs text-rose-400 font-bold">4</span>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-[11px] text-slate-300 font-medium mb-0.5">Simpan &amp; Stok Otomatis Masuk</p>
-                      <p className="text-[10px] text-slate-500 leading-relaxed">
-                        Klik <span className="text-white bg-white/[0.06] px-1 py-0.5 rounded text-[9px] font-mono">Simpan Pembelian</span>. Stok otomatis bertambah dan <span className="text-white">HPP dihitung otomatis</span>.
+                    <div className="flex-1 pt-1">
+                      <p className="text-xs text-slate-200 font-semibold mb-1 group-hover/step:text-rose-300 transition-colors">Simpan &amp; Stok Otomatis Masuk</p>
+                      <p className="text-[11px] text-slate-400 leading-relaxed">
+                        Klik <code className="px-1.5 py-0.5 rounded-md bg-gradient-to-r from-emerald-500/10 to-teal-500/10 text-emerald-300 text-[10px] font-mono border border-emerald-500/20">Simpan Pembelian</code>. Stok otomatis bertambah dan <span className="text-white font-medium">HPP dihitung otomatis</span>.
                       </p>
-                      <div className="mt-1.5 rounded-md bg-amber-500/[0.04] border border-amber-500/10 px-2.5 py-2">
-                        <p className="text-[10px] text-amber-400/80 font-medium mb-0.5">📐 Rumus HPP</p>
-                        <p className="text-[10px] text-slate-500 font-mono">HPP = Harga per Satuan Beli ÷ Isi per Unit</p>
-                        <p className="text-[10px] text-slate-600 mt-1">Cth: Beli 1 sak @ Rp90.000, isi 25kg → HPP = Rp90.000 ÷ 25 = <span className="text-amber-400">Rp3.600/kg</span></p>
+                      {/* Formula box with icon */}
+                      <div className="mt-2.5 rounded-xl bg-gradient-to-r from-amber-500/[0.08] to-orange-500/[0.05] border border-amber-500/20 px-3.5 py-3">
+                        <div className="flex items-start gap-2">
+                          <Calculator className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
+                          <div>
+                            <p className="text-[11px] text-amber-300 font-semibold mb-1">Rumus HPP</p>
+                            <p className="text-[11px] text-slate-400 font-mono bg-black/20 rounded px-2 py-1 inline-block">HPP = Harga per Satuan Beli ÷ Isi per Unit</p>
+                            <p className="text-[11px] text-slate-500 mt-1.5">Contoh: Beli 1 sak @ Rp90.000, isi 25kg → HPP = <span className="text-amber-400 font-semibold">Rp3.600/kg</span></p>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
-                  {/* Tips */}
-                  <div className="rounded-md bg-white/[0.02] border border-white/[0.04] px-2.5 py-2">
-                    <p className="text-[10px] text-slate-600 mb-1 font-medium uppercase tracking-wider">Tips</p>
-                    <ul className="text-[10px] text-slate-500 space-y-0.5">
-                      <li>• Scan barcode langsung dari input bar — tidak perlu tekan Enter</li>
-                      <li>• Ketik beberapa nama pisah <span className="text-white">koma</span> untuk tambah banyak item sekaligus</li>
-                      <li>• Item baru muncul dengan badge <span className="text-amber-400">Baru</span> — bisa di-ganti sebelum simpan</li>
-                      <li>• Pembelian yang sudah terkait produk tidak bisa dihapus</li>
+                  {/* Tips Section - Enhanced */}
+                  <div className="rounded-xl bg-gradient-to-br from-cyan-500/[0.05] to-blue-500/[0.03] border border-cyan-500/15 px-4 py-3.5">
+                    <div className="flex items-center gap-2 mb-2.5">
+                      <Sparkles className="h-3.5 w-3.5 text-cyan-400" />
+                      <p className="text-[11px] text-cyan-300 font-semibold uppercase tracking-wider">Tips & Trik</p>
+                    </div>
+                    <ul className="text-[11px] text-slate-400 space-y-1.5">
+                      <li className="flex items-start gap-2"><span className="text-cyan-500 mt-1">•</span><span>Scan barcode langsung dari input bar — tidak perlu tekan Enter</span></li>
+                      <li className="flex items-start gap-2"><span className="text-cyan-500 mt-1">•</span><span>Ketik beberapa nama pisah <code className="px-1 py-0.5 rounded bg-white/[0.06] text-slate-300 text-[10px] font-mono">koma</code> untuk tambah banyak item sekaligus</span></li>
+                      <li className="flex items-start gap-2"><span className="text-cyan-500 mt-1">•</span><span>Item baru muncul dengan badge <span className="text-amber-400 font-medium">Baru</span> — bisa di-ganti sebelum simpan</span></li>
+                      <li className="flex items-start gap-2"><span className="text-red-400 mt-1">⚠</span><span>Pembelian yang sudah terkait produk <span className="text-red-400 font-medium">tidak bisa dihapus</span></span></li>
                     </ul>
                   </div>
                 </div>
@@ -3254,8 +3442,25 @@ export default function PurchasePage() {
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                className="h-7 px-2 text-slate-400 hover:text-white hover:bg-white/[0.04]"
-                                onClick={() => openPoEdit(po)}
+                                className={cn(
+                                  "h-7 px-2 transition-colors",
+                                  po.hasRealBusinessHistory
+                                    ? "text-slate-600 cursor-not-allowed"
+                                    : "text-slate-400 hover:text-white hover:bg-white/[0.04]"
+                                )}
+                                onClick={() => {
+                                  if (po.hasRealBusinessHistory) {
+                                    toast.error('Pembelian memiliki riwayat bisnis (transfer/penjualan) — tidak bisa diedit')
+                                    return
+                                  }
+                                  openPoEdit(po)
+                                }}
+                                disabled={po.hasRealBusinessHistory}
+                                title={
+                                  po.hasRealBusinessHistory
+                                    ? 'Ada riwayat transfer/penjualan'
+                                    : 'Edit pembelian'
+                                }
                               >
                                 <Pencil className="h-3.5 w-3.5" />
                               </Button>
@@ -3265,22 +3470,29 @@ export default function PurchasePage() {
                                 size="sm"
                                 className={cn(
                                   "h-7 px-2 hover:text-red-300 hover:bg-red-500/[0.06]",
-                                  (po.hasLinkedItems || po.hasUsageHistory) 
+                                  (po.hasRealBusinessHistory || po.hasUsageHistory) 
                                     ? "opacity-50 cursor-not-allowed text-red-400/50" 
-                                    : "text-red-400"
+                                    : po.hasProductLinks
+                                      ? "text-amber-400 hover:text-amber-300 hover:bg-amber-500/[0.06]"
+                                      : "text-red-400"
                                 )}
                                 onClick={() => {
-                                  if (po.hasLinkedItems || po.hasUsageHistory) {
-                                    toast.error('Sudah ada link ke produk/pembelian/transfer — tidak bisa dihapus')
+                                  if (po.hasRealBusinessHistory || po.hasUsageHistory) {
+                                    toast.error('Pembelian memiliki riwayat bisnis — tidak bisa dihapus')
                                     return
+                                  }
+                                  if (po.hasProductLinks) {
+                                    toast.warning('Link ke produk akan dibersihkan otomatis')
                                   }
                                   setDeletePoId(po.id)
                                 }}
-                                disabled={po.hasLinkedItems || po.hasUsageHistory}
+                                disabled={po.hasRealBusinessHistory || po.hasUsageHistory}
                                 title={
-                                  (po.hasLinkedItems || po.hasUsageHistory)
-                                    ? 'Sudah ada link ke produk/pembelian/transfer'
-                                    : 'Hapus pembelian'
+                                  (po.hasRealBusinessHistory || po.hasUsageHistory)
+                                    ? 'Ada riwayat bisnis — tidak bisa dihapus'
+                                    : po.hasProductLinks
+                                      ? 'Hapus (link produk akan dibersihkan)'
+                                      : 'Hapus pembelian'
                                 }
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
@@ -3325,105 +3537,125 @@ export default function PurchasePage() {
                     const hasExpiredItems = po._batchSummary?.expiredItems > 0
                     const hasExpiringSoon = po._batchSummary?.nearestExp && !hasExpiredItems
                     
-                    let cardBorder = 'border-white/[0.06]'
-                    if (hasExpiredItems) cardBorder = 'border-red-500/25'
-                    else if (hasExpiringSoon) cardBorder = 'border-amber-500/25'
-                    
                     return (
                     <motion.div
                       key={po.id}
                       initial={{ opacity: 0, y: 8 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -8 }}
-                      transition={{ duration: 0.2 }}
+                      transition={{ duration: 0.15 }}
                     >
-                      <Card className={cn(
-                        "bg-nebula border rounded-xl transition-colors",
-                        hasExpiredItems ? "border-red-500/25 bg-red-500/[0.02]" : hasExpiringSoon ? "border-amber-500/25 bg-amber-500/[0.02]" : "border-white/[0.06] hover:border-white/[0.1]"
+                      {/* Compact Mobile Card - Single Row Layout */}
+                      <div className={cn(
+                        "flex items-center gap-3 p-3 rounded-xl border transition-colors active:bg-white/[0.03]",
+                        hasExpiredItems ? "bg-red-500/[0.04] border-red-500/20" : 
+                        hasExpiringSoon ? "bg-amber-500/[0.03] border-amber-500/18" : 
+                        "bg-white/[0.02] border-white/[0.06]"
                       )}>
-                        <CardContent className="p-4 space-y-3">
-                          {/* Header Row - PO Number + Total */}
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <div className="h-9 w-9 rounded-lg bg-white/[0.04] flex items-center justify-center shrink-0">
-                                <FileText className="h-4 w-4 text-slate-500" />
-                              </div>
-                              <span className="text-sm text-white font-semibold font-mono truncate">{po.orderNumber}</span>
-                            </div>
-                            <span className="text-sm font-bold text-emerald-400 tabular-nums">{formatCurrency(po.totalCost)}</span>
+                        {/* Icon */}
+                        <div className={cn(
+                          "w-9 h-9 rounded-lg flex items-center justify-center shrink-0",
+                          hasExpiredItems ? "bg-red-500/10" : hasExpiringSoon ? "bg-amber-500/10" : "bg-white/[0.04]"
+                        )}>
+                          <FileText className={cn(
+                            "h-4 w-4",
+                            hasExpiredItems ? "text-red-400" : hasExpiringSoon ? "text-amber-400" : "text-slate-500"
+                          )} />
+                        </div>
+
+                        {/* Main Content - Flexible */}
+                        <div className="flex-1 min-w-0">
+                          {/* PO Number + Badges */}
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-white font-semibold font-mono truncate">{po.orderNumber}</span>
+                            {po.hasProductLinks && (
+                              <span className="inline-flex items-center px-1.5 py-0 rounded bg-violet-500/15 text-violet-400 text-[9px] font-bold shrink-0">
+                                <Sparkles className="h-2.5 w-2.5 mr-0.5" />
+                                Produk
+                              </span>
+                            )}
+                          </div>
+                          {/* Supplier + Items + Date - Single Line */}
+                          <div className="flex items-center gap-2 mt-0.5 text-slate-500">
+                            <span className="text-[11px] truncate max-w-[100px]">{po.supplierName || '-'}</span>
+                            <span className="text-[10px]">•</span>
+                            <span className="text-[11px]">{po.itemCount ?? po._count?.items ?? 0} item</span>
+                            <span className="text-[10px]">•</span>
+                            <span className="text-[10px]">{formatDate(po.createdAt).split(' ')[0]}</span>
+                          </div>
+                        </div>
+
+                        {/* Right Side - Price + Actions */}
+                        <div className="flex items-center gap-2 shrink-0">
+                          <div className="text-right">
+                            <span className="text-sm font-bold text-emerald-400 tabular-nums block leading-tight">{formatCurrency(po.totalCost)}</span>
+                            {po._batchSummary?.expiredItems > 0 && (
+                              <span className="text-[9px] text-red-400 font-medium">Expired!</span>
+                            )}
                           </div>
                           
-                          {/* Supplier + Date Row */}
-                          <div className="flex items-center justify-between text-slate-400">
-                            <span className="text-[12px] truncate">{po.supplierName || '-'}</span>
-                            <span className="text-[11px]">{formatDate(po.createdAt)}</span>
-                          </div>
-                          
-                          {/* Batch/Exp Info + Actions Row */}
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <div className="flex items-center gap-1.5 text-slate-500">
-                                <Package className="h-3.5 w-3.5" />
-                                <span className="text-[12px] font-medium">{po.itemCount ?? po._count?.items ?? 0} item</span>
-                              </div>
-                              {po._batchSummary && (po._batchSummary.itemsWithBatch > 0 || po._batchSummary.itemsWithExp > 0) && (
-                                <div className="flex items-center gap-1">
-                                  {po._batchSummary.itemsWithBatch > 0 && (
-                                    <span className="text-[10px] font-mono text-blue-400/80 bg-blue-500/10 px-1.5 py-0.5 rounded leading-none">
-                                      B:{po._batchSummary.sampleBatch || `${po._batchSummary.itemsWithBatch}`}
-                                    </span>
-                                  )}
-                                  {po._batchSummary.nearestExp && (
-                                    <span className={cn(
-                                      "text-[10px] px-1.5 py-0.5 rounded font-medium leading-none",
-                                      po._batchSummary.expiredItems > 0
-                                        ? "text-red-400 bg-red-500/10"
-                                        : "text-amber-400/70 bg-amber-500/10"
-                                    )}>
-                                      Exp: {formatDate(po._batchSummary.nearestExp).split(' ')[0]}
-                                    </span>
-                                  )}
-                                </div>
+                          {/* Action Buttons - Compact */}
+                          <div className="flex items-center gap-0.5">
+                            <button
+                              className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-500 hover:text-sky-400 hover:bg-sky-500/10 transition-colors"
+                              onClick={() => openPoDetail(po)}
+                            >
+                              <Eye className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              className={cn(
+                                "w-8 h-8 rounded-lg flex items-center justify-center transition-colors",
+                                po.hasRealBusinessHistory
+                                  ? "text-slate-700 cursor-not-allowed"
+                                  : "text-slate-500 hover:text-white hover:bg-white/[0.06]"
                               )}
-                            </div>
-                            
-                            {/* Action buttons */}
-                            <div className="flex items-center gap-1 bg-white/[0.03] rounded-lg p-0.5 shrink-0">
+                              onClick={() => {
+                                if (po.hasRealBusinessHistory) {
+                                  toast.error('Pembelian memiliki riwayat bisnis — tidak bisa diedit')
+                                  return
+                                }
+                                openPoEdit(po)
+                              }}
+                              disabled={po.hasRealBusinessHistory}
+                              title={po.hasRealBusinessHistory ? 'Ada riwayat bisnis' : 'Edit'}
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                            {isOwner && (
                               <button
-                                className="h-8 w-8 rounded-md flex items-center justify-center text-slate-500 hover:text-sky-400 hover:bg-sky-500/10 transition-colors"
-                                onClick={() => openPoDetail(po)}
-                              >
-                                <Eye className="h-4 w-4" />
-                              </button>
-                              <button
-                                className="h-8 w-8 rounded-md flex items-center justify-center text-slate-500 hover:text-white hover:bg-white/[0.06] transition-colors"
-                                onClick={() => openPoEdit(po)}
-                              >
-                                <Pencil className="h-4 w-4" />
-                              </button>
-                              {isOwner && (
-                                <button
-                                  className={cn(
-                                    "h-8 w-8 rounded-md flex items-center justify-center transition-colors",
-                                    (po.hasLinkedItems || po.hasUsageHistory)
-                                      ? "text-red-400/30 cursor-not-allowed"
+                                className={cn(
+                                  "w-8 h-8 rounded-lg flex items-center justify-center transition-colors",
+                                  (po.hasRealBusinessHistory || po.hasUsageHistory)
+                                    ? "text-red-400/20 cursor-not-allowed"
+                                    : po.hasProductLinks
+                                      ? "text-amber-400 hover:text-amber-300 hover:bg-amber-500/[0.08]"
                                       : "text-slate-500 hover:text-red-400 hover:bg-red-500/[0.06]"
-                                  )}
-                                  onClick={() => !(po.hasLinkedItems || po.hasUsageHistory) && setDeletePoId(po.id)}
-                                  disabled={po.hasLinkedItems || po.hasUsageHistory}
-                                  title={
-                                    (po.hasLinkedItems || po.hasUsageHistory)
-                                      ? 'Sudah ada link ke produk/pembelian/transfer'
-                                      : 'Hapus'
+                                )}
+                                onClick={() => {
+                                  if (po.hasRealBusinessHistory || po.hasUsageHistory) {
+                                    toast.error('Pembelian memiliki riwayat bisnis — tidak bisa dihapus')
+                                    return
                                   }
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </button>
-                              )}
-                            </div>
+                                  if (po.hasProductLinks) {
+                                    toast.warning('Link ke produk akan dibersihkan otomatis')
+                                  }
+                                  setDeletePoId(po.id)
+                                }}
+                                disabled={po.hasRealBusinessHistory || po.hasUsageHistory}
+                                title={
+                                  (po.hasRealBusinessHistory || po.hasUsageHistory)
+                                    ? 'Ada riwayat bisnis'
+                                    : po.hasProductLinks
+                                      ? 'Hapus (link dibersihkan)'
+                                      : 'Hapus'
+                                }
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
                           </div>
-                        </CardContent>
-                      </Card>
+                        </div>
+                      </div>
                     </motion.div>
                   )
                 })}
@@ -3631,123 +3863,198 @@ export default function PurchasePage() {
               </div>
             </div>
 
-            {/* Panduan Alur Inventory - dengan Pulse Highlight */}
+            {/* Panduan Alur Inventory - Modern Redesigned Header */}
             <div className={cn(
-              "rounded-xl border overflow-hidden transition-all duration-300 bg-white/[0.02] border-white/[0.06]"
+              "rounded-2xl overflow-hidden transition-all duration-500 ease-out",
+              showInventoryGuide 
+                ? "bg-gradient-to-br from-white/[0.05] to-white/[0.02] border border-violet-500/30 shadow-lg shadow-violet-500/5" 
+                : "bg-gradient-to-r from-violet-500/[0.08] via-purple-500/[0.05] to-fuchsia-500/[0.08] border border-violet-500/20 hover:border-violet-40 hover:shadow-lg hover:shadow-violet-500/10"
             )}>
+              {/* Gradient accent bar */}
+              <div className={cn(
+                "h-0.5 transition-all duration-500",
+                showInventoryGuide 
+                  ? "bg-gradient-to-r from-violet-400 via-purple-400 to-fuchsia-400" 
+                  : "bg-gradient-to-r from-violet-500/50 via-purple-500/50 to-fuchsia-500/50"
+              )} />
               <button
-                className="w-full flex items-center justify-between gap-2 p-3 text-left hover:bg-white/[0.03] transition-colors"
+                className="w-full flex items-center justify-between gap-3 p-4 text-left group relative overflow-hidden"
                 onClick={() => setShowInventoryGuide(prev => !prev)}
               >
-                <div className="flex items-center gap-2">
+                {/* Subtle background glow on hover */}
+                <div className="absolute inset-0 bg-gradient-to-r from-violet-500/0 via-purple-500/0 to-fuchsia-500/0 group-hover:from-violet-500/[0.03] group-hover:via-purple-500/[0.02] group-hover:to-fuchsia-500/[0.03] transition-all duration-500 pointer-events-none" />
+                
+                <div className="flex items-center gap-3 relative z-10">
+                  {/* Icon container with gradient and animation */}
                   <div className={cn(
-                    "flex items-center justify-center w-6 h-6 rounded-md transition-colors",
-                    showInventoryGuide ? "bg-emerald-500/10" : "bg-slate-500/10"
+                    "relative flex items-center justify-center w-10 h-10 rounded-xl transition-all duration-500",
+                    showInventoryGuide 
+                      ? "bg-gradient-to-br from-violet-500/20 to-purple-500/20 shadow-lg shadow-violet-500/20 scale-105" 
+                      : "bg-gradient-to-br from-violet-500/15 to-purple-500/10 group-hover:from-violet-500/25 group-hover:to-purple-500/15 group-hover:scale-105"
                   )}>
-                    <Info className={cn(
-                      "h-3.5 w-3.5 shrink-0 transition-colors",
-                      showInventoryGuide ? "text-emerald-400" : "text-slate-400"
+                    <PackageOpen className={cn(
+                      "h-5 w-5 shrink-0 transition-all duration-300",
+                      showInventoryGuide ? "text-violet-400 drop-shadow-sm" : "text-violet-400/80 group-hover:text-violet-300"
                     )} />
+                    {/* Pulse ring when closed */}
+                    {!showInventoryGuide && (
+                      <span className="absolute inset-0 rounded-xl animate-ping bg-violet-500/20 opacity-75" style={{ animationDuration: '2.5s' }} />
+                    )}
                   </div>
-                  <span className={cn(
-                    "text-[11px] font-medium transition-colors",
-                    showInventoryGuide ? "text-slate-300" : "text-slate-400"
-                  )}>Panduan Inventory</span>
+                  
+                  <div className="flex flex-col">
+                    <div className="flex items-center gap-2">
+                      <span className={cn(
+                        "text-sm font-semibold transition-all duration-300",
+                        showInventoryGuide 
+                          ? "bg-gradient-to-r from-violet-300 via-purple-300 to-fuchsia-300 bg-clip-text text-transparent" 
+                          : "text-slate-200 group-hover:text-white"
+                      )}>Panduan Inventory</span>
+                      {!showInventoryGuide && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-gradient-to-r from-cyan-500/20 to-blue-500/20 text-cyan-400 border border-cyan-500/30">
+                          INFO
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[10px] text-slate-500 mt-0.5">Kelola stok, kategori, dan kebijakan inventory</span>
+                  </div>
                 </div>
-                <ChevronDown className={cn('h-3.5 w-3.5 text-slate-500 transition-transform duration-200', showInventoryGuide && 'rotate-180')} />
+                
+                {/* Animated chevron with glow */}
+                <div className={cn(
+                  "flex items-center justify-center w-8 h-8 rounded-lg transition-all duration-300 relative z-10",
+                  showInventoryGuide 
+                    ? "bg-violet-500/15 rotate-0" 
+                    : "bg-white/[0.04] group-hover:bg-white/[0.08]"
+                )}>
+                  <ChevronDown className={cn(
+                    'h-4 w-4 transition-all duration-500 ease-out',
+                    showInventoryGuide ? 'rotate-180 text-violet-400' : 'text-slate-400 group-hover:text-slate-300'
+                  )} />
+                </div>
               </button>
               {showInventoryGuide && (
-                <div className="px-3 pb-3 space-y-3 border-t border-white/[0.04] pt-3">
-                  {/* Apa itu Inventory Item */}
-                  <div className="flex gap-2.5">
-                    <div className="w-4 h-4 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0 mt-0.5">
-                      <Package className="h-2.5 w-2.5 text-emerald-400" />
+                <div className="px-4 pb-4 space-y-4 pt-2">
+                  {/* Divider with gradient */}
+                  <div className="h-px bg-gradient-to-r from-transparent via-white/[0.08] to-transparent" />
+                  
+                  {/* Apa itu Inventory Item - Info Card */}
+                  <div className="flex gap-3 group/step">
+                    <div className="relative flex-shrink-0">
+                      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500/15 to-blue-500/10 border border-indigo-500/25 flex items-center justify-center group-hover/step:from-indigo-500/25 group-hover/step:border-indigo-400/40 transition-all duration-300">
+                        <Package className="h-4 w-4 text-indigo-400" />
+                      </div>
+                      <div className="absolute left-1/2 top-8 w-px h-[calc(100%+0.5rem)] bg-gradient-to-b from-indigo-500/30 to-transparent -translate-x-1/2" />
                     </div>
-                    <div>
-                      <p className="text-[11px] text-slate-300 font-medium mb-0.5">Apa itu Inventory Item?</p>
-                      <p className="text-[10px] text-slate-500 leading-relaxed">
-                        Inventory item adalah <span className="text-white">bahan baku atau stok toko</span> yang kamu beli dari supplier. Setiap item punya <span className="text-white">SKU</span> (kode unik), <span className="text-white">base unit</span> (satuan dasar: kg, gr, ml, pcs), <span className="text-white">stok</span>, dan <span className="text-white">HPP</span> (Harga Pokok Penjualan).
+                    <div className="flex-1 pt-1">
+                      <p className="text-xs text-slate-200 font-semibold mb-1 group-hover/step:text-indigo-300 transition-colors">Apa itu Inventory Item?</p>
+                      <p className="text-[11px] text-slate-400 leading-relaxed">
+                        Inventory item adalah <span className="text-white font-medium">bahan baku atau stok toko</span> yang kamu beli dari supplier. Setiap item punya <code className="px-1.5 py-0.5 rounded-md bg-indigo-500/15 text-indigo-300 text-[10px] font-mono border border-indigo-500/20">SKU</code> (kode unik), <code className="px-1.5 py-0.5 rounded-md bg-indigo-500/15 text-indigo-300 text-[10px] font-mono border border-indigo-500/20">base unit</code> (satuan dasar: kg, gr, ml, pcs), <code className="px-1.5 py-0.5 rounded-md bg-indigo-500/15 text-indigo-300 text-[10px] font-mono border border-indigo-500/20">stok</code>, dan <code className="px-1.5 py-0.5 rounded-md bg-indigo-500/15 text-indigo-300 text-[10px] font-mono border border-indigo-500/20">HPP</code> (Harga Pokok Penjualan).
                       </p>
                     </div>
                   </div>
                   {/* Cara Stok Masuk */}
-                  <div className="flex gap-2.5">
-                    <div className="w-4 h-4 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0 mt-0.5">
-                      <span className="text-[9px] text-emerald-400 font-bold">1</span>
+                  <div className="flex gap-3 group/step">
+                    <div className="relative flex-shrink-0">
+                      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-emerald-500/15 to-teal-500/10 border border-emerald-500/25 flex items-center justify-center group-hover/step:from-emerald-500/25 group-hover/step:border-emerald-400/40 transition-all duration-300">
+                        <span className="text-xs text-emerald-400 font-bold">1</span>
+                      </div>
+                      <div className="absolute left-1/2 top-8 w-px h-[calc(100%+0.5rem)] bg-gradient-to-b from-emerald-500/30 to-transparent -translate-x-1/2" />
                     </div>
-                    <div>
-                      <p className="text-[11px] text-slate-300 font-medium mb-0.5">Cara Stok Masuk</p>
-                      <p className="text-[10px] text-slate-500 leading-relaxed">
-                        Stok bertambah otomatis saat kamu <span className="text-emerald-400">menyimpan pembelian</span> di tab Pembelian. HPP dihitung otomatis dari rata-rata harga beli. Semua item baru akan otomatis tercatat di inventory saat pembelian disimpan.
+                    <div className="flex-1 pt-1">
+                      <p className="text-xs text-slate-200 font-semibold mb-1 group-hover/step:text-emerald-300 transition-colors">Cara Stok Masuk</p>
+                      <p className="text-[11px] text-slate-400 leading-relaxed">
+                        Stok bertambah otomatis saat kamu <span className="text-emerald-400 font-semibold">menyimpan pembelian</span> di tab Pembelian. HPP dihitung otomatis dari rata-rata harga beli. Semua item baru akan otomatis tercatat di inventory saat pembelian disimpan.
                       </p>
                     </div>
                   </div>
                   {/* Post ke Produk */}
-                  <div className="flex gap-2.5">
-                    <div className="w-4 h-4 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0 mt-0.5">
-                      <span className="text-[9px] text-emerald-400 font-bold">2</span>
+                  <div className="flex gap-3 group/step">
+                    <div className="relative flex-shrink-0">
+                      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-500/15 to-orange-500/10 border border-amber-500/25 flex items-center justify-center group-hover/step:from-amber-500/25 group-hover/step:border-amber-400/40 transition-all duration-300">
+                        <span className="text-xs text-amber-400 font-bold">2</span>
+                      </div>
+                      <div className="absolute left-1/2 top-8 w-px h-[calc(100%+0.5rem)] bg-gradient-to-b from-amber-500/30 to-transparent -translate-x-1/2" />
                     </div>
-                    <div>
-                      <p className="text-[11px] text-slate-300 font-medium mb-0.5">Post ke Produk Jual</p>
-                      <p className="text-[10px] text-slate-500 leading-relaxed mb-1.5">
-                        Inventory item bisa dijadikan <span className="text-white">produk jual</span> dengan memilih item → klik <span className="text-white bg-white/[0.06] px-1 py-0.5 rounded text-[9px] font-mono">Post Produk</span>. Ada 2 mode:
+                    <div className="flex-1 pt-1">
+                      <p className="text-xs text-slate-200 font-semibold mb-1 group-hover/step:text-amber-300 transition-colors">Post ke Produk Jual</p>
+                      <p className="text-[11px] text-slate-400 leading-relaxed mb-2.5">
+                        Inventory item bisa dijadikan <span className="text-white font-medium">produk jual</span> dengan memilih item → klik <code className="px-1.5 py-0.5 rounded-md bg-gradient-to-r from-amber-500/10 to-orange-500/10 text-amber-300 text-[10px] font-mono border border-amber-500/20">Post Produk</code>. Ada 2 mode:
                       </p>
-                      <div className="space-y-1.5">
-                        <div className="rounded-md bg-white/[0.03] border border-white/[0.04] px-2.5 py-1.5">
-                          <p className="text-[10px] text-white font-medium">🍳 Komposisi (F&amp;B)</p>
-                          <p className="text-[10px] text-slate-500">Beberapa item inventory → <span className="text-slate-300">1 produk</span>. Cth: Tepung 200gr + Gula 50gr + Telur 2pcs → Kue Bolu</p>
+                      <div className="space-y-2">
+                        <div className="rounded-xl bg-gradient-to-br from-rose-500/[0.06] to-pink-500/[0.03] border border-rose-500/15 px-3.5 py-3 hover:border-rose-500/25 transition-colors">
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <ChefHat className="h-4 w-4 text-rose-400" />
+                            <p className="text-[11px] text-rose-300 font-semibold">Komposisi (F&amp;B)</p>
+                          </div>
+                          <p className="text-[11px] text-slate-400">Beberapa item inventory → <span className="text-slate-300 font-medium">1 produk</span>. Cth: Tepung 200gr + Gula 50gr + Telur 2pcs → Kue Bolu</p>
                         </div>
-                        <div className="rounded-md bg-white/[0.03] border border-white/[0.04] px-2.5 py-1.5">
-                          <p className="text-[10px] text-white font-medium">🛒 Satu-satu (Ritel)</p>
-                          <p className="text-[10px] text-slate-500">1 item inventory → <span className="text-slate-300">1 produk</span> langsung. Cth: Susu UHT 1L → produk Susu UHT 1L dengan harga jual sendiri</p>
+                        <div className="rounded-xl bg-gradient-to-br from-blue-500/[0.06] to-indigo-500/[0.03] border border-blue-500/15 px-3.5 py-3 hover:border-blue-500/25 transition-colors">
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <ShoppingBag className="h-4 w-4 text-blue-400" />
+                            <p className="text-[11px] text-blue-300 font-semibold">Satu-satu (Ritel)</p>
+                          </div>
+                          <p className="text-[11px] text-slate-400">1 item inventory → <span className="text-slate-300 font-medium">1 produk</span> langsung. Cth: Susu UHT 1L → produk Susu UHT 1L dengan harga jual sendiri</p>
                         </div>
                       </div>
                     </div>
                   </div>
                   {/* Kategori */}
-                  <div className="flex gap-2.5">
-                    <div className="w-4 h-4 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0 mt-0.5">
-                      <span className="text-[9px] text-emerald-400 font-bold">3</span>
+                  <div className="flex gap-3 group/step">
+                    <div className="relative flex-shrink-0">
+                      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-cyan-500/15 to-teal-500/10 border border-cyan-500/25 flex items-center justify-center group-hover/step:from-cyan-500/25 group-hover/step:border-cyan-400/40 transition-all duration-300">
+                        <span className="text-xs text-cyan-400 font-bold">3</span>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-[11px] text-slate-300 font-medium mb-0.5">Kategori &amp; Low Stock Alert</p>
-                      <p className="text-[10px] text-slate-500 leading-relaxed">
-                        Gunakan <span className="text-white">Kategori</span> untuk mengelompokkan item (Bahan Pokok, Minuman, Bumbu, dll). Set <span className="text-white">Low Stock Alert</span> agar item yang stoknya menipis ditandai <span className="text-red-400">merah</span> di tabel.
+                    <div className="flex-1 pt-1">
+                      <p className="text-xs text-slate-200 font-semibold mb-1 group-hover/step:text-cyan-300 transition-colors">Kategori &amp; Low Stock Alert</p>
+                      <p className="text-[11px] text-slate-400 leading-relaxed">
+                        Gunakan <span className="text-white font-medium">Kategori</span> untuk mengelompokkan item (Bahan Pokok, Minuman, Bumbu, dll). Set <span className="text-white font-medium">Low Stock Alert</span> agar item yang stoknya menipis ditandai <span className="text-red-400 font-medium">merah</span> di tabel.
                       </p>
                     </div>
                   </div>
-                  {/* Kebijakan Hapus vs Nonaktifkan */}
-                  <div className="rounded-md bg-gradient-to-r from-violet-500/[0.06] to-purple-500/[0.04] border border-violet-500/15 px-2.5 py-2">
-                    <p className="text-[10px] text-violet-300 mb-1.5 font-medium uppercase tracking-wider flex items-center gap-1">
-                      <Trash2 className="h-3 w-3" /> Kebijakan Hapus & Nonaktifkan
-                    </p>
-                    <div className="space-y-2">
-                      <div className="rounded-md bg-emerald-500/[0.06] border border-emerald-500/15 px-2 py-1.5">
-                        <p className="text-[10px] text-emerald-400 font-medium mb-0.5">✅ Bisa DIHAPUS</p>
-                        <ul className="text-[9px] text-slate-400 space-y-0.5">
-                          <li>• Item baru tanpa histori sama sekali</li>
-                          <li>• Item yang hanya punya <span className="text-emerald-300">stok awal migrasi</span> (belum ada transaksi)</li>
-                          <li>• Data stok awal & link otomatis akan dibersihkan</li>
+                  {/* Kebijakan Hapus vs Nonaktifkan - Enhanced */}
+                  <div className="rounded-xl bg-gradient-to-br from-violet-500/[0.08] to-purple-500/[0.04] border border-violet-500/20 px-4 py-3.5">
+                    <div className="flex items-center gap-2 mb-3">
+                      <ShieldAlert className="h-4 w-4 text-violet-400" />
+                      <p className="text-[11px] text-violet-300 font-semibold uppercase tracking-wider">Kebijakan Hapus & Nonaktifkan</p>
+                    </div>
+                    <div className="space-y-2.5">
+                      <div className="rounded-lg bg-gradient-to-br from-emerald-500/[0.08] to-green-500/[0.04] border border-emerald-500/20 px-3 py-2.5">
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+                          <p className="text-[11px] text-emerald-400 font-semibold">Bisa DIHAPUS</p>
+                        </div>
+                        <ul className="text-[10px] text-slate-400 space-y-1">
+                          <li className="flex items-start gap-2"><span className="text-emerald-500 mt-0.5">•</span><span>Item baru tanpa histori sama sekali</span></li>
+                          <li className="flex items-start gap-2"><span className="text-emerald-500 mt-0.5">•</span><span>Item yang hanya punya <span className="text-emerald-300">stok awal migrasi</span> (belum ada transaksi)</span></li>
+                          <li className="flex items-start gap-2"><span className="text-emerald-500 mt-0.5">•</span><span>Data stok awal & link otomatis akan dibersihkan</span></li>
                         </ul>
                       </div>
-                      <div className="rounded-md bg-red-500/[0.06] border border-red-500/15 px-2 py-1.5">
-                        <p className="text-[10px] text-red-400 font-medium mb-0.5">❌ Harus NONAKTIFKAN</p>
-                        <ul className="text-[9px] text-slate-400 space-y-0.5">
-                          <li>• Item dengan <span className="text-red-300">riwayat pembelian</span> dari supplier</li>
-                          <li>• Item yang sudah <span className="text-red-300">terjual / terkonsumsi</span></li>
-                          <li>• Item dengan <span className="text-red-300">riwayat transfer</span> antar outlet</li>
-                          <li>• Item dengan <span className="text-red-300">komposisi/resep</span> manual (BOM)</li>
+                      <div className="rounded-lg bg-gradient-to-br from-red-500/[0.08] to-rose-500/[0.04] border border-red-500/20 px-3 py-2.5">
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <XCircle className="h-3.5 w-3.5 text-red-400" />
+                          <p className="text-[11px] text-red-400 font-semibold">Harus NONAKTIFKAN</p>
+                        </div>
+                        <ul className="text-[10px] text-slate-400 space-y-1">
+                          <li className="flex items-start gap-2"><span className="text-red-500 mt-0.5">•</span><span>Item dengan <span className="text-red-300">riwayat pembelian</span> dari supplier</span></li>
+                          <li className="flex items-start gap-2"><span className="text-red-500 mt-0.5">•</span><span>Item yang sudah <span className="text-red-300">terjual / terkonsumsi</span></span></li>
+                          <li className="flex items-start gap-2"><span className="text-red-500 mt-0.5">•</span><span>Item dengan <span className="text-red-300">riwayat transfer</span> antar outlet</span></li>
+                          <li className="flex items-start gap-2"><span className="text-red-500 mt-0.5">•</span><span>Item dengan <span className="text-red-300">komposisi/resep</span> manual (BOM)</span></li>
                         </ul>
                       </div>
                     </div>
                   </div>
-                  {/* Catatan */}
-                  <div className="rounded-md bg-white/[0.02] border border-white/[0.04] px-2.5 py-2">
-                    <p className="text-[10px] text-slate-600 mb-1 font-medium uppercase tracking-wider">Catatan</p>
-                    <ul className="text-[10px] text-slate-500 space-y-0.5">
-                      <li>• Kolom <span className="text-white">Digunakan</span> = jumlah produk yang memakai item ini</li>
-                      <li>• HPP selalu dihitung otomatis — tidak bisa di-edit manual</li>
-                      <li>• Item nonaktif tetap muncul di laporan tapi <span className="text-slate-400">tersembunyi</span> di tabel utama</li>
+                  {/* Catatan - Enhanced */}
+                  <div className="rounded-xl bg-gradient-to-br from-slate-500/[0.05] to-zinc-500/[0.03] border border-slate-500/15 px-4 py-3.5">
+                    <div className="flex items-center gap-2 mb-2.5">
+                      <StickyNote className="h-3.5 w-3.5 text-slate-400" />
+                      <p className="text-[11px] text-slate-300 font-semibold uppercase tracking-wider">Catatan Penting</p>
+                    </div>
+                    <ul className="text-[11px] text-slate-400 space-y-1.5">
+                      <li className="flex items-start gap-2"><span className="text-slate-500 mt-1">•</span><span>Kolom <code className="px-1 py-0.5 rounded bg-white/[0.06] text-slate-300 text-[10px] font-mono">Digunakan</code> = jumlah produk yang memakai item ini</span></li>
+                      <li className="flex items-start gap-2"><span className="text-slate-500 mt-1">•</span><span>HPP selalu dihitung otomatis — tidak bisa di-edit manual</span></li>
+                      <li className="flex items-start gap-2"><span className="text-slate-500 mt-1">•</span><span>Item nonaktif tetap muncul di laporan tapi <span className="text-slate-500 font-medium">tersembunyi</span> di tabel utama</span></li>
                     </ul>
                   </div>
                 </div>
@@ -3964,6 +4271,8 @@ export default function PurchasePage() {
                           const isArchived = item.status === 'ARCHIVED'
                           // Calculate delete safety status for visual indicator
                           const deleteStatus = getDeleteSafetyStatus(item)
+                          // Calculate edit block status
+                          const editBlockStatus = getEditBlockStatus(item)
                           return (
                             <TableRow 
                               key={item.id} 
@@ -4098,9 +4407,21 @@ export default function PurchasePage() {
                                   <Button
                                     variant="ghost"
                                     size="sm"
-                                    className="h-7 w-7 p-0 text-slate-400 hover:text-amber-400 hover:bg-amber-500/10 rounded-lg transition-colors"
-                                    onClick={() => openInvForm(item)}
-                                    title="Edit item"
+                                    className={cn(
+                                      "h-7 w-7 p-0 rounded-lg transition-colors",
+                                      editBlockStatus.isBlocked
+                                        ? 'text-slate-600 cursor-not-allowed'
+                                        : 'text-slate-400 hover:text-amber-400 hover:bg-amber-500/10'
+                                    )}
+                                    onClick={() => {
+                                      if (editBlockStatus.isBlocked) {
+                                        toast.error(editBlockStatus.reason || 'Tidak bisa diedit')
+                                        return
+                                      }
+                                      openInvForm(item)
+                                    }}
+                                    disabled={editBlockStatus.isBlocked}
+                                    title={editBlockStatus.isBlocked ? editBlockStatus.reason : 'Edit item'}
                                   >
                                     <Pencil className="h-3.5 w-3.5" />
                                   </Button>
@@ -4179,34 +4500,23 @@ export default function PurchasePage() {
               </div>
             </div>
 
-            {/* Enhanced Mobile Cards - Modern Glass Morphism Design */}
-            <div className="md:hidden space-y-2.5">
+            {/* Compact Mobile Cards - List Style Layout */}
+            <div className="md:hidden space-y-2">
               {invList.length === 0 ? (
-                <div className="relative overflow-hidden rounded-2xl bg-gradient-to-b from-white/[0.04] to-white/[0.01] border border-white/[0.08] backdrop-blur-xl">
-                  {/* Decorative gradient orbs */}
-                  <div className="absolute -top-10 -right-10 w-32 h-32 bg-emerald-500/10 rounded-full blur-3xl" />
-                  <div className="absolute -bottom-10 -left-10 w-24 h-24 bg-blue-500/10 rounded-full blur-3xl" />
-                  
-                  <div className="relative py-12 px-6 text-center">
-                    <div className="flex flex-col items-center max-w-[220px] mx-auto">
-                      {/* Modern Empty State Icon */}
-                      <div className="relative mb-4">
-                        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-white/[0.06] to-white/[0.02] border border-white/[0.1] flex items-center justify-center backdrop-blur-sm shadow-lg shadow-black/20">
-                          <PackagePlus className="h-7 w-7 text-slate-500" />
-                        </div>
-                        <div className="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-lg shadow-emerald-500/30">
-                          <Plus className="h-3 w-3 text-white" />
-                        </div>
+                <div className="relative overflow-hidden rounded-xl bg-white/[0.02] border border-white/[0.06]">
+                  <div className="py-10 px-5 text-center">
+                    <div className="flex flex-col items-center">
+                      <div className="w-14 h-14 rounded-xl bg-white/[0.04] flex items-center justify-center mb-3">
+                        <PackageOpen className="h-7 w-7 text-slate-600" />
                       </div>
-                      <h3 className="text-sm font-bold text-white mb-1 tracking-tight">Inventory Kosong</h3>
-                      <p className="text-[11px] text-slate-400 mb-1 leading-relaxed">Belum ada item di inventory</p>
-                      <p className="text-[10px] text-slate-600 mb-4 leading-relaxed">Buat pembelian pertama untuk mulai</p>
+                      <p className="text-sm text-slate-400 mb-1 font-medium">Inventory Kosong</p>
+                      <p className="text-xs text-slate-600 mb-4">Buat pembelian pertama untuk menambah stok</p>
                       <Button
                         size="sm"
                         onClick={() => { resetPoCreateForm(); openPoCreate() }}
-                        className="bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-white text-xs h-9 px-4 rounded-xl gap-1.5 shadow-lg shadow-emerald-500/25 transition-all duration-200 active:scale-[0.98]"
+                        className="theme-bg theme-hover text-white text-xs h-9 px-5 rounded-lg gap-1.5"
                       >
-                        <ShoppingCart className="h-3.5 w-3.5" />
+                        <ShoppingCart className="h-4 w-4" />
                         Buat Pembelian
                       </Button>
                     </div>
@@ -4221,213 +4531,139 @@ export default function PurchasePage() {
                     const isArchived = item.status === 'ARCHIVED'
                     // Calculate delete safety status for visual indicator
                     const deleteStatus = getDeleteSafetyStatus(item)
+                    // Calculate edit block status
+                    const editBlockStatus = getEditBlockStatus(item)
+                    
                     return (
                       <motion.div
                         key={item.id}
                         layout
-                        initial={{ opacity: 0, scale: 0.95, y: 8 }}
-                        animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.95, y: -8 }}
-                        transition={{ duration: 0.2, delay: index * 0.02, ease: [0.23, 1, 0.32, 1] }}
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -8 }}
+                        transition={{ duration: 0.15, delay: index * 0.015 }}
                       >
+                        {/* Compact List Item - Single Row */}
                         <div 
                           className={cn(
-                            'relative overflow-hidden rounded-2xl transition-all duration-200 group',
-                            // Base glass morphism styling
-                            'bg-gradient-to-b from-white/[0.05] to-white/[0.02] border border-white/[0.08] backdrop-blur-xl',
-                            'hover:border-white/[0.12] hover:shadow-lg hover:shadow-black/10',
-                            'active:scale-[0.995]',
-                            // Selected state with glow
-                            isSelected && 'ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-nebula bg-gradient-to-b from-emerald-500/[0.08] to-emerald-500/[0.02] border-emerald-500/30',
-                            // Low stock subtle glow
-                            isLow && !isArchived && 'shadow-md shadow-red-500/5',
-                            // Archived state
-                            isArchived && 'opacity-50 grayscale-[0.3]',
+                            'flex items-center gap-2.5 p-2.5 rounded-xl border transition-colors active:bg-white/[0.03]',
+                            isSelected ? 'bg-emerald-500/[0.08] border-emerald-500/30' :
+                            isLow && !isArchived ? 'bg-red-500/[0.03] border-red-500/15' :
+                            isArchived ? 'bg-white/[0.01] border-white/[0.04] opacity-60' :
+                            'bg-white/[0.02] border-white/[0.06]'
                           )}
+                          onClick={() => toggleInvSelect(item.id)}
                         >
-                          {/* Animated gradient overlay on hover */}
-                          <div className="absolute inset-0 bg-gradient-to-br from-white/[0.02] to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
-                          
-                          {/* Left accent bar with gradient */}
+                          {/* Left accent bar */}
                           {isLow && !isArchived && (
-                            <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-red-400 via-red-500 to-red-500/20" />
+                            <div className="w-[3px] h-10 rounded-full bg-red-500/60 shrink-0" />
                           )}
                           {isArchived && (
-                            <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-amber-400 via-amber-500 to-amber-500/20" />
+                            <div className="w-[3px] h-10 rounded-full bg-amber-500/60 shrink-0" />
                           )}
                           
-                          <div className="p-3 space-y-2.5">
-                            {/* Header Row - Compact with better visual hierarchy */}
-                            <div className="flex items-center gap-2.5">
-                              {/* Checkbox - touch friendly */}
-                              <Checkbox
-                                checked={isSelected}
-                                onCheckedChange={() => toggleInvSelect(item.id)}
-                                className="h-5 w-5 shrink-0 rounded-md border-slate-600 data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500 data-[state=checked]:text-white transition-all duration-200"
-                              />
-                              
-                              {/* Name & Badges Container */}
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <p className={cn(
-                                    'text-[13px] font-bold truncate leading-tight tracking-tight',
-                                    isArchived ? 'text-slate-500 line-through decoration-slate-600' : 'text-white'
-                                  )}>
-                                    {item.name}
-                                  </p>
-                                  {/* Status badges inline */}
-                                  <div className="flex items-center gap-1 shrink-0">
-                                    {isArchived && (
-                                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-400 text-[9px] font-semibold uppercase tracking-wide">
-                                        <Archive className="h-2.5 w-2.5" />
-                                        Nonaktif
-                                      </span>
-                                    )}
-                                    {isLow && !isArchived && (
-                                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-red-500/15 text-red-400 text-[9px] font-semibold uppercase tracking-wide animate-pulse">
-                                        <AlertTriangle className="h-2.5 w-2.5" />
-                                        Stok Rendah
-                                      </span>
-                                    )}
-                                    {/* Delete Safety Indicator - Mobile */}
-                                    {!isArchived && deleteStatus.riskLevel === 'safe' && (
-                                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 text-[8px] font-semibold" title={deleteStatus.description}>
-                                        <ShieldCheck className="h-2.5 w-2.5" />
-                                      </span>
-                                    )}
-                                    {!isArchived && deleteStatus.riskLevel === 'warning' && (
-                                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-400 text-[8px] font-semibold" title={deleteStatus.description}>
-                                        <AlertCircle className="h-2.5 w-2.5" />
-                                      </span>
-                                    )}
-                                    {!isArchived && deleteStatus.riskLevel === 'blocked' && (
-                                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-red-500/15 text-red-400 text-[8px] font-semibold" title={deleteStatus.description}>
-                                        <Lock className="h-2.5 w-2.5" />
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-                                {/* Category badge below name */}
-                                <div className="flex items-center gap-1.5 mt-1">
-                                  {item.category && colorClasses && (
-                                    <span className={cn(
-                                      'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-medium border backdrop-blur-sm',
-                                      colorClasses.bg,
-                                      colorClasses.text,
-                                      colorClasses.border,
-                                    )}>
-                                      <Tag className="h-2 w-2" />
-                                      {item.category.name}
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                              
-                              {/* Hero Stock Number - Prominent display */}
-                              <div className={cn(
-                                'shrink-0 ml-1',
-                                isLow && 'animate-pulse'
+                          {/* Checkbox - Compact */}
+                          <button
+                            onClick={(e) => { e.stopPropagation(); toggleInvSelect(item.id) }}
+                            className={cn(
+                              'w-6 h-6 rounded-md border-2 flex items-center justify-center shrink-0 transition-all',
+                              isSelected 
+                                ? 'bg-emerald-500 border-emerald-500 text-white' 
+                                : 'border-slate-600 hover:border-slate-500'
+                            )}
+                          >
+                            {isSelected && <Check className="h-3 w-3" strokeWidth={3} />}
+                          </button>
+
+                          {/* Main Content */}
+                          <div className="flex-1 min-w-0">
+                            {/* Name + Status Badges */}
+                            <div className="flex items-center gap-1.5">
+                              <span className={cn(
+                                'text-sm font-semibold truncate',
+                                isArchived ? 'text-slate-500 line-through' : 'text-white'
                               )}>
-                                <div className={cn(
-                                  'flex flex-col items-center px-3 py-1.5 rounded-xl min-w-[64px] backdrop-blur-sm tabular-nums transition-all duration-200',
-                                  isLow 
-                                    ? 'bg-gradient-to-br from-red-500/20 to-red-500/5 ring-1 ring-red-500/30 shadow-inner' 
-                                    : 'bg-gradient-to-br from-white/[0.08] to-white/[0.02] border border-white/[0.1]'
-                                )}>
-                                  <span className={cn(
-                                    'text-lg font-extrabold leading-none tracking-tight',
-                                    isLow ? 'text-red-400' : 'text-white'
-                                  )}>
-                                    {formatNumber(item.stock)}
-                                  </span>
-                                  <span className={cn(
-                                    'text-[9px] font-semibold uppercase tracking-widest mt-0.5',
-                                    isLow ? 'text-red-400/60' : 'text-slate-500'
-                                  )}>
-                                    {item.baseUnit}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                            
-                            {/* Stats Grid - 3 columns for compactness */}
-                            <div className="grid grid-cols-3 gap-1.5">
-                              {/* HPP Satuan */}
-                              <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] px-2 py-1.5 backdrop-blur-sm">
-                                <p className="text-[8px] text-slate-600 uppercase tracking-wider font-semibold mb-0.5 flex items-center gap-1">
-                                  <Coins className="h-2 w-2" />
-                                  HPP
-                                </p>
-                                <p className="text-[11px] text-slate-200 font-bold tabular-nums leading-tight">{formatCurrency(item.avgCost)}</p>
-                                <p className="text-[8px] text-slate-600">/{item.baseUnit}</p>
-                              </div>
-                              
-                              {/* Total Nilai */}
-                              <div className="rounded-xl bg-gradient-to-br from-emerald-500/10 to-emerald-500/5 border border-emerald-500/15 px-2 py-1.5 backdrop-blur-sm">
-                                <p className="text-[8px] text-emerald-400/70 uppercase tracking-wider font-semibold mb-0.5 flex items-center gap-1">
-                                  <TrendingUp className="h-2 w-2" />
-                                  Total
-                                </p>
-                                <p className="text-[11px] text-emerald-400 font-extrabold tabular-nums leading-tight">{formatCurrency(item.stock * item.avgCost)}</p>
-                              </div>
-                              
-                              {/* Usage indicator or empty spacer */}
-                              {(item._count?.compositions ?? 0) > 0 ? (
-                                <div className="rounded-xl bg-violet-500/10 border border-violet-500/15 px-2 py-1.5 backdrop-blur-sm flex flex-col justify-center">
-                                  <p className="text-[8px] text-violet-400/70 uppercase tracking-wider font-semibold mb-0.5 flex items-center gap-1">
-                                    <Sparkles className="h-2 w-2" />
-                                    Pakai
-                                  </p>
-                                  <p className="text-[11px] text-violet-400 font-bold tabular-nums leading-tight">
-                                    {item._count?.compositions ?? 0} <span className="text-[8px] font-normal text-violet-400/60">produk</span>
-                                  </p>
-                                </div>
-                              ) : (
-                                <div className="rounded-xl bg-white/[0.02] border border-white/[0.04] px-2 py-1.5 flex items-center justify-center">
-                                  <Package className="h-3.5 w-3.5 text-slate-700" />
-                                </div>
+                                {item.name}
+                              </span>
+                              {isArchived && (
+                                <span className="px-1 py-0 rounded bg-amber-500/15 text-amber-400 text-[8px] font-bold shrink-0">OFF</span>
+                              )}
+                              {isLow && !isArchived && (
+                                <span className="px-1 py-0 rounded bg-red-500/15 text-red-400 text-[8px] font-bold shrink-0">!</span>
+                              )}
+                              {!isArchived && deleteStatus.riskLevel === 'safe' && (
+                                <span className="px-1 py-0 rounded bg-emerald-500/15 text-emerald-400 text-[8px] font-bold shrink-0">✓</span>
                               )}
                             </div>
-                            
-                            {/* Action Buttons - Modern pill style with touch-friendly sizing */}
-                            <div className="flex items-center gap-1.5 pt-2 border-t border-white/[0.05]">
-                              <button
-                                onClick={() => openInvDetail(item)}
-                                className="flex-1 h-9 min-h-[44px] inline-flex items-center justify-center gap-1.5 text-[11px] font-semibold text-slate-400 bg-white/[0.03] hover:bg-blue-500/10 hover:text-blue-400 rounded-xl transition-all duration-200 active:scale-[0.98] border border-transparent hover:border-blue-500/20"
-                              >
-                                <Eye className="h-3.5 w-3.5" />
-                                Detail
-                              </button>
-                              <button
-                                onClick={() => openInvForm(item)}
-                                className="h-9 w-9 min-h-[44px] min-w-[44px] inline-flex items-center justify-center text-slate-400 bg-white/[0.03] hover:bg-amber-500/10 hover:text-amber-400 rounded-xl transition-all duration-200 active:scale-[0.95] border border-transparent hover:border-amber-500/20"
-                                title="Edit"
-                              >
-                                <Pencil className="h-4 w-4" />
-                              </button>
-                              <button
-                                onClick={() => {
-                                  if (isArchived) {
-                                    handleRestoreInv(item.id)
-                                  } else {
-                                    void openDeleteInvDialog(item.id)
-                                  }
-                                }}
-                                className={cn(
-                                  'h-9 w-9 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-xl transition-all duration-200 active:scale-[0.95] border border-transparent',
-                                  isArchived
-                                    ? 'text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 hover:text-amber-300 hover:border-amber-500/30'
-                                    : 'text-slate-400 bg-white/[0.03] hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/20',
-                                )}
-                                title={isArchived ? 'Aktifkan kembali' : 'Arsipkan'}
-                              >
-                                {isArchived ? (
-                                  <RotateCcw className="h-4 w-4" />
-                                ) : (
-                                  <Trash2 className="h-4 w-4" />
-                                )}
-                              </button>
+                            {/* Category + Stock + Unit - Single Line */}
+                            <div className="flex items-center gap-2 mt-0.5 text-slate-500">
+                              {item.category && colorClasses ? (
+                                <span className={cn('text-[10px] px-1.5 py-0 rounded font-medium', colorClasses.bg, colorClasses.text)}>
+                                  {item.category.name}
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-slate-600">-</span>
+                              )}
+                              <span className="text-[10px]">•</span>
+                              <span className={cn('text-[12px] font-bold tabular-nums', isLow && !isArchived ? 'text-red-400' : 'text-slate-300')}>
+                                {formatNumber(item.stock)}
+                              </span>
+                              <span className="text-[10px]">{item.baseUnit}</span>
+                              <span className="text-[10px]">•</span>
+                              <span className="text-[11px] text-slate-400">{formatCurrency(item.avgCost)}</span>
                             </div>
+                          </div>
+
+                          {/* Action Buttons - Compact Icon Only */}
+                          <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              className="w-7 h-7 rounded-md flex items-center justify-center text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 transition-colors"
+                              onClick={() => openInvDetail(item)}
+                              title="Detail"
+                            >
+                              <Eye className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              className={cn(
+                                "w-7 h-7 rounded-md flex items-center justify-center transition-colors",
+                                editBlockStatus.isBlocked
+                                  ? "text-slate-700 cursor-not-allowed"
+                                  : "text-slate-500 hover:text-amber-400 hover:bg-amber-500/10"
+                              )}
+                              onClick={() => {
+                                if (editBlockStatus.isBlocked) {
+                                  toast.error(editBlockStatus.reason || 'Tidak bisa diedit')
+                                  return
+                                }
+                                openInvForm(item)
+                              }}
+                              disabled={editBlockStatus.isBlocked}
+                              title={editBlockStatus.isBlocked ? editBlockStatus.reason : 'Edit'}
+                            >
+                              <Pencil className="h-3 w-3.5" />
+                            </button>
+                            <button
+                              className={cn(
+                                "w-7 h-7 rounded-md flex items-center justify-center transition-colors",
+                                isArchived
+                                  ? "text-amber-400 hover:text-amber-300 hover:bg-amber-500/10"
+                                  : "text-slate-500 hover:text-red-400 hover:bg-red-500/10"
+                              )}
+                              onClick={() => {
+                                if (isArchived) {
+                                  handleRestoreInv(item.id)
+                                } else {
+                                  void openDeleteInvDialog(item.id)
+                                }
+                              }}
+                              title={isArchived ? 'Aktifkan' : 'Hapus'}
+                            >
+                              {isArchived ? (
+                                <RotateCcw className="h-3 w-3.5" />
+                              ) : (
+                                <Trash2 className="h-3 w-3.5" />
+                              )}
+                            </button>
                           </div>
                         </div>
                       </motion.div>
@@ -6002,19 +6238,39 @@ export default function PurchasePage() {
           </ResponsiveDialogHeader>
           {!invEditExcelResult ? (
             <div className="space-y-3 py-1">
+              {/* ⚠️ WARNING: Editability Notice */}
+              <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-3 space-y-2">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+                  <div className="space-y-1.5">
+                    <p className="text-[11px] text-amber-300 font-semibold">PENTING: Status Edit Setiap Item</p>
+                    <div className="space-y-1 text-[10px]">
+                      <p className="text-amber-400/80">• File Excel berisi kolom <strong>"Status Edit"</strong> yang menunjukkan item bisa diedit atau tidak</p>
+                      <p className="text-amber-400/80">• <strong>🔒 TERKUNCI</strong>: Hanya Nama, SKU, Kategori yang bisa diubah (sudah ada riwayat bisnis)</p>
+                      <p className="text-amber-400/80">• <strong>⚠️ TERBATAS</strong>: Terlink ke produk - hati-hati ganti satuan!</p>
+                      <p className="text-amber-400/80">• <strong>✅ BOLEH</strong>: Bebas edit semua kolom (item baru/tanpa riwayat)</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] p-3 space-y-2">
                 <p className="text-[11px] text-slate-400 font-medium">Langkah-langkah:</p>
                 <div className="space-y-1.5">
                   <div className="flex items-start gap-2 text-[11px] text-slate-300">
                     <span className="flex-shrink-0 h-4 w-4 rounded-full bg-emerald-500/15 border border-emerald-500/20 flex items-center justify-center text-[10px] text-emerald-400 font-bold">1</span>
-                    <span>Download data inventori saat ini</span>
+                    <span>Download data inventori (sudah termasuk status edit)</span>
                   </div>
                   <div className="flex items-start gap-2 text-[11px] text-slate-300">
                     <span className="flex-shrink-0 h-4 w-4 rounded-full bg-emerald-500/15 border border-emerald-500/20 flex items-center justify-center text-[10px] text-emerald-400 font-bold">2</span>
-                    <span>Edit kolom yang ingin diubah</span>
+                    <span>CEK kolom "Status Edit" sebelum mengubah data</span>
                   </div>
                   <div className="flex items-start gap-2 text-[11px] text-slate-300">
                     <span className="flex-shrink-0 h-4 w-4 rounded-full bg-emerald-500/15 border border-emerald-500/20 flex items-center justify-center text-[10px] text-emerald-400 font-bold">3</span>
+                    <span>Edit kolom yang diizinkan untuk status item tersebut</span>
+                  </div>
+                  <div className="flex items-start gap-2 text-[11px] text-slate-300">
+                    <span className="flex-shrink-0 h-4 w-4 rounded-full bg-emerald-500/15 border border-emerald-500/20 flex items-center justify-center text-[10px] text-emerald-400 font-bold">4</span>
                     <span>Upload file yang sudah diedit</span>
                   </div>
                 </div>
@@ -6146,6 +6402,10 @@ export default function PurchasePage() {
             <AlertDialogTitle className="text-white">
               {deleteInvLoading ? 'Memeriksa item...' : 
                 invDeleteBlocked?.blockType === 'hasPurchases' ? (<><ShoppingCart className="h-4 w-4 inline mr-1.5 -mt-0.5" />Item Ada Riwayat Pembelian</>) :
+                invDeleteBlocked?.blockType === 'hasTransfers' ? (<><ArrowRightLeft className="h-4 w-4 inline mr-1.5 -mt-0.5" />Item Ada Riwayat Transfer</>) :
+                invDeleteBlocked?.blockType === 'hasSales' ? (<><Receipt className="h-4 w-4 inline mr-1.5 -mt-0.5" />Item Ada Riwayat Penjualan</>) :
+                invDeleteBlocked?.blockType === 'hasCompositions' ? (<><Package className="h-4 w-4 inline mr-1.5 -mt-0.5" />Item Terhubung ke Produk</>) :
+                invDeleteBlocked?.blockType === 'hasMixedHistory' ? (<><AlertTriangle className="h-4 w-4 inline mr-1.5 -mt-0.5" />Item Memiliki Berbagai Histori</>) :
                 invDeleteBlocked?.blockType === 'hasHistory' ? (<><Link2 className="h-4 w-4 inline mr-1.5 -mt-0.5" />Item Terhubung ke Data Lain</>) : 
                 'Hapus Item?'
               }
@@ -6166,7 +6426,7 @@ export default function PurchasePage() {
                 <div className="text-sm">
                   <p className="text-red-300 font-medium">{invDeleteBlocked.message}</p>
                   <p className="text-slate-400 text-xs mt-2 leading-relaxed">
-                    Item yang sudah dibeli dari supplier tidak dapat dihapus untuk menjaga integritas data keuangan.
+                    Item yang sudah dibeli dari supplier tidak dapat dihapus untuk menjaga integritas data keuangan dan laporan pembelian.
                   </p>
                   <div className="mt-2 space-y-1">
                     {invDeleteBlocked.blockers?.map((b, i) => (
@@ -6183,7 +6443,107 @@ export default function PurchasePage() {
             </div>
           )}
 
-          {/* Blocked: other history (compositions, links, etc) → suggest archive */}
+          {/* Blocked: has transfer history → suggest archive */}
+          {invDeleteBlocked && invDeleteBlocked.blockType === 'hasTransfers' && (
+            <div className="space-y-3 my-2">
+              <div className="flex items-start gap-2 rounded-lg bg-blue-500/10 border border-blue-500/20 p-3">
+                <ArrowRightLeft className="h-4 w-4 text-blue-400 mt-0.5 shrink-0" />
+                <div className="text-sm">
+                  <p className="text-blue-300 font-medium">{invDeleteBlocked.message}</p>
+                  <p className="text-slate-400 text-xs mt-2 leading-relaxed">
+                    Item yang sudah ditransfer antar outlet tidak dapat dihapus untuk menjaga konsistensi data inventari multi-outlet.
+                  </p>
+                  <div className="mt-2 space-y-1">
+                    {invDeleteBlocked.blockers?.map((b, i) => (
+                      <div key={i} className="flex items-center gap-2 text-slate-400 text-xs">
+                        <span className="text-slate-600">•</span> {b}
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-amber-400/80 text-xs mt-2.5 leading-relaxed italic font-medium">
+                    <Lightbulb className="h-3 w-3 inline text-amber-400" /> {invDeleteBlocked.suggestion}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Blocked: has sales/consumption history → suggest archive */}
+          {invDeleteBlocked && invDeleteBlocked.blockType === 'hasSales' && (
+            <div className="space-y-3 my-2">
+              <div className="flex items-start gap-2 rounded-lg bg-purple-500/10 border border-purple-500/20 p-3">
+                <Receipt className="h-4 w-4 text-purple-400 mt-0.5 shrink-0" />
+                <div className="text-sm">
+                  <p className="text-purple-300 font-medium">{invDeleteBlocked.message}</p>
+                  <p className="text-slate-400 text-xs mt-2 leading-relaxed">
+                    Item yang telah terpakai dalam transaksi penjualan tidak dapat dihapus untuk menjaga integritas data penjualan dan analisis.
+                  </p>
+                  <div className="mt-2 space-y-1">
+                    {invDeleteBlocked.blockers?.map((b, i) => (
+                      <div key={i} className="flex items-center gap-2 text-slate-400 text-xs">
+                        <span className="text-slate-600">•</span> {b}
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-amber-400/80 text-xs mt-2.5 leading-relaxed italic font-medium">
+                    <Lightbulb className="h-3 w-3 inline text-amber-400" /> {invDeleteBlocked.suggestion}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Blocked: has composition/BOM links → suggest archive */}
+          {invDeleteBlocked && invDeleteBlocked.blockType === 'hasCompositions' && (
+            <div className="space-y-3 my-2">
+              <div className="flex items-start gap-2 rounded-lg bg-orange-500/10 border border-orange-500/20 p-3">
+                <Package className="h-4 w-4 text-orange-400 mt-0.5 shrink-0" />
+                <div className="text-sm">
+                  <p className="text-orange-300 font-medium">{invDeleteBlocked.message}</p>
+                  <p className="text-slate-400 text-xs mt-2 leading-relaxed">
+                    Item ini digunakan sebagai bahan dalam resep/komposisi produk. Hapus atau ubah komposisi produk terlebih dahulu.
+                  </p>
+                  <div className="mt-2 space-y-1">
+                    {invDeleteBlocked.blockers?.map((b, i) => (
+                      <div key={i} className="flex items-center gap-2 text-slate-400 text-xs">
+                        <span className="text-slate-600">•</span> {b}
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-amber-400/80 text-xs mt-2.5 leading-relaxed italic font-medium">
+                    <Lightbulb className="h-3 w-3 inline text-amber-400" /> {invDeleteBlocked.suggestion}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Blocked: mixed history types → suggest archive */}
+          {invDeleteBlocked && invDeleteBlocked.blockType === 'hasMixedHistory' && (
+            <div className="space-y-3 my-2">
+              <div className="flex items-start gap-2 rounded-lg bg-rose-500/10 border border-rose-500/20 p-3">
+                <AlertTriangle className="h-4 w-4 text-rose-400 mt-0.5 shrink-0" />
+                <div className="text-sm">
+                  <p className="text-rose-300 font-medium">{invDeleteBlocked.message}</p>
+                  <p className="text-slate-400 text-xs mt-2 leading-relaxed">
+                    Item ini memiliki berbagai jenis histori bisnis dan tidak dapat dihapus untuk menjaga integritas data secara keseluruhan.
+                  </p>
+                  <div className="mt-2 space-y-1">
+                    {invDeleteBlocked.blockers?.map((b, i) => (
+                      <div key={i} className="flex items-center gap-2 text-slate-400 text-xs">
+                        <span className="text-slate-600">•</span> {b}
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-amber-400/80 text-xs mt-2.5 leading-relaxed italic font-medium">
+                    <Lightbulb className="h-3 w-3 inline text-amber-400" /> {invDeleteBlocked.suggestion}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Blocked: other history (fallback for hasHistory) */}
           {invDeleteBlocked && invDeleteBlocked.blockType === 'hasHistory' && (
             <div className="space-y-3 my-2">
               <div className="flex items-start gap-2 rounded-lg bg-amber-500/10 border border-amber-500/20 p-3">
@@ -6225,14 +6585,32 @@ export default function PurchasePage() {
 
           <AlertDialogFooter className="gap-2">
             <AlertDialogCancel className="text-slate-400 hover:text-white hover:bg-white/[0.04]">Batal</AlertDialogCancel>
-            {invDeleteBlocked?.blockType === 'hasPurchases' || invDeleteBlocked?.blockType === 'hasHistory' ? (
+            {invDeleteBlocked?.blockType === 'hasPurchases' || 
+             invDeleteBlocked?.blockType === 'hasTransfers' || 
+             invDeleteBlocked?.blockType === 'hasSales' || 
+             invDeleteBlocked?.blockType === 'hasCompositions' || 
+             invDeleteBlocked?.blockType === 'hasMixedHistory' || 
+             invDeleteBlocked?.blockType === 'hasHistory' ? (
               <AlertDialogAction
-                className={`${invDeleteBlocked?.blockType === 'hasPurchases' ? 'bg-red-500/15 text-red-400 hover:bg-red-500/25 border border-red-500/20' : 'bg-amber-500/15 text-amber-400 hover:bg-amber-500/25 border border-amber-500/20'}`}
+                className={cn(
+                  "border transition-all",
+                  invDeleteBlocked?.blockType === 'hasPurchases' && 'bg-red-500/15 text-red-400 hover:bg-red-500/25 border-red-500/20',
+                  invDeleteBlocked?.blockType === 'hasTransfers' && 'bg-blue-500/15 text-blue-400 hover:bg-blue-500/25 border-blue-500/20',
+                  invDeleteBlocked?.blockType === 'hasSales' && 'bg-purple-500/15 text-purple-400 hover:bg-purple-500/25 border-purple-500/20',
+                  invDeleteBlocked?.blockType === 'hasCompositions' && 'bg-orange-500/15 text-orange-400 hover:bg-orange-500/25 border-orange-500/20',
+                  (invDeleteBlocked?.blockType === 'hasMixedHistory' || invDeleteBlocked?.blockType === 'hasHistory') && 'bg-amber-500/15 text-amber-400 hover:bg-amber-500/25 border-amber-500/20'
+                )}
                 onClick={(e) => handleArchiveInv(e)}
                 disabled={archivingInv || deleteInvLoading}
               >
                 {archivingInv ? <Loader2 className="h-4 w-4 animate-spin" /> : (
-                  invDeleteBlocked?.blockType === 'hasPurchases' ? (<><Lock className="h-3.5 w-3.5 inline mr-1" />Nonaktifkan Saja</>) : (<><Ban className="h-3.5 w-3.5 inline mr-1" />Nonaktifkan</>)
+                  <>
+                    {invDeleteBlocked?.blockType === 'hasPurchases' && (<><Lock className="h-3.5 w-3.5 inline mr-1" />Nonaktifkan Saja</>)}
+                    {invDeleteBlocked?.blockType === 'hasTransfers' && (<><Lock className="h-3.5 w-3.5 inline mr-1" />Nonaktifkan Saja</>)}
+                    {invDeleteBlocked?.blockType === 'hasSales' && (<><Ban className="h-3.5 w-3.5 inline mr-1" />Nonaktifkan</>)}
+                    {invDeleteBlocked?.blockType === 'hasCompositions' && (<><Ban className="h-3.5 w-3.5 inline mr-1" />Nonaktifkan</>)}
+                    {(invDeleteBlocked?.blockType === 'hasMixedHistory' || invDeleteBlocked?.blockType === 'hasHistory') && (<><Ban className="h-3.5 w-3.5 inline mr-1" />Nonaktifkan</>)}
+                  </>
                 )}
               </AlertDialogAction>
             ) : (
@@ -6252,178 +6630,237 @@ export default function PurchasePage() {
       {/* CATEGORY DIALOGS                                               */}
       {/* ══════════════════════════════════════════════════════════ */}
 
-      {/* Category Management Dialog - Redesigned */}
+      {/* Category Management Dialog - Modern Glass Design */}
       <ResponsiveDialog open={categoryDialogOpen} onOpenChange={setCategoryDialogOpen}>
-        <ResponsiveDialogContent className="sm:max-w-lg">
-          {/* Enhanced Header with gradient accent */}
-          <div className="relative overflow-hidden rounded-t-lg">
-            <div className="absolute inset-0 bg-gradient-to-r from-violet-500/10 via-emerald-500/10 to-cyan-500/10" />
-            <div className="relative px-6 pt-5 pb-3">
-              <ResponsiveDialogHeader className="text-left border-none pb-0">
-                <ResponsiveDialogTitle className="text-white text-base flex items-center gap-2.5">
-                  <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500/20 to-emerald-500/20 border border-white/[0.08]">
-                    <Tags className="h-4 w-4 text-emerald-400" />
+        <ResponsiveDialogContent className="sm:max-w-lg max-h-[90vh] overflow-hidden flex flex-col bg-nebula">
+          {/* Modern Header with Glass Effect & Stats */}
+          <div className="relative overflow-hidden rounded-t-xl">
+            {/* Background Effects */}
+            <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/10 via-transparent to-cyan-500/5" />
+            <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
+            <div className="absolute bottom-0 left-0 w-24 h-24 bg-cyan-500/10 rounded-full blur-2xl translate-y-1/2 -translate-x-1/2" />
+            <div className="absolute inset-0 opacity-[0.03]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '20px 20px' }} />
+            
+            <div className="relative px-6 pt-6 pb-5">
+              <ResponsiveDialogHeader className="text-left border-none pb-0 space-y-2">
+                <ResponsiveDialogTitle className="text-white text-xl font-bold flex items-center gap-3.5">
+                  <div className="relative flex items-center justify-center w-11 h-11 rounded-xl bg-gradient-to-br from-emerald-500/20 to-cyan-500/15 border border-white/[0.10] shadow-lg shadow-emerald-500/10 backdrop-blur-sm">
+                    <Tags className="h-5 w-5 text-emerald-400" />
+                    <div className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-emerald-400 rounded-full animate-pulse" />
                   </div>
-                  Kelola Kategori
+                  <div className="flex flex-col">
+                    <span>Kelola Kategori</span>
+                    <span className="text-xs font-normal text-slate-400 font-medium">Organisir item inventory Anda</span>
+                  </div>
                 </ResponsiveDialogTitle>
-                <ResponsiveDialogDescription className="text-slate-400 text-xs mt-1">
-                  Kategori untuk mengelompokkan item inventory
-                </ResponsiveDialogDescription>
               </ResponsiveDialogHeader>
+              
+              {/* Quick Stats Bar */}
+              {categories.length > 0 && (
+                <div className="flex items-center gap-3 mt-4 pt-4 border-t border-white/[0.06]">
+                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06]">
+                    <FolderOpen className="h-3.5 w-3.5 text-emerald-400" />
+                    <span className="text-xs text-slate-300 font-medium">{categories.length} Kategori</span>
+                  </div>
+                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06]">
+                    <Package className="h-3.5 w-3.5 text-cyan-400" />
+                    <span className="text-xs text-slate-300 font-medium">{categories.reduce((sum, c) => sum + (c._count?.items || 0), 0)} Item</span>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
-          <div className="space-y-4 mt-3 px-1">
-            {/* Add/Edit Form - Modern Design */}
+          <div className="space-y-4 mt-3 px-1 flex-1 overflow-y-auto custom-scrollbar">
+            {/* Add/Edit Form - Redesigned with Always-Visible Color Picker */}
             {editingCatId ? (
-              /* Edit Mode Form */
-              <div className="p-3.5 rounded-xl bg-gradient-to-br from-amber-500/[0.06] to-orange-500/[0.04] border border-amber-500/15 space-y-3">
-                <div className="flex items-center gap-2 text-[11px] text-amber-400 font-medium uppercase tracking-wider">
-                  <Pencil className="h-3 w-3" />
-                  Mode Edit Kategori
-                </div>
-                <Input
-                  value={catFormName}
-                  onChange={(e) => setCatFormName(e.target.value)}
-                  placeholder="Nama kategori"
-                  className={cn(inputClass, 'w-full')}
-                  onKeyDown={(e) => { if (e.key === 'Enter') handleEditCategorySave() }}
-                  autoFocus
-                />
-                {/* Color Picker Grid for Edit */}
-                <div className="space-y-1.5">
-                  <p className="text-[10px] text-slate-500 font-medium">Pilih Warna</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {CATEGORY_COLORS.map((color) => (
-                      <button
-                        key={color}
-                        type="button"
-                        onClick={() => setCatFormColor(color)}
-                        className={cn(
-                          'w-7 h-7 rounded-full transition-all duration-150 ring-offset-2 ring-offset-nebula',
-                          getCategoryColorClasses(color).dot,
-                          catFormColor === color 
-                            ? 'ring-2 ring-white scale-110 shadow-lg' 
-                            : 'hover:scale-105 opacity-70 hover:opacity-100'
-                        )}
-                        title={color}
-                      />
-                    ))}
+              /* Edit Mode Form - Modern Card Design */
+              <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-amber-500/[0.08] to-orange-500/[0.03] border border-amber-500/20">
+                <div className="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-amber-500/40 to-transparent" />
+                <div className="p-5 space-y-4 relative">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-500/15 border border-amber-500/25 w-fit">
+                      <Pencil className="h-3.5 w-3.5 text-amber-400" />
+                      <span className="text-xs text-amber-400 font-semibold uppercase tracking-wider">Mode Edit</span>
+                    </div>
+                    <button onClick={cancelEditCategory} className="p-1.5 rounded-lg hover:bg-white/[0.08] transition-colors text-slate-400 hover:text-white">
+                      <X className="h-4 w-4" />
+                    </button>
                   </div>
-                </div>
-                <div className="flex gap-2 pt-1">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="flex-1 h-9 text-xs border-white/[0.08] text-slate-300 hover:bg-white/[0.04]"
-                    onClick={cancelEditCategory}
-                  >
-                    Batal
-                  </Button>
-                  <Button
-                    size="sm"
-                    className="flex-1 h-9 bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/20 text-xs"
-                    disabled={catFormLoading}
-                    onClick={handleEditCategorySave}
-                  >
-                    {catFormLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Simpan'}
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              /* Add Mode Form */
-              <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.05] space-y-3">
-                <div className="flex items-center gap-2">
+                  
                   <Input
                     value={catFormName}
                     onChange={(e) => setCatFormName(e.target.value)}
-                    placeholder="Nama kategori baru..."
-                    className={cn(inputClass, 'flex-1')}
-                    onKeyDown={(e) => { if (e.key === 'Enter') handleCategorySubmit() }}
+                    placeholder="Nama kategori..."
+                    className='w-full h-12 text-sm rounded-xl bg-white/[0.05] border-white/[0.10] focus:border-amber-500/40 focus:ring-amber-500/20'
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleEditCategorySave() }}
+                    autoFocus
                   />
-                  {/* Color Picker - Visual Circle Grid */}
-                  <div className="relative group">
-                    <button
-                      type="button"
-                      className={cn(
-                        'w-9 h-9 rounded-lg border border-white/[0.08] flex items-center justify-center transition-colors hover:border-white/[0.15]',
-                        'bg-white/[0.03]'
-                      )}
-                    >
-                      <span className={cn('w-4 h-4 rounded-full', getCategoryColorClasses(catFormColor).dot)} />
-                    </button>
-                    {/* Color Dropdown Popover */}
-                    <div className="absolute right-0 top-full mt-2 p-2.5 rounded-xl bg-nebula border border-white/[0.08] shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 min-w-[180px]">
-                      <p className="text-[10px] text-slate-500 font-medium mb-2">Pilih Warna</p>
-                      <div className="grid grid-cols-6 gap-1.5">
-                        {CATEGORY_COLORS.map((color) => (
+                  
+                  <div className="space-y-3">
+                    <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider flex items-center gap-2">
+                      <Palette className="h-3.5 w-3.5 text-amber-400" />
+                      Pilih Warna
+                    </p>
+                    <div className="grid grid-cols-6 gap-2.5 p-3 rounded-xl bg-black/10 border border-white/[0.04]">
+                      {CATEGORY_COLORS.map((color) => {
+                        const colorClass = getCategoryColorClasses(color)
+                        const isSelected = catFormColor === color
+                        return (
                           <button
                             key={color}
                             type="button"
                             onClick={() => setCatFormColor(color)}
                             className={cn(
-                              'w-6 h-6 rounded-full transition-all duration-150',
-                              getCategoryColorClasses(color).dot,
-                              catFormColor === color 
-                                ? 'ring-2 ring-white ring-offset-1 ring-offset-nebula scale-110' 
-                                : 'hover:scale-105 opacity-60 hover:opacity-100'
+                              'flex flex-col items-center gap-1.5 p-2 rounded-xl transition-all duration-200',
+                              isSelected ? 'bg-white/[0.10] ring-2 ring-white/30 scale-105' : 'hover:bg-white/[0.06] hover:scale-102'
                             )}
-                            title={color}
-                          />
-                        ))}
-                      </div>
+                          >
+                            <span className={cn(
+                              'w-8 h-8 rounded-full transition-all duration-200 ring-offset-2 ring-offset-nebula shadow-md',
+                              colorClass.dot,
+                              isSelected ? 'ring-2 ring-white scale-110 ring-offset-amber-500/20' : 'hover:ring-2 hover:ring-white/20'
+                            )} />
+                            <span className={cn('text-[9px] font-bold leading-none truncate w-full text-center uppercase', isSelected ? 'text-white' : 'text-slate-500')}>
+                              {color.slice(0, 3)}
+                            </span>
+                          </button>
+                        )
+                      })}
                     </div>
                   </div>
+                  
+                  <div className="flex gap-3 pt-2">
+                    <Button size="sm" variant="outline" className="flex-1 h-11 text-sm border-white/[0.10] text-slate-300 hover:bg-white/[0.06] hover:text-white rounded-xl font-medium" onClick={cancelEditCategory}>Batal</Button>
+                    <Button size="sm" className="flex-1 h-11 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-white border-0 text-sm font-semibold shadow-lg shadow-amber-500/25 rounded-xl disabled:opacity-50" disabled={catFormLoading} onClick={handleEditCategorySave}>
+                      {catFormLoading ? <><Loader2 className="h-4 w-4 animate-spin mr-1.5" />Menyimpan...</> : <><Check className="h-4 w-4 mr-1.5" />Simpan Perubahan</>}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* Add Mode Form - Modern Card Design */
+              <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-500/[0.06] to-cyan-500/[0.03] border border-emerald-500/15">
+                <div className="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-emerald-500/30 to-transparent" />
+                <div className="p-5 space-y-4">
+                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/25 w-fit">
+                    <Plus className="h-3.5 w-3.5 text-emerald-400" />
+                    <span className="text-xs text-emerald-400 font-semibold uppercase tracking-wider">Tambah Baru</span>
+                  </div>
+                  
+                  <Input
+                    value={catFormName}
+                    onChange={(e) => setCatFormName(e.target.value)}
+                    placeholder="Nama kategori baru..."
+                    className='w-full h-12 text-sm rounded-xl bg-white/[0.05] border-white/[0.10] focus:border-emerald-500/40 focus:ring-emerald-500/20 placeholder:text-slate-500'
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleCategorySubmit() }}
+                  />
+                  
+                  <div className="space-y-3">
+                    <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider flex items-center gap-2">
+                      <Palette className="h-3.5 w-3.5 text-emerald-400" />
+                      Pilih Warna
+                    </p>
+                    <div className="grid grid-cols-6 gap-2.5 p-3 rounded-xl bg-black/10 border border-white/[0.04]">
+                      {CATEGORY_COLORS.map((color) => {
+                        const colorClass = getCategoryColorClasses(color)
+                        const isSelected = catFormColor === color
+                        return (
+                          <button
+                            key={color}
+                            type="button"
+                            onClick={() => setCatFormColor(color)}
+                            className={cn(
+                              'flex flex-col items-center gap-1.5 p-2 rounded-xl transition-all duration-200',
+                              isSelected ? 'bg-white/[0.10] ring-2 ring-white/30 scale-105' : 'hover:bg-white/[0.06] hover:scale-102'
+                            )}
+                          >
+                            <span className={cn(
+                              'w-8 h-8 rounded-full transition-all duration-200 ring-offset-2 ring-offset-nebula shadow-md',
+                              colorClass.dot,
+                              isSelected ? 'ring-2 ring-white scale-110 ring-offset-emerald-500/20' : 'hover:ring-2 hover:ring-white/20'
+                            )} />
+                            <span className={cn('text-[9px] font-bold leading-none truncate w-full text-center uppercase', isSelected ? 'text-white' : 'text-slate-500')}>
+                              {color.slice(0, 3)}
+                            </span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                  
                   <Button
-                    size="sm"
-                    className="h-9 px-3 theme-bg theme-hover text-white text-xs shrink-0"
+                    className="w-full h-12 bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-white text-sm font-semibold gap-2 rounded-xl shadow-lg shadow-emerald-500/20 disabled:opacity-50 transition-all duration-200"
                     disabled={catFormLoading || !catFormName.trim()}
                     onClick={handleCategorySubmit}
                   >
-                    {catFormLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                    {catFormLoading ? <><Loader2 className="h-4 w-4 animate-spin" /> Menambahkan...</> : <><Plus className="h-4 w-4" /> Tambah Kategori</>}
                   </Button>
                 </div>
               </div>
             )}
 
-            {/* Category List Section */}
+            {/* Category List Section - Modern Cards */}
             {categories.length === 0 ? (
-              <div className="py-12 text-center rounded-xl border border-dashed border-white/[0.06] bg-white/[0.01]">
-                <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-white/[0.03] mb-3">
-                  <Tags className="h-5 w-5 text-slate-600" />
+              /* Modern Empty State */
+              <div className="py-16 text-center rounded-2xl border border-dashed border-white/[0.08] bg-gradient-to-b from-white/[0.02] to-transparent relative overflow-hidden">
+                <div className="absolute top-8 left-1/2 -translate-x-1/2 w-40 h-40 bg-emerald-500/5 rounded-full blur-3xl" />
+                
+                <div className="relative">
+                  <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-br from-violet-500/10 to-emerald-500/10 border border-white/[0.08] mb-5 shadow-inner">
+                    <Tags className="h-9 w-9 text-slate-500" />
+                  </div>
+                  <p className="text-lg text-slate-200 font-bold mb-2">Belum Ada Kategori</p>
+                  <p className="text-sm text-slate-500 mb-6 max-w-[240px] mx-auto leading-relaxed">
+                    Buat kategori pertama untuk mengelompokkan item inventory dengan lebih terstruktur
+                  </p>
+                  <Button
+                    variant="outline"
+                    className="h-12 px-6 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300 hover:border-emerald-500/50 gap-2 text-sm font-medium rounded-xl transition-all duration-200 shadow-lg shadow-emerald-500/5"
+                    onClick={() => document.querySelector<HTMLInputElement>('input[placeholder*="kategori baru"]')?.focus()}
+                  >
+                    <Plus className="h-4 w-4" />
+                    Buat Kategori Pertama
+                  </Button>
+                  <p className="text-[11px] text-slate-600 mt-5 flex items-center justify-center gap-1.5">
+                    <Sparkles className="h-3 w-3" />
+                    Tip: Gunakan warna berbeda untuk membedakan tipe item
+                  </p>
                 </div>
-                <p className="text-sm text-slate-500 font-medium mb-0.5">Belum ada kategori</p>
-                <p className="text-xs text-slate-600">Tambahkan kategori pertama Anda</p>
               </div>
             ) : (
-              <div className="space-y-3">
-                {/* Bulk Actions Header */}
-                <div className="flex items-center justify-between px-1">
-                  <label className="flex items-center gap-2 cursor-pointer select-none group">
+              <div className="space-y-4">
+                {/* Modern Bulk Actions Bar */}
+                <div className="flex items-center justify-between p-3 rounded-xl bg-white/[0.02] border border-white/[0.06] backdrop-blur-sm">
+                  <label className="flex items-center gap-3 cursor-pointer select-none group">
                     <Checkbox
                       checked={categories.length > 0 && selectedCatIds.size === categories.length}
                       onCheckedChange={toggleSelectAllCats}
-                      className="data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500 h-4 w-4"
+                      className="data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500 h-5 w-5 rounded-md data-[state=checked]:shadow-lg data-[state=checked]:shadow-emerald-500/30"
                     />
-                    <span className="text-xs text-slate-400 group-hover:text-slate-300 transition-colors">
-                      {selectedCatIds.size === categories.length ? 'Deselect Semua' : 'Select All'}
+                    <span className="text-xs text-slate-400 group-hover:text-slate-300 transition-colors font-medium">
+                      {selectedCatIds.size === categories.length && selectedCatIds.size > 0 
+                        ? `Semua (${categories.length})` 
+                        : 'Pilih Semua'}
                     </span>
                   </label>
                   {selectedCatIds.size > 0 && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 px-2.5 text-red-400 hover:text-red-300 hover:bg-red-500/[0.08] text-xs gap-1.5"
-                      onClick={() => setBulkDeleteCatsOpen(true)}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                      Hapus ({selectedCatIds.size})
-                    </Button>
+                    <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: "spring", stiffness: 500, damping: 25 }}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-9 px-4 text-red-400 hover:text-red-300 hover:bg-red-500/10 text-xs font-semibold gap-2 rounded-lg border border-red-500/20 bg-red-500/[0.05]"
+                        onClick={() => setBulkDeleteCatsOpen(true)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Hapus ({selectedCatIds.size})
+                      </Button>
+                    </motion.div>
                   )}
                 </div>
 
-                {/* Category Cards List */}
-                <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1 scrollbar-thin">
+                {/* Category Cards List - Redesigned with Always-Visible Actions */}
+                <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-white/5">
                   {categories.map((c) => {
                     const cc = getCategoryColorClasses(c.color)
                     const isSelected = selectedCatIds.has(c.id)
@@ -6432,77 +6869,84 @@ export default function PurchasePage() {
                     return (
                       <motion.div
                         key={c.id}
-                        initial={{ opacity: 0, y: 4 }}
+                        initial={{ opacity: 0, y: 6 }}
                         animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.15 }}
+                        transition={{ duration: 0.2, ease: 'easeOut' }}
+                        whileHover={{ scale: 1.005 }}
                         className={cn(
-                          'group relative flex items-center gap-3 p-3 rounded-xl transition-all duration-200',
+                          'group relative flex items-center gap-3 p-3.5 rounded-xl transition-all duration-200',
                           'border backdrop-blur-sm',
                           isSelected 
-                            ? 'bg-red-500/[0.06] border-red-500/20' 
-                            : 'bg-white/[0.02] border-white/[0.05] hover:bg-white/[0.04] hover:border-white/[0.08]',
-                          isEditing && 'ring-1 ring-amber-500/30'
+                            ? 'bg-emerald-500/[0.08] border-emerald-500/25 shadow-lg shadow-emerald-500/5' 
+                            : 'bg-white/[0.02] border-white/[0.06] hover:bg-white/[0.04] hover:border-white/[0.10]',
+                          isEditing && 'ring-1 ring-amber-500/40 bg-amber-500/[0.04]'
                         )}
                       >
-                        {/* Selection Checkbox */}
+                        {/* Selection Checkbox - Always Visible with Emerald Theme */}
                         <Checkbox
                           checked={isSelected}
                           onCheckedChange={() => toggleCatSelection(c.id)}
                           className={cn(
-                            'shrink-0 h-4 w-4 transition-colors',
+                            'shrink-0 h-4.5 w-4.5 transition-all duration-200',
                             isSelected 
-                              ? 'data-[state=checked]:bg-red-500 data-[state=checked]:border-red-500' 
-                              : 'data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500 opacity-0 group-hover:opacity-100'
+                              ? 'data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500' 
+                              : 'data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500'
                           )}
                         />
 
-                        {/* Color Dot + Info */}
+                        {/* Enhanced Color Dot + Info */}
                         <div className="flex items-center gap-3 min-w-0 flex-1">
                           <span className={cn(
-                            'w-3.5 h-3.5 rounded-full shrink-0 ring-2 ring-offset-1 ring-offset-nebula/50',
+                            'w-4 h-4 rounded-full shrink-0 ring-2 ring-offset-2 ring-offset-nebula/80 shadow-md',
                             cc.dot,
                             cc.dot.replace('bg-', 'ring-')
                           )} />
                           <div className="min-w-0 flex-1">
                             <p className={cn(
-                              'text-sm font-medium truncate transition-colors',
-                              isSelected ? 'text-slate-200' : 'text-slate-300 group-hover:text-slate-200'
+                              'text-sm font-semibold truncate transition-colors',
+                              isSelected ? 'text-white' : 'text-slate-200 group-hover:text-white'
                             )}>
                               {c.name}
                             </p>
-                            <div className="flex items-center gap-2 mt-0.5">
-                              {c._count && c._count.items > 0 && (
-                                <>
-                                  <span className="text-[11px] text-slate-500">{c._count.items} item</span>
-                                  <span className="w-1 h-1 rounded-full bg-slate-700" />
-                                </>
+                            <div className="flex items-center gap-2 mt-1">
+                              {c._count && c._count.items > 0 ? (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-white/[0.06] text-[11px] text-slate-400 font-medium tabular-nums">
+                                  {c._count.items} item
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-white/[0.03] text-[11px] text-slate-600 font-medium">
+                                  kosong
+                                </span>
                               )}
-                              <span className={cn('text-[11px]', cc.text)}>{c.color}</span>
+                              <span className="w-1 h-1 rounded-full bg-slate-700" />
+                              <span className={cn('text-[11px] font-medium capitalize', cc.text)}>{c.color}</span>
                             </div>
                           </div>
                         </div>
 
-                        {/* Action Buttons */}
-                        <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                        {/* Action Buttons - ALWAYS VISIBLE for Touch-Friendly UX */}
+                        <div className="flex items-center gap-1 shrink-0">
                           {!isEditing && (
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="h-8 w-8 p-0 text-slate-400 hover:text-amber-400 hover:bg-amber-500/[0.08]"
+                              className="h-9 w-9 p-0 text-slate-500 hover:text-amber-400 hover:bg-amber-500/10 rounded-lg transition-colors"
                               onClick={() => startEditCategory(c)}
                               title="Edit kategori"
+                              aria-label={`Edit ${c.name}`}
                             >
-                              <Pencil className="h-3.5 w-3.5" />
+                              <Pencil className="h-4 w-4" />
                             </Button>
                           )}
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="h-8 w-8 p-0 text-slate-400 hover:text-red-400 hover:bg-red-500/[0.08]"
+                            className="h-9 w-9 p-0 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
                             onClick={() => setDeleteCatId(c.id)}
                             title="Hapus kategori"
+                            aria-label={`Hapus ${c.name}`}
                           >
-                            <Trash2 className="h-3.5 w-3.5" />
+                            <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
                       </motion.div>
@@ -6510,10 +6954,15 @@ export default function PurchasePage() {
                   })}
                 </div>
 
-                {/* Footer Stats */}
-                <div className="flex items-center justify-between px-1 pt-1">
-                  <p className="text-[11px] text-slate-600">
-                    {categories.length} kategori{selectedCatIds.size > 0 && ` • ${selectedCatIds.size} dipilih`}
+                {/* Enhanced Footer Stats */}
+                <div className="flex items-center justify-between px-2 pt-2 pb-1">
+                  <p className="text-xs text-slate-500 font-medium">
+                    {categories.length} kategori{categories.length === 1 ? '' : ''}
+                    {selectedCatIds.size > 0 && (
+                      <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 text-[11px] font-semibold">
+                        {selectedCatIds.size} dipilih
+                      </span>
+                    )}
                   </p>
                 </div>
               </div>
