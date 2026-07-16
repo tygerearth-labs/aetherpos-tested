@@ -108,6 +108,8 @@ import {
   Ban,
   Lock,
   Lightbulb,
+  Coins,
+  Tag,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import SupplierSearchInput from '@/components/purchase/supplier-search-input'
@@ -599,6 +601,11 @@ export default function PurchasePage() {
   const [catFormLoading, setCatFormLoading] = useState(false)
   const [deleteCatId, setDeleteCatId] = useState<string | null>(null)
   const [deletingCat, setDeletingCat] = useState(false)
+  // Category edit & bulk delete states
+  const [editingCatId, setEditingCatId] = useState<string | null>(null)
+  const [selectedCatIds, setSelectedCatIds] = useState<Set<string>>(new Set())
+  const [bulkDeleteCatsOpen, setBulkDeleteCatsOpen] = useState(false)
+  const [bulkDeletingCats, setBulkDeletingCats] = useState(false)
 
   // Purchase summary (ratio)
   const [purchaseSummary, setPurchaseSummary] = useState<PurchaseSummary | null>(null)
@@ -2410,6 +2417,109 @@ export default function PurchasePage() {
     }
   }
 
+  // Start editing a category
+  const startEditCategory = (cat: InventoryCategory) => {
+    setEditingCatId(cat.id)
+    setCatFormName(cat.name)
+    setCatFormColor(cat.color)
+  }
+
+  // Cancel editing
+  const cancelEditCategory = () => {
+    setEditingCatId(null)
+    setCatFormName('')
+    setCatFormColor('emerald')
+  }
+
+  // Save edited category
+  const handleEditCategorySave = async () => {
+    if (!editingCatId || !catFormName.trim()) {
+      toast.error('Nama kategori wajib diisi')
+      return
+    }
+    setCatFormLoading(true)
+    try {
+      const res = await fetch(`/api/inventory/categories/${editingCatId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: catFormName, color: catFormColor }),
+      })
+      if (res.ok) {
+        toast.success('Kategori berhasil diperbarui')
+        cancelEditCategory()
+        void fetchCategories()
+      } else {
+        const data = await res.json()
+        toast.error(data.error || 'Gagal memperbarui kategori')
+      }
+    } catch {
+      toast.error('Gagal memperbarui kategori')
+    } finally {
+      setCatFormLoading(false)
+    }
+  }
+
+  // Toggle category selection for bulk delete
+  const toggleCatSelection = (catId: string) => {
+    setSelectedCatIds(prev => {
+      const next = new Set(prev)
+      if (next.has(catId)) {
+        next.delete(catId)
+      } else {
+        next.add(catId)
+      }
+      return next
+    })
+  }
+
+  // Select/deselect all categories
+  const toggleSelectAllCats = () => {
+    if (selectedCatIds.size === categories.length) {
+      setSelectedCatIds(new Set())
+    } else {
+      setSelectedCatIds(new Set(categories.map(c => c.id)))
+    }
+  }
+
+  // Bulk delete categories
+  const handleBulkDeleteCategories = async () => {
+    if (selectedCatIds.size === 0) return
+    setBulkDeletingCats(true)
+    try {
+      const deletePromises = Array.from(selectedCatIds).map(id =>
+        fetch(`/api/inventory/categories/${id}`, { method: 'DELETE' })
+      )
+      const results = await Promise.all(deletePromises)
+      const allOk = results.every(r => r.ok)
+      if (allOk) {
+        const deletedIds = Array.from(selectedCatIds)
+        toast.success(`${selectedCatIds.size} kategori berhasil dihapus`)
+        setSelectedCatIds(new Set())
+        setBulkDeleteCatsOpen(false)
+        if (deletedIds.some(id => id === invCategoryFilter)) {
+          setInvCategoryFilter('all')
+        }
+        void fetchCategories()
+      } else {
+        toast.error('Beberapa kategori gagal dihapus')
+      }
+    } catch {
+      toast.error('Gagal menghapus kategori')
+    } finally {
+      setBulkDeletingCats(false)
+    }
+  }
+
+  // Reset category dialog state when opened/closed
+  useEffect(() => {
+    if (!categoryDialogOpen) {
+      setEditingCatId(null)
+      setSelectedCatIds(new Set())
+      setCatFormName('')
+      setCatFormColor('emerald')
+    }
+  }, [categoryDialogOpen])
+
   // ══════════════════════════════════════════════════════════
   // Post as Product: handlers
   // ══════════════════════════════════════════════════════════
@@ -3879,20 +3989,20 @@ export default function PurchasePage() {
               </Card>
             </div>
 
-            {/* Enhanced Mobile Sort Chips */}
-            <div className="md:hidden space-y-1.5">
-              <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar px-0.5">
-                <span className="text-[9px] text-slate-600 uppercase tracking-wider font-medium shrink-0 flex items-center gap-1">
-                  <ArrowUpDown className="h-3 w-3" />
-                  Sort:
-                </span>
+            {/* Enhanced Mobile Sort Chips - Modern Glass Design */}
+            <div className="md:hidden">
+              <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1 scrollbar-thin">
+                <div className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/[0.03] border border-white/[0.06] backdrop-blur-sm">
+                  <ArrowUpDown className="h-3 w-3 text-slate-500" />
+                  <span className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">Sort</span>
+                </div>
                 {([
                   ['name-asc', 'A-Z', 'violet'],
                   ['name-desc', 'Z-A', 'violet'],
-                  ['stock-desc', 'Stock ↓', 'cyan'],
-                  ['stock-asc', 'Stock ↑', 'cyan'],
-                  ['value-desc', 'Nilai ↓', 'emerald'],
-                  ['value-asc', 'Nilai ↑', 'emerald'],
+                  ['stock-desc', 'Stok ↓', 'emerald'],
+                  ['stock-asc', 'Stok ↑', 'emerald'],
+                  ['value-desc', 'Nilai ↓', 'cyan'],
+                  ['value-asc', 'Nilai ↑', 'cyan'],
                   ['updatedAt-desc', 'Baru', 'amber'],
                   ['updatedAt-asc', 'Lama', 'amber'],
                 ] as const).map(([val, label, color]) => (
@@ -3900,15 +4010,16 @@ export default function PurchasePage() {
                     key={val}
                     onClick={() => { setInvSortBy(val); setInvPage(1); setSelectedInvIds(new Set()) }}
                     className={cn(
-                      'shrink-0 px-2.5 py-1 rounded-lg text-[10px] font-medium transition-all whitespace-nowrap border',
+                      'shrink-0 px-3 py-1.5 rounded-full text-[10px] font-semibold transition-all duration-200 whitespace-nowrap backdrop-blur-sm',
                       invSortBy === val
                         ? cn(
-                            color === 'violet' && 'bg-violet-500/15 text-violet-400 border-violet-500/30 shadow-sm',
-                            color === 'cyan' && 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30 shadow-sm',
-                            color === 'emerald' && 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30 shadow-sm',
-                            color === 'amber' && 'bg-amber-500/15 text-amber-400 border-amber-500/30 shadow-sm',
+                            'shadow-lg ring-1 ring-white/10 scale-[1.02]',
+                            color === 'violet' && 'bg-gradient-to-r from-violet-500/20 to-purple-500/20 text-violet-300 border border-violet-400/30',
+                            color === 'cyan' && 'bg-gradient-to-r from-cyan-500/20 to-blue-500/20 text-cyan-300 border border-cyan-400/30',
+                            color === 'emerald' && 'bg-gradient-to-r from-emerald-500/20 to-green-500/20 text-emerald-300 border border-emerald-400/30',
+                            color === 'amber' && 'bg-gradient-to-r from-amber-500/20 to-orange-500/20 text-amber-300 border border-amber-400/30',
                           )
-                        : 'text-slate-500 hover:text-slate-300 hover:bg-white/[0.04] border-white/[0.06]',
+                        : 'text-slate-500 bg-white/[0.02] border border-transparent hover:text-slate-300 hover:bg-white/[0.05] hover:border-white/[0.08]',
                     )}
                   >
                     {label}
@@ -3917,38 +4028,41 @@ export default function PurchasePage() {
               </div>
             </div>
 
-            {/* Enhanced Mobile Cards */}
-            <div className="md:hidden space-y-3">
+            {/* Enhanced Mobile Cards - Modern Glass Morphism Design */}
+            <div className="md:hidden space-y-2.5">
               {invList.length === 0 ? (
-                <Card className="bg-nebula border-white/[0.06] overflow-hidden">
-                  <CardContent className="py-14 text-center">
-                    <div className="flex flex-col items-center max-w-[240px] mx-auto">
-                      {/* Enhanced Empty State for Mobile */}
-                      <div className="relative w-16 h-16 mb-4">
-                        <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-emerald-500/10 to-blue-500/10 animate-pulse" />
-                        <div className="relative w-full h-full rounded-2xl bg-white/[0.03] border border-white/[0.08] flex items-center justify-center">
+                <div className="relative overflow-hidden rounded-2xl bg-gradient-to-b from-white/[0.04] to-white/[0.01] border border-white/[0.08] backdrop-blur-xl">
+                  {/* Decorative gradient orbs */}
+                  <div className="absolute -top-10 -right-10 w-32 h-32 bg-emerald-500/10 rounded-full blur-3xl" />
+                  <div className="absolute -bottom-10 -left-10 w-24 h-24 bg-blue-500/10 rounded-full blur-3xl" />
+                  
+                  <div className="relative py-12 px-6 text-center">
+                    <div className="flex flex-col items-center max-w-[220px] mx-auto">
+                      {/* Modern Empty State Icon */}
+                      <div className="relative mb-4">
+                        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-white/[0.06] to-white/[0.02] border border-white/[0.1] flex items-center justify-center backdrop-blur-sm shadow-lg shadow-black/20">
                           <PackagePlus className="h-7 w-7 text-slate-500" />
                         </div>
-                        <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-emerald-500/20 flex items-center justify-center">
-                          <Plus className="h-2.5 w-2.5 text-emerald-400" />
+                        <div className="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-lg shadow-emerald-500/30">
+                          <Plus className="h-3 w-3 text-white" />
                         </div>
                       </div>
-                      <h3 className="text-sm font-semibold text-white mb-1">Inventory Kosong</h3>
-                      <p className="text-xs text-slate-400 mb-1 leading-relaxed">Belum ada item di inventory</p>
-                      <p className="text-[11px] text-slate-600 mb-4 leading-relaxed">Buat pembelian pertama untuk mulai</p>
+                      <h3 className="text-sm font-bold text-white mb-1 tracking-tight">Inventory Kosong</h3>
+                      <p className="text-[11px] text-slate-400 mb-1 leading-relaxed">Belum ada item di inventory</p>
+                      <p className="text-[10px] text-slate-600 mb-4 leading-relaxed">Buat pembelian pertama untuk mulai</p>
                       <Button
                         size="sm"
                         onClick={() => { resetPoCreateForm(); openPoCreate() }}
-                        className="theme-bg theme-hover text-white text-xs h-9 px-4 rounded-xl gap-1.5 shadow-lg"
+                        className="bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-white text-xs h-9 px-4 rounded-xl gap-1.5 shadow-lg shadow-emerald-500/25 transition-all duration-200 active:scale-[0.98]"
                       >
                         <ShoppingCart className="h-3.5 w-3.5" />
                         Buat Pembelian
                       </Button>
                     </div>
-                  </CardContent>
-                </Card>
+                  </div>
+                </div>
               ) : (
-                <AnimatePresence>
+                <AnimatePresence mode="popLayout">
                   {invList.map((item, index) => {
                     const isLow = item.stock <= item.lowStockAlert
                     const isSelected = selectedInvIds.has(item.id)
@@ -3957,143 +4071,172 @@ export default function PurchasePage() {
                     return (
                       <motion.div
                         key={item.id}
-                        initial={{ opacity: 0, y: 12 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -12 }}
-                        transition={{ duration: 0.25, delay: index * 0.03 }}
+                        layout
+                        initial={{ opacity: 0, scale: 0.95, y: 8 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.95, y: -8 }}
+                        transition={{ duration: 0.2, delay: index * 0.02, ease: [0.23, 1, 0.32, 1] }}
                       >
-                        <Card className={cn(
-                          'relative overflow-hidden transition-all duration-200',
-                          // Base styling
-                          'bg-nebula border-white/[0.06] hover:border-white/[0.1]',
-                          // Selected state
-                          isSelected && 'border-emerald-500/40 ring-1 ring-emerald-500/15 bg-emerald-500/[0.02]',
-                          // Low stock glow effect
-                          isLow && !isArchived && 'shadow-sm shadow-red-500/5',
-                          // Archived state
-                          isArchived && 'opacity-60',
-                        )}>
-n                          {/* Left accent bar for low stock / archived */}
+                        <div 
+                          className={cn(
+                            'relative overflow-hidden rounded-2xl transition-all duration-200 group',
+                            // Base glass morphism styling
+                            'bg-gradient-to-b from-white/[0.05] to-white/[0.02] border border-white/[0.08] backdrop-blur-xl',
+                            'hover:border-white/[0.12] hover:shadow-lg hover:shadow-black/10',
+                            'active:scale-[0.995]',
+                            // Selected state with glow
+                            isSelected && 'ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-nebula bg-gradient-to-b from-emerald-500/[0.08] to-emerald-500/[0.02] border-emerald-500/30',
+                            // Low stock subtle glow
+                            isLow && !isArchived && 'shadow-md shadow-red-500/5',
+                            // Archived state
+                            isArchived && 'opacity-50 grayscale-[0.3]',
+                          )}
+                        >
+                          {/* Animated gradient overlay on hover */}
+                          <div className="absolute inset-0 bg-gradient-to-br from-white/[0.02] to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
+                          
+                          {/* Left accent bar with gradient */}
                           {isLow && !isArchived && (
-                            <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-red-500 to-red-500/40" />
+                            <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-red-400 via-red-500 to-red-500/20" />
                           )}
                           {isArchived && (
-                            <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-amber-500 to-amber-500/40" />
+                            <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-amber-400 via-amber-500 to-amber-500/20" />
                           )}
-n                          <CardContent className="p-3.5 space-y-3">
-                            {/* Header Row - Name + Stock Hero */}
-                            <div className="flex items-start justify-between gap-3">\                              <div className="flex items-start gap-2.5 min-w-0 flex-1">
-                                <Checkbox
-                                  checked={isSelected}
-                                  onCheckedChange={() => toggleInvSelect(item.id)}
-                                  className="h-4 w-4 mt-0.5 shrink-0 data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500"
-                                />
-                                <div className="min-w-0 flex-1">
+                          
+                          <div className="p-3 space-y-2.5">
+                            {/* Header Row - Compact with better visual hierarchy */}
+                            <div className="flex items-center gap-2.5">
+                              {/* Checkbox - touch friendly */}
+                              <Checkbox
+                                checked={isSelected}
+                                onCheckedChange={() => toggleInvSelect(item.id)}
+                                className="h-5 w-5 shrink-0 rounded-md border-slate-600 data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500 data-[state=checked]:text-white transition-all duration-200"
+                              />
+                              
+                              {/* Name & Badges Container */}
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
                                   <p className={cn(
-                                    'text-sm font-semibold truncate block leading-tight',
+                                    'text-[13px] font-bold truncate leading-tight tracking-tight',
                                     isArchived ? 'text-slate-500 line-through decoration-slate-600' : 'text-white'
                                   )}>
                                     {item.name}
                                   </p>
-n                                  <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                                  {/* Status badges inline */}
+                                  <div className="flex items-center gap-1 shrink-0">
                                     {isArchived && (
-                                      <Badge variant="secondary" className="text-[9px] px-2 py-0 bg-amber-500/15 text-amber-400 border-amber-500/25 rounded-full">
-                                        <Archive className="h-2.5 w-2.5 mr-1" />
+                                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-400 text-[9px] font-semibold uppercase tracking-wide">
+                                        <Archive className="h-2.5 w-2.5" />
                                         Nonaktif
-                                      </Badge>
+                                      </span>
                                     )}
                                     {isLow && !isArchived && (
-                                      <Badge variant="secondary" className="text-[9px] px-2 py-0 bg-red-500/15 text-red-400 border-red-500/25 rounded-full animate-pulse">
-                                        <AlertTriangle className="h-2.5 w-2.5 mr-1" />
+                                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-red-500/15 text-red-400 text-[9px] font-semibold uppercase tracking-wide animate-pulse">
+                                        <AlertTriangle className="h-2.5 w-2.5" />
                                         Stok Rendah
-                                      </Badge>
-                                    )}
-                                    {item.category && colorClasses && (
-                                      <Badge 
-                                        variant="outline" 
-                                        className={cn(
-                                          'text-[9px] px-2 py-0 rounded-full border font-medium',
-                                          colorClasses.bg,
-                                          colorClasses.text,
-                                          colorClasses.border,
-                                        )}
-                                      >
-                                        {item.category.name}
-                                      </Badge>
+                                      </span>
                                     )}
                                   </div>
                                 </div>
+                                {/* Category badge below name */}
+                                <div className="flex items-center gap-1.5 mt-1">
+                                  {item.category && colorClasses && (
+                                    <span className={cn(
+                                      'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-medium border backdrop-blur-sm',
+                                      colorClasses.bg,
+                                      colorClasses.text,
+                                      colorClasses.border,
+                                    )}>
+                                      <Tag className="h-2 w-2" />
+                                      {item.category.name}
+                                    </span>
+                                  )}
+                                </div>
                               </div>
-n                              {/* Hero Stock Number */}
+                              
+                              {/* Hero Stock Number - Prominent display */}
                               <div className={cn(
-                                'shrink-0 text-right',
+                                'shrink-0 ml-1',
                                 isLow && 'animate-pulse'
                               )}>
                                 <div className={cn(
-                                  'inline-flex flex-col items-end px-3 py-2 rounded-xl tabular-nums',
+                                  'flex flex-col items-center px-3 py-1.5 rounded-xl min-w-[64px] backdrop-blur-sm tabular-nums transition-all duration-200',
                                   isLow 
-                                    ? 'bg-red-500/10 ring-1 ring-red-500/20' 
-                                    : 'bg-white/[0.04]'
+                                    ? 'bg-gradient-to-br from-red-500/20 to-red-500/5 ring-1 ring-red-500/30 shadow-inner' 
+                                    : 'bg-gradient-to-br from-white/[0.08] to-white/[0.02] border border-white/[0.1]'
                                 )}>
                                   <span className={cn(
-                                    'text-xl font-bold leading-none',
+                                    'text-lg font-extrabold leading-none tracking-tight',
                                     isLow ? 'text-red-400' : 'text-white'
                                   )}>
                                     {formatNumber(item.stock)}
                                   </span>
                                   <span className={cn(
-                                    'text-[10px] font-medium mt-0.5',
-                                    isLow ? 'text-red-400/70' : 'text-slate-500'
+                                    'text-[9px] font-semibold uppercase tracking-widest mt-0.5',
+                                    isLow ? 'text-red-400/60' : 'text-slate-500'
                                   )}>
                                     {item.baseUnit}
                                   </span>
                                 </div>
                               </div>
                             </div>
-n                            {/* Stats Row - HPP & Total Value */}
-                            <div className="grid grid-cols-2 gap-2">
-                              <div className="rounded-lg bg-white/[0.03] border border-white/[0.04] px-2.5 py-2">
-                                <p className="text-[9px] text-slate-600 uppercase tracking-wider mb-0.5">HPP Satuan</p>
-                                <p className="text-xs text-slate-300 font-medium tabular-nums">{formatCurrency(item.avgCost)}<span className="text-slate-600">/{item.baseUnit}</span></p>
+                            
+                            {/* Stats Grid - 3 columns for compactness */}
+                            <div className="grid grid-cols-3 gap-1.5">
+                              {/* HPP Satuan */}
+                              <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] px-2 py-1.5 backdrop-blur-sm">
+                                <p className="text-[8px] text-slate-600 uppercase tracking-wider font-semibold mb-0.5 flex items-center gap-1">
+                                  <Coins className="h-2 w-2" />
+                                  HPP
+                                </p>
+                                <p className="text-[11px] text-slate-200 font-bold tabular-nums leading-tight">{formatCurrency(item.avgCost)}</p>
+                                <p className="text-[8px] text-slate-600">/{item.baseUnit}</p>
                               </div>
-                              <div className="rounded-lg bg-emerald-500/[0.05] border border-emerald-500/10 px-2.5 py-2">
-                                <p className="text-[9px] text-emerald-500/70 uppercase tracking-wider mb-0.5">Total Nilai</p>
-                                <p className="text-xs text-emerald-400 font-semibold tabular-nums">{formatCurrency(item.stock * item.avgCost)}</p>
+                              
+                              {/* Total Nilai */}
+                              <div className="rounded-xl bg-gradient-to-br from-emerald-500/10 to-emerald-500/5 border border-emerald-500/15 px-2 py-1.5 backdrop-blur-sm">
+                                <p className="text-[8px] text-emerald-400/70 uppercase tracking-wider font-semibold mb-0.5 flex items-center gap-1">
+                                  <TrendingUp className="h-2 w-2" />
+                                  Total
+                                </p>
+                                <p className="text-[11px] text-emerald-400 font-extrabold tabular-nums leading-tight">{formatCurrency(item.stock * item.avgCost)}</p>
                               </div>
+                              
+                              {/* Usage indicator or empty spacer */}
+                              {(item._count?.compositions ?? 0) > 0 ? (
+                                <div className="rounded-xl bg-violet-500/10 border border-violet-500/15 px-2 py-1.5 backdrop-blur-sm flex flex-col justify-center">
+                                  <p className="text-[8px] text-violet-400/70 uppercase tracking-wider font-semibold mb-0.5 flex items-center gap-1">
+                                    <Sparkles className="h-2 w-2" />
+                                    Pakai
+                                  </p>
+                                  <p className="text-[11px] text-violet-400 font-bold tabular-nums leading-tight">
+                                    {item._count?.compositions ?? 0} <span className="text-[8px] font-normal text-violet-400/60">produk</span>
+                                  </p>
+                                </div>
+                              ) : (
+                                <div className="rounded-xl bg-white/[0.02] border border-white/[0.04] px-2 py-1.5 flex items-center justify-center">
+                                  <Package className="h-3.5 w-3.5 text-slate-700" />
+                                </div>
+                              )}
                             </div>
-                            {/* Usage indicator */}
-                            {(item._count?.compositions ?? 0) > 0 && (
-                              <div className="flex items-center gap-1.5 text-[10px] text-violet-400">
-                                <Sparkles className="h-3 w-3" />
-                                <span>Dipakai di <strong>{item._count?.compositions ?? 0}</strong> produk</span>
-                              </div>
-                            )}
-n                            {/* Action Buttons */}
-                            <div className="flex items-center gap-1.5 pt-2 border-t border-white/[0.04]">
-                              <Button
-                                size="sm"
-                                className="flex-1 h-8 text-[11px] gap-1.5 text-slate-400 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors"
+                            
+                            {/* Action Buttons - Modern pill style with touch-friendly sizing */}
+                            <div className="flex items-center gap-1.5 pt-2 border-t border-white/[0.05]">
+                              <button
                                 onClick={() => openInvDetail(item)}
+                                className="flex-1 h-9 min-h-[44px] inline-flex items-center justify-center gap-1.5 text-[11px] font-semibold text-slate-400 bg-white/[0.03] hover:bg-blue-500/10 hover:text-blue-400 rounded-xl transition-all duration-200 active:scale-[0.98] border border-transparent hover:border-blue-500/20"
                               >
                                 <Eye className="h-3.5 w-3.5" />
                                 Detail
-                              </Button>
-                              <Button
-                                size="sm"
-                                className="h-8 w-8 p-0 text-slate-400 hover:text-amber-400 hover:bg-amber-500/10 rounded-lg transition-colors"
+                              </button>
+                              <button
                                 onClick={() => openInvForm(item)}
+                                className="h-9 w-9 min-h-[44px] min-w-[44px] inline-flex items-center justify-center text-slate-400 bg-white/[0.03] hover:bg-amber-500/10 hover:text-amber-400 rounded-xl transition-all duration-200 active:scale-[0.95] border border-transparent hover:border-amber-500/20"
                                 title="Edit"
                               >
-                                <Pencil className="h-3.5 w-3.5" />
-                              </Button>
-                              <Button
-                                size="sm"
-                                className={cn(
-                                  'h-8 w-8 p-0 rounded-lg transition-colors',
-                                  isArchived
-                                    ? 'text-amber-400 hover:text-amber-300 hover:bg-amber-500/10'
-                                    : 'text-slate-400 hover:text-red-400 hover:bg-red-500/10',
-                                )}
+                                <Pencil className="h-4 w-4" />
+                              </button>
+                              <button
                                 onClick={() => {
                                   if (isArchived) {
                                     handleRestoreInv(item.id)
@@ -4101,17 +4244,23 @@ n                            {/* Action Buttons */}
                                     void openDeleteInvDialog(item.id)
                                   }
                                 }}
+                                className={cn(
+                                  'h-9 w-9 min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-xl transition-all duration-200 active:scale-[0.95] border border-transparent',
+                                  isArchived
+                                    ? 'text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 hover:text-amber-300 hover:border-amber-500/30'
+                                    : 'text-slate-400 bg-white/[0.03] hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/20',
+                                )}
                                 title={isArchived ? 'Aktifkan kembali' : 'Arsipkan'}
                               >
                                 {isArchived ? (
-                                  <RotateCcw className="h-3.5 w-3.5" />
+                                  <RotateCcw className="h-4 w-4" />
                                 ) : (
-                                  <Trash2 className="h-3.5 w-3.5" />
+                                  <Trash2 className="h-4 w-4" />
                                 )}
-                              </Button>
+                              </button>
                             </div>
-                          </CardContent>
-                        </Card>
+                          </div>
+                        </div>
                       </motion.div>
                     )
                   })}
@@ -5934,83 +6083,270 @@ n                            {/* Action Buttons */}
       {/* CATEGORY DIALOGS                                               */}
       {/* ══════════════════════════════════════════════════════════ */}
 
-      {/* Category Management Dialog */}
+      {/* Category Management Dialog - Redesigned */}
       <ResponsiveDialog open={categoryDialogOpen} onOpenChange={setCategoryDialogOpen}>
         <ResponsiveDialogContent className="sm:max-w-lg">
-          <ResponsiveDialogHeader>
-            <ResponsiveDialogTitle className="text-white text-base">Kelola Kategori</ResponsiveDialogTitle>
-            <ResponsiveDialogDescription className="text-slate-400 text-xs">
-              Kategori untuk mengelompokkan item inventory
-            </ResponsiveDialogDescription>
-          </ResponsiveDialogHeader>
-          <div className="space-y-3 mt-2">
-            {/* Add form */}
-            <div className="flex items-center gap-2">
-              <Input
-                value={catFormName}
-                onChange={(e) => setCatFormName(e.target.value)}
-                placeholder="Nama kategori baru"
-                className={cn(inputClass, 'flex-1')}
-                onKeyDown={(e) => { if (e.key === 'Enter') handleCategorySubmit() }}
-              />
-              <Select value={catFormColor} onValueChange={setCatFormColor}>
-                <SelectTrigger className={cn(inputClass, 'w-20')}>
-                  <div className="flex items-center gap-1.5">
-                    <span className={cn('w-2.5 h-2.5 rounded-full', getCategoryColorClasses(catFormColor).dot)} />
-                    <span className="text-[10px] text-slate-400">{catFormColor}</span>
+          {/* Enhanced Header with gradient accent */}
+          <div className="relative overflow-hidden rounded-t-lg">
+            <div className="absolute inset-0 bg-gradient-to-r from-violet-500/10 via-emerald-500/10 to-cyan-500/10" />
+            <div className="relative px-6 pt-5 pb-3">
+              <ResponsiveDialogHeader className="text-left border-none pb-0">
+                <ResponsiveDialogTitle className="text-white text-base flex items-center gap-2.5">
+                  <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500/20 to-emerald-500/20 border border-white/[0.08]">
+                    <Tags className="h-4 w-4 text-emerald-400" />
                   </div>
-                </SelectTrigger>
-                <SelectContent className="bg-nebula border-white/[0.06]">
-                  {CATEGORY_COLORS.map((c) => (
-                    <SelectItem key={c} value={c} className="text-slate-200 text-xs">
-                      <div className="flex items-center gap-2">
-                        <span className={cn('w-2.5 h-2.5 rounded-full', getCategoryColorClasses(c).dot)} />
-                        {c}
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button
-                size="sm"
-                className="h-9 px-3 theme-bg theme-hover text-white text-xs shrink-0"
-                disabled={catFormLoading}
-                onClick={handleCategorySubmit}
-              >
-                {catFormLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-              </Button>
+                  Kelola Kategori
+                </ResponsiveDialogTitle>
+                <ResponsiveDialogDescription className="text-slate-400 text-xs mt-1">
+                  Kategori untuk mengelompokkan item inventory
+                </ResponsiveDialogDescription>
+              </ResponsiveDialogHeader>
             </div>
+          </div>
 
-            {/* Category list */}
-            {categories.length === 0 ? (
-              <div className="py-8 text-center">
-                <Tags className="h-6 w-6 text-slate-600 mx-auto mb-1.5" />
-                <p className="text-xs text-slate-500">Belum ada kategori</p>
+          <div className="space-y-4 mt-3 px-1">
+            {/* Add/Edit Form - Modern Design */}
+            {editingCatId ? (
+              /* Edit Mode Form */
+              <div className="p-3.5 rounded-xl bg-gradient-to-br from-amber-500/[0.06] to-orange-500/[0.04] border border-amber-500/15 space-y-3">
+                <div className="flex items-center gap-2 text-[11px] text-amber-400 font-medium uppercase tracking-wider">
+                  <Pencil className="h-3 w-3" />
+                  Mode Edit Kategori
+                </div>
+                <Input
+                  value={catFormName}
+                  onChange={(e) => setCatFormName(e.target.value)}
+                  placeholder="Nama kategori"
+                  className={cn(inputClass, 'w-full')}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleEditCategorySave() }}
+                  autoFocus
+                />
+                {/* Color Picker Grid for Edit */}
+                <div className="space-y-1.5">
+                  <p className="text-[10px] text-slate-500 font-medium">Pilih Warna</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {CATEGORY_COLORS.map((color) => (
+                      <button
+                        key={color}
+                        type="button"
+                        onClick={() => setCatFormColor(color)}
+                        className={cn(
+                          'w-7 h-7 rounded-full transition-all duration-150 ring-offset-2 ring-offset-nebula',
+                          getCategoryColorClasses(color).dot,
+                          catFormColor === color 
+                            ? 'ring-2 ring-white scale-110 shadow-lg' 
+                            : 'hover:scale-105 opacity-70 hover:opacity-100'
+                        )}
+                        title={color}
+                      />
+                    ))}
+                  </div>
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex-1 h-9 text-xs border-white/[0.08] text-slate-300 hover:bg-white/[0.04]"
+                    onClick={cancelEditCategory}
+                  >
+                    Batal
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="flex-1 h-9 bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/20 text-xs"
+                    disabled={catFormLoading}
+                    onClick={handleEditCategorySave}
+                  >
+                    {catFormLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Simpan'}
+                  </Button>
+                </div>
               </div>
             ) : (
-              <div className="space-y-1.5 max-h-[250px] overflow-y-auto">
-                {categories.map((c) => {
-                  const cc = getCategoryColorClasses(c.color)
-                  return (
-                    <div key={c.id} className="flex items-center gap-3 p-2.5 rounded-lg bg-white/[0.02] border border-white/[0.04]">
-                      <span className={cn('w-3 h-3 rounded-full shrink-0', cc.dot)} />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs text-slate-200 font-medium truncate">{c.name}</p>
-                        {c._count && c._count.items > 0 && (
-                          <p className="text-[10px] text-slate-500">{c._count.items} item</p>
-                        )}
+              /* Add Mode Form */
+              <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.05] space-y-3">
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={catFormName}
+                    onChange={(e) => setCatFormName(e.target.value)}
+                    placeholder="Nama kategori baru..."
+                    className={cn(inputClass, 'flex-1')}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleCategorySubmit() }}
+                  />
+                  {/* Color Picker - Visual Circle Grid */}
+                  <div className="relative group">
+                    <button
+                      type="button"
+                      className={cn(
+                        'w-9 h-9 rounded-lg border border-white/[0.08] flex items-center justify-center transition-colors hover:border-white/[0.15]',
+                        'bg-white/[0.03]'
+                      )}
+                    >
+                      <span className={cn('w-4 h-4 rounded-full', getCategoryColorClasses(catFormColor).dot)} />
+                    </button>
+                    {/* Color Dropdown Popover */}
+                    <div className="absolute right-0 top-full mt-2 p-2.5 rounded-xl bg-nebula border border-white/[0.08] shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 min-w-[180px]">
+                      <p className="text-[10px] text-slate-500 font-medium mb-2">Pilih Warna</p>
+                      <div className="grid grid-cols-6 gap-1.5">
+                        {CATEGORY_COLORS.map((color) => (
+                          <button
+                            key={color}
+                            type="button"
+                            onClick={() => setCatFormColor(color)}
+                            className={cn(
+                              'w-6 h-6 rounded-full transition-all duration-150',
+                              getCategoryColorClasses(color).dot,
+                              catFormColor === color 
+                                ? 'ring-2 ring-white ring-offset-1 ring-offset-nebula scale-110' 
+                                : 'hover:scale-105 opacity-60 hover:opacity-100'
+                            )}
+                            title={color}
+                          />
+                        ))}
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2 text-red-400 hover:text-red-300 hover:bg-red-500/[0.06] shrink-0"
-                        onClick={() => setDeleteCatId(c.id)}
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
                     </div>
-                  )
-                })}
+                  </div>
+                  <Button
+                    size="sm"
+                    className="h-9 px-3 theme-bg theme-hover text-white text-xs shrink-0"
+                    disabled={catFormLoading || !catFormName.trim()}
+                    onClick={handleCategorySubmit}
+                  >
+                    {catFormLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Category List Section */}
+            {categories.length === 0 ? (
+              <div className="py-12 text-center rounded-xl border border-dashed border-white/[0.06] bg-white/[0.01]">
+                <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-white/[0.03] mb-3">
+                  <Tags className="h-5 w-5 text-slate-600" />
+                </div>
+                <p className="text-sm text-slate-500 font-medium mb-0.5">Belum ada kategori</p>
+                <p className="text-xs text-slate-600">Tambahkan kategori pertama Anda</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {/* Bulk Actions Header */}
+                <div className="flex items-center justify-between px-1">
+                  <label className="flex items-center gap-2 cursor-pointer select-none group">
+                    <Checkbox
+                      checked={categories.length > 0 && selectedCatIds.size === categories.length}
+                      onCheckedChange={toggleSelectAllCats}
+                      className="data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500 h-4 w-4"
+                    />
+                    <span className="text-xs text-slate-400 group-hover:text-slate-300 transition-colors">
+                      {selectedCatIds.size === categories.length ? 'Deselect Semua' : 'Select All'}
+                    </span>
+                  </label>
+                  {selectedCatIds.size > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2.5 text-red-400 hover:text-red-300 hover:bg-red-500/[0.08] text-xs gap-1.5"
+                      onClick={() => setBulkDeleteCatsOpen(true)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Hapus ({selectedCatIds.size})
+                    </Button>
+                  )}
+                </div>
+
+                {/* Category Cards List */}
+                <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1 scrollbar-thin">
+                  {categories.map((c) => {
+                    const cc = getCategoryColorClasses(c.color)
+                    const isSelected = selectedCatIds.has(c.id)
+                    const isEditing = editingCatId === c.id
+                    
+                    return (
+                      <motion.div
+                        key={c.id}
+                        initial={{ opacity: 0, y: 4 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.15 }}
+                        className={cn(
+                          'group relative flex items-center gap-3 p-3 rounded-xl transition-all duration-200',
+                          'border backdrop-blur-sm',
+                          isSelected 
+                            ? 'bg-red-500/[0.06] border-red-500/20' 
+                            : 'bg-white/[0.02] border-white/[0.05] hover:bg-white/[0.04] hover:border-white/[0.08]',
+                          isEditing && 'ring-1 ring-amber-500/30'
+                        )}
+                      >
+                        {/* Selection Checkbox */}
+                        <Checkbox
+                          checked={isSelected}
+                          onCheckedChange={() => toggleCatSelection(c.id)}
+                          className={cn(
+                            'shrink-0 h-4 w-4 transition-colors',
+                            isSelected 
+                              ? 'data-[state=checked]:bg-red-500 data-[state=checked]:border-red-500' 
+                              : 'data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500 opacity-0 group-hover:opacity-100'
+                          )}
+                        />
+
+                        {/* Color Dot + Info */}
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <span className={cn(
+                            'w-3.5 h-3.5 rounded-full shrink-0 ring-2 ring-offset-1 ring-offset-nebula/50',
+                            cc.dot,
+                            cc.dot.replace('bg-', 'ring-')
+                          )} />
+                          <div className="min-w-0 flex-1">
+                            <p className={cn(
+                              'text-sm font-medium truncate transition-colors',
+                              isSelected ? 'text-slate-200' : 'text-slate-300 group-hover:text-slate-200'
+                            )}>
+                              {c.name}
+                            </p>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              {c._count && c._count.items > 0 && (
+                                <>
+                                  <span className="text-[11px] text-slate-500">{c._count.items} item</span>
+                                  <span className="w-1 h-1 rounded-full bg-slate-700" />
+                                </>
+                              )}
+                              <span className={cn('text-[11px]', cc.text)}>{c.color}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                          {!isEditing && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-8 p-0 text-slate-400 hover:text-amber-400 hover:bg-amber-500/[0.08]"
+                              onClick={() => startEditCategory(c)}
+                              title="Edit kategori"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0 text-slate-400 hover:text-red-400 hover:bg-red-500/[0.08]"
+                            onClick={() => setDeleteCatId(c.id)}
+                            title="Hapus kategori"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </motion.div>
+                    )
+                  })}
+                </div>
+
+                {/* Footer Stats */}
+                <div className="flex items-center justify-between px-1 pt-1">
+                  <p className="text-[11px] text-slate-600">
+                    {categories.length} kategori{selectedCatIds.size > 0 && ` • ${selectedCatIds.size} dipilih`}
+                  </p>
+                </div>
               </div>
             )}
           </div>
@@ -6034,6 +6370,59 @@ n                            {/* Action Buttons */}
               disabled={deletingCat}
             >
               {deletingCat ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Hapus'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Delete Categories Confirmation */}
+      <AlertDialog open={bulkDeleteCatsOpen} onOpenChange={(open) => { if (!open) setBulkDeleteCatsOpen(false) }}>
+        <AlertDialogContent className="bg-nebula border-white/[0.06]">
+          <AlertDialogHeader>
+            <div className="flex items-center gap-3 mb-2">
+              <div className="flex items-center justify-center w-10 h-10 rounded-full bg-red-500/10">
+                <Trash2 className="h-5 w-5 text-red-400" />
+              </div>
+              <div>
+                <AlertDialogTitle className="text-white">Hapus {selectedCatIds.size} Kategori?</AlertDialogTitle>
+              </div>
+            </div>
+            <AlertDialogDescription className="text-slate-400 text-sm leading-relaxed">
+              <span className="text-red-400 font-medium">{selectedCatIds.size} kategori</span> yang dipilih akan dihapus permanen.
+              Item dalam kategori ini akan menjadi tanpa kategori.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {/* Preview of categories to delete */}
+          <div className="py-2 px-3 rounded-lg bg-white/[0.02] border border-white/[0.05] max-h-[120px] overflow-y-auto">
+            <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wider mb-2">Kategori yang akan dihapus:</p>
+            <div className="flex flex-wrap gap-1.5">
+              {Array.from(selectedCatIds).map(id => {
+                const cat = categories.find(c => c.id === id)
+                if (!cat) return null
+                const cc = getCategoryColorClasses(cat.color)
+                return (
+                  <span key={id} className={cn('inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full', cc.bg, cc.text)}>
+                    <span className={cn('w-2 h-2 rounded-full', cc.dot)} />
+                    {cat.name}
+                  </span>
+                )
+              })}
+            </div>
+          </div>
+          <AlertDialogFooter className="gap-2 pt-3">
+            <AlertDialogCancel className="text-slate-400 hover:text-white hover:bg-white/[0.04]" disabled={bulkDeletingCats}>
+              Batal
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-500/15 text-red-400 hover:bg-red-500/25 border border-red-500/20"
+              onClick={handleBulkDeleteCategories}
+              disabled={bulkDeletingCats}
+            >
+              {bulkDeletingCats ? (
+                <><Loader2 className="h-4 w-4 animate-spin mr-1" />Menghapus...</>
+              ) : (
+                <><Trash2 className="h-3.5 w-3.5 inline mr-1" />Hapus {selectedCatIds.size} Kategori</>
+              )}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
