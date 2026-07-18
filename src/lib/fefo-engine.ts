@@ -817,13 +817,25 @@ export class FEFOEngine {
   } | null> {
     const { batchNumber, outletId } = params
 
-    const batch = await tx.inventoryBatch.findFirst({
-      where: { batchNumber: { equals: batchNumber, mode: 'insensitive' }, outletId, status: 'AVAILABLE' },
+    // SQLite-compatible case-insensitive duplicate check.
+    // `mode: 'insensitive'` is PostgreSQL-only and throws on SQLite, so we
+    // fetch candidates with `contains` (case-insensitive LIKE in SQLite) and
+    // then pick the exact case-insensitive match in JS.
+    const candidates = await tx.inventoryBatch.findMany({
+      where: {
+        batchNumber: { contains: batchNumber },
+        outletId,
+        status: 'AVAILABLE',
+      },
       include: {
         inventoryItem: { select: { name: true } },
         purchaseOrder: { select: { orderNumber: true } },
       },
+      take: 50,
     })
+
+    const lowered = batchNumber.toLowerCase()
+    const batch = candidates.find(b => b.batchNumber.toLowerCase() === lowered)
 
     if (!batch) return null
 
@@ -1196,16 +1208,31 @@ export class FEFOEngine {
   } | null> {
     const { batchNumber, outletId } = params
 
-    // MED-09 FIX: Case-insensitive batch search
-    const batch = await tx.inventoryBatch.findFirst({
-      where: { batchNumber: { equals: batchNumber, mode: 'insensitive' }, outletId },
+    // SQLite-compatible case-insensitive batch search.
+    // SQLite's `contains` (→ LIKE) is case-insensitive for ASCII, so we use it
+    // for a flexible partial match. This also lets users search by partial
+    // batch numbers (e.g. "B2025" matches "B2025-001").
+    // We prefer an exact case-insensitive match first, then fall back to a
+    // partial (contains) match for flexibility.
+    const candidates = await tx.inventoryBatch.findMany({
+      where: {
+        OR: [
+          { batchNumber: { contains: batchNumber } },
+        ],
+        outletId,
+      },
       include: {
         inventoryItem: { select: { name: true, baseUnit: true } },
         purchaseOrder: {
           select: { id: true, orderNumber: true, createdAt: true, totalCost: true },
         },
       },
+      take: 50,
     })
+
+    // Prefer exact case-insensitive match; otherwise use the first partial match.
+    const lowered = batchNumber.toLowerCase()
+    const batch = candidates.find(b => b.batchNumber.toLowerCase() === lowered) || candidates[0]
 
     if (!batch) return null
 

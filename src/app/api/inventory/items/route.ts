@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
+import { buildFlexibleSearch } from '@/lib/api/api-helpers'
 import { safeJson, safeJsonCreated, safeJsonError } from '@/lib/api/safe-response'
 
 // GET /api/inventory/items — list inventory items for outlet
@@ -21,12 +22,14 @@ export async function GET(request: NextRequest) {
     }
 
     if (search) {
-      where.OR = [
-        { name: { contains: search } },
-        { sku: { contains: search } },
-        { baseUnit: { contains: search } },
-        { category: { name: { contains: search } } },
-      ]
+      // Flexible, case-insensitive, token-aware search.
+      const searchClause = buildFlexibleSearch(search, (q) => [
+        { name: { contains: q } },
+        { sku: { contains: q } },
+        { baseUnit: { contains: q } },
+        { category: { name: { contains: q } } },
+      ])
+      Object.assign(where, searchClause)
     }
     if (categoryId) {
       where.categoryId = categoryId

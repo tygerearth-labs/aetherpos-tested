@@ -311,6 +311,76 @@ export function parseVoidDetails(
 }
 
 // ============================================================
+// Flexible Search Builder
+// ============================================================
+
+/**
+ * Tokenize a raw search string into normalized tokens.
+ * Splits on any whitespace, trims, lowercases for fallback matching,
+ * and removes empty entries. Also strips zero-width chars.
+ *
+ * Examples:
+ *   "Anti Septic"      → ["anti", "septic"]
+ *   "  anti   septic " → ["anti", "septic"]
+ *   "anti-septic"      → ["anti-septic"]
+ */
+export function tokenizeSearch(search: string): string[] {
+  if (!search) return []
+  return search
+    .replace(/[\u200B-\u200D\uFEFF]/g, '') // strip zero-width chars
+    .trim()
+    .split(/\s+/)
+    .filter((t) => t.length > 0)
+}
+
+/**
+ * Build a flexible, case-insensitive, token-aware Prisma `where` clause
+ * for full-text-ish search across multiple fields.
+ *
+ * Behavior:
+ *   - Splits the search query into whitespace-separated tokens.
+ *   - Each token must match in AT LEAST ONE of the provided field matchers
+ *     (AND across tokens, OR within fields). This makes search:
+ *       ✅ Case-insensitive  (SQLite `contains` → LIKE, case-insensitive for ASCII)
+ *       ✅ Order-independent ("septic anti" still matches "Anti Septic")
+ *       ✅ Space-tolerant    (extra spaces / different spacing still match)
+ *   - `fieldMatchers` is a function that receives a single token string and
+ *     returns an array of Prisma where-conditions (the OR set for that token).
+ *
+ * Returns either:
+ *   - An empty object `{}` if there is nothing to search (caller should not set OR/AND), or
+ *   - `{ OR: [...] }` for a single token, or
+ *   - `{ AND: [ {OR:[...]}, {OR:[...]} ] }` for multiple tokens.
+ *
+ * The returned object is meant to be merged into the route's `where` clause.
+ *
+ * @example
+ *   const searchClause = buildFlexibleSearch(search, (q) => [
+ *     { name: { contains: q } },
+ *     { sku: { contains: q } },
+ *     { barcode: { contains: q } },
+ *   ])
+ *   if (search) Object.assign(where, searchClause)
+ */
+export function buildFlexibleSearch(
+  search: string,
+  fieldMatchers: (token: string) => Record<string, unknown>[],
+): Record<string, unknown> {
+  const tokens = tokenizeSearch(search)
+  if (tokens.length === 0) return {}
+
+  // Single token: simple OR across fields (preserves original shape)
+  if (tokens.length === 1) {
+    return { OR: fieldMatchers(tokens[0]) }
+  }
+
+  // Multiple tokens: every token must match in at least one field
+  return {
+    AND: tokens.map((token) => ({ OR: fieldMatchers(token) })),
+  }
+}
+
+// ============================================================
 // Void Map Builder
 // ============================================================
 

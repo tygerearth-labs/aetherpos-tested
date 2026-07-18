@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
-import { parsePagination, resolvePlanType } from '@/lib/api/api-helpers'
+import { parsePagination, resolvePlanType, buildFlexibleSearch } from '@/lib/api/api-helpers'
 import { getPlanFeatures, isUnlimited } from '@/lib/config/plan-config'
 import { safeJson, safeJsonCreated, safeJsonError, CACHE } from '@/lib/api/safe-response'
 import { generateUniqueSKU, generateVariantSKU } from '@/lib/sku-generator'
@@ -32,16 +32,19 @@ export async function GET(request: NextRequest) {
 
     const where: Record<string, unknown> = { outletId }
     if (search) {
-      where.OR = [
-        { name: { contains: search } },
-        { sku: { contains: search } },
-        { barcode: { contains: search } },
-        { unit: { contains: search } },
-        { category: { name: { contains: search } } },
-        { variants: { some: { name: { contains: search } } } },
-        { variants: { some: { sku: { contains: search } } } },
-        { variants: { some: { barcode: { contains: search } } } },
-      ]
+      // Flexible, case-insensitive, token-aware search.
+      // "anti septic" matches "Anti Septic" (case + spacing + word order tolerant).
+      const searchClause = buildFlexibleSearch(search, (q) => [
+        { name: { contains: q } },
+        { sku: { contains: q } },
+        { barcode: { contains: q } },
+        { unit: { contains: q } },
+        { category: { name: { contains: q } } },
+        { variants: { some: { name: { contains: q } } } },
+        { variants: { some: { sku: { contains: q } } } },
+        { variants: { some: { barcode: { contains: q } } } },
+      ])
+      Object.assign(where, searchClause)
     }
     if (categoryId) {
       where.categoryId = categoryId

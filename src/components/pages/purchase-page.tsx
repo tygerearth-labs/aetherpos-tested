@@ -7800,6 +7800,33 @@ export default function PurchasePage() {
                   <span className="text-[11px] text-slate-500">Low Stock Alert</span>
                   <span className="text-xs text-slate-200">{formatNumber(invDetailData.lowStockAlert)} {invDetailData.baseUnit}</span>
                 </div>
+                {/* Batch summary — surfaced from the detail payload so users can
+                    see per-batch stock at a glance without opening the Batch tab. */}
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-slate-500">Batch Tersedia</span>
+                  <span className="text-xs text-slate-200">
+                    {invDetailData.batchSummary?.availableBatches ?? invDetailData._count?.batches ?? 0} batch
+                    {(invDetailData.batchSummary?.totalRemainingQty ?? 0) > 0 && (
+                      <span className="text-slate-500"> · {formatNumber(invDetailData.batchSummary.totalRemainingQty)} {invDetailData.baseUnit}</span>
+                    )}
+                  </span>
+                </div>
+                {invDetailData.batchSummary?.nearestExpiryDate && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] text-slate-500">Expired Terdekat</span>
+                    {(() => {
+                      const expDate = new Date(invDetailData.batchSummary.nearestExpiryDate!)
+                      const daysLeft = Math.ceil((expDate.getTime() - Date.now()) / (24 * 60 * 60 * 1000))
+                      const expColor = daysLeft < 0 ? 'text-red-400' : daysLeft < 7 ? 'text-amber-400' : daysLeft < 30 ? 'text-amber-300' : 'text-emerald-400'
+                      return (
+                        <span className={cn('text-xs font-medium', expColor)}>
+                          {expDate.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}
+                          <span className="text-slate-500"> ({daysLeft < 0 ? `${Math.abs(daysLeft)}h lalu` : `${daysLeft}h lagi`})</span>
+                        </span>
+                      )
+                    })()}
+                  </div>
+                )}
               </div>
 
               {/* Tabs: Produk Terkait, Stok/Movement, Batch */}
@@ -7827,7 +7854,7 @@ export default function PurchasePage() {
                       </TabsTrigger>
                       <TabsTrigger value="batch" className="text-[10px] h-7 gap-1 data-[state=active]:bg-white/[0.08] text-slate-400 data-[state=active]:text-white">
                         <Hash className="h-3 w-3" />
-                        Batch
+                        Batch ({invDetailData._count?.batches ?? 0})
                       </TabsTrigger>
                     </TabsList>
                   )

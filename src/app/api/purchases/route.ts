@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
-import { parsePagination } from '@/lib/api/api-helpers'
+import { parsePagination, buildFlexibleSearch } from '@/lib/api/api-helpers'
 import { safeJson, safeJsonCreated, safeJsonError, CACHE } from '@/lib/api/safe-response'
 
 // Helper: recalculate HPP for products that use these inventory items
@@ -76,14 +76,18 @@ export async function GET(request: NextRequest) {
     const where: Record<string, unknown> = { outletId: user.outletId }
 
     if (search) {
-      where.OR = [
-        { orderNumber: { contains: search } },
-        { supplier: { name: { contains: search } } },
-        { notes: { contains: search } },
-        { items: { some: { inventoryItem: { name: { contains: search } } } } },
-        { items: { some: { inventoryItem: { sku: { contains: search } } } } },
-        { createdBy: { name: { contains: search } } },
-      ]
+      // Flexible, case-insensitive, token-aware search across PO number,
+      // supplier name, notes, item name/sku, and creator name.
+      const searchClause = buildFlexibleSearch(search, (q) => [
+        { orderNumber: { contains: q } },
+        { supplier: { name: { contains: q } } },
+        { notes: { contains: q } },
+        { items: { some: { inventoryItem: { name: { contains: q } } } } },
+        { items: { some: { inventoryItem: { sku: { contains: q } } } } },
+        { items: { some: { batch: { contains: q } } } },
+        { createdBy: { name: { contains: q } } },
+      ])
+      Object.assign(where, searchClause)
     }
 
     const [orders, total, linkedPoItems, usageCheckItems, transferLinkedPoItems, transactionLinkedPoItems] = await Promise.all([

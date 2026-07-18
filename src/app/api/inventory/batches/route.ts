@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
-import { parsePagination } from '@/lib/api/api-helpers'
+import { parsePagination, buildFlexibleSearch } from '@/lib/api/api-helpers'
 import { safeJson, safeJsonError, CACHE } from '@/lib/api/safe-response'
 import { FEFOEngine } from '@/lib/fefo-engine'
 
@@ -175,6 +175,7 @@ async function handlePaginatedList(outletId: string, searchParams: URLSearchPara
   const { page, limit, skip } = parsePagination(searchParams, { limit: 20 })
   const statusFilter = searchParams.get('status')
   const inventoryItemId = searchParams.get('inventoryItemId')
+  const search = searchParams.get('search') || ''
 
   const where: Record<string, unknown> = { outletId }
 
@@ -183,6 +184,18 @@ async function handlePaginatedList(outletId: string, searchParams: URLSearchPara
   }
   if (inventoryItemId) {
     where.inventoryItemId = inventoryItemId
+  }
+  if (search) {
+    // Flexible, case-insensitive, token-aware batch search across batch number,
+    // inventory item name/sku, supplier name, and PO order number.
+    const searchClause = buildFlexibleSearch(search, (q) => [
+      { batchNumber: { contains: q } },
+      { inventoryItem: { name: { contains: q } } },
+      { inventoryItem: { sku: { contains: q } } },
+      { supplierName: { contains: q } },
+      { purchaseOrder: { orderNumber: { contains: q } } },
+    ])
+    Object.assign(where, searchClause)
   }
 
   const [batches, total] = await Promise.all([

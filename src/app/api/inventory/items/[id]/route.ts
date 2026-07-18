@@ -22,12 +22,50 @@ export async function GET(
       where: { id, outletId: user.outletId },
       include: {
         category: { select: { id: true, name: true, color: true } },
-        _count: { select: { compositions: true, purchaseItems: true, movements: true, inventoryTransferItems: true, consumptionSnapshots: true } },
+        _count: { select: { compositions: true, purchaseItems: true, movements: true, inventoryTransferItems: true, consumptionSnapshots: true, batches: true } },
       },
     })
 
     if (!item) {
       return safeJsonError('Inventory item not found', 404)
+    }
+
+    // Fetch batch summary for this item (count + total remaining qty + nearest expiry).
+    // Surfaced in the detail payload so the UI can show a batch count badge and
+    // give immediate visibility into per-batch stock without a separate request.
+    let batchSummary: {
+      totalBatches: number
+      availableBatches: number
+      totalRemainingQty: number
+      nearestExpiryDate: string | null
+    } = {
+      totalBatches: 0,
+      availableBatches: 0,
+      totalRemainingQty: 0,
+      nearestExpiryDate: null,
+    }
+
+    try {
+      const batches = await db.inventoryBatch.findMany({
+        where: { inventoryItemId: id, outletId: user.outletId },
+        select: { status: true, remainingQty: true, expiredDate: true },
+        orderBy: { expiredDate: 'asc' },
+      })
+      const now = new Date()
+      const available = batches.filter(b => b.status === 'AVAILABLE')
+      const futureExpiry = available
+        .map(b => b.expiredDate)
+        .filter((d): d is Date => !!d && d.getTime() > now.getTime())
+        .sort((a, b) => a.getTime() - b.getTime())
+
+      batchSummary = {
+        totalBatches: batches.length,
+        availableBatches: available.length,
+        totalRemainingQty: available.reduce((sum, b) => sum + (b.remainingQty || 0), 0),
+        nearestExpiryDate: futureExpiry[0] ? futureExpiry[0].toISOString() : null,
+      }
+    } catch (batchErr) {
+      console.warn('[InventoryItem GET] Failed to fetch batch summary:', batchErr)
     }
 
     // Fetch linked products (products that use this inventory item in composition)
@@ -132,6 +170,7 @@ export async function GET(
     return safeJson({
       ...item,
       linkedProducts,
+      batchSummary,
       movements: formattedMovements,
       movementPagination: {
         page,

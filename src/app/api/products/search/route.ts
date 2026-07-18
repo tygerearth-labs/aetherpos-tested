@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
+import { buildFlexibleSearch } from '@/lib/api/api-helpers'
 import { safeJson, safeJsonError, CACHE } from '@/lib/api/safe-response'
 
 /**
@@ -24,16 +25,18 @@ export async function GET(request: NextRequest) {
     // Build where clause
     const where: Record<string, unknown> = { outletId: user.outletId }
     if (q) {
-      where.OR = [
-        { name: { contains: q } },
-        { sku: { contains: q } },
-        { barcode: { contains: q } },
-        { unit: { contains: q } },
-        { category: { name: { contains: q } } },
-        { variants: { some: { name: { contains: q } } } },
-        { variants: { some: { sku: { contains: q } } } },
-        { variants: { some: { barcode: { contains: q } } } },
-      ]
+      // Flexible, case-insensitive, token-aware search.
+      const searchClause = buildFlexibleSearch(q, (token) => [
+        { name: { contains: token } },
+        { sku: { contains: token } },
+        { barcode: { contains: token } },
+        { unit: { contains: token } },
+        { category: { name: { contains: token } } },
+        { variants: { some: { name: { contains: token } } } },
+        { variants: { some: { sku: { contains: token } } } },
+        { variants: { some: { barcode: { contains: token } } } },
+      ])
+      Object.assign(where, searchClause)
     }
 
     // Try full query first (with hpp, barcode, hasVariants, variants)
@@ -78,10 +81,10 @@ export async function GET(request: NextRequest) {
         // Build minimal where without barcode (in case it doesn't exist)
         const minWhere: Record<string, unknown> = { outletId: user.outletId }
         if (q) {
-          minWhere.OR = [
-            { name: { contains: q } },
-            { sku: { contains: q } },
-          ]
+          Object.assign(minWhere, buildFlexibleSearch(q, (token) => [
+            { name: { contains: token } },
+            { sku: { contains: token } },
+          ]))
         }
 
         const minProducts = await db.product.findMany({
