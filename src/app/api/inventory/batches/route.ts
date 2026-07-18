@@ -167,7 +167,12 @@ async function handleCheckDuplicate(outletId: string, searchParams: URLSearchPar
     })
   })
 
-  return safeJson({ duplicate: result })
+  // Return shape matches the UI's DuplicateWarning interface:
+  // { warning: boolean, duplicate: {...} | null }
+  return safeJson({
+    warning: !!result,
+    duplicate: result,
+  })
 }
 
 // ── Paginated List of All Batches ──

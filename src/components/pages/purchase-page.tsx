@@ -2577,7 +2577,9 @@ export default function PurchasePage() {
       const res = await fetch(`/api/inventory/batches?type=timeline&inventoryItemId=${inventoryItemId}`)
       if (res.ok) {
         const json = await res.json()
-        setBatchTimeline(json.data ?? [])
+        // API returns the array directly (not wrapped in {data:...}),
+        // so fall back to `json` itself when `json.data` is undefined.
+        setBatchTimeline(json.data ?? json ?? [])
       }
     } catch { /* ignore */ }
     finally { setBatchTimelineLoading(false) }
@@ -2593,7 +2595,9 @@ export default function PurchasePage() {
       const res = await fetch(`/api/inventory/batches?type=search&batchNumber=${encodeURIComponent(q)}`)
       if (res.ok) {
         const json = await res.json()
-        setBatchSearchResult(json.data ?? null)
+        // API returns the result object directly (not wrapped in {data:...}),
+        // so fall back to `json` itself when `json.data` is undefined.
+        setBatchSearchResult(json.data ?? json ?? null)
       } else {
         toast.error('Batch tidak ditemukan')
       }
@@ -2609,7 +2613,8 @@ export default function PurchasePage() {
       const res = await fetch(`/api/inventory/batches?type=waste-report&${params}`)
       if (res.ok) {
         const json = await res.json()
-        setWasteReportData(json.data ?? null)
+        // API returns the report object directly (not wrapped in {data:...}).
+        setWasteReportData(json.data ?? json ?? null)
       }
     } catch { /* ignore */ }
     finally { setWasteReportLoading(false) }
@@ -2629,7 +2634,8 @@ export default function PurchasePage() {
         const res = await fetch(`/api/inventory/batches?type=check-duplicate&batchNumber=${encodeURIComponent(batchNumber)}`)
         if (res.ok) {
           const json = await res.json()
-          setBatchWarnings(prev => ({ ...prev, [idx]: json.data }))
+          // API returns {warning, duplicate} directly (not wrapped in {data:...}).
+          setBatchWarnings(prev => ({ ...prev, [idx]: json.data ?? json }))
         }
       } catch { /* ignore */ }
     }, 500)
