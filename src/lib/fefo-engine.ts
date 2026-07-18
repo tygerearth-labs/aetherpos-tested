@@ -32,6 +32,7 @@
  */
 
 import { Prisma } from '@prisma/client'
+import { ciContains } from '@/lib/api/api-helpers'
 
 // ════════════════════════════════════════════════════════════
 // Types
@@ -818,13 +819,12 @@ export class FEFOEngine {
   } | null> {
     const { batchNumber, outletId } = params
 
-    // SQLite-compatible case-insensitive duplicate check.
-    // `mode: 'insensitive'` is PostgreSQL-only and throws on SQLite, so we
-    // fetch candidates with `contains` (case-insensitive LIKE in SQLite) and
-    // then pick the exact case-insensitive match in JS.
+    // Case-insensitive duplicate check that works in BOTH PostgreSQL and SQLite.
+    // - PostgreSQL: ciContains adds `mode: 'insensitive'`
+    // - SQLite:     `contains` is already case-insensitive for ASCII
     const candidates = await tx.inventoryBatch.findMany({
       where: {
-        batchNumber: { contains: batchNumber },
+        ...ciContains('batchNumber', batchNumber),
         outletId,
         status: 'AVAILABLE',
       },
@@ -1184,16 +1184,16 @@ export class FEFOEngine {
   } | null> {
     const { batchNumber, outletId } = params
 
-    // SQLite-compatible case-insensitive batch search.
-    // SQLite's `contains` (→ LIKE) is case-insensitive for ASCII, so we use it
-    // for a flexible partial match. This also lets users search by partial
-    // batch numbers (e.g. "B2025" matches "B2025-001").
+    // Case-insensitive batch search that works in BOTH PostgreSQL and SQLite.
+    // - PostgreSQL: ciContains adds `mode: 'insensitive'` (required for CI search)
+    // - SQLite:     `contains` is already case-insensitive for ASCII
+    //
     // We prefer an exact case-insensitive match first, then fall back to a
-    // partial (contains) match for flexibility.
+    // partial (contains) match for flexibility (e.g. "B2025" matches "B2025-001").
     const candidates = await tx.inventoryBatch.findMany({
       where: {
         OR: [
-          { batchNumber: { contains: batchNumber } },
+          ciContains('batchNumber', batchNumber),
         ],
         outletId,
       },

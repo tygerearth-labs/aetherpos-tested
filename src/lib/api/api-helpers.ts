@@ -11,6 +11,95 @@
 import { type PrismaClient } from '@prisma/client'
 
 // ============================================================
+// Datasource Provider Detection
+// ============================================================
+
+/**
+ * Detect the active Prisma datasource provider at module load time.
+ * - PostgreSQL → `mode: 'insensitive'` is REQUIRED for case-insensitive `contains`
+ * - SQLite     → `contains` is already case-insensitive for ASCII; `mode` is NOT supported
+ *
+ * The user's real deployment uses PostgreSQL (Neon), while our sandbox uses
+ * SQLite. Search helpers below automatically adapt so the SAME code works in
+ * both environments without per-route conditionals.
+ */
+const DATASOURCE_PROVIDER: 'postgresql' | 'sqlite' = (() => {
+  try {
+    const url = process.env.DATABASE_URL || ''
+    if (url.startsWith('postgres') || url.startsWith('postgresql://')) return 'postgresql'
+    return 'sqlite'
+  } catch {
+    return 'sqlite'
+  }
+})()
+
+/** True when the active database is PostgreSQL (requires explicit `mode: 'insensitive'`). */
+export const IS_POSTGRES = DATASOURCE_PROVIDER === 'postgresql'
+
+/**
+ * Build a case-insensitive `contains` clause for a single field.
+ * Automatically adapts to the active datasource:
+ *   - PostgreSQL: `{ field: { contains: value, mode: 'insensitive' } }`
+ *   - SQLite:     `{ field: { contains: value } }` (already case-insensitive)
+ *
+ * Use this directly in where-clauses that don't go through `buildFlexibleSearch`:
+ *   @example
+ *   const where = {
+ *     OR: [
+ *       ciContains('batchNumber', query),
+ *       ciContains('supplierName', query),
+ *     ],
+ *     outletId,
+ *   }
+ */
+export function ciContains(field: string, value: string): Record<string, unknown> {
+  if (IS_POSTGRES) {
+    return { [field]: { contains: value, mode: 'insensitive' as const } }
+  }
+  return { [field]: { contains: value } }
+}
+
+/**
+ * Recursively add `mode: 'insensitive'` to every `{ contains: ... }` in a
+ * where-clause when running on PostgreSQL. No-op on SQLite.
+ *
+ * Useful for sanitizing hand-built where-clauses that mix `contains` with
+ * other operators (e.g. in fefo-engine.ts):
+ *   @example
+ *   const where = withInsensitiveMode({
+ *     OR: [{ batchNumber: { contains: q } }, { supplierName: { contains: q } }],
+ *     outletId,
+ *   })
+ */
+export function withInsensitiveMode(node: unknown): unknown {
+  // Base case: primitives
+  if (node === null || node === undefined) return node
+  if (typeof node !== 'object') return node
+  if (Array.isArray(node)) return node.map(withInsensitiveMode)
+
+  const obj = node as Record<string, unknown>
+  const result: Record<string, unknown> = {}
+
+  for (const [key, value] of Object.entries(obj)) {
+    // If this is a `{ contains: ... }` filter on a string field, add mode
+    if (
+      IS_POSTGRES &&
+      value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      'contains' in value &&
+      typeof (value as Record<string, unknown>).contains === 'string'
+    ) {
+      result[key] = { ...(value as Record<string, unknown>), mode: 'insensitive' }
+    } else {
+      result[key] = withInsensitiveMode(value)
+    }
+  }
+
+  return result
+}
+
+// ============================================================
 // Validation Helpers
 // ============================================================
 
@@ -371,13 +460,17 @@ export function buildFlexibleSearch(
 
   // Single token: simple OR across fields (preserves original shape)
   if (tokens.length === 1) {
-    return { OR: fieldMatchers(tokens[0]) }
+    const clause = { OR: fieldMatchers(tokens[0]) }
+    // On PostgreSQL, add `mode: 'insensitive'` to every `contains` so that
+    // "minyak" matches "Minyak". On SQLite this is a no-op (already CI for ASCII).
+    return withInsensitiveMode(clause) as Record<string, unknown>
   }
 
   // Multiple tokens: every token must match in at least one field
-  return {
+  const clause = {
     AND: tokens.map((token) => ({ OR: fieldMatchers(token) })),
   }
+  return withInsensitiveMode(clause) as Record<string, unknown>
 }
 
 // ============================================================

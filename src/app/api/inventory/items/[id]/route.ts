@@ -30,19 +30,26 @@ export async function GET(
       return safeJsonError('Inventory item not found', 404)
     }
 
-    // Fetch batch summary for this item (count + total remaining qty + nearest expiry).
-    // Surfaced in the detail payload so the UI can show a batch count badge and
-    // give immediate visibility into per-batch stock without a separate request.
+    // Fetch batch summary for this item.
+    // IMPORTANT: We surface counts and the nearest expiry from ALL batches
+    // (AVAILABLE + EXPIRED + CONSUMED), not just AVAILABLE ones. Otherwise,
+    // when every batch for an item is already EXPIRED, the UI would show
+    // "0 batch" and no expiry date — making users think batch data is missing
+    // even though expired batches exist and are visible in the Batch tab.
     let batchSummary: {
       totalBatches: number
       availableBatches: number
+      expiredBatches: number
       totalRemainingQty: number
       nearestExpiryDate: string | null
+      nearestExpiryStatus: 'EXPIRED' | 'EXPIRING_SOON' | 'FRESH' | null
     } = {
       totalBatches: 0,
       availableBatches: 0,
+      expiredBatches: 0,
       totalRemainingQty: 0,
       nearestExpiryDate: null,
+      nearestExpiryStatus: null,
     }
 
     try {
@@ -53,16 +60,32 @@ export async function GET(
       })
       const now = new Date()
       const available = batches.filter(b => b.status === 'AVAILABLE')
-      const futureExpiry = available
+      const expired = batches.filter(b => b.status === 'EXPIRED')
+
+      // Nearest expiry comes from ALL batches that have an expiry date,
+      // so the user can see expired batches too (not just future ones).
+      const allWithExpiry = batches
         .map(b => b.expiredDate)
-        .filter((d): d is Date => !!d && d.getTime() > now.getTime())
+        .filter((d): d is Date => !!d)
         .sort((a, b) => a.getTime() - b.getTime())
+      const nearest = allWithExpiry[0] ?? null
+
+      let nearestExpiryStatus: 'EXPIRED' | 'EXPIRING_SOON' | 'FRESH' | null = null
+      if (nearest) {
+        const daysLeft = Math.ceil((nearest.getTime() - now.getTime()) / (24 * 60 * 60 * 1000))
+        if (daysLeft < 0) nearestExpiryStatus = 'EXPIRED'
+        else if (daysLeft <= 30) nearestExpiryStatus = 'EXPIRING_SOON'
+        else nearestExpiryStatus = 'FRESH'
+      }
 
       batchSummary = {
         totalBatches: batches.length,
         availableBatches: available.length,
+        expiredBatches: expired.length,
+        // Remaining qty counts only AVAILABLE batches (expired stock is not sellable).
         totalRemainingQty: available.reduce((sum, b) => sum + (b.remainingQty || 0), 0),
-        nearestExpiryDate: futureExpiry[0] ? futureExpiry[0].toISOString() : null,
+        nearestExpiryDate: nearest ? nearest.toISOString() : null,
+        nearestExpiryStatus,
       }
     } catch (batchErr) {
       console.warn('[InventoryItem GET] Failed to fetch batch summary:', batchErr)
