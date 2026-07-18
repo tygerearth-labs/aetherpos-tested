@@ -3,15 +3,24 @@ import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 import { FEFOEngine } from '@/lib/fefo-engine'
+import { swr, invalidate } from '@/lib/cache'
 
 /**
  * POST /api/inventory/batches/expiry-check
  *
  * Runs the expiry check engine:
- *   1. Marks newly expired batches
- *   2. Returns current expiry heatmap summary
+ *   1. Marks newly expired batches (WRITE — kept in its own short transaction)
+ *   2. Returns current expiry heatmap summary (READ — no transaction, cached)
  *
  * Called by cron job or manually (e.g., dashboard banner on load).
+ *
+ * ── Optimisation notes ──
+ * Old code combined WRITE+READ in ONE transaction → easily hit Prisma's 5s
+ * default timeout on cold compile. New code splits them:
+ *   - WRITE: short transaction (1 updateMany), 50-80ms typical
+ *   - READ:  cached 5 min via SWR, no transaction wrapper
+ * When `markExpiredBatches` reports newly-expired batches, we invalidate the
+ * cache so the next read picks up the change immediately.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -20,12 +29,25 @@ export async function POST(request: NextRequest) {
 
     const outletId = user.outletId
 
-    // Run markExpiredBatches + getExpiryHeatmap in a single transaction
-    const { newlyExpired, heatmap } = await db.$transaction(async (tx) => {
-      const newlyExpired = await FEFOEngine.markExpiredBatches(tx, outletId)
-      const heatmap = await FEFOEngine.getExpiryHeatmap(tx, outletId)
-      return { newlyExpired, heatmap }
+    // 1. WRITE: mark expired batches (atomic, short transaction)
+    const newlyExpired = await db.$transaction(async (tx) => {
+      return FEFOEngine.markExpiredBatches(tx, outletId)
     })
+
+    // If we just marked new batches as expired, invalidate cached reads
+    // so the heatmap we're about to return reflects the change.
+    if (newlyExpired > 0) {
+      invalidate(`heatmap:${outletId}`)
+      invalidate(`freshness:${outletId}`)
+      invalidate(`expirycheck:${outletId}`)
+    }
+
+    // 2. READ: heatmap (no transaction, SWR-cached 5 min)
+    const heatmap = await swr(
+      `expirycheck:${outletId}`,
+      5 * 60 * 1000, // 5 minutes
+      () => FEFOEngine.getExpiryHeatmap(db, outletId)
+    )
 
     const criticalCount = heatmap.critical7d.length
     const warningCount = heatmap.warning30d.length

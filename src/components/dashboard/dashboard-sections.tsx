@@ -797,7 +797,13 @@ export function InventoryFreshnessWidget() {
     let cancelled = false
     fetch('/api/inventory/batches?type=freshness-score')
       .then(r => r.ok ? r.json() : null)
-      .then((json) => { if (!cancelled && json?.data) setData(json.data) })
+      .then((json) => {
+        if (!cancelled) {
+          // API returns the data flat (safeJson), not wrapped in { data: ... }
+          const payload = (json?.data ?? json) as FreshnessData | null
+          if (payload) setData(payload)
+        }
+      })
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
@@ -941,7 +947,13 @@ export function ExpiryHeatmapWidget() {
     let cancelled = false
     fetch('/api/inventory/batches?type=heatmap')
       .then(r => r.ok ? r.json() : null)
-      .then((json) => { if (!cancelled && json?.data) setData(json.data) })
+      .then((json) => {
+        if (!cancelled) {
+          // API returns the data flat (safeJson), not wrapped in { data: ... }
+          const payload = (json?.data ?? json) as HeatmapData | null
+          if (payload) setData(payload)
+        }
+      })
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
@@ -1105,8 +1117,10 @@ export function ExpiryAlertBanner({ onShowDetail }: ExpiryAlertBannerProps) {
     fetch('/api/inventory/batches/expiry-check', { method: 'POST' })
       .then((r) => (r.ok ? r.json() : null))
       .then((json) => {
-        if (!cancelled && json?.data) {
-          setData(json.data)
+        if (!cancelled) {
+          // API returns the data flat (safeJson), not wrapped in { data: ... }
+          const payload = (json?.data ?? json) as ExpiryCheckData | null
+          if (payload) setData(payload)
         }
       })
       .catch(() => {})

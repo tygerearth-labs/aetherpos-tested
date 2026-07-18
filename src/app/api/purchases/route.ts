@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { parsePagination, buildFlexibleSearch } from '@/lib/api/api-helpers'
 import { safeJson, safeJsonCreated, safeJsonError, CACHE } from '@/lib/api/safe-response'
+import { invalidateOutletExpiry } from '@/lib/cache'
 
 // Helper: recalculate HPP for products that use these inventory items
 async function recalculateHppForAffectedProducts(
@@ -667,6 +668,10 @@ export async function POST(request: NextRequest) {
     } catch (error) {
       console.error('[Purchase Phase 3] Non-critical:', error)
     }
+
+    // New PO just created new batches → invalidate expiry/freshness/heatmap
+    // caches so the dashboard reflects the new stock immediately.
+    invalidateOutletExpiry(outletId)
 
     return safeJsonCreated({
       ...purchaseOrder,

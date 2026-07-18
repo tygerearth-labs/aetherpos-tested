@@ -31,8 +31,15 @@
  *   - InventoryItem.stock is denormalized: always kept in sync with sum(batch.remainingQty)
  */
 
-import { Prisma } from '@prisma/client'
+import { Prisma, PrismaClient } from '@prisma/client'
 import { ciContains } from '@/lib/api/api-helpers'
+
+/**
+ * A client that can be either the singleton PrismaClient OR a transaction
+ * client (tx). Read-only functions accept this union so callers can skip
+ * the `$transaction` wrapper entirely (which avoids the 5s default timeout).
+ */
+type DbClient = PrismaClient | TxClient
 
 // ════════════════════════════════════════════════════════════
 // Types
@@ -802,7 +809,7 @@ export class FEFOEngine {
    * @returns Existing batch info or null
    */
   static async checkDuplicateBatch(
-    tx: TxClient,
+    db: DbClient,
     params: {
       batchNumber: string
       outletId: string
@@ -822,7 +829,7 @@ export class FEFOEngine {
     // Case-insensitive duplicate check that works in BOTH PostgreSQL and SQLite.
     // - PostgreSQL: ciContains adds `mode: 'insensitive'`
     // - SQLite:     `contains` is already case-insensitive for ASCII
-    const candidates = await tx.inventoryBatch.findMany({
+    const candidates = await db.inventoryBatch.findMany({
       where: {
         ...ciContains('batchNumber', batchNumber),
         outletId,
@@ -895,7 +902,7 @@ export class FEFOEngine {
    * @returns Score 0-100 + breakdown
    */
   static async calculateFreshnessScore(
-    tx: TxClient,
+    db: DbClient,
     outletId: string
   ): Promise<{
     score: number
@@ -912,7 +919,7 @@ export class FEFOEngine {
     const now = new Date()
     const thirtyDaysFromNow = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
 
-    const batches = await tx.inventoryBatch.findMany({
+    const batches = await db.inventoryBatch.findMany({
       where: {
         outletId,
         remainingQty: { gt: 0 },
@@ -983,7 +990,7 @@ export class FEFOEngine {
    * @returns Heatmap data grouped by inventory item
    */
   static async getExpiryHeatmap(
-    tx: TxClient,
+    db: DbClient,
     outletId: string
   ): Promise<{
     expired: Array<{ inventoryItemId: string; itemName: string; batchNumber: string; remainingQty: number; unitCost: number; expiredDate: Date | null; totalLoss: number; baseUnit: string }>
@@ -995,7 +1002,7 @@ export class FEFOEngine {
     const sevenDays = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
     const thirtyDays = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
 
-    const batches = await tx.inventoryBatch.findMany({
+    const batches = await db.inventoryBatch.findMany({
       where: {
         outletId,
         remainingQty: { gt: 0 },
@@ -1077,7 +1084,7 @@ export class FEFOEngine {
    * Get waste report (financial loss from expired items) for a date range.
    */
   static async getWasteReport(
-    tx: TxClient,
+    db: DbClient,
     params: {
       outletId: string
       startDate: Date
@@ -1099,7 +1106,7 @@ export class FEFOEngine {
   }> {
     const { outletId, startDate, endDate } = params
 
-    const batches = await tx.inventoryBatch.findMany({
+    const batches = await db.inventoryBatch.findMany({
       where: {
         outletId,
         status: 'EXPIRED',
@@ -1144,7 +1151,7 @@ export class FEFOEngine {
    * Used for recall scenarios and customer complaints.
    */
   static async searchBatch(
-    tx: TxClient,
+    db: DbClient,
     params: {
       batchNumber: string
       outletId: string
@@ -1190,7 +1197,7 @@ export class FEFOEngine {
     //
     // We prefer an exact case-insensitive match first, then fall back to a
     // partial (contains) match for flexibility (e.g. "B2025" matches "B2025-001").
-    const candidates = await tx.inventoryBatch.findMany({
+    const candidates = await db.inventoryBatch.findMany({
       where: {
         OR: [
           ciContains('batchNumber', batchNumber),
@@ -1219,7 +1226,7 @@ export class FEFOEngine {
     if (!batch) return null
 
     // Get all consumption logs for this batch
-    const consumptionLogs = await tx.batchConsumptionLog.findMany({
+    const consumptionLogs = await db.batchConsumptionLog.findMany({
       where: { inventoryBatchId: batch.id, outletId },
       orderBy: { createdAt: 'desc' },
     })
@@ -1281,7 +1288,7 @@ export class FEFOEngine {
    * Shows all batches with their current status, remaining qty, and expiry.
    */
   static async getBatchTimeline(
-    tx: TxClient,
+    db: DbClient,
     params: {
       inventoryItemId: string
       outletId: string
@@ -1304,7 +1311,7 @@ export class FEFOEngine {
     const { inventoryItemId, outletId } = params
     const now = new Date()
 
-    const batches = await tx.inventoryBatch.findMany({
+    const batches = await db.inventoryBatch.findMany({
       where: { inventoryItemId, outletId },
       include: {
         inventoryItem: { select: { baseUnit: true } },
@@ -1346,7 +1353,7 @@ export class FEFOEngine {
    * Pure calculation — no LLM needed.
    */
   static async getPurchaseRecommendations(
-    tx: TxClient,
+    db: DbClient,
     outletId: string
   ): Promise<Array<{
     inventoryItemId: string
@@ -1364,7 +1371,7 @@ export class FEFOEngine {
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
 
     // Get inventory items with compositions (only items used in products matter)
-    const items = await tx.inventoryItem.findMany({
+    const items = await db.inventoryItem.findMany({
       where: {
         outletId,
         status: 'ACTIVE',
@@ -1382,7 +1389,7 @@ export class FEFOEngine {
 
     for (const item of items) {
       // Calculate avg daily consumption from movements (last 30 days)
-      const movements = await tx.inventoryMovement.findMany({
+      const movements = await db.inventoryMovement.findMany({
         where: {
           inventoryItemId: item.id,
           outletId,
@@ -1396,7 +1403,7 @@ export class FEFOEngine {
       const avgDailyConsumption = totalConsumed / 30
 
       // Get nearest expiry batch
-      const nearestBatch = await tx.inventoryBatch.findFirst({
+      const nearestBatch = await db.inventoryBatch.findFirst({
         where: {
           inventoryItemId: item.id,
           outletId,

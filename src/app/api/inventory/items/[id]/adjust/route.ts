@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
+import { invalidateOutletExpiry } from '@/lib/cache'
 
 // POST /api/inventory/items/[id]/adjust — manual stock adjustment
 export async function POST(
@@ -70,6 +71,9 @@ export async function POST(
 
       return updated
     })
+
+    // Stock changed → invalidate cached expiry/heatmap so dashboard refreshes
+    invalidateOutletExpiry(outletId)
 
     return safeJson(item)
   } catch (error) {

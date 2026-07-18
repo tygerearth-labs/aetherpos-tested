@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 import { safeAuditLog } from '@/lib/safe-audit'
+import { invalidateOutletExpiry } from '@/lib/cache'
 
 /**
  * POST /api/inventory/stock-opname/complete
@@ -286,6 +287,10 @@ export async function POST(request: NextRequest) {
       batchUpdates: batchesUpdated,
       totalVarianceValue,
     })
+
+    // Stock & batches changed → invalidate cached expiry/freshness/heatmap
+    // so dashboard reflects the new state on next read.
+    invalidateOutletExpiry(outletId)
 
     return safeJson({
       success: true,
