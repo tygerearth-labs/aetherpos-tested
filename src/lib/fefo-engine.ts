@@ -53,6 +53,7 @@ export interface BatchConsumptionResult {
   batchConsumptions: Array<{
     batchId: string
     batchNumber: string
+    unitCost: number                  // Per-batch unit cost (immutable snapshot for Actual COGS)
     expiredDate: Date | null
     quantityConsumed: number
     previousRemaining: number
@@ -296,6 +297,7 @@ export class FEFOEngine {
       batchConsumptions.push({
         batchId: batch.id,
         batchNumber: batch.batchNumber,
+        unitCost: batch.unitCost,
         expiredDate: batch.expiredDate,
         quantityConsumed: consumeFromThisBatch,
         previousRemaining: batch.remainingQty,
@@ -850,6 +852,7 @@ export class FEFOEngine {
       batchConsumptions.push({
         batchId: batch.id,
         batchNumber: batch.batchNumber,
+        unitCost: batch.unitCost,
         expiredDate: batch.expiredDate,
         quantityConsumed: consumeFromThisBatch,
         previousRemaining: batch.remainingQty,

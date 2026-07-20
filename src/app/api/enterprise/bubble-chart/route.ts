@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server'
+import { Prisma } from '@prisma/client'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonError, CACHE } from '@/lib/api/safe-response'
@@ -88,7 +89,7 @@ export async function GET(request: NextRequest) {
         const voidedArr = voidedSet ? Array.from(voidedSet).filter(Boolean) as string[] : []
         const voidExclude = voidedArr.length > 0 ? { id: { notIn: voidedArr } } : {}
 
-        const [revenueAgg, txCount, profitData] = await Promise.all([
+        const [revenueAgg, txCount, profitRows] = await Promise.all([
           // Revenue sum
           db.transaction.aggregate({
             where: {
@@ -108,22 +109,39 @@ export async function GET(request: NextRequest) {
             },
           }),
 
-          // Profit data (via transaction items)
-          db.transactionItem.aggregate({
-            where: {
-              transaction: {
-                outletId: outletInfo.id,
-                createdAt: { gte: monthStart, lte: monthEnd },
-                ...voidExclude,
-              },
-            },
-            _sum: { price: true, hpp: true },
-          }),
+          // Profit data via raw SQL — uses SUM(price * qty) - SUM(hpp * qty)
+          // to correctly compute EXTENDED revenue and COGS (not unit-level sums).
+          // Previous aggregate (_sum: { price, hpp }) summed UNIT values and
+          // undercounted profit proportional to average qty per line item.
+          voidedArr.length > 0
+            ? db.$queryRaw<Array<{ revenue: bigint; cogs: bigint }>>`
+                SELECT
+                  COALESCE(SUM(ti.price * ti.qty), 0) AS revenue,
+                  COALESCE(SUM(ti.hpp  * ti.qty), 0) AS cogs
+                FROM "TransactionItem" ti
+                JOIN "Transaction" t ON t.id = ti."transactionId"
+                WHERE t."outletId" = ${outletInfo.id}
+                  AND t."createdAt" >= ${monthStart}
+                  AND t."createdAt" <= ${monthEnd}
+                  AND t.id NOT IN (${Prisma.join(voidedArr)})
+              `
+            : db.$queryRaw<Array<{ revenue: bigint; cogs: bigint }>>`
+                SELECT
+                  COALESCE(SUM(ti.price * ti.qty), 0) AS revenue,
+                  COALESCE(SUM(ti.hpp  * ti.qty), 0) AS cogs
+                FROM "TransactionItem" ti
+                JOIN "Transaction" t ON t.id = ti."transactionId"
+                WHERE t."outletId" = ${outletInfo.id}
+                  AND t."createdAt" >= ${monthStart}
+                  AND t."createdAt" <= ${monthEnd}
+              `,
         ])
 
         const revenue = revenueAgg._sum.total ?? 0
         const aov = txCount > 0 ? revenue / txCount : 0
-        const profit = (profitData._sum.price ?? 0) - (profitData._sum.hpp ?? 0)
+        // All-time profit = extended revenue - extended COGS
+        const profitRow = profitRows[0]
+        const profit = Number(profitRow?.revenue ?? 0) - Number(profitRow?.cogs ?? 0)
         const profitMargin = revenue > 0 ? (profit / revenue) * 100 : 0
 
         return {

@@ -6,6 +6,7 @@ import { notifyNewTransaction } from '@/lib/notify'
 import { notifyInsight } from '@/lib/notify'
 import { runInsightEngine } from '@/lib/insight-engine'
 import { getPlanFeatures, isUnlimited } from '@/lib/config/plan-config'
+import { assertOutletWithinLimits } from '@/lib/api/plan-enforcement'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 import { ensureMigrated } from '@/lib/db-migrate'
 import { InventoryConsumptionService } from '@/lib/inventory-consumption-service'
@@ -32,6 +33,13 @@ export async function POST(request: NextRequest) {
 
     // Auto-migrate: ensure new columns exist (e.g. itemDiscount)
     await ensureMigrated()
+
+    // FIX-PLAN-007: Block ALL mutations when the outlet is over-limit after
+    // a downgrade (e.g. Pro→Free with 200 products but Free maxProducts=50).
+    // Read-only GET endpoints remain allowed so the owner can still see their
+    // data and decide what to delete.
+    const overLimitResponse = await assertOutletWithinLimits(outletId)
+    if (overLimitResponse) return overLimitResponse
 
     const body = await request.json()
     const {
@@ -399,7 +407,8 @@ export async function POST(request: NextRequest) {
       // 9. Handle customer loyalty
       if (customerId) {
         const customer = await tx.customer.findFirst({
-          where: { id: customerId, outletId },
+          where: { id: customerId, outletId, deletedAt: null },
+          select: { id: true },
         })
         if (!customer) {
           throw new Error('Customer not found')
@@ -407,40 +416,41 @@ export async function POST(request: NextRequest) {
 
         const pointsToUse = pointsUsed || 0
 
-        // Check points balance
-        if (pointsToUse > customer.points) {
-          throw new Error(
-            `Insufficient points. Available: ${customer.points}, Requested: ${pointsToUse}`
-          )
-        }
-
         // Calculate earned points based on outlet loyalty settings
         let earnedPoints = 0
         const setting = await tx.outletSetting.findUnique({
           where: { outletId },
-          select: { loyaltyEnabled: true, loyaltyPointsPerAmount: true },
+          select: { loyaltyEnabled: true, loyaltyPointsPerAmount: true, loyaltyPointValue: true },
         })
         if (setting?.loyaltyEnabled && setting.loyaltyPointsPerAmount > 0) {
           earnedPoints = Math.floor(total / setting.loyaltyPointsPerAmount)
         }
 
-        // Combine customer updates into a single query
-        const customerUpdateData: { totalSpend: { increment: number }; points?: { increment: number } | { decrement: number } } = {
-          totalSpend: { increment: total },
+        // CUST-001 FIX: Atomic loyalty point update — race-condition-free.
+        // Mirrors the atomic stock-deduction pattern (see STEP 7 above):
+        //   UPDATE "Customer"
+        //   SET points = points + (earned - used), totalSpend = totalSpend + total
+        //   WHERE id = ? AND points >= ? AND outletId = ?
+        // The `points >= pointsToUse` predicate is evaluated atomically with the
+        // mutation, so two concurrent checkouts cannot both pass the balance check
+        // and over-spend the customer's loyalty balance. If affected rows = 0,
+        // another transaction drained the balance first — abort and rollback.
+        const netPointsDelta = earnedPoints - pointsToUse
+        const loyaltyAffected = await tx.$executeRaw`
+          UPDATE "Customer"
+          SET points = points + ${netPointsDelta},
+              totalSpend = totalSpend + ${total},
+              "updatedAt" = ${new Date()}
+          WHERE id = ${customerId}
+            AND points >= ${pointsToUse}
+            AND outletId = ${outletId}
+            AND "deletedAt" IS NULL
+        `
+        if (loyaltyAffected === 0) {
+          throw new Error(
+            `Poin loyalitas tidak mencukupi (butuh ${pointsToUse}, kemungkinan baru saja dipakai transaksi lain). Coba lagi.`
+          )
         }
-        let netPointsDelta = 0
-        if (earnedPoints > 0) netPointsDelta += earnedPoints
-        if (pointsToUse > 0) netPointsDelta -= pointsToUse
-        if (netPointsDelta !== 0) {
-          customerUpdateData.points = netPointsDelta > 0
-            ? { increment: netPointsDelta }
-            : { decrement: Math.abs(netPointsDelta) }
-        }
-
-        await tx.customer.update({
-          where: { id: customerId },
-          data: customerUpdateData,
-        })
 
         // Create loyalty logs in batch
         const loyaltyLogs: Array<{
@@ -460,7 +470,11 @@ export async function POST(request: NextRequest) {
           })
         }
         if (pointsToUse > 0) {
-          const pointsDiscount = pointsToUse * 100
+          // SET-002 FIX: Consult loyaltyPointValue setting instead of hardcoding * 100.
+          // Fallback to 100 (the schema default) only if the setting row is somehow
+          // missing — never silently produce a different Rp value than the UI showed.
+          const pointValue = setting?.loyaltyPointValue ?? 100
+          const pointsDiscount = pointsToUse * pointValue
           loyaltyLogs.push({
             type: 'REDEEM',
             points: -pointsToUse,

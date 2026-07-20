@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { requireWebmaster, webmasterUnauthorized } from '@/lib/api/webmaster-auth'
 import { VALID_ACCOUNT_TYPES } from '@/lib/config/plan-config'
 import { calculateExpiryDate } from '@/lib/plan-expiry'
+import { safeAuditLog } from '@/lib/safe-audit'
 
 /**
  * GET /api/webmaster/outlets/:id/plan — View outlet's current plan
@@ -86,11 +87,15 @@ export async function PUT(
     }
 
     const outlet = await db.outlet.findUnique({
-      where: { id }, select: { id: true, name: true, accountType: true, groupId: true, isMain: true },
+      where: { id }, select: { id: true, name: true, accountType: true, planExpiresAt: true, groupId: true, isMain: true,
+        // FIX-PLAN-005: Fetch owner id for audit-log attribution.
+        users: { where: { role: 'OWNER' }, select: { id: true }, take: 1 },
+      },
     })
     if (!outlet) return NextResponse.json({ error: 'Outlet tidak ditemukan' }, { status: 404 })
 
     const previousPlan = outlet.accountType
+    const previousExpiry = outlet.planExpiresAt
     const data = { accountType: planType, planExpiresAt: expiryDate }
     const shouldApplyToGroup = outlet.groupId && (applyToGroup || outlet.isMain)
 
@@ -107,6 +112,32 @@ export async function PUT(
       (shouldApplyToGroup ? ` [GROUP x${updatedCount}]` : '') +
       (expiryDate ? ` expires: ${expiryDate.toISOString()}` : '')
     )
+
+    // FIX-PLAN-005: Audit-log the plan change. Previously this endpoint only
+    // emitted a console.log, so forensic investigations could not answer
+    // "who changed this outlet's plan and when?" Attribute to the outlet's
+    // owner (webmaster has no User row). safeAuditLog swallows FK errors so
+    // a missing owner does NOT break the plan change.
+    const ownerId = outlet.users[0]?.id ?? 'unknown'
+    await safeAuditLog({
+      action: 'PLAN_CHANGE',
+      entityType: 'OUTLET',
+      entityId: id,
+      details: JSON.stringify({
+        previousPlan,
+        newPlan: planType,
+        previousExpiry: previousExpiry?.toISOString() ?? null,
+        newExpiry: expiryDate?.toISOString() ?? null,
+        applyToGroup: !!shouldApplyToGroup,
+        updatedCount,
+        triggeredBy: 'webmaster',
+        endpoint: 'PUT /api/webmaster/outlets/:id/plan',
+        outletName: outlet.name,
+        timestamp: new Date().toISOString(),
+      }),
+      outletId: id,
+      userId: ownerId,
+    })
 
     return NextResponse.json({
       success: true, outletId: id, outletName: outlet.name,

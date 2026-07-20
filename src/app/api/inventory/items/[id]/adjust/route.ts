@@ -12,6 +12,10 @@ export async function POST(
   try {
     const user = await getAuthUser(request)
     if (!user) return unauthorized()
+    // CREW-002 FIX: Only OWNER can perform manual stock adjustments (bypasses purchase flow)
+    if (user.role !== 'OWNER') {
+      return safeJsonError('Hanya OWNER yang dapat melakukan aksi ini', 403)
+    }
     const userId = user.id
     const outletId = user.outletId
     const { id } = await params

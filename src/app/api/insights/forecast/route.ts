@@ -6,6 +6,7 @@ import {
   parseTzOffset,
   getTodayRangeTz,
 } from '@/lib/api/api-helpers'
+import { getOutletPlan } from '@/lib/config/plan-config'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 
 /**
@@ -24,6 +25,15 @@ export async function GET(request: NextRequest) {
     const user = await getAuthUser(request)
     if (!user) return unauthorized()
     if (user.role !== 'OWNER') return safeJsonError('Owner only', 403)
+
+    // FIX-PLAN-003: Enforce `forecasting` plan feature server-side.
+    // The docstring above has always said "PRO & Enterprise only" but the
+    // check was missing — a Free user could call this endpoint directly.
+    const outletPlan = await getOutletPlan(user.outletId, db)
+    if (!outletPlan) return safeJsonError('Outlet tidak ditemukan', 404)
+    if (!outletPlan.features.forecasting) {
+      return safeJsonError('Fitur ini hanya tersedia pada paket Pro/Enterprise', 403)
+    }
 
     const tzOffset = parseTzOffset(request.nextUrl.searchParams)
     const { todayStart } = tzOffset !== null

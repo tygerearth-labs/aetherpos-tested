@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { getVoidedTxIds, parseTzOffset, getTodayRangeTz, getHourInTimezone } from '@/lib/api/api-helpers'
+import { getOutletPlan } from '@/lib/config/plan-config'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 
 export const maxDuration = 30
@@ -554,6 +555,18 @@ export async function GET(request: NextRequest) {
     const user = await getAuthUser(request)
     if (!user) return unauthorized()
     if (user.role !== 'OWNER') return safeJsonError('Owner only', 403)
+
+    // FIX-PLAN-003: Enforce aiInsights plan feature server-side.
+    // The UI hides this endpoint behind <ProGate feature="aiInsights"> but
+    // the API previously had no plan check — a Free user could call this
+    // endpoint directly via curl and receive full Pro/Enterprise insight
+    // output. This is also a cost-leak vector for /insights/generate which
+    // invokes a paid LLM.
+    const outletPlan = await getOutletPlan(user.outletId, db)
+    if (!outletPlan) return safeJsonError('Outlet tidak ditemukan', 404)
+    if (!outletPlan.features.aiInsights) {
+      return safeJsonError('Fitur ini hanya tersedia pada paket Pro/Enterprise', 403)
+    }
 
     const tzOffset = parseTzOffset(request.nextUrl.searchParams)
     const data = await aggregateData(user.outletId, tzOffset)

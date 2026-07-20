@@ -12,6 +12,7 @@
  */
 
 import { localDB } from './local-db'
+import { getAetherDB } from '@/lib/offline/aether-db'
 import type { CachedProduct, CachedCustomer, CachedPromo, CachedCategory } from './local-db'
 
 // ==================== HELPERS ====================
@@ -290,7 +291,24 @@ export async function hasCachedData(): Promise<boolean> {
 // ==================== SETTINGS SYNC ====================
 
 /**
- * Sync outlet settings from server and cache in IndexedDB for offline use.
+ * SET-003 FIX: Persist cached settings in real Dexie (IndexedDB) instead of
+ * the in-memory noop shim from local-db.ts. The noop shim lost all data on
+ * page reload, which meant offline POS sessions fell back to hardcoded
+ * defaults (ppnRate=11, loyaltyPointValue=100, etc.) instead of the actual
+ * outlet settings — causing incorrect tax/loyalty calculation.
+ *
+ * The Dexie `settings` table (key/value, see aether-db.ts:298) survives
+ * page reloads. We store the JSON-stringified settings payload under a
+ * single 'outlet-settings' key.
+ *
+ * SSR guard: getAetherDB() throws on the server. These functions are only
+ * called from client-side useEffect, but the try/catch keeps SSR safe if
+ * something imports this module at module-load time.
+ */
+const SETTINGS_CACHE_KEY = 'outlet-settings'
+
+/**
+ * Sync outlet settings from server and cache in IndexedDB (Dexie) for offline use.
  */
 export async function syncSettingsFromServer(): Promise<{
   success: boolean
@@ -306,11 +324,19 @@ export async function syncSettingsFromServer(): Promise<{
 
     const data = await res.json()
 
-    await localDB.settings.put({
-      key: 'outlet-settings',
-      data,
-      updatedAt: new Date().toISOString(),
-    })
+    try {
+      const db = getAetherDB()
+      await db.settings.put({
+        key: SETTINGS_CACHE_KEY,
+        value: JSON.stringify(data),
+        updatedAt: new Date().toISOString(),
+      })
+    } catch (dexieErr) {
+      // Dexie unavailable (SSR or IndexedDB blocked). Log and continue — the
+      // fetch itself succeeded, so the caller has the fresh data in-memory
+      // via the response. The cache is best-effort.
+      console.warn('[sync-service] Dexie settings cache write failed:', dexieErr instanceof Error ? dexieErr.message : dexieErr)
+    }
 
     return { success: true }
   } catch (err) {
@@ -320,9 +346,28 @@ export async function syncSettingsFromServer(): Promise<{
 }
 
 /**
- * Get cached outlet settings from IndexedDB.
+ * Get cached outlet settings from IndexedDB (Dexie).
+ * Returns null if cache is empty, missing, corrupted, or unavailable.
  */
 export async function getCachedSettings(): Promise<Record<string, unknown> | null> {
-  const cached = await localDB.settings.get('outlet-settings')
-  return cached ? cached.data : null
+  try {
+    const db = getAetherDB()
+    const cached = await db.settings.get(SETTINGS_CACHE_KEY)
+    if (!cached || typeof cached.value !== 'string') return null
+    try {
+      return JSON.parse(cached.value) as Record<string, unknown>
+    } catch {
+      // Corrupted JSON in cache — clear it so the next sync can overwrite.
+      console.warn('[sync-service] Cached settings JSON corrupted — clearing.')
+      await db.settings.delete(SETTINGS_CACHE_KEY).catch(() => {})
+      return null
+    }
+  } catch (err) {
+    // Dexie unavailable (SSR). Caller falls back to in-memory defaults.
+    if (err instanceof Error && err.message.includes('Cannot access IndexedDB')) {
+      return null
+    }
+    console.warn('[sync-service] getCachedSettings failed:', err instanceof Error ? err.message : err)
+    return null
+  }
 }

@@ -1,4 +1,19 @@
 /**
+ * @deprecated This offline engine is DORMANT — not wired into production.
+ * Production uses an in-memory localDB shim that defers to server-side
+ * InventoryConsumptionService on sync. See src/lib/local-db.ts and
+ * src/lib/sync-service.ts. This file is preserved for reference only.
+ * Do NOT import or use in production code.
+ *
+ * Known latent bugs (do NOT fix — file is dead code):
+ *   - Hardcoded `Math.floor(total / 10000)` loyalty earn rate at lines ~343, ~438
+ *     (should consult `loyaltyPointsPerAmount` setting — see AUDIT-PLATFORM-3
+ *     SET-001 for details).
+ *   - Missing `unitCost` in BatchConsumptionResult (see AUDIT-PLATFORM-3 line
+ *     3754 for details).
+ */
+
+/**
  * transaction-engine.ts — Offline Transaction (Checkout) Engine
  *
  * Arsitektur: Offline-First Checkout

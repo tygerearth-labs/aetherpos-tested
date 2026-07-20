@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { getVoidedTxIds, parseTzOffset, getTodayRangeTz } from '@/lib/api/api-helpers'
 import { runInsightEngine, type InsightEngineInput } from '@/lib/insight-engine'
+import { getOutletPlan } from '@/lib/config/plan-config'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 
 /**
@@ -12,13 +13,20 @@ import { safeJson, safeJsonError } from '@/lib/api/safe-response'
  * scores insights by priority, combines related issues, and returns
  * the top actionable insights for the dashboard.
  *
- * OWNER only.
+ * OWNER only. Requires aiInsights plan feature (Pro/Enterprise).
  */
 export async function GET(request: NextRequest) {
   try {
     const user = await getAuthUser(request)
     if (!user) return unauthorized()
     if (user.role !== 'OWNER') return safeJsonError('Owner only', 403)
+
+    // FIX-PLAN-003: Enforce aiInsights plan feature server-side.
+    const outletPlan = await getOutletPlan(user.outletId, db)
+    if (!outletPlan) return safeJsonError('Outlet tidak ditemukan', 404)
+    if (!outletPlan.features.aiInsights) {
+      return safeJsonError('Fitur ini hanya tersedia pada paket Pro/Enterprise', 403)
+    }
 
     const outletId = user.outletId
 

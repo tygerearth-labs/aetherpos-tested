@@ -12,6 +12,7 @@
 
 import { db } from '@/lib/db'
 import { resolvePlanType } from '@/lib/api/api-helpers'
+import { safeAuditLog } from '@/lib/safe-audit'
 
 /**
  * Check if a plan is expired.
@@ -56,7 +57,16 @@ export function calculateExpiryDate(months: number): Date {
 export async function downgradeExpiredPlan(outletId: string): Promise<number> {
   const outlet = await db.outlet.findUnique({
     where: { id: outletId },
-    select: { id: true, groupId: true, isMain: true, accountType: true, planExpiresAt: true },
+    select: {
+      id: true,
+      name: true,
+      groupId: true,
+      isMain: true,
+      accountType: true,
+      planExpiresAt: true,
+      // FIX-PLAN-005: Fetch owner for audit-log attribution.
+      users: { where: { role: 'OWNER' }, select: { id: true }, take: 1 },
+    },
   })
 
   if (!outlet) return 0
@@ -66,12 +76,38 @@ export async function downgradeExpiredPlan(outletId: string): Promise<number> {
   if (planType === 'free') return 0
   if (!isPlanExpired(outlet.planExpiresAt)) return 0
 
+  const previousPlan = outlet.accountType
+  const previousExpiry = outlet.planExpiresAt
+
   if (outlet.groupId) {
     // Downgrade all outlets in the group
     const result = await db.outlet.updateMany({
       where: { groupId: outlet.groupId },
       data: { accountType: 'free', planExpiresAt: null },
     })
+
+    // FIX-PLAN-005: Audit-log the system-triggered auto-downgrade.
+    await safeAuditLog({
+      action: 'PLAN_CHANGE',
+      entityType: 'OUTLET',
+      entityId: outletId,
+      details: JSON.stringify({
+        previousPlan,
+        newPlan: 'free',
+        previousExpiry: previousExpiry?.toISOString() ?? null,
+        newExpiry: null,
+        applyToGroup: true,
+        updatedCount: result.count,
+        triggeredBy: 'system',
+        reason: 'plan_expired',
+        endpoint: 'downgradeExpiredPlan',
+        outletName: outlet.name,
+        timestamp: new Date().toISOString(),
+      }),
+      outletId,
+      userId: outlet.users[0]?.id ?? 'unknown',
+    })
+
     return result.count
   }
 
@@ -80,6 +116,29 @@ export async function downgradeExpiredPlan(outletId: string): Promise<number> {
     where: { id: outletId },
     data: { accountType: 'free', planExpiresAt: null },
   })
+
+  // FIX-PLAN-005: Audit-log the system-triggered auto-downgrade (standalone).
+  await safeAuditLog({
+    action: 'PLAN_CHANGE',
+    entityType: 'OUTLET',
+    entityId: outletId,
+    details: JSON.stringify({
+      previousPlan,
+      newPlan: 'free',
+      previousExpiry: previousExpiry?.toISOString() ?? null,
+      newExpiry: null,
+      applyToGroup: false,
+      updatedCount: 1,
+      triggeredBy: 'system',
+      reason: 'plan_expired',
+      endpoint: 'downgradeExpiredPlan',
+      outletName: outlet.name,
+      timestamp: new Date().toISOString(),
+    }),
+    outletId,
+    userId: outlet.users[0]?.id ?? 'unknown',
+  })
+
   return 1
 }
 

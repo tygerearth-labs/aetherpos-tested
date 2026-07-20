@@ -60,6 +60,8 @@ export interface InventoryDeduction {
   totalDeducted: number
   previousStock: number
   newStock: number
+  materialCost: number                  // Actual COGS for this deduction: Σ(batch.qty × batch.unitCost) for batch items, OR avgCost × totalDeducted for non-batch
+  unitCostSnapshot: string | null       // JSON: [{batchId, batchNumber, unitCost, quantityConsumed, expiredDate}] — null when no batches used (Mode B fallback to avgCost)
   sources: Array<{
     productName: string
     variantName?: string
@@ -256,7 +258,11 @@ export class InventoryConsumptionService {
 
       const newStock = (previousStock as number) - deduction.totalDeducted
       const avgCost = costMap.get(invItemId) ?? 0
-      totalMaterialCost += deduction.totalDeducted * avgCost
+
+      // Placeholder materialCost using avgCost fallback (Mode B: non-batch).
+      // Will be REPLACED by actual batch.unitCost-based COGS after step 8
+      // (FEFO recordBatchConsumption) if batches exist for this item.
+      const fallbackMaterialCost = deduction.totalDeducted * avgCost
 
       resultDeductions.push({
         inventoryItemId: invItemId,
@@ -265,16 +271,73 @@ export class InventoryConsumptionService {
         totalDeducted: deduction.totalDeducted,
         previousStock,
         newStock,
+        materialCost: fallbackMaterialCost,            // placeholder; updated post-FEFO if batches exist
+        unitCostSnapshot: null,                        // placeholder; set to JSON snapshot post-FEFO if batches exist
         sources: deduction.sources,
       })
     }
+
+    // ── 6. FEFO: Record batch consumption (batch-aware deduction) ──
+    //    This MUST run before steps 7-8 so we can capture per-batch unitCost
+    //    and compute Actual COGS (Σ batch.qty × batch.unitCost) for each deduction.
+    //    For non-batch items (Mode B), recordBatchConsumption returns null and
+    //    we keep the avgCost-based fallback (weighted-average costing).
+    try {
+      const { FEFOEngine } = await import('@/lib/fefo-engine')
+      for (const deduction of resultDeductions) {
+        const batchResult = await FEFOEngine.recordBatchConsumption(tx, {
+          inventoryItemId: deduction.inventoryItemId,
+          quantityNeeded: deduction.totalDeducted,
+          transactionId,
+          invoiceNumber,
+          outletId,
+          userId,
+          sourceDetails: JSON.stringify(deduction.sources),
+        })
+
+        if (batchResult && batchResult.batchConsumptions.length > 0) {
+          // Actual COGS = Σ(batch.quantityConsumed × batch.unitCost)
+          const actualMaterialCost = batchResult.batchConsumptions.reduce(
+            (sum, bc) => sum + bc.quantityConsumed * bc.unitCost, 0
+          )
+          // Immutable per-batch cost snapshot for audit / variance analysis
+          const unitCostSnapshot = JSON.stringify(
+            batchResult.batchConsumptions.map(bc => ({
+              batchId: bc.batchId,
+              batchNumber: bc.batchNumber,
+              unitCost: bc.unitCost,
+              quantityConsumed: bc.quantityConsumed,
+              expiredDate: bc.expiredDate ? bc.expiredDate.toISOString() : null,
+            }))
+          )
+          deduction.materialCost = actualMaterialCost
+          deduction.unitCostSnapshot = unitCostSnapshot
+        }
+        // else: no batches for this item (Mode B non-batch). Keep avgCost fallback.
+      }
+    } catch (batchError) {
+      // INV-HC-05 (REVISED): FEFO batch recording errors are now NON-FATAL.
+      // The InventoryItem.stock was already deducted atomically above (the
+      // authoritative ledger). Batch tracking is a CAPABILITY, not a requirement.
+      // If batch recording fails (e.g., unexpected DB error), we log the error
+      // but do NOT rollback the sale — the customer's transaction succeeds.
+      // The materialCost stays at the avgCost fallback (best-effort Actual COGS).
+      const msg = batchError instanceof Error ? batchError.message : String(batchError)
+      console.error(
+        `[InvConsumption] ${invoiceNumber} — FEFO batch recording failed (NON-FATAL, sale continues, avgCost fallback used for COGS): ${msg}`
+      )
+      // Do NOT re-throw — let the transaction commit with stock deduction intact.
+    }
+
+    // Recompute totalMaterialCost from per-deduction actual costs (post-FEFO)
+    totalMaterialCost = resultDeductions.reduce((sum, d) => sum + d.materialCost, 0)
 
     console.log(
       `[InvConsumption] ${invoiceNumber} — deducted ${resultDeductions.length} inventory item(s), ` +
       `total material cost: Rp ${totalMaterialCost.toLocaleString('id-ID')}`
     )
 
-    // ── 6. CREATE INVENTORY MOVEMENTS ──
+    // ── 7. CREATE INVENTORY MOVEMENTS ──
     if (resultDeductions.length > 0) {
       await tx.inventoryMovement.createMany({
         data: resultDeductions.map(d => ({
@@ -296,7 +359,7 @@ export class InventoryConsumptionService {
       })
     }
 
-    // ── 7. CREATE AUDIT LOGS ──
+    // ── 8. CREATE AUDIT LOGS (uses Actual COGS post-FEFO) ──
     if (resultDeductions.length > 0) {
       await tx.auditLog.createMany({
         data: resultDeductions.map(d => ({
@@ -310,42 +373,15 @@ export class InventoryConsumptionService {
             totalDeducted: d.totalDeducted,
             previousStock: d.previousStock,
             newStock: d.newStock,
-            materialCost: d.totalDeducted * (invItems.find(i => i.id === d.inventoryItemId)?.avgCost ?? 0),
+            materialCost: d.materialCost,                       // Actual COGS (batch.unitCost-based or avgCost fallback)
+            unitCostSnapshot: d.unitCostSnapshot ? JSON.parse(d.unitCostSnapshot) : null,
+            costingMethod: d.unitCostSnapshot ? 'BATCH' : 'AVG_COST',
             sources: d.sources,
           }),
           outletId,
           userId,
         })),
       })
-    }
-
-    // ── 8. FEFO: Record batch consumption (batch-aware deduction) ──
-    try {
-      const { FEFOEngine } = await import('@/lib/fefo-engine')
-      for (const deduction of resultDeductions) {
-        await FEFOEngine.recordBatchConsumption(tx, {
-          inventoryItemId: deduction.inventoryItemId,
-          quantityNeeded: deduction.totalDeducted,
-          transactionId,
-          invoiceNumber,
-          outletId,
-          userId,
-          sourceDetails: JSON.stringify(deduction.sources),
-        })
-      }
-    } catch (batchError) {
-      // INV-HC-05 (REVISED): FEFO batch recording errors are now NON-FATAL.
-      // The InventoryItem.stock was already deducted atomically above (the
-      // authoritative ledger). Batch tracking is a CAPABILITY, not a requirement.
-      // If batch recording fails (e.g., unexpected DB error), we log the error
-      // but do NOT rollback the sale — the customer's transaction succeeds.
-      // Previously this was FATAL, which blocked ALL sales when batch data was
-      // inconsistent with stock (e.g., expired batches, legacy data).
-      const msg = batchError instanceof Error ? batchError.message : String(batchError)
-      console.error(
-        `[InvConsumption] ${invoiceNumber} — FEFO batch recording failed (NON-FATAL, sale continues): ${msg}`
-      )
-      // Do NOT re-throw — let the transaction commit with stock deduction intact.
     }
 
     return {
@@ -747,6 +783,8 @@ export class InventoryConsumptionService {
     itemName: string
     baseUnit: string
     quantityUsed: number
+    materialCost: number
+    unitCostSnapshot: string | null
     sourceDetails: string
   }> {
     return deductions.map(d => ({
@@ -755,6 +793,8 @@ export class InventoryConsumptionService {
       itemName: d.itemName,
       baseUnit: d.baseUnit,
       quantityUsed: d.totalDeducted,
+      materialCost: d.materialCost,                // Actual COGS (batch.unitCost-based or avgCost fallback)
+      unitCostSnapshot: d.unitCostSnapshot,        // Immutable per-batch cost traceability (null for non-batch)
       sourceDetails: JSON.stringify(d.sources),
     }))
   }

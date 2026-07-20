@@ -70,7 +70,11 @@ export async function POST(request: NextRequest) {
   try {
     const user = await getAuthUser(request)
     if (!user) return unauthorized()
-    
+    // CREW-003 FIX: Only OWNER can complete stock opname (financial-impact variance)
+    if (user.role !== 'OWNER') {
+      return safeJsonError('Hanya OWNER yang dapat melakukan aksi ini', 403)
+    }
+
     const outletId = user.outletId
     const userId = user.id
 

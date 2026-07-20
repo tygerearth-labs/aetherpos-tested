@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { getVoidedTxIds, parseTzOffset, getTodayRangeTz, getHourInTimezone } from '@/lib/api/api-helpers'
+import { getOutletPlan } from '@/lib/config/plan-config'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 
 export const maxDuration = 60
@@ -181,6 +182,16 @@ export async function POST(request: NextRequest) {
     const user = await getAuthUser(request)
     if (!user) return unauthorized()
     if (user.role !== 'OWNER') return safeJsonError('Owner only', 403)
+
+    // FIX-PLAN-003: Enforce aiInsights plan feature server-side.
+    // This endpoint invokes a PAID LLM call (ZAI chat completion) so the plan
+    // check is also a cost-leak prevention — a Free user could otherwise
+    // spam this endpoint and run up the platform's LLM bill.
+    const outletPlan = await getOutletPlan(user.outletId, db)
+    if (!outletPlan) return safeJsonError('Outlet tidak ditemukan', 404)
+    if (!outletPlan.features.aiInsights) {
+      return safeJsonError('Fitur ini hanya tersedia pada paket Pro/Enterprise', 403)
+    }
 
     // Aggregate data
     const tzOffset = parseTzOffset(request.nextUrl.searchParams)
