@@ -241,12 +241,23 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
       }
 
       // Load composition data
+      // FIX-COMP-A: Variant products return { hasComposition, hasVariants, variantCompositions }
+      // Non-variant products return { hasComposition, hasVariants, items, autoHpp }
+      // The previous code only checked `data.items` — for variant products that field
+      // is undefined, so it fell into the else branch and silently set hasComposition=false,
+      // then attempted variant recovery below. The recovery worked only if variant names
+      // matched EXACTLY (case-sensitive). Combined effect: composition toggle appeared
+      // off for variant products after edit-load.
       fetch(`/api/products/${product.id}/composition`)
         .then((res) => res.json())
         .then((data) => {
-          if (data.hasComposition && data.items && data.items.length > 0) {
-            setHasComposition(true)
-            initialHasComposition.current = true
+          // Trust the server-side hasComposition flag — it reflects DB state.
+          const serverHasComposition = !!data.hasComposition
+          initialHasComposition.current = serverHasComposition
+          setHasComposition(serverHasComposition)
+
+          if (serverHasComposition && !data.hasVariants && Array.isArray(data.items)) {
+            // Non-variant composition path
             setCompositions(data.items.map((item: any) => ({
               inventoryItemId: item.inventoryItemId,
               inventoryItemName: item.inventoryItemName,
@@ -255,21 +266,23 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
               avgCost: item.avgCost || 0,
             })))
           } else {
-            setHasComposition(false)
             setCompositions([])
-            initialHasComposition.current = false
           }
 
           // Load per-variant compositions for variant + composition mode
-          if (data.hasComposition && data.hasVariants && data.variantCompositions) {
+          if (serverHasComposition && data.hasVariants && Array.isArray(data.variantCompositions)) {
             const vcMap: Record<number, CompositionItem[]> = {}
             const currentVariants = product.variants && product.variants.length > 0
               ? product.variants
               : []
             for (const vc of data.variantCompositions) {
-              // Find the variant index by matching name
-              const vIdx = currentVariants.findIndex(v => v.name === vc.variantName)
-              if (vIdx >= 0) {
+              // FIX-COMP-B: case-insensitive, trimmed name match (was exact match).
+              // Variant names with trailing whitespace or different casing (e.g.
+              // "Small " vs "small") previously caused composition to be unloaded.
+              const vIdx = currentVariants.findIndex(v =>
+                v.name.trim().toLowerCase() === String(vc.variantName).trim().toLowerCase()
+              )
+              if (vIdx >= 0 && Array.isArray(vc.compositions)) {
                 vcMap[vIdx] = vc.compositions.map((item: any) => ({
                   inventoryItemId: item.inventoryItemId,
                   inventoryItemName: item.inventoryItemName,
@@ -280,16 +293,14 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
               }
             }
             setVariantCompositions(vcMap)
-            // Ensure composition is enabled if variant compositions exist
-            if (Object.keys(vcMap).length > 0) {
-              setHasComposition(true)
-              initialHasComposition.current = true
-            }
+          } else {
+            setVariantCompositions({})
           }
         })
         .catch(() => {
           setHasComposition(false)
           setCompositions([])
+          setVariantCompositions({})
           initialHasComposition.current = false
         })
     } else {
@@ -320,8 +331,12 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
       fetch(`/api/products/${product.id}/variants`)
         .then((res) => res.json())
         .then((data) => {
-          if (data.variants && data.variants.length > 0) {
-            setVariants(data.variants.map((v: any) => ({
+          // FIX-COMP-C: GET /api/products/[id]/variants returns a BARE ARRAY, not {variants: [...]}.
+          // The old code `data.variants && data.variants.length > 0` was always false → variants
+          // never loaded → downstream composition name-matching failed → composition "unlink".
+          const variantList: any[] = Array.isArray(data) ? data : (Array.isArray(data?.variants) ? data.variants : [])
+          if (variantList.length > 0) {
+            setVariants(variantList.map((v: any) => ({
               id: v.id,
               name: v.name || '',
               sku: v.sku || '',
@@ -480,70 +495,99 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
         const productId = isEdit ? product!.id : savedProduct.id
 
         // Sync composition state
+        // FIX-COMP-D: shouldSync must fire whenever composition state changed OR
+        // was previously enabled (so toggling OFF also syncs to clear DB records).
         const shouldSync = hasComposition || (isEdit && initialHasComposition.current)
 
-        if (shouldSync && hasComposition && hasVariants) {
-          // Per-variant composition mode
-          // Fetch saved variants to get their IDs
-          const savedVariantsRes = await fetch(`/api/products/${productId}/variants`)
-          const savedVariantsData = await savedVariantsRes.json()
-          const savedVariants = savedVariantsData.variants || []
-
-          const vcMap: Record<string, Array<{ inventoryItemId: string; qty: number; baseUnit: string }>> = {}
-
-          // Match by name since we don't have IDs in the form state
-          for (let i = 0; i < variants.length; i++) {
-            const formVariant = variants[i]
-            const savedV = savedVariants.find((sv: any) => sv.name === formVariant.name.trim())
-            if (!savedV) continue
-            const comps = variantCompositions[i] || []
-            if (comps.length > 0) {
-              vcMap[savedV.id] = comps
-                .filter((c) => c.inventoryItemId && Number(c.qty) > 0)
-                .map((c) => ({
-                  inventoryItemId: c.inventoryItemId,
-                  qty: Number(c.qty),
-                  baseUnit: c.baseUnit,
-                }))
-            }
+        // FIX-COMP-E: helper to call composition PUT and check response.
+        // Previously the response was discarded, so any failure (validation,
+        // inventory item not found, etc.) was silently swallowed → user saw
+        // success toast but composition was actually not saved ("unlink").
+        const syncComposition = async (payload: Record<string, unknown>): Promise<void> => {
+          const compRes = await fetch(`/api/products/${productId}/composition`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          })
+          if (!compRes.ok) {
+            const err = await compRes.json().catch(() => ({}))
+            throw new Error(err?.error || `Gagal menyimpan komposisi (status ${compRes.status})`)
           }
+        }
 
-          await fetch(`/api/products/${productId}/composition`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              hasComposition: Object.keys(vcMap).length > 0,
+        try {
+          if (shouldSync && hasComposition && hasVariants) {
+            // Per-variant composition mode
+            // Fetch saved variants to get their IDs.
+            // FIX-COMP-F: GET /api/products/[id]/variants returns BARE ARRAY, not {variants: [...]}.
+            // The old code `savedVariantsData.variants || []` was always [] → vcMap was
+            // always empty → PUT composition silently set hasComposition=false and DELETED
+            // all existing composition records (the "unlink" symptom).
+            const savedVariantsRes = await fetch(`/api/products/${productId}/variants`)
+            const savedVariantsData = await savedVariantsRes.json()
+            const savedVariants: any[] = Array.isArray(savedVariantsData)
+              ? savedVariantsData
+              : (Array.isArray(savedVariantsData?.variants) ? savedVariantsData.variants : [])
+
+            const vcMap: Record<string, Array<{ inventoryItemId: string; qty: number; baseUnit: string }>> = {}
+
+            // Match by name (case-insensitive, trimmed) since we don't have IDs in the form state
+            for (let i = 0; i < variants.length; i++) {
+              const formVariant = variants[i]
+              const formNameKey = formVariant.name.trim().toLowerCase()
+              const savedV = savedVariants.find((sv: any) =>
+                String(sv.name || '').trim().toLowerCase() === formNameKey
+              )
+              if (!savedV) continue
+              const comps = variantCompositions[i] || []
+              if (comps.length > 0) {
+                vcMap[savedV.id] = comps
+                  .filter((c) => c.inventoryItemId && Number(c.qty) > 0)
+                  .map((c) => ({
+                    inventoryItemId: c.inventoryItemId,
+                    qty: Number(c.qty),
+                    baseUnit: c.baseUnit,
+                  }))
+              }
+            }
+
+            // FIX-COMP-G: preserve user's toggle state.
+            // Old code: hasComposition: Object.keys(vcMap).length > 0 — if user toggled
+            // composition ON but no variants had items yet, hasComposition was silently
+            // downgraded to false. Now: pass through user's toggle state.
+            await syncComposition({
+              hasComposition: true,
               variantCompositions: vcMap,
-            }),
-          })
-        } else if (shouldSync && hasComposition && !hasVariants) {
-          // Product-level composition mode (non-variant)
-          const compData = compositions
-            .filter((c) => c.inventoryItemId && Number(c.qty) > 0)
-            .map((c) => ({
-              inventoryItemId: c.inventoryItemId,
-              qty: Number(c.qty),
-              baseUnit: c.baseUnit,
-            }))
+            })
+          } else if (shouldSync && hasComposition && !hasVariants) {
+            // Product-level composition mode (non-variant)
+            const compData = compositions
+              .filter((c) => c.inventoryItemId && Number(c.qty) > 0)
+              .map((c) => ({
+                inventoryItemId: c.inventoryItemId,
+                qty: Number(c.qty),
+                baseUnit: c.baseUnit,
+              }))
 
-          await fetch(`/api/products/${productId}/composition`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              hasComposition: compData.length > 0,
+            // FIX-COMP-G: preserve user's toggle state (see above).
+            await syncComposition({
+              hasComposition: true,
               compositions: compData,
-            }),
-          })
-        } else if (shouldSync && !hasComposition) {
-          // Composition was toggled off, clear it
-          await fetch(`/api/products/${productId}/composition`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
+            })
+          } else if (shouldSync && !hasComposition) {
+            // Composition was toggled off, clear it
+            await syncComposition({
               hasComposition: false,
               compositions: [],
-            }),
-          })
+            })
+          }
+        } catch (compError) {
+          // Composition sync failed — surface to user. The product itself was saved,
+          // so we don't roll back; we just tell the user to retry composition.
+          toast.error(compError instanceof Error ? compError.message : 'Gagal menyimpan komposisi')
+          onSaved() // still refresh product list so user can see the saved product
+          onOpenChange(false)
+          return
         }
 
         toast.success(isEdit ? 'Produk berhasil diperbarui' : 'Produk berhasil ditambahkan')

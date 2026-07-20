@@ -136,12 +136,18 @@ function createNoopTable<T extends { id?: number | string }>(): NoopTable<T> {
       toArray: async () => [...rows],
     }),
     where: (_field: string) => ({
-      equals: (_value: unknown) => ({
-        toArray: async () => {
-          // Noop filter — returns rows where the field matches; safe default
-          return rows.filter((r) => (r as Record<string, unknown>)[_field] === _value)
-        },
-      }),
+      equals: (_value: unknown) => {
+        // Noop filter — returns rows where the field matches; safe default.
+        // Mirrors Dexie's Collection API: exposes both toArray() and count()
+        // so callers like `localDB.transactions.where('isSynced').equals(0).count()`
+        // (used by useLiveQuery in pos-page.tsx) do not crash with
+        // ".count is not a function".
+        const filtered = rows.filter((r) => (r as Record<string, unknown>)[_field] === _value)
+        return {
+          toArray: async () => [...filtered],
+          count: async () => filtered.length,
+        }
+      },
     }),
     update: async (key: number | string, changes: Partial<T>) => {
       const idx = rows.findIndex((r) => String(r.id) === String(key))
@@ -168,7 +174,7 @@ interface NoopTable<T extends { id?: number | string }> {
     toArray(): Promise<T[]>
   }
   where(field: string): {
-    equals(value: unknown): { toArray(): Promise<T[]> }
+    equals(value: unknown): { toArray(): Promise<T[]>; count(): Promise<number> }
   }
   update(key: number | string, changes: Partial<T>): Promise<boolean>
 }
