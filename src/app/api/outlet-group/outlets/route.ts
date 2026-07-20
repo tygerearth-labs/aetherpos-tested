@@ -313,8 +313,39 @@ export async function DELETE(request: NextRequest) {
       await tx.crewPermission.deleteMany({ where: { outletId: targetOutletId } })
       await tx.user.deleteMany({ where: { outletId: targetOutletId } })
 
-      // 8. Delete audit logs
-      await tx.auditLog.deleteMany({ where: { outletId: targetOutletId } })
+      // 8. PRESERVE audit logs — migrate to the main outlet (user.outletId) instead
+      //    of deleting them. Contract Section 12 requires historical records to be
+      //    preserved for financial/inventory traceability. We annotate each
+      //    migrated log with provenance (originOutletId, originOutletName, migratedAt)
+      //    so forensic investigations can still trace the original branch context.
+      //    A new AuditLog entry is created at the main outlet to record the
+      //    branch-deletion event itself (see step 10b below).
+      const auditLogsToMigrate = await tx.auditLog.findMany({
+        where: { outletId: targetOutletId },
+        select: { id: true, details: true },
+      })
+      if (auditLogsToMigrate.length > 0) {
+        const migratedAt = new Date().toISOString()
+        for (const log of auditLogsToMigrate) {
+          let existingDetails: Record<string, unknown> = {}
+          try { existingDetails = log.details ? JSON.parse(log.details) : {} } catch { existingDetails = {} }
+          const annotated = {
+            ...existingDetails,
+            _migratedFromOutletId: targetOutletId,
+            _migratedFromOutletName: targetOutlet.name,
+            _migratedAt: migratedAt,
+            _migrationReason: 'BRANCH_DELETED',
+          }
+          await tx.auditLog.update({
+            where: { id: log.id },
+            data: {
+              outletId: user.outletId,   // reparent to main outlet (FK stays valid)
+              details: JSON.stringify(annotated),
+            },
+          })
+        }
+        console.log(`[OutletDelete] Migrated ${auditLogsToMigrate.length} audit log(s) from "${targetOutlet.name}" to main outlet`)
+      }
 
       // 9. Delete outlet settings
       await tx.outletSetting.deleteMany({ where: { outletId: targetOutletId } })
@@ -322,13 +353,20 @@ export async function DELETE(request: NextRequest) {
       // 10. Delete the outlet itself
       await tx.outlet.delete({ where: { id: targetOutletId } })
 
-      // Audit log at main outlet
+      // 10b. Audit log at main outlet — records the branch deletion event with
+      //     full context (outletId, outletName, txCount migrated, auditLogCount migrated)
       await tx.auditLog.create({
         data: {
           action: 'DELETE',
           entityType: 'OUTLET',
           entityId: targetOutletId,
-          details: JSON.stringify({ action: 'DELETE_BRANCH', outletName: targetOutlet.name }),
+          details: JSON.stringify({
+            action: 'DELETE_BRANCH',
+            outletName: targetOutlet.name,
+            migratedAuditLogCount: auditLogsToMigrate.length,
+            preservedAuditLogs: true,   // contract Section 12 compliance
+            note: 'Audit logs migrated to main outlet; transactions/products/inventory were hard-deleted.',
+          }),
           outletId: user.outletId,
           userId: user.id,
         },

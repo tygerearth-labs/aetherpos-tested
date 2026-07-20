@@ -156,6 +156,10 @@ export async function PUT(
   try {
     const user = await getAuthUser(request)
     if (!user) return unauthorized()
+    // CREW-007 FIX: Only OWNER can modify product composition (recalculates HPP — financial impact)
+    if (user.role !== 'OWNER') {
+      return safeJsonError('Hanya OWNER yang dapat melakukan aksi ini', 403)
+    }
     const outletId = user.outletId
     const { id } = await params
 

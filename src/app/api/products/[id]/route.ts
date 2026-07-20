@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeAuditLog } from '@/lib/safe-audit'
+import { assertOutletWithinLimits } from '@/lib/api/plan-enforcement'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 import { generateUniqueSKU, generateVariantSKU } from '@/lib/sku-generator'
 import { validateCompositionStock } from '@/lib/comp-stock'
@@ -65,6 +66,10 @@ export async function PUT(
     }
     const outletId = user.outletId
     const userId = user.id
+
+    // FIX-PLAN-007: Block mutations when the outlet is over-limit.
+    const overLimitResponse = await assertOutletWithinLimits(outletId)
+    if (overLimitResponse) return overLimitResponse
 
     const { id } = await params
 

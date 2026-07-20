@@ -32,8 +32,34 @@ export async function PUT(
     // Validate numeric fields
     if (value !== undefined) {
       const numValue = Number(value)
-      if (isNaN(numValue)) {
+      if (isNaN(numValue) || !Number.isFinite(numValue)) {
         return safeJsonError('Nilai diskon harus berupa angka', 400)
+      }
+      // SET-013 (parity with POST): enforce non-negative value, and <= 100 for
+      // percentage-like types. Without this, a PUT could bypass the bounds the
+      // POST route enforces.
+      if (numValue < 0) {
+        return safeJsonError('Nilai diskon tidak boleh negatif', 400)
+      }
+      const effectiveType = type ?? existing.type
+      const effectiveDiscountType = (type === 'BUY_X_GET_DISCOUNT' ? (discountType ?? 'PERCENTAGE') : existing.discountType) || 'PERCENTAGE'
+      const isPercentageLike = effectiveType === 'PERCENTAGE'
+        || (effectiveType === 'BUY_X_GET_DISCOUNT' && effectiveDiscountType === 'PERCENTAGE')
+      if (isPercentageLike && numValue > 100) {
+        return safeJsonError('Nilai diskon persentase tidak boleh lebih dari 100', 400)
+      }
+    }
+    // Validate minPurchase / maxDiscount bounds if provided.
+    if (minPurchase !== undefined && minPurchase !== null && minPurchase !== '') {
+      const n = Number(minPurchase)
+      if (!Number.isFinite(n) || n < 0) {
+        return safeJsonError('minPurchase harus berupa angka >= 0', 400)
+      }
+    }
+    if (maxDiscount !== undefined && maxDiscount !== null && maxDiscount !== '') {
+      const n = Number(maxDiscount)
+      if (!Number.isFinite(n) || n < 0) {
+        return safeJsonError('maxDiscount harus berupa angka >= 0', 400)
       }
     }
 
@@ -46,6 +72,18 @@ export async function PUT(
     if (buyMinQty !== undefined && !isNaN(Number(buyMinQty)) && Number(buyMinQty) !== existing.buyMinQty) changes.buyMinQty = { from: existing.buyMinQty, to: Number(buyMinQty) }
     if (discountType !== undefined && discountType !== existing.discountType) changes.discountType = { from: existing.discountType, to: discountType }
     if (categoryId !== undefined && categoryId !== existing.categoryId) changes.categoryId = { from: existing.categoryId, to: categoryId }
+    // SET-015 FIX: Track minPurchase and maxDiscount changes. Previously these
+    // were applied to the DB (lines below) but never recorded in the audit log
+    // — owners could not audit-trail changes to a promo's min-purchase threshold
+    // or max-discount cap. Coerce to Number|null to match DB storage shape.
+    if (minPurchase !== undefined) {
+      const newVal = minPurchase === null || minPurchase === '' ? null : (Number(minPurchase) || null)
+      if (newVal !== existing.minPurchase) changes.minPurchase = { from: existing.minPurchase, to: newVal }
+    }
+    if (maxDiscount !== undefined) {
+      const newVal = maxDiscount === null || maxDiscount === '' ? null : (Number(maxDiscount) || null)
+      if (newVal !== existing.maxDiscount) changes.maxDiscount = { from: existing.maxDiscount, to: newVal }
+    }
 
     const promo = await db.$transaction(async (tx) => {
       const updated = await tx.promo.update({

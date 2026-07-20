@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { VALID_ACCOUNT_TYPES } from '@/lib/config/plan-config'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
+import { safeAuditLog } from '@/lib/safe-audit'
 
 /**
  * POST /api/command
@@ -127,7 +128,18 @@ async function handleSetPlan(
     )
   }
 
-  const oldType = (await db.outlet.findUnique({ where: { id: outletId } }))?.accountType || 'free'
+  // Fetch current outlet + owner for audit-log attribution.
+  const outletBefore = await db.outlet.findUnique({
+    where: { id: outletId },
+    select: {
+      accountType: true,
+      planExpiresAt: true,
+      name: true,
+      users: { where: { role: 'OWNER' }, select: { id: true }, take: 1 },
+    },
+  })
+  const oldType = outletBefore?.accountType || 'free'
+  const previousExpiry = outletBefore?.planExpiresAt ?? null
 
   const updated = await db.outlet.update({
     where: { id: outletId },
@@ -137,6 +149,27 @@ async function handleSetPlan(
   console.log(
     `[COMMAND] SET_PLAN: Outlet "${outletId}" ${oldType} → ${accountType}`
   )
+
+  // FIX-PLAN-005: Audit-log plan changes triggered via the Command Center
+  // webhook. Previously only console.log — forensic trail was missing.
+  const ownerId = outletBefore?.users[0]?.id ?? 'unknown'
+  await safeAuditLog({
+    action: 'PLAN_CHANGE',
+    entityType: 'OUTLET',
+    entityId: outletId,
+    details: JSON.stringify({
+      previousPlan: oldType,
+      newPlan: updated.accountType,
+      previousExpiry: previousExpiry?.toISOString() ?? null,
+      newExpiry: previousExpiry?.toISOString() ?? null,
+      triggeredBy: 'webmaster',
+      endpoint: 'POST /api/command (SET_PLAN)',
+      outletName: outletBefore?.name ?? null,
+      timestamp: new Date().toISOString(),
+    }),
+    outletId,
+    userId: ownerId,
+  })
 
   return {
     outletId: updated.id,

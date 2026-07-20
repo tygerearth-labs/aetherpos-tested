@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { parsePagination } from '@/lib/api/api-helpers'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { getFeaturesForOutlet, isUnlimited } from '@/lib/config/plan-config'
+import { assertOutletWithinLimits } from '@/lib/api/plan-enforcement'
 import { notifyNewCustomer } from '@/lib/notify'
 import { safeJson, safeJsonCreated, safeJsonError } from '@/lib/api/safe-response'
 
@@ -18,7 +19,7 @@ export async function GET(request: NextRequest) {
     const { skip, limit } = parsePagination(searchParams)
     const search = searchParams.get('search') || ''
 
-    const where: Record<string, unknown> = { outletId }
+    const where: Record<string, unknown> = { outletId, deletedAt: null }
     if (search) {
       where.OR = [
         { name: { contains: search } },
@@ -26,6 +27,8 @@ export async function GET(request: NextRequest) {
       ]
     }
 
+    // CUST-002 FIX: All customer queries filter `deletedAt: null` so that
+    // soft-deleted customers are excluded from list/stats/aggregates.
     const [customers, total, totalPointsResult, avgSpendResult, newThisMonthCount] = await Promise.all([
       db.customer.findMany({
         where,
@@ -35,16 +38,17 @@ export async function GET(request: NextRequest) {
       }),
       db.customer.count({ where }),
       db.customer.aggregate({
-        where: { outletId },
+        where: { outletId, deletedAt: null },
         _sum: { points: true },
       }),
       db.customer.aggregate({
-        where: { outletId },
+        where: { outletId, deletedAt: null },
         _avg: { totalSpend: true },
       }),
       db.customer.count({
         where: {
           outletId,
+          deletedAt: null,
           createdAt: { gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1) },
         },
       }),
@@ -74,11 +78,15 @@ export async function POST(request: NextRequest) {
     }
     const outletId = user.outletId
 
+    // FIX-PLAN-007: Block mutations when the outlet is over-limit.
+    const overLimitResponse = await assertOutletWithinLimits(outletId)
+    if (overLimitResponse) return overLimitResponse
+
     const planData = await getFeaturesForOutlet(db, user.outletId)
     if (planData?.features) {
       const { maxCustomers } = planData.features
       if (!isUnlimited(maxCustomers)) {
-        const count = await db.customer.count({ where: { outletId } })
+        const count = await db.customer.count({ where: { outletId, deletedAt: null } })
         if (count >= maxCustomers) {
           return safeJsonError(`Batas pelanggan (${maxCustomers}) sudah tercapai. Upgrade plan untuk menambah pelanggan.`, 403)
         }
@@ -92,9 +100,9 @@ export async function POST(request: NextRequest) {
       return safeJsonError('Name and WhatsApp number are required', 400)
     }
 
-    // Check unique whatsapp per outlet
+    // Check unique whatsapp per outlet (only among non-deleted customers)
     const existing = await db.customer.findFirst({
-      where: { whatsapp, outletId },
+      where: { whatsapp, outletId, deletedAt: null },
     })
     if (existing) {
       return safeJsonError('WhatsApp number already registered in this outlet', 400)

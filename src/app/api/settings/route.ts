@@ -120,14 +120,58 @@ export async function PUT(request: NextRequest) {
     const loyaltyEnabled = typeof body.loyaltyEnabled === 'boolean' ? body.loyaltyEnabled : undefined
     const loyaltyPointsPerAmountRaw = body.loyaltyPointsPerAmount != null ? Number(body.loyaltyPointsPerAmount) : undefined
     const loyaltyPointValueRaw = body.loyaltyPointValue != null ? Number(body.loyaltyPointValue) : undefined
-    if (loyaltyPointsPerAmountRaw !== undefined && isNaN(loyaltyPointsPerAmountRaw)) {
+    if (loyaltyPointsPerAmountRaw !== undefined && (isNaN(loyaltyPointsPerAmountRaw) || !Number.isFinite(loyaltyPointsPerAmountRaw))) {
       return safeJsonError('loyaltyPointsPerAmount harus berupa angka', 400)
     }
-    if (loyaltyPointValueRaw !== undefined && isNaN(loyaltyPointValueRaw)) {
+    if (loyaltyPointValueRaw !== undefined && (isNaN(loyaltyPointValueRaw) || !Number.isFinite(loyaltyPointValueRaw))) {
       return safeJsonError('loyaltyPointValue harus berupa angka', 400)
+    }
+    // SET-004 FIX: loyaltyPointsPerAmount must be >= 1 — otherwise the checkout
+    // route's `Math.floor(total / loyaltyPointsPerAmount)` divides by zero
+    // (Infinity → customer.points += Infinity). See AUDIT-PLATFORM-3 SET-004.
+    if (loyaltyPointsPerAmountRaw !== undefined && loyaltyPointsPerAmountRaw < 1) {
+      return safeJsonError('loyaltyPointsPerAmount harus >= 1', 400)
+    }
+    // SET-005 FIX: loyaltyPointValue must be >= 0 — negative values would
+    // invert the redeem discount logic. Schema default is 100 (Rp 100/point).
+    if (loyaltyPointValueRaw !== undefined && loyaltyPointValueRaw < 0) {
+      return safeJsonError('loyaltyPointValue harus >= 0', 400)
     }
     const loyaltyPointsPerAmount = loyaltyPointsPerAmountRaw
     const loyaltyPointValue = loyaltyPointValueRaw
+
+    // SET-006 FIX: themePrimaryColor must be one of the 6 colors defined by the
+    // settings UI (settings-page.tsx:156-163). A typo would silently break
+    // theme rendering — buttons/badges fall back to default Tailwind classes.
+    const ALLOWED_THEME_COLORS = new Set(['emerald', 'blue', 'violet', 'rose', 'amber', 'cyan'])
+    if (body.themePrimaryColor !== undefined) {
+      const color = String(body.themePrimaryColor).toLowerCase()
+      if (!ALLOWED_THEME_COLORS.has(color)) {
+        return safeJsonError(`themePrimaryColor tidak valid. Pilihan: ${[...ALLOWED_THEME_COLORS].join(', ')}`, 400)
+      }
+      // Normalize to lowercase before saving.
+      body.themePrimaryColor = color
+    }
+
+    // SET-007 FIX: paymentMethods must be a non-empty comma-separated list of
+    // known methods (CASH, QRIS, DEBIT, TRANSFER). The pos-page UI splits by
+    // comma and uppercases (pos-page.tsx:262); we mirror that here so a typo
+    // like "CASH QRIS" (space) or "cash,qris" (lowercase) is rejected at the
+    // API instead of silently breaking payment-button rendering.
+    const ALLOWED_PAYMENT_METHODS = new Set(['CASH', 'QRIS', 'DEBIT', 'TRANSFER'])
+    if (body.paymentMethods !== undefined) {
+      const raw = String(body.paymentMethods ?? '')
+      const tokens = raw.split(',').map((m) => m.trim().toUpperCase()).filter(Boolean)
+      if (tokens.length === 0) {
+        return safeJsonError('paymentMethods tidak boleh kosong', 400)
+      }
+      const invalid = tokens.filter((m) => !ALLOWED_PAYMENT_METHODS.has(m))
+      if (invalid.length > 0) {
+        return safeJsonError(`paymentMethods tidak valid: ${invalid.join(', ')}. Yang tersedia: ${[...ALLOWED_PAYMENT_METHODS].join(', ')}`, 400)
+      }
+      // Normalize: comma-separated uppercase, no empty tokens.
+      body.paymentMethods = tokens.join(',')
+    }
     const notifyOnTransaction = typeof body.notifyOnTransaction === 'boolean' ? body.notifyOnTransaction : undefined
     const notifyOnCustomer = typeof body.notifyOnCustomer === 'boolean' ? body.notifyOnCustomer : undefined
     const notifyDailyReport = typeof body.notifyDailyReport === 'boolean' ? body.notifyDailyReport : undefined
@@ -170,7 +214,7 @@ export async function PUT(request: NextRequest) {
       ...(receiptMerchantCopyEnabled !== undefined && { receiptMerchantCopyEnabled }),
       ...(receiptCustomerCopyEnabled !== undefined && { receiptCustomerCopyEnabled }),
       ...(receiptBatchOrderEnabled !== undefined && { receiptBatchOrderEnabled }),
-      ...(body.themePrimaryColor !== undefined && { themePrimaryColor: String(body.themePrimaryColor) }),
+      ...(body.themePrimaryColor !== undefined && { themePrimaryColor: String(body.themePrimaryColor).toLowerCase() }),
       ...(body.telegramBotToken !== undefined && { telegramBotToken: body.telegramBotToken ? String(body.telegramBotToken) : null }),
       ...(body.telegramChatId !== undefined && { telegramChatId: body.telegramChatId ? String(body.telegramChatId) : null }),
       ...(notifyOnTransaction !== undefined && { notifyOnTransaction }),

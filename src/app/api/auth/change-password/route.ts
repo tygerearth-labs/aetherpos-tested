@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { db } from '@/lib/db'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
+import { safeAuditLog } from '@/lib/safe-audit'
 
 /**
  * POST /api/auth/change-password
@@ -53,6 +54,20 @@ export async function POST(request: NextRequest) {
     await db.user.update({
       where: { id: user.id },
       data: { password: hashedPassword },
+    })
+
+    // CREW-012 FIX: Audit log the password change (sensitive account-takeover vector).
+    // NEVER log the password itself — only metadata about the event.
+    await safeAuditLog({
+      action: 'PASSWORD_CHANGE',
+      entityType: 'USER',
+      entityId: user.id,
+      details: JSON.stringify({
+        // Intentionally excludes currentPassword and newPassword values.
+        message: 'User changed their password',
+      }),
+      outletId: user.outletId,
+      userId: user.id,
     })
 
     return safeJson({

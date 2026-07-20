@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server'
+import { Prisma } from '@prisma/client'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { parseTzOffset, getTodayRangeTz, getHourInTimezone, getVoidedTxIds } from '@/lib/api/api-helpers'
@@ -179,14 +180,31 @@ export async function GET(request: NextRequest) {
 
     if (isOwner) {
       // Batch 2: Owner-specific queries in parallel
-      const [profitAgg, todayTxs] = await Promise.all([
-        // All-time profit via aggregate (single query)
-        db.transactionItem.aggregate({
-          where: {
-            transaction: { outletId, ...voidExclude },
-          },
-          _sum: { price: true, hpp: true },
-        }),
+      const [profitRows, todayTxs] = await Promise.all([
+        // All-time profit via raw SQL — uses SUM(price * qty) - SUM(hpp * qty)
+        // to correctly compute EXTENDED revenue and COGS (not unit-level sums).
+        // Previous aggregate (_sum: { price, hpp }) summed UNIT values and
+        // undercounted profit proportional to average qty per line item.
+        // Voided transactions are excluded via NOT IN (Transaction has no status
+        // column; voided IDs are derived from AuditLog VOID actions).
+        voidedIdArray.length > 0
+          ? db.$queryRaw<Array<{ revenue: bigint; cogs: bigint }>>`
+              SELECT
+                COALESCE(SUM(ti.price * ti.qty), 0) AS revenue,
+                COALESCE(SUM(ti.hpp  * ti.qty), 0) AS cogs
+              FROM "TransactionItem" ti
+              JOIN "Transaction" t ON t.id = ti."transactionId"
+              WHERE t."outletId" = ${outletId}
+                AND t.id NOT IN (${Prisma.join(voidedIdArray)})
+            `
+          : db.$queryRaw<Array<{ revenue: bigint; cogs: bigint }>>`
+              SELECT
+                COALESCE(SUM(ti.price * ti.qty), 0) AS revenue,
+                COALESCE(SUM(ti.hpp  * ti.qty), 0) AS cogs
+              FROM "TransactionItem" ti
+              JOIN "Transaction" t ON t.id = ti."transactionId"
+              WHERE t."outletId" = ${outletId}
+            `,
 
         // Today's transactions (needed for profit + peak hours)
         db.transaction.findMany({
@@ -199,8 +217,9 @@ export async function GET(request: NextRequest) {
         }),
       ])
 
-      // All-time profit = total revenue - total COGS
-      totalProfit = (profitAgg._sum.price ?? 0) - (profitAgg._sum.hpp ?? 0)
+      // All-time profit = extended revenue - extended COGS
+      const profitRow = profitRows[0]
+      totalProfit = Number(profitRow?.revenue ?? 0) - Number(profitRow?.cogs ?? 0)
 
       // Today's profit
       todayProfit = todayTxs.reduce((s, t) => {

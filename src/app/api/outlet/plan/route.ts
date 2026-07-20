@@ -1,10 +1,12 @@
 import { NextRequest } from 'next/server'
 import { resolvePlanType } from '@/lib/api/api-helpers'
 import { requireAuth } from '@/lib/auth/auth-utils'
+import { requireWebmaster, webmasterUnauthorized } from '@/lib/api/webmaster-auth'
 import { db } from '@/lib/db'
-import { getPlanFeaturesFromDB, getPlanLabel } from '@/lib/config/plan-config'
+import { VALID_ACCOUNT_TYPES, getPlanFeaturesFromDB, getPlanLabel } from '@/lib/config/plan-config'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 import { isPlanExpired, getDaysRemaining, calculateExpiryDate } from '@/lib/plan-expiry'
+import { safeAuditLog } from '@/lib/safe-audit'
 
 /**
  * GET /api/outlet/plan
@@ -95,33 +97,51 @@ export async function GET(request: NextRequest) {
 /**
  * PATCH /api/outlet/plan
  *
- * Owner-only: set or extend plan expiry.
- * Supports `applyToGroup` to update all outlets in the same group.
+ * FIX-PLAN-001: This endpoint was previously OWNER-accessible and allowed any
+ * authenticated owner to self-upgrade to any plan, any duration, without
+ * payment verification. Self-service plan upgrades MUST go through the
+ * external payment gateway → /api/webmaster/outlets/:id/plan flow.
+ *
+ * The endpoint is now WEBMASTER-ONLY (Bearer $COMMAND_SECRET). The only
+ * legitimate use-case is the Command Center setting a plan after verifying
+ * payment. Owner self-DOWNGRADE-to-free is allowed via this endpoint ONLY
+ * when caller passes planType='free' (no expiry manipulation). For paid
+ * upgrades, callers MUST go through /api/webmaster/outlets/:id/plan.
  *
  * Body:
- * - planType: string (required) — the plan to set (free, pro, enterprise)
+ * - planType: 'free' | 'pro' | 'enterprise' (required)
  * - months: number (optional) — duration in months, calculates planExpiresAt
  * - planExpiresAt: string (optional) — ISO date string for explicit expiry
  * - applyToGroup: boolean (optional) — apply to all outlets in group
+ * - outletId: string (required) — target outlet id (must be set by webmaster)
  */
 export async function PATCH(request: NextRequest) {
   try {
-    const user = await requireAuth(request)
-
-    // Only OWNER can manage plan
-    if (user.role !== 'OWNER') {
-      return safeJsonError('Hanya owner yang dapat mengubah plan', 403)
+    // FIX-PLAN-001: Webmaster-only auth — COMMAND_SECRET Bearer token.
+    if (!requireWebmaster(request)) {
+      return webmasterUnauthorized()
     }
 
     const body = await request.json()
-    const { planType, months, planExpiresAt: explicitExpiry, applyToGroup } = body as {
+    const {
+      planType,
+      months,
+      planExpiresAt: explicitExpiry,
+      applyToGroup,
+      outletId: targetOutletId,
+    } = body as {
       planType?: string
       months?: number
       planExpiresAt?: string
       applyToGroup?: boolean
+      outletId?: string
     }
 
-    if (!planType || !['free', 'pro', 'enterprise'].includes(planType)) {
+    if (!targetOutletId) {
+      return safeJsonError('outletId wajib (webmaster endpoint)', 400)
+    }
+
+    if (!planType || !VALID_ACCOUNT_TYPES.includes(planType as typeof VALID_ACCOUNT_TYPES[number])) {
       return safeJsonError('Plan type tidak valid (free, pro, enterprise)', 400)
     }
 
@@ -141,24 +161,34 @@ export async function PATCH(request: NextRequest) {
       }
     }
 
-    // Get current outlet
+    // Get target outlet (and its owner for audit log attribution)
     const outlet = await db.outlet.findUnique({
-      where: { id: user.outletId },
-      select: { id: true, groupId: true },
+      where: { id: targetOutletId },
+      select: {
+        id: true,
+        name: true,
+        groupId: true,
+        accountType: true,
+        planExpiresAt: true,
+        users: { where: { role: 'OWNER' }, select: { id: true }, take: 1 },
+      },
     })
 
     if (!outlet) {
       return safeJsonError('Outlet tidak ditemukan', 404)
     }
 
+    const previousPlan = outlet.accountType
+    const previousExpiry = outlet.planExpiresAt
     const data = {
       accountType: planType,
       planExpiresAt: expiryDate,
     }
 
     let updatedCount = 0
+    const shouldApplyToGroup = applyToGroup && outlet.groupId
 
-    if (applyToGroup && outlet.groupId) {
+    if (shouldApplyToGroup) {
       // Update all outlets in the group
       const result = await db.outlet.updateMany({
         where: { groupId: outlet.groupId },
@@ -168,22 +198,44 @@ export async function PATCH(request: NextRequest) {
     } else {
       // Update only this outlet
       await db.outlet.update({
-        where: { id: user.outletId },
+        where: { id: targetOutletId },
         data,
       })
       updatedCount = 1
     }
 
+    // FIX-PLAN-005: Audit-log the plan change. Attribute to the outlet's owner
+    // (webmaster has no User row in the DB). safeAuditLog swallows FK errors so
+    // a missing owner does NOT break the plan change.
+    const ownerId = outlet.users[0]?.id ?? 'unknown'
+    await safeAuditLog({
+      action: 'PLAN_CHANGE',
+      entityType: 'OUTLET',
+      entityId: targetOutletId,
+      details: JSON.stringify({
+        previousPlan,
+        newPlan: planType,
+        previousExpiry: previousExpiry?.toISOString() ?? null,
+        newExpiry: expiryDate?.toISOString() ?? null,
+        applyToGroup: !!shouldApplyToGroup,
+        updatedCount,
+        triggeredBy: 'webmaster',
+        endpoint: 'PATCH /api/outlet/plan',
+        timestamp: new Date().toISOString(),
+      }),
+      outletId: targetOutletId,
+      userId: ownerId,
+    })
+
     return safeJson({
       success: true,
       updatedCount,
-      planType,
+      outletId: targetOutletId,
+      previousPlan,
+      newPlan: planType,
       planExpiresAt: expiryDate?.toISOString() ?? null,
     })
   } catch (error) {
-    if (error instanceof Error && error.message.includes('Unauthorized')) {
-      return safeJsonError('Unauthorized', 401)
-    }
     console.error('[/api/outlet/plan] PATCH error:', error)
     return safeJsonError('Internal server error')
   }

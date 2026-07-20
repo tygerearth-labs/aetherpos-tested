@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { getFeaturesForOutlet, isUnlimited } from '@/lib/config/plan-config'
+import { assertOutletWithinLimits } from '@/lib/api/plan-enforcement'
 import { safeJson, safeJsonCreated, safeJsonError } from '@/lib/api/safe-response'
 
 // GET /api/categories — list all categories for the outlet
@@ -30,6 +31,10 @@ export async function POST(request: NextRequest) {
   try {
     const user = await getAuthUser(request)
     if (!user) return unauthorized()
+
+    // FIX-PLAN-007: Block mutations when the outlet is over-limit.
+    const overLimitResponse = await assertOutletWithinLimits(user.outletId)
+    if (overLimitResponse) return overLimitResponse
 
     const planData = await getFeaturesForOutlet(db, user.outletId)
     if (planData?.features) {

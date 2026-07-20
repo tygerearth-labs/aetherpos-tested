@@ -1,7 +1,9 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
-import { generateInvoiceNumber } from '@/lib/api/api-helpers'
+import { generateInvoiceNumber, resolvePlanType } from '@/lib/api/api-helpers'
+import { getPlanFeatures, isUnlimited } from '@/lib/config/plan-config'
+import { assertOutletWithinLimits } from '@/lib/api/plan-enforcement'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 import { ensureMigrated } from '@/lib/db-migrate'
 import { InventoryConsumptionService } from '@/lib/inventory-consumption-service'
@@ -57,6 +59,12 @@ export async function POST(request: NextRequest) {
     // Auto-migrate: ensure new columns exist (e.g. itemDiscount)
     await ensureMigrated()
 
+    // FIX-PLAN-007: Block ALL mutations when the outlet is over-limit after
+    // a downgrade. Offline sync is a mutation that creates transactions and
+    // decrements stock, so it must respect the over-limit gate.
+    const overLimitResponse = await assertOutletWithinLimits(outletId)
+    if (overLimitResponse) return overLimitResponse
+
     const body = await request.json()
     const { transactions }: { transactions: SyncTransaction[] } = body
 
@@ -66,6 +74,38 @@ export async function POST(request: NextRequest) {
 
     // Limit batch size to 50
     const batch = transactions.slice(0, 50)
+
+    // FIX-PLAN-004: Enforce maxTransactionsPerMonth plan limit on the offline
+    // sync path. Previously this endpoint did NOT check the limit, while the
+    // online /api/pos/checkout endpoint did. A Free user (limit 500 tx/month)
+    // could go offline, perform 1000 transactions in IndexedDB, then sync
+    // them via this endpoint — all 1000 were recorded, none rejected. This
+    // mirrors the K4 logic from /api/pos/checkout/route.ts:111-123 and rejects
+    // the entire batch when (currentMonthCount + batchSize) > limit so the
+    // client gets a clear error and can prompt the user to upgrade.
+    const syncOutlet = await db.outlet.findUnique({
+      where: { id: outletId },
+      select: { accountType: true },
+    })
+    const syncAccountType = resolvePlanType(syncOutlet?.accountType)
+    const syncFeatures = getPlanFeatures(syncAccountType)
+    if (!isUnlimited(syncFeatures.maxTransactionsPerMonth)) {
+      const now = new Date()
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+      const monthTxCount = await db.transaction.count({
+        where: {
+          outletId,
+          createdAt: { gte: monthStart },
+        },
+      })
+      if (monthTxCount + batch.length > syncFeatures.maxTransactionsPerMonth) {
+        return safeJsonError(
+          'Anda telah mencapai batas transaksi bulanan paket Anda',
+          403,
+        )
+      }
+    }
+
     const results: SyncResult[] = []
 
     // AUDIT-1-004 FIX: label the batch loop so inner validation `continue`s can
@@ -422,7 +462,8 @@ export async function POST(request: NextRequest) {
           // 9. Handle customer loyalty
           if (payload.customerId) {
             const customer = await txDb.customer.findFirst({
-              where: { id: payload.customerId, outletId },
+              where: { id: payload.customerId, outletId, deletedAt: null },
+              select: { id: true },
             })
             if (!customer) {
               throw new Error('Customer not found')
@@ -430,39 +471,39 @@ export async function POST(request: NextRequest) {
 
             const pointsToUse = payload.pointsUsed || 0
 
-            if (pointsToUse > customer.points) {
-              throw new Error(
-                `Poin customer tidak cukup. Tersedia: ${customer.points}, Digunakan: ${pointsToUse}`
-              )
-            }
-
             // Calculate earned points based on outlet loyalty settings
             let earnedPoints = 0
             const syncSetting = await txDb.outletSetting.findUnique({
               where: { outletId },
-              select: { loyaltyEnabled: true, loyaltyPointsPerAmount: true },
+              select: { loyaltyEnabled: true, loyaltyPointsPerAmount: true, loyaltyPointValue: true },
             })
             if (syncSetting?.loyaltyEnabled && syncSetting.loyaltyPointsPerAmount > 0) {
               earnedPoints = Math.floor(payload.total / syncSetting.loyaltyPointsPerAmount)
             }
 
-            // Combine customer updates into a single query
-            const customerUpdateData: { totalSpend: { increment: number }; points?: { increment: number } | { decrement: number } } = {
-              totalSpend: { increment: payload.total },
+            // CUST-001 FIX: Atomic loyalty point update — race-condition-free.
+            // Mirrors the atomic stock-deduction pattern used earlier in this route
+            // (and in /api/pos/checkout STEP 7). The `points >= pointsToUse`
+            // predicate is evaluated atomically with the mutation, so two concurrent
+            // syncs (or sync + checkout) cannot both pass the balance check and
+            // over-spend the customer's loyalty balance. If affected rows = 0,
+            // another transaction drained the balance first — abort and rollback.
+            const netPointsDelta = earnedPoints - pointsToUse
+            const loyaltyAffected = await txDb.$executeRaw`
+              UPDATE "Customer"
+              SET points = points + ${netPointsDelta},
+                  totalSpend = totalSpend + ${payload.total},
+                  "updatedAt" = ${new Date()}
+              WHERE id = ${payload.customerId}
+                AND points >= ${pointsToUse}
+                AND outletId = ${outletId}
+                AND "deletedAt" IS NULL
+            `
+            if (loyaltyAffected === 0) {
+              throw new Error(
+                `Poin loyalitas tidak mencukupi (butuh ${pointsToUse}, kemungkinan baru saja dipakai transaksi lain). Coba lagi.`
+              )
             }
-            let netPointsDelta = 0
-            if (earnedPoints > 0) netPointsDelta += earnedPoints
-            if (pointsToUse > 0) netPointsDelta -= pointsToUse
-            if (netPointsDelta !== 0) {
-              customerUpdateData.points = netPointsDelta > 0
-                ? { increment: netPointsDelta }
-                : { decrement: Math.abs(netPointsDelta) }
-            }
-
-            await txDb.customer.update({
-              where: { id: payload.customerId },
-              data: customerUpdateData,
-            })
 
             // Batch create loyalty logs
             const loyaltyLogs = []
@@ -477,7 +518,11 @@ export async function POST(request: NextRequest) {
               })
             }
             if (pointsToUse > 0) {
-              const pointsDiscount = pointsToUse * 100
+              // SET-002 FIX: Consult loyaltyPointValue setting instead of hardcoding * 100.
+              // The client UI (pos-page.tsx:1060) computes the discount using this
+              // same setting, so the LoyaltyLog description must match.
+              const pointValue = syncSetting?.loyaltyPointValue ?? 100
+              const pointsDiscount = pointsToUse * pointValue
               loyaltyLogs.push({
                 type: 'REDEEM' as const,
                 points: -pointsToUse,

@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { parsePagination, resolvePlanType, buildFlexibleSearch } from '@/lib/api/api-helpers'
 import { getPlanFeatures, isUnlimited } from '@/lib/config/plan-config'
+import { assertOutletWithinLimits } from '@/lib/api/plan-enforcement'
 import { safeJson, safeJsonCreated, safeJsonError, CACHE } from '@/lib/api/safe-response'
 import { generateUniqueSKU, generateVariantSKU } from '@/lib/sku-generator'
 
@@ -277,6 +278,13 @@ export async function POST(request: NextRequest) {
     }
     const userId = user.id
     const outletId = user.outletId
+
+    // FIX-PLAN-007: Block ALL mutations when the outlet is over-limit after
+    // a downgrade. The per-resource maxProducts check below only blocks NEW
+    // product creation — this gate also blocks edits/deletes on existing
+    // over-limit data, per the platform downgrade policy.
+    const overLimitResponse = await assertOutletWithinLimits(outletId)
+    if (overLimitResponse) return overLimitResponse
 
     const body = await request.json()
     const { name, sku, barcode, hpp, price, stock, lowStockAlert, image, categoryId, unit, hasVariants, variants } = body

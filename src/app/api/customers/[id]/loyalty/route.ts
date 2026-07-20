@@ -18,7 +18,7 @@ export async function GET(
     const { id } = await params
 
     const customer = await db.customer.findFirst({
-      where: { id, outletId },
+      where: { id, outletId, deletedAt: null },
     })
     if (!customer) {
       return safeJsonError('Customer not found', 404)

@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { db } from '@/lib/db'
 import { getFeaturesForOutlet, isUnlimited } from '@/lib/config/plan-config'
+import { assertOutletWithinLimits } from '@/lib/api/plan-enforcement'
 import { safeJson, safeJsonCreated, safeJsonError } from '@/lib/api/safe-response'
 
 // GET /api/settings/promos — list all promos
@@ -39,6 +40,10 @@ export async function POST(request: NextRequest) {
     return safeJsonError('Hanya pemilik yang dapat mengakses', 403)
   }
 
+  // FIX-PLAN-007: Block mutations when the outlet is over-limit.
+  const overLimitResponse = await assertOutletWithinLimits(user.outletId)
+  if (overLimitResponse) return overLimitResponse
+
   try {
     const body = await request.json()
     const { name, type, value, minPurchase, maxDiscount, active, buyMinQty, discountType, categoryId } = body
@@ -65,8 +70,31 @@ export async function POST(request: NextRequest) {
     }
 
     const numValue = Number(value)
-    if (isNaN(numValue)) {
+    if (isNaN(numValue) || !Number.isFinite(numValue)) {
       return safeJsonError('Nilai diskon harus berupa angka', 400)
+    }
+    // SET-013 FIX: Enforce value bounds. A negative value would silently ADD
+    // to the subtotal (per audit SET-013). A percentage > 100 would produce a
+    // negative total (caught downstream at checkout line 188, but better to
+    // reject here with a clearer message).
+    if (numValue < 0) {
+      return safeJsonError('Nilai diskon tidak boleh negatif', 400)
+    }
+    // For PERCENTAGE type (and BUY_X_GET_DISCOUNT with discountType=PERCENTAGE),
+    // the value is a percentage and must be 0-100.
+    const isPercentageLike = type === 'PERCENTAGE'
+      || (type === 'BUY_X_GET_DISCOUNT' && (discountType || 'PERCENTAGE') === 'PERCENTAGE')
+    if (isPercentageLike && numValue > 100) {
+      return safeJsonError('Nilai diskon persentase tidak boleh lebih dari 100', 400)
+    }
+    // Validate minPurchase / maxDiscount bounds if provided.
+    const numMinPurchase = minPurchase != null && minPurchase !== '' ? Number(minPurchase) : null
+    const numMaxDiscount = maxDiscount != null && maxDiscount !== '' ? Number(maxDiscount) : null
+    if (numMinPurchase != null && (!Number.isFinite(numMinPurchase) || numMinPurchase < 0)) {
+      return safeJsonError('minPurchase harus berupa angka >= 0', 400)
+    }
+    if (numMaxDiscount != null && (!Number.isFinite(numMaxDiscount) || numMaxDiscount < 0)) {
+      return safeJsonError('maxDiscount harus berupa angka >= 0', 400)
     }
 
     // L4: Create promo with audit log

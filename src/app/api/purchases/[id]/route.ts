@@ -532,6 +532,10 @@ export async function DELETE(
   try {
     const user = await getAuthUser(request)
     if (!user) return unauthorized()
+    // CREW-001 FIX: Only OWNER can delete purchase orders (destructive — destroys batch/stock history)
+    if (user.role !== 'OWNER') {
+      return safeJsonError('Hanya OWNER yang dapat melakukan aksi ini', 403)
+    }
     const userId = user.id
     const outletId = user.outletId
     const { id } = await params

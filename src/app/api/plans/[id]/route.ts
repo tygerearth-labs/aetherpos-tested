@@ -1,16 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
+import { requireWebmaster, webmasterUnauthorized } from '@/lib/api/webmaster-auth'
 
-// ── PUT /api/plans/:id — update a plan (OWNER only) ──
+// ── PUT /api/plans/:id — update a plan (WEBMASTER ONLY) ──
+// FIX-PLAN-002: Plan DB rows merge into per-outlet enforcement via
+// getPlanFeaturesFromDB — allowing OWNERs to edit them is a cross-tenant
+// privilege-escalation vector (e.g. set free plan maxCategories:-1 to
+// raise the limit for ALL free-tier outlets). Restricted to webmaster.
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const user = await getAuthUser(request)
-  if (!user) return unauthorized()
-  if (user.role !== 'OWNER') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  // FIX-PLAN-002: Require webmaster (Bearer $COMMAND_SECRET).
+  if (!requireWebmaster(request)) {
+    return webmasterUnauthorized()
   }
 
   try {
@@ -50,15 +53,15 @@ export async function PUT(
   }
 }
 
-// ── DELETE /api/plans/:id — delete a plan (OWNER only) ──
+// ── DELETE /api/plans/:id — delete a plan (WEBMASTER ONLY) ──
+// FIX-PLAN-002: Same cross-tenant risk as PUT — restricted to webmaster.
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const user = await getAuthUser(request)
-  if (!user) return unauthorized()
-  if (user.role !== 'OWNER') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  // FIX-PLAN-002: Require webmaster (Bearer $COMMAND_SECRET).
+  if (!requireWebmaster(request)) {
+    return webmasterUnauthorized()
   }
 
   try {

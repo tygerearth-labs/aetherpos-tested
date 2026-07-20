@@ -29,12 +29,14 @@ export async function POST(request: NextRequest) {
     // Perform the merge inside a single transaction with 30s timeout
     const result = await db.$transaction(async (tx) => {
       // 1. Fetch both customers with transaction counts and loyalty points
+      // CUST-002 FIX: filter `deletedAt: null` so soft-deleted customers
+      // cannot be picked as source or target of a merge.
       const [source, target] = await Promise.all([
         tx.customer.findFirst({
-          where: { id: sourceId, outletId },
+          where: { id: sourceId, outletId, deletedAt: null },
         }),
         tx.customer.findFirst({
-          where: { id: targetId, outletId },
+          where: { id: targetId, outletId, deletedAt: null },
         }),
       ])
 
@@ -74,9 +76,15 @@ export async function POST(request: NextRequest) {
         },
       })
 
-      // 5. Delete source customer
-      await tx.customer.delete({
+      // 5. Soft-delete source customer (CUST-002 FIX — preserve audit trail).
+      //    The source's transactions and loyalty logs have been reassigned to
+      //    target (steps 2 and 3), so the source record's only remaining
+      //    value is its name/whatsapp (preserved in the MERGE audit log entry
+      //    below). Soft-delete keeps the source row for audit-trail queries
+      //    but excludes it from active customer lists.
+      await tx.customer.update({
         where: { id: sourceId },
+        data: { deletedAt: new Date() },
       })
 
       // 6. Create audit log inside the transaction

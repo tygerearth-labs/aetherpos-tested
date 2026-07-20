@@ -4,6 +4,7 @@ import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { db } from '@/lib/db'
 import { validateEmail } from '@/lib/api/api-helpers'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
+import { safeAuditLog } from '@/lib/safe-audit'
 
 /**
  * POST /api/auth/change-email
@@ -60,9 +61,26 @@ export async function POST(request: NextRequest) {
     }
 
     // Update email
+    const oldEmail = dbUser.email
     await db.user.update({
       where: { id: user.id },
       data: { email },
+    })
+
+    // CREW-013 FIX: Audit log the email change (sensitive account-takeover vector).
+    // Logs both oldEmail and newEmail so investigators can trace the change.
+    // NEVER logs the password — only that it was verified.
+    await safeAuditLog({
+      action: 'EMAIL_CHANGE',
+      entityType: 'USER',
+      entityId: user.id,
+      details: JSON.stringify({
+        oldEmail,
+        newEmail: email,
+        message: 'User changed their email address (password verified)',
+      }),
+      outletId: user.outletId,
+      userId: user.id,
     })
 
     return safeJson({

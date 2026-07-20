@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
+import { requireWebmaster, webmasterUnauthorized } from '@/lib/api/webmaster-auth'
 
 // ── GET /api/plans — list all active plans (any authenticated user) ──
 export async function GET(request: NextRequest) {
@@ -41,12 +42,18 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// ── POST /api/plans — create a new plan (OWNER only) ──
+// ── POST /api/plans — create a new plan (WEBMASTER ONLY) ──
+// FIX-PLAN-002: This endpoint was previously OWNER-accessible and allowed any
+// authenticated owner to create Plan DB rows. Because getPlanFeaturesFromDB
+// merges DB Plan.features OVER static defaults, an attacker could create a
+// plan with slug="free" and features={maxCategories:-1, maxCustomers:-1, ...}
+// to instantly raise the limits for ALL outlets on the free plan — a
+// cross-tenant privilege escalation. Plan definitions are platform-level
+// config and must only be editable via the COMMAND_SECRET webmaster tier.
 export async function POST(request: NextRequest) {
-  const user = await getAuthUser(request)
-  if (!user) return unauthorized()
-  if (user.role !== 'OWNER') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  // FIX-PLAN-002: Require webmaster (Bearer $COMMAND_SECRET).
+  if (!requireWebmaster(request)) {
+    return webmasterUnauthorized()
   }
 
   try {

@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { getOutletPlan } from '@/lib/config/plan-config'
+import { assertOutletWithinLimits } from '@/lib/api/plan-enforcement'
 import { validateEmail, validatePassword } from '@/lib/api/api-helpers'
 import { safeAuditLog } from '@/lib/safe-audit'
 import { safeJson, safeJsonCreated, safeJsonError } from '@/lib/api/safe-response'
@@ -55,6 +56,12 @@ export async function POST(request: NextRequest) {
     if (user.role !== 'OWNER') {
       return safeJsonError('Hanya pemilik yang dapat menambah crew', 403)
     }
+
+    // FIX-PLAN-007: Block mutations when the outlet is over-limit after a
+    // downgrade. The per-resource maxCrew check below only blocks NEW crew
+    // creation — this gate blocks ALL mutations on over-limit outlets.
+    const overLimitResponse = await assertOutletWithinLimits(user.outletId)
+    if (overLimitResponse) return overLimitResponse
 
     // Check plan limits
     const planData = await getOutletPlan(user.outletId, db)

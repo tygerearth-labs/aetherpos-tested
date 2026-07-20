@@ -211,6 +211,10 @@ export async function POST(request: NextRequest) {
     if (!user) {
       return unauthorized()
     }
+    // CREW-008 FIX: Only OWNER can bulk-upload products via Excel (mass-creates catalog entries)
+    if (user.role !== 'OWNER') {
+      return safeJsonError('Hanya OWNER yang dapat melakukan aksi ini', 403)
+    }
     const outletId = user.outletId
     const userId = user.id
 

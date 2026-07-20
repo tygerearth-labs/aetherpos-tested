@@ -20,7 +20,7 @@ export async function POST(
     const { id } = await params
 
     const customer = await db.customer.findFirst({
-      where: { id, outletId },
+      where: { id, outletId, deletedAt: null },
     })
     if (!customer) {
       return safeJsonError('Customer not found', 404)
@@ -49,7 +49,11 @@ export async function POST(
     const pointsChange = type === 'ADD' ? points : -points
 
     // Create loyalty log and update customer points
-    await db.$transaction(async (tx) => {
+    // CUST-003 FIX: Also create an AuditLog entry inside the same transaction
+    // so manual loyalty adjustments appear in the unified audit-log stream
+    // (every other customer mutation — CREATE/UPDATE/DELETE/MERGE — already
+    // creates an AuditLog entry; this closes the gap).
+    const updated = await db.$transaction(async (tx) => {
       await tx.loyaltyLog.create({
         data: {
           type: 'ADJUST',
@@ -59,14 +63,29 @@ export async function POST(
         },
       })
 
-      await tx.customer.update({
+      const updatedCustomer = await tx.customer.update({
         where: { id },
         data: { points: { increment: pointsChange } },
       })
-    })
 
-    const updated = await db.customer.findUnique({
-      where: { id },
+      await tx.auditLog.create({
+        data: {
+          action: 'LOYALTY_ADJUSTMENT',
+          entityType: 'CUSTOMER',
+          entityId: id,
+          details: JSON.stringify({
+            customerId: id,
+            customerName: customer.name,
+            delta: pointsChange,
+            reason: reason.trim(),
+            newBalance: updatedCustomer.points,
+          }),
+          outletId,
+          userId: user.id,
+        },
+      })
+
+      return updatedCustomer
     })
 
     return safeJson(updated)
