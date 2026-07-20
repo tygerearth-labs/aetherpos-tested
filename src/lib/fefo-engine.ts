@@ -130,8 +130,12 @@ export class FEFOEngine {
 
     // 0. Mark expired batches before FEFO selection (BAT-008 fix)
     //    Ensures expired batches are never consumed during checkout.
+    //    MODE-3-001 FIX: Also decrement InventoryItem.stock by the expired qty
+    //    so the invariant `stock == SUM(AVAILABLE batches.remainingQty)` holds.
+    //    Mirrors the standalone markExpiredBatches() method (AUDIT-1-010 fix).
     const now = new Date()
-    await tx.inventoryBatch.updateMany({
+
+    const expiringBatches = await tx.inventoryBatch.findMany({
       where: {
         inventoryItemId,
         outletId,
@@ -139,8 +143,37 @@ export class FEFOEngine {
         expiredDate: { lt: now },
         remainingQty: { gt: 0 },
       },
-      data: { status: 'EXPIRED', updatedAt: now },
+      select: { id: true, remainingQty: true },
     })
+
+    if (expiringBatches.length > 0) {
+      await tx.inventoryBatch.updateMany({
+        where: { id: { in: expiringBatches.map(b => b.id) } },
+        data: { status: 'EXPIRED', updatedAt: now },
+      })
+
+      const totalExpiredQty = expiringBatches.reduce((sum, b) => sum + b.remainingQty, 0)
+      await tx.$executeRaw`
+        UPDATE "InventoryItem" SET stock = MAX(0, stock - ${totalExpiredQty})
+        WHERE id = ${inventoryItemId} AND "outletId" = ${outletId}
+      `
+
+      try {
+        await tx.inventoryMovement.create({
+          data: {
+            type: 'EXPIRY_WRITEOFF',
+            inventoryItemId,
+            quantity: -totalExpiredQty,
+            previousStock: 0,
+            newStock: 0,
+            referenceType: 'BATCH_EXPIRY',
+            notes: `Auto write-off: ${expiringBatches.length} batch(es) expired during consume (${invoiceNumber})`,
+            outletId,
+            userId,
+          },
+        })
+      } catch { /* movement is best-effort */ }
+    }
 
     // 1. Fetch AVAILABLE batches sorted by FEFO: expiredDate ASC, null last
     //    BAT-008: Also filter out expired dates directly as a safety net
@@ -194,7 +227,8 @@ export class FEFOEngine {
     }))
 
     if (batches.length === 0) {
-      // No batches available — fall through (let the caller handle plain stock deduction)
+      // No batches available — Mode 1 (Non-Batch).
+      // Return empty result; caller handles plain stock deduction.
       return {
         inventoryItemId,
         itemName: '',
@@ -204,17 +238,23 @@ export class FEFOEngine {
       }
     }
 
-    const itemName = batches[0].inventoryItem.name
-    const baseUnit = batches[0].inventoryItem.baseUnit
+    // DEFENSIVE: optional chaining prevents "Cannot read properties of undefined" crash
+    const itemName = batches[0]?.inventoryItem?.name ?? 'unknown'
+    const baseUnit = batches[0]?.inventoryItem?.baseUnit ?? 'unit'
 
     // 2. Calculate total available across all batches
     const totalAvailable = batches.reduce((sum, b) => sum + b.remainingQty, 0)
     if (totalAvailable < quantityNeeded) {
-      throw new Error(
-        `Stok batch untuk "${itemName}" tidak cukup. ` +
-        `Tersedia: ${totalAvailable} ${baseUnit} (dari ${batches.length} batch), ` +
-        `Dibutuhkan: ${quantityNeeded} ${baseUnit}`
+      // Unified Inventory Engine: batch is a CAPABILITY, not a requirement.
+      // If batches are insufficient, consume what's available and log the gap.
+      // Do NOT throw — this would block stock opname/adjustment for items with
+      // inconsistent batch data.
+      console.error(
+        `[FEFO:CONSUME] WARNING: Batch stock insufficient for "${itemName}". ` +
+        `Available: ${totalAvailable} ${baseUnit}, needed: ${quantityNeeded} ${baseUnit}. ` +
+        `Consuming all available batches. Gap: ${quantityNeeded - totalAvailable} ${baseUnit} untracked.`
       )
+      // Fall through — the FEFO loop will consume all available batches.
     }
 
     // 3. FEFO: consume from closest-to-expiry batches first
@@ -521,8 +561,15 @@ export class FEFOEngine {
     const { inventoryItemId, quantityNeeded, transactionId, invoiceNumber, outletId, userId, sourceDetails } = params
 
     // 0. Mark expired batches before FEFO selection (BAT-008 fix)
+    //    MODE-3-001 FIX: Also decrement InventoryItem.stock by the expired qty
+    //    so the invariant `stock == SUM(AVAILABLE batches.remainingQty)` holds.
+    //    Previously this only flipped the batch status, leaving stock unchanged →
+    //    stock drift when expired batches were encountered during checkout.
+    //    Mirrors the standalone markExpiredBatches() method (AUDIT-1-010 fix).
     const now = new Date()
-    await tx.inventoryBatch.updateMany({
+
+    // Fetch expiring batches BEFORE marking (need their remainingQty for stock decrement)
+    const expiringBatches = await tx.inventoryBatch.findMany({
       where: {
         inventoryItemId,
         outletId,
@@ -530,8 +577,44 @@ export class FEFOEngine {
         expiredDate: { lt: now },
         remainingQty: { gt: 0 },
       },
-      data: { status: 'EXPIRED', updatedAt: now },
+      select: { id: true, remainingQty: true, batchNumber: true },
     })
+
+    if (expiringBatches.length > 0) {
+      await tx.inventoryBatch.updateMany({
+        where: { id: { in: expiringBatches.map(b => b.id) } },
+        data: { status: 'EXPIRED', updatedAt: now },
+      })
+
+      // Decrement InventoryItem.stock by total expired qty (atomic SQL)
+      const totalExpiredQty = expiringBatches.reduce((sum, b) => sum + b.remainingQty, 0)
+      await tx.$executeRaw`
+        UPDATE "InventoryItem" SET stock = MAX(0, stock - ${totalExpiredQty})
+        WHERE id = ${inventoryItemId} AND "outletId" = ${outletId}
+      `
+
+      // Create EXPIRY_WRITEOFF movement for auditability
+      try {
+        await tx.inventoryMovement.create({
+          data: {
+            type: 'EXPIRY_WRITEOFF',
+            inventoryItemId,
+            quantity: -totalExpiredQty,
+            previousStock: 0,
+            newStock: 0,
+            referenceType: 'BATCH_EXPIRY',
+            notes: `Auto write-off: ${expiringBatches.length} batch(es) expired during checkout (${invoiceNumber})`,
+            outletId,
+            userId,
+          },
+        })
+      } catch { /* movement is best-effort */ }
+
+      console.log(
+        `[FEFO:RECORD] ${invoiceNumber} — marked ${expiringBatches.length} batch(es) EXPIRED, ` +
+        `decremented stock by ${totalExpiredQty} for item ${inventoryItemId}`
+      )
+    }
 
     // 1. Fetch AVAILABLE batches sorted by FEFO: expiredDate ASC, null last
     //    BAT-008: Filter out expired dates as safety net
@@ -580,23 +663,151 @@ export class FEFOEngine {
     }))
 
     if (batches.length === 0) {
-      // No batch tracking for this item — that's fine
+      // No batch tracking for this item — that's fine.
+      // Mode 1 (Non-Batch): InventoryItem.stock was already deducted by
+      // InventoryConsumptionService.consumeForTransaction. Batch tracking
+      // is a CAPABILITY, not a requirement. Return null to signal "no batches".
       return null
     }
 
-    const itemName = batches[0].inventoryItem.name
-    const baseUnit = batches[0].inventoryItem.baseUnit
+    // DEFENSIVE: Use optional chaining in case the raw query returned unexpected shape.
+    // The flat→nested map above should always set inventoryItem, but this guard
+    // prevents "Cannot read properties of undefined (reading 'name')" crashes.
+    const itemName = batches[0]?.inventoryItem?.name ?? 'unknown'
+    const baseUnit = batches[0]?.inventoryItem?.baseUnit ?? 'unit'
 
     // 2. Calculate total available across all batches
-    const totalAvailable = batches.reduce((sum, b) => sum + b.remainingQty, 0)
+    let totalAvailable = batches.reduce((sum, b) => sum + b.remainingQty, 0)
+
+    // ── 2a. SELF-HEAL: Detect & reconcile stock vs batch drift (INV-HC-05) ──
+    //
+    // INVARIANT: InventoryItem.stock == Σ(AVAILABLE batches.remainingQty)
+    //
+    // When this invariant is violated (drift), the transaction STILL succeeds
+    // (non-fatal for the sale), BUT we self-heal the drift to prevent it from
+    // persisting as a permanent data integrity anomaly:
+    //
+    //   drift > 0 (stock > batches): Create a RECONCILE batch to cover the
+    //     untracked stock. This makes Σ(AVAILABLE) == stock again.
+    //   drift < 0 (batches > stock): Phantom batches — log anomaly for manual
+    //     review. Cannot auto-fix without destroying batch data.
+    //
+    // NOTE: InventoryItem.stock was ALREADY deducted by consumeForTransaction
+    // (the authoritative ledger). So pre-sale stock = currentStock + quantityNeeded.
+    //
+    // This ensures: non-fatal for transaction + MANDATORY self-heal + audit log.
+    const invItemForHeal = await tx.inventoryItem.findUnique({
+      where: { id: inventoryItemId },
+      select: { stock: true, avgCost: true },
+    })
+    const currentStock = invItemForHeal?.stock ?? 0
+    const preSaleStock = currentStock + quantityNeeded
+    const drift = preSaleStock - totalAvailable
+
+    if (drift > 0.001) {
+      // Stock exceeds batches — create RECONCILE batch to restore invariant.
+      const reconcileBatchNumber = `RECONCILE-${invoiceNumber}-${inventoryItemId.slice(-6)}-${Date.now()}`
+      const reconcileBatch = await tx.inventoryBatch.create({
+        data: {
+          batchNumber: reconcileBatchNumber,
+          inventoryItemId,
+          outletId,
+          initialQty: drift,
+          remainingQty: drift,
+          unitCost: Number(invItemForHeal?.avgCost ?? 0),
+          expiredDate: null,
+          status: 'AVAILABLE',
+          purchaseOrderId: null, // No source PO — self-heal batch
+          supplierId: null,
+          supplierName: null,
+        },
+      })
+
+      // Add to batches array so FEFO loop can consume from it if needed.
+      // expiredDate=null sorts LAST in FEFO, so real batches are consumed first.
+      batches.push({
+        id: reconcileBatch.id,
+        batchNumber: reconcileBatchNumber,
+        inventoryItemId,
+        initialQty: drift,
+        remainingQty: drift,
+        unitCost: Number(invItemForHeal?.avgCost ?? 0),
+        expiredDate: null,
+        status: 'AVAILABLE',
+        inventoryItem: { name: itemName, baseUnit },
+      })
+      totalAvailable += drift
+
+      // AuditLog — self-heal is fully auditable
+      try {
+        await tx.auditLog.create({
+          data: {
+            action: 'INVENTORY_RECONCILIATION',
+            entityType: 'INVENTORY_ITEM',
+            entityId: inventoryItemId,
+            details: JSON.stringify({
+              invoiceNumber,
+              itemName,
+              baseUnit,
+              reason: 'Stock exceeded batch totals (drift detected during checkout)',
+              preSaleStock,
+              batchTotalBeforeHeal: totalAvailable - drift,
+              drift,
+              reconcileBatchNumber,
+              reconcileBatchId: reconcileBatch.id,
+              quantityNeeded,
+            }),
+            outletId,
+            userId,
+          },
+        })
+      } catch { /* audit log is best-effort */ }
+
+      console.warn(
+        `[FEFO:RECORD] ${invoiceNumber} — SELF-HEAL: Created RECONCILE batch "${reconcileBatchNumber}" ` +
+        `with ${drift} ${baseUnit} for "${itemName}". ` +
+        `Pre-sale stock=${preSaleStock}, batches were=${totalAvailable - drift}, drift=${drift}. ` +
+        `Invariant restored: stock == Σ(AVAILABLE) == ${totalAvailable}.`
+      )
+    } else if (drift < -0.001) {
+      // Batches exceed stock — phantom batches anomaly (cannot auto-heal safely)
+      try {
+        await tx.auditLog.create({
+          data: {
+            action: 'INVENTORY_ANOMALY',
+            entityType: 'INVENTORY_ITEM',
+            entityId: inventoryItemId,
+            details: JSON.stringify({
+              invoiceNumber,
+              itemName,
+              baseUnit,
+              reason: 'Batch totals exceed stock (phantom batches detected)',
+              preSaleStock,
+              batchTotal: totalAvailable,
+              drift: Math.abs(drift),
+              quantityNeeded,
+            }),
+            outletId,
+            userId,
+          },
+        })
+      } catch { /* audit log is best-effort */ }
+
+      console.error(
+        `[FEFO:RECORD] ${invoiceNumber} — ANOMALY: Batch totals (${totalAvailable} ${baseUnit}) ` +
+        `exceed pre-sale stock (${preSaleStock} ${baseUnit}) by ${Math.abs(drift)} ${baseUnit} ` +
+        `for "${itemName}". Possible phantom batches. Manual review required.`
+      )
+    }
+
     if (totalAvailable < quantityNeeded) {
-      // INV-HC-05 FIX: Throw instead of silently capping.
-      // If this fires, InventoryItem.stock and batch totals are out of sync.
-      // The caller's transaction will rollback, preventing data corruption.
-      throw new Error(
-        `[FEFO:RECORD] ${invoiceNumber} — CRITICAL: Batch stock inconsistent for "${itemName}". ` +
+      // SAFETY NET: After self-heal, this should rarely trigger (only if drift < 0
+      // with phantom batches). If it does, consume what's available — the
+      // transaction still succeeds because InventoryItem.stock was already deducted.
+      console.error(
+        `[FEFO:RECORD] ${invoiceNumber} — WARNING: Batch stock still insufficient for "${itemName}" after self-heal. ` +
         `Available (batches): ${totalAvailable} ${baseUnit}, needed: ${quantityNeeded} ${baseUnit}. ` +
-        `InventoryItem.stock does not match sum(batch.remainingQty). Data integrity violation.`
+        `Consuming all available batches. Gap: ${quantityNeeded - totalAvailable} ${baseUnit} untracked.`
       )
     }
 

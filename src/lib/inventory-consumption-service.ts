@@ -334,12 +334,18 @@ export class InventoryConsumptionService {
         })
       }
     } catch (batchError) {
-      // INV-HC-05 FIX: FEFO batch recording is now FATAL.
-      // If batch stock is inconsistent with InventoryItem.stock, the entire
-      // transaction must rollback to prevent data corruption.
-      // Previously this was non-fatal, which could cause remainingQty != stock.
+      // INV-HC-05 (REVISED): FEFO batch recording errors are now NON-FATAL.
+      // The InventoryItem.stock was already deducted atomically above (the
+      // authoritative ledger). Batch tracking is a CAPABILITY, not a requirement.
+      // If batch recording fails (e.g., unexpected DB error), we log the error
+      // but do NOT rollback the sale — the customer's transaction succeeds.
+      // Previously this was FATAL, which blocked ALL sales when batch data was
+      // inconsistent with stock (e.g., expired batches, legacy data).
       const msg = batchError instanceof Error ? batchError.message : String(batchError)
-      throw new Error(`[InvConsumption] FEFO batch recording failed (FATAL): ${msg}`)
+      console.error(
+        `[InvConsumption] ${invoiceNumber} — FEFO batch recording failed (NON-FATAL, sale continues): ${msg}`
+      )
+      // Do NOT re-throw — let the transaction commit with stock deduction intact.
     }
 
     return {

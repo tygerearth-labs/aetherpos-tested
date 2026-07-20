@@ -134,13 +134,15 @@ export async function POST(request: NextRequest) {
       }),
       
       // Current batches for these items
+      // M2A-001 FIX: Include expiredDate + createdAt for FEFO sorting when
+      // distributing item-level deltas across batches.
       db.inventoryBatch.findMany({
         where: { 
           inventoryItemId: { in: inventoryItemIds },
           outletId,
           status: 'AVAILABLE',
         },
-        select: { id: true, batchNumber: true, inventoryItemId: true, remainingQty: true, unitCost: true },
+        select: { id: true, batchNumber: true, inventoryItemId: true, remainingQty: true, unitCost: true, expiredDate: true, createdAt: true },
       }),
     ])
 
@@ -255,6 +257,58 @@ export async function POST(request: NextRequest) {
         systemQtyForRecord = resolveSystemQty(snap.systemQty)
         physicalQtyForRecord = snap.physicalQty
         itemDelta = snap.physicalQty - systemQtyForRecord
+
+        // M2A-001 FIX: If this item has AVAILABLE batches, distribute the delta
+        // across batches to maintain the invariant: stock == sum(AVAILABLE batches).
+        // Without this, item-level opname on batch-tracked items updates stock but
+        // not batches → drift.
+        const itemBatches = currentBatches
+          .filter(b => b.inventoryItemId === itemId && b.remainingQty > 0)
+          .sort((a, b) => {
+            // FEFO order: expiredDate ASC (null last), then createdAt ASC
+            const aHasExp = a.expiredDate ? 0 : 1
+            const bHasExp = b.expiredDate ? 0 : 1
+            if (aHasExp !== bHasExp) return aHasExp - bHasExp
+            if (a.expiredDate && b.expiredDate) {
+              return new Date(a.expiredDate).getTime() - new Date(b.expiredDate).getTime()
+            }
+            return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+          })
+
+        if (itemBatches.length > 0 && itemDelta !== 0) {
+          if (itemDelta < 0) {
+            // Negative delta: consume from batches via FEFO (same as a sale)
+            let remainingToConsume = Math.abs(itemDelta)
+            for (const batch of itemBatches) {
+              if (remainingToConsume <= 0) break
+              const consume = Math.min(remainingToConsume, batch.remainingQty)
+              batchAdjustments.push({
+                batchId: batch.id,
+                batchNumber: batch.batchNumber,
+                delta: -consume,
+                newRemainingQty: batch.remainingQty - consume,
+              })
+              remainingToConsume -= consume
+            }
+            // If batches were insufficient (remainingToConsume > 0), the extra
+            // negative delta is applied to stock only (batch tracking gap logged).
+            if (remainingToConsume > 0) {
+              console.warn(
+                `[StockOpname] M2A-001: Item "${currentItem.name}" negative delta ${itemDelta} ` +
+                `exceeds available batch qty by ${remainingToConsume}. Stock adjusted, batch gap untracked.`
+              )
+            }
+          } else {
+            // Positive delta: add to the oldest AVAILABLE batch (FEFO first)
+            const oldestBatch = itemBatches[0]
+            batchAdjustments.push({
+              batchId: oldestBatch.id,
+              batchNumber: oldestBatch.batchNumber,
+              delta: itemDelta,
+              newRemainingQty: oldestBatch.remainingQty + itemDelta,
+            })
+          }
+        }
       }
 
       if (itemDelta === 0) continue
@@ -323,10 +377,16 @@ export async function POST(request: NextRequest) {
       }
 
       // Process ALL batch adjustments in the SAME transaction
+      // M2A-001 FIX: Also update status when batch is fully consumed (remainingQty=0 → CONSUMED)
       for (const ba of batchAdjustments) {
+        const newStatus = ba.newRemainingQty <= 0 ? 'CONSUMED' : 'AVAILABLE'
         await tx.inventoryBatch.update({
           where: { id: ba.batchId },
-          data: { remainingQty: ba.newRemainingQty },
+          data: { 
+            remainingQty: ba.newRemainingQty,
+            status: newStatus,
+            updatedAt: new Date(),
+          },
         })
         batchesUpdated++
       }

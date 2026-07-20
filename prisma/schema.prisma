@@ -576,7 +576,7 @@ model InventoryBatch {
   remainingQty      Float                        // Current remaining qty (in base unit)
   unitCost          Float                        // Cost per base unit (snapshotted at purchase)
   expiredDate       DateTime?                    // Expiry date
-  purchaseOrderId   String                       // Source PO
+  purchaseOrderId   String?                      // Source PO (nullable for RECONCILE/self-heal batches)
   purchaseOrderItemId String?                     // Source PO item row
   supplierId        String?                      // Supplier snapshot (nullable for adjustments)
   supplierName      String?                      // Supplier name snapshot
@@ -587,7 +587,7 @@ model InventoryBatch {
 
   inventoryItem      InventoryItem          @relation(fields: [inventoryItemId], references: [id])
   outlet             Outlet                 @relation(fields: [outletId], references: [id])
-  purchaseOrder      PurchaseOrder          @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  purchaseOrder      PurchaseOrder?         @relation(fields: [purchaseOrderId], references: [id], onDelete: SetNull)
   consumptionLogs    BatchConsumptionLog[]
 
   @@unique([batchNumber, outletId])
