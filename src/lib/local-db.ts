@@ -138,14 +138,23 @@ function createNoopTable<T extends { id?: number | string }>(): NoopTable<T> {
     where: (_field: string) => ({
       equals: (_value: unknown) => {
         // Noop filter — returns rows where the field matches; safe default.
-        // Mirrors Dexie's Collection API: exposes both toArray() and count()
-        // so callers like `localDB.transactions.where('isSynced').equals(0).count()`
-        // (used by useLiveQuery in pos-page.tsx) do not crash with
-        // ".count is not a function".
+        // Mirrors Dexie's Collection API: exposes toArray(), count(), AND modify()
+        // so callers like:
+        //   - localDB.transactions.where('isSynced').equals(0).count()  (useLiveQuery)
+        //   - localDB.products.where('id').equals(id).modify(fn)         (stock decrement)
+        // do not crash with ".count/.modify is not a function".
         const filtered = rows.filter((r) => (r as Record<string, unknown>)[_field] === _value)
         return {
           toArray: async () => [...filtered],
           count: async () => filtered.length,
+          // Dexie's modify() mutates matching records in place. We apply the
+          // callback to the actual row objects (not copies) so the in-memory
+          // shadow stays consistent for subsequent reads.
+          modify: async (modifier: (obj: T, ctx: { primaryKey: unknown }) => void) => {
+            for (const r of filtered) {
+              modifier(r, { primaryKey: r.id })
+            }
+          },
         }
       },
     }),
@@ -174,7 +183,11 @@ interface NoopTable<T extends { id?: number | string }> {
     toArray(): Promise<T[]>
   }
   where(field: string): {
-    equals(value: unknown): { toArray(): Promise<T[]>; count(): Promise<number> }
+    equals(value: unknown): {
+      toArray(): Promise<T[]>
+      count(): Promise<number>
+      modify(modifier: (obj: T, ctx: { primaryKey: unknown }) => void): Promise<number>
+    }
   }
   update(key: number | string, changes: Partial<T>): Promise<boolean>
 }
