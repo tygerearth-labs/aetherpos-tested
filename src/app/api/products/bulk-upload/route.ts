@@ -172,9 +172,10 @@ interface CompositionToCreate {
  * Pre-loaded data container - all reference data loaded once
  */
 interface PreloadedData {
-  existingProducts: Array<{ id: string; name: string; sku: string | null; hasVariants: boolean }>
+  existingProducts: Array<{ id: string; name: string; sku: string | null; barcode: string | null; hasVariants: boolean }>
   existingProductNames: Set<string>
   existingProductSkus: Set<string>
+  existingProductBarcodes: Set<string> // FIX-P1-10 (AUDIT-1): barcode uniqueness check
   productCacheByName: Map<string, { id: string; hasVariants: boolean }>
   
   categoryCache: Map<string, string>
@@ -287,7 +288,7 @@ export async function POST(request: NextRequest) {
       // 1. All existing products
       db.product.findMany({
         where: { outletId },
-        select: { id: true, name: true, sku: true, hasVariants: true },
+        select: { id: true, name: true, sku: true, barcode: true, hasVariants: true },
       }),
       // 2. Categories
       db.category.findMany({
@@ -315,6 +316,7 @@ export async function POST(request: NextRequest) {
       existingProducts,
       existingProductNames: new Set(existingProducts.map(p => p.name.toLowerCase())),
       existingProductSkus: new Set(existingProducts.map(p => p.sku).filter(Boolean)),
+      existingProductBarcodes: new Set(existingProducts.map(p => p.barcode).filter(Boolean)),
       productCacheByName: new Map(existingProducts.map(p => [p.name.toLowerCase(), { id: p.id, hasVariants: p.hasVariants }])),
       
       categoryCache: new Map(),
@@ -356,6 +358,7 @@ export async function POST(request: NextRequest) {
 
     // Track NEWLY generated SKUs
     const newlyGeneratedSkus = new Set<string>()
+    const newlyGeneratedBarcodes = new Set<string>() // FIX-P1-10 (AUDIT-1)
     const newlyGeneratedVariantSkus = new Set<string>()
 
     // ══════════════════════════════════════════════════════════════════
@@ -415,13 +418,29 @@ export async function POST(request: NextRequest) {
         continue
       }
 
+      // FIX-P1-7 (AUDIT-1): Block negative HPP — would overstate profit.
+      if (hpp < 0) {
+        result.errors.push(`Baris ${rowNum}: HPP tidak boleh negatif (Nama: ${name}, HPP: ${hpp})`)
+        continue
+      }
+
       // ── SAFETY NET: Block negative stock ──
       if (stock < 0) {
         result.errors.push(`Baris ${rowNum}: Stok tidak boleh negatif (Nama: ${name}, Stok: ${stock})`)
         continue
       }
 
-      const unit = validateUnit(unitRaw)
+      // FIX-P1-9 (AUDIT-1): Warn on invalid unit instead of silently defaulting.
+      const unitNormalized = unitRaw.trim().toLowerCase()
+      let unit: string
+      if (VALID_UNITS.includes(unitNormalized as never)) {
+        unit = unitNormalized
+      } else if (unitRaw) {
+        result.warnings.push(`Baris ${rowNum}: Satuan "${unitRaw}" tidak valid, menggunakan "pcs"`)
+        unit = 'pcs'
+      } else {
+        unit = 'pcs'
+      }
 
       // ── SAFETY NET: Duplicate Check Layer 1 (Pre-existing) ──
       const nameLower = name.toLowerCase()
@@ -452,18 +471,51 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Generate SKU in-memory
-      const finalSku = skuInput || generateSKUInMemory(name, preloadedData.existingProductSkus, newlyGeneratedSkus)
-      const finalBarcode = barcode || finalSku
+      // FIX-P0-3 + P0-6 (AUDIT-1): Validate user-provided SKU uniqueness.
+      // Schema has NO @@unique on sku — without this check, duplicates create corrupt state.
+      let finalSku: string
+      if (skuInput) {
+        if (preloadedData.existingProductSkus.has(skuInput)) {
+          result.errors.push(`Baris ${rowNum}: SKU "${skuInput}" sudah digunakan oleh produk lain (Nama: ${name})`)
+          continue
+        }
+        if (newlyGeneratedSkus.has(skuInput)) {
+          result.errors.push(`Baris ${rowNum}: SKU "${skuInput}" duplikat di dalam file ini (Nama: ${name})`)
+          continue
+        }
+        finalSku = skuInput
+        newlyGeneratedSkus.add(finalSku)
+      } else {
+        finalSku = generateSKUInMemory(name, preloadedData.existingProductSkus, newlyGeneratedSkus)
+      }
+
+      // FIX-P1-10 (AUDIT-1): Validate user-provided barcode uniqueness.
+      // Schema has NO @@unique on barcode — duplicates break POS barcode scan.
+      let finalBarcode: string
+      if (barcode) {
+        if (preloadedData.existingProductBarcodes.has(barcode)) {
+          result.errors.push(`Baris ${rowNum}: Barcode "${barcode}" sudah digunakan oleh produk lain (Nama: ${name})`)
+          continue
+        }
+        if (newlyGeneratedBarcodes.has(barcode)) {
+          result.errors.push(`Baris ${rowNum}: Barcode "${barcode}" duplikat di dalam file ini (Nama: ${name})`)
+          continue
+        }
+        finalBarcode = barcode
+      } else {
+        finalBarcode = finalSku
+      }
+      newlyGeneratedBarcodes.add(finalBarcode)
 
       // Collect product
+      // FIX-P0-6 (AUDIT-1): Math.round stock to Int (schema is Int, sanitizeNumber returns Float)
       productsToCreate.push({
         name,
         sku: finalSku,
         barcode: finalBarcode,
         hpp,
         price,
-        stock,
+        stock: Math.round(stock),
         unit,
         categoryId,
         hasVariants,
@@ -754,6 +806,44 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // FIX-P0-1 (AUDIT-1): Validate hasVariants=true has at least one variant row.
+    // Without this check, products created with hasVariants=true and no variants
+    // are un-sellable in POS (UI shows empty variant picker, aggPrice=0).
+    const productNamesWithVariants = new Set<string>()
+    for (const v of variantsToCreate) {
+      // variant.parentName lowercased — matches batchCreatedProducts key style
+      if (v.parentName) productNamesWithVariants.add(v.parentName.toLowerCase())
+    }
+    for (const prod of productsToCreate) {
+      if (prod.hasVariants && !productNamesWithVariants.has(prod.name.toLowerCase())) {
+        // Auto-correct: downgrade to non-variant. Require price > 0.
+        if (prod.price > 0) {
+          prod.hasVariants = false
+          result.warnings.push(
+            `Baris ${prod.rowNum}: Produk "${prod.name}" ditandai "Punya Varian" tetapi tidak ada baris varian. ` +
+            `hasVariants di-set ke false, produk akan dijual sebagai produk tunggal.`
+          )
+        } else {
+          // Cannot auto-correct: price is 0 and no variants → un-sellable
+          result.errors.push(
+            `Baris ${prod.rowNum}: Produk "${prod.name}" ditandai "Punya Varian" tetapi tidak ada baris varian, ` +
+            `dan Harga Jual = 0. Produk tidak dapat dijual. Tambahkan varian atau isi Harga Jual.`
+          )
+          // Mark for removal
+          prod.hasVariants = false
+          prod.price = -1 // sentinel: filtered out below
+        }
+      }
+    }
+    // Filter out sentinel-marked products
+    for (let i = productsToCreate.length - 1; i >= 0; i--) {
+      if (productsToCreate[i].price === -1) {
+        // Also remove from batchCreatedProducts so variant/composition lookups don't find it
+        batchCreatedProducts.delete(productsToCreate[i].name.toLowerCase())
+        productsToCreate.splice(i, 1)
+      }
+    }
+
     // ══════════════════════════════════════════════════════════════════
     // PHASE 6: CHUNKED PROCESSING (Optimization #3)
     // Process data in chunks to avoid transaction timeouts
@@ -772,6 +862,8 @@ export async function POST(request: NextRequest) {
     const globalProductNameToIdMap = new Map<string, string>()
     const globalCreatedVariantMap = new Map<string, string>() // "productId|variantName" → variantId
     const globalProductIdsWithVariants = new Set<string>()
+    // FIX-P0-2 (AUDIT-1): per-chunk Map of products that need hasComposition=true
+    const productsToUpdateHasComposition = new Map<string, boolean>()
 
     for (let chunkIndex = 0; chunkIndex < productChunks.length; chunkIndex++) {
       const chunk = productChunks[chunkIndex]
@@ -779,6 +871,8 @@ export async function POST(request: NextRequest) {
 
       await db.$transaction(async (tx) => {
         // ── SAFETY NET: Re-verify limit inside each chunk ──
+        // FIX-P0-4 (AUDIT-1): Actually truncate chunk to available slots.
+        // Previous code only warned but still created the full chunk → plan limit exceeded.
         if (!isUnlimited(outletPlan.features.maxProducts)) {
           const actualCount = await tx.product.count({ where: { outletId } })
           
@@ -787,8 +881,21 @@ export async function POST(request: NextRequest) {
           }
           
           const availableSlots = outletPlan.features.maxProducts - actualCount
-          if (availableSlots < chunk.length && chunkIndex === 0) {
-            result.warnings.push(`Limit hampir tercapai. Hanya ${Math.min(availableSlots, chunk.length)} produk yang akan dibuat.`)
+          if (availableSlots < chunk.length) {
+            // Truncate the chunk to fit the remaining plan slots
+            const truncated = chunk.slice(0, availableSlots)
+            const skippedCount = chunk.length - truncated.length
+            result.warnings.push(
+              `Chunk ${chunkIndex + 1}: Slot tersisa ${availableSlots}, baris di chunk ini ${chunk.length}. ` +
+              `${skippedCount} baris dilewati karena batas paket tercapai.`
+            )
+            // Mark the removed products so they aren't picked up by variant/composition resolution
+            for (const prod of chunk.slice(availableSlots)) {
+              batchCreatedProducts.delete(prod.name.toLowerCase())
+            }
+            // Replace chunk contents in-place
+            chunk.length = 0
+            chunk.push(...truncated)
           }
         }
 
@@ -833,7 +940,7 @@ export async function POST(request: NextRequest) {
               barcode: prodData.barcode,
               hpp: prodData.hpp,
               price: prodData.price,
-              stock: prodData.stock,
+              stock: prodData.stock, // FIX-P0-6 (AUDIT-1): already Math.round at collection time
               unit: prodData.unit,
               categoryId: prodData.categoryId,
               hasVariants: prodData.hasVariants,
@@ -846,6 +953,9 @@ export async function POST(request: NextRequest) {
           preloadedData.existingProductNames.add(newProduct.name.toLowerCase())
           if (newProduct.sku) {
             preloadedData.existingProductSkus.add(newProduct.sku)
+          }
+          if (newProduct.barcode) {
+            preloadedData.existingProductBarcodes.add(newProduct.barcode)
           }
           result.created++
         }
@@ -882,7 +992,7 @@ export async function POST(request: NextRequest) {
                 barcode: varData.barcode,
                 hpp: varData.hpp,
                 price: varData.price,
-                stock: varData.stock,
+                stock: Math.round(varData.stock), // FIX-P0-6 (AUDIT-1): round to Int
                 productId: resolvedProductId,
                 outletId: varData.outletId,
               },
@@ -965,9 +1075,28 @@ export async function POST(request: NextRequest) {
               },
             })
 
+            // FIX-P0-2 (AUDIT-1): Set Product.hasComposition = true.
+            // Without this flag, restock/adjust validation is silently skipped,
+            // allowing user to oversell beyond raw-material capacity → inventory goes negative.
+            // Use a Map to dedupe updates (one update per product per chunk).
+            if (!productsToUpdateHasComposition.has(resolvedProductId)) {
+              productsToUpdateHasComposition.set(resolvedProductId, true)
+            }
+
             preloadedData.compositionKeySet.add(compKey)
             result.compCreated++
           }
+        }
+
+        // FIX-P0-2 (AUDIT-1): Apply hasComposition flag updates within the same tx.
+        if (productsToUpdateHasComposition.size > 0) {
+          for (const productId of productsToUpdateHasComposition.keys()) {
+            await tx.product.update({
+              where: { id: productId },
+              data: { hasComposition: true },
+            })
+          }
+          productsToUpdateHasComposition.clear()
         }
       }, {
         timeout: 30000 // 30 seconds per chunk (more than enough for 50 items)
@@ -1005,11 +1134,49 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Bulk upload error:', error)
     const message = error instanceof Error ? error.message : 'Unknown error'
-    
-    if (message.includes('Batas produk')) {
-      return safeJsonError(message, 400)
+    const totalTime = Date.now() - startTime
+
+    // FIX-P0-5 (AUDIT-1): Always write audit log, even on partial failure.
+    // Previous code skipped audit log entirely on error, so partial creations
+    // (chunks 0..N-1 already committed before chunk N threw) were un-audited.
+    try {
+      await safeAuditLog({
+        action: 'UPLOAD_ATTEMPT',
+        entityType: 'PRODUCT',
+        details: JSON.stringify({
+          bulkUpload: true,
+          partialSuccess: true,
+          created: result.created,
+          skipped: result.skipped,
+          variantsCreated: result.variantsCreated,
+          variantsSkipped: result.variantsSkipped,
+          compCreated: result.compCreated,
+          compSkipped: result.compSkipped,
+          errors: result.errors.length + 1, // +1 for the thrown error
+          warnings: result.warnings.length,
+          fileName: file?.name || 'unknown',
+          processingTimeMs: totalTime,
+          success: false,
+          errorMessage: message,
+        }),
+        outletId,
+        userId,
+      })
+    } catch (auditErr) {
+      console.error('[Bulk Upload] Failed to write partial-success audit log:', auditErr)
     }
     
-    return safeJson({ error: 'Gagal memproses file upload', details: message }, 500)
+    if (message.includes('Batas produk')) {
+      // FIX-P0-5 (AUDIT-1): Include partial result so client knows what was created
+      return safeJson({ ...result, error: message, partialSuccess: result.created > 0 }, 400)
+    }
+    
+    // FIX-P0-5 (AUDIT-1): Include partial result + error details in 500 response
+    return safeJson({ 
+      ...result, 
+      error: 'Gagal memproses file upload', 
+      details: message,
+      partialSuccess: result.created > 0 || result.variantsCreated > 0 || result.compCreated > 0,
+    }, 500)
   }
 }

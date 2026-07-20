@@ -71,7 +71,8 @@ export function sanitizeNumber(val: unknown): number {
   }
 
   const num = Number(cleaned)
-  return isNaN(num) ? 0 : (isNegative ? -Math.abs(num) : num)
+  if (isNaN(num) || !isFinite(num)) return 0
+  return isNegative ? -Math.abs(num) : num
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -177,11 +178,29 @@ export function parseExcelDate(raw: unknown): string | null {
 // VALIDATION HELPERS
 // ═══════════════════════════════════════════════════════════════════
 
-/** Check if a value is non-empty (not null, undefined, empty string, or whitespace-only) */
+/** Check if a value is non-empty (not null, undefined, empty string, or whitespace-only).
+ *  NOTE: numbers (including 0) are treated as present — see FIX-A in worklog.
+ *  Use isPresent() below if you need to distinguish "absent" from "zero". */
 export function isNonEmpty(val: unknown): boolean {
   if (val === null || val === undefined) return false
   if (typeof val === 'string') return val.trim().length > 0
-  if (typeof val === 'number') return val !== 0
+  if (typeof val === 'number') return !isNaN(val) && isFinite(val)
+  return true
+}
+
+/** Stricter "is the cell filled" check for Excel rows.
+ *  Treats 0 / "0" / "0.00" as PRESENT (so user can zero out a field via Excel).
+ *  Treats null / undefined / "" / whitespace / NaN / Infinity as ABSENT. */
+export function isPresent(val: unknown): boolean {
+  if (val === null || val === undefined) return false
+  if (typeof val === 'string') {
+    const t = val.trim()
+    if (!t) return false
+    // Reject "Infinity" / "NaN" text
+    if (t.toLowerCase() === 'infinity' || t.toLowerCase() === 'nan') return false
+    return true
+  }
+  if (typeof val === 'number') return !isNaN(val) && isFinite(val)
   return true
 }
 
@@ -190,7 +209,7 @@ export const VALID_UNITS = [
   'pcs', 'ml', 'lt', 'gr', 'kg', 'box', 'pack', 'botol',
   'gelas', 'mangkuk', 'porsi', 'bungkus', 'sachet', 'dus',
   'rim', 'lembar', 'meter', 'cm', 'ons', 'roll', 'strip', 'ekor',
-  'butir', 'karton', 'lusin', 'slop', 'unit', 'liter', 'kg',
+  'butir', 'karton', 'lusin', 'slop', 'unit', 'liter',
 ] as const
 
 export type ValidUnit = typeof VALID_UNITS[number]

@@ -79,8 +79,6 @@ export default function DashboardPage() {
   const [scoreDialogOpen, setScoreDialogOpen] = useState(false)
   const expiryHeatmapRef = useRef<HTMLDivElement>(null)
 
-  const topSelling = insightData?.metrics.topSelling ?? []
-
   // ── Migration Banner: show only for OWNER when 0 products ──
   // IMPORTANT: Always render <MigrationBanner /> so its internal dialog state
   // survives dashboard refetches (refetchInterval / refetchOnWindowFocus).
@@ -111,7 +109,8 @@ export default function DashboardPage() {
     <motion.div className="space-y-4" variants={containerVariants} initial="hidden" animate="visible">
 
       {/* ═══════════════════════════════════════════════════
-          ROW 1 — Welcome Header + Health Score
+          SECTION 1 — Header & Health
+          (welcome + health ring + migration + upgrade + quick actions)
           ═══════════════════════════════════════════════════ */}
       <motion.div variants={itemVariants} className="flex items-start justify-between gap-4">
         <div className="space-y-1">
@@ -133,16 +132,12 @@ export default function DashboardPage() {
         )}
       </motion.div>
 
-      {/* ═══════════════════════════════════════════════════
-          ROW 1.5 — Migration Banner (New User: 0 Products)
-          ═══════════════════════════════════════════════════ */}
+      {/* Migration Banner (New User: 0 Products) */}
       <motion.div variants={itemVariants}>
         <MigrationBanner showBanner={showMigrationBanner} />
       </motion.div>
 
-      {/* ═══════════════════════════════════════════════════
-          ROW 2 — Upgrade Banner (FREE only)
-          ═══════════════════════════════════════════════════ */}
+      {/* Upgrade Banner (FREE only) */}
       {!planLoading && plan?.type === 'free' && (
         <motion.div variants={itemVariants}>
           <div className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-gradient-to-r from-violet-500/[0.06] theme-gradient-subtle border border-white/[0.04]">
@@ -159,39 +154,87 @@ export default function DashboardPage() {
         </motion.div>
       )}
 
-      {/* ═══════════════════════════════════════════════════
-          GROUP A — Overview KPIs
-          ═══════════════════════════════════════════════════ */}
-      <motion.div variants={itemVariants}>
-        <StatCards stats={stats} isOwner={isOwner} />
-      </motion.div>
-
+      {/* Quick Actions — promoted into header utility row */}
       <motion.div variants={itemVariants}>
         <QuickActions />
       </motion.div>
 
       {/* ═══════════════════════════════════════════════════
-          GROUP B — Analytics & Forecasting
+          SECTION 2 — Ringkasan (KPIs)
           ═══════════════════════════════════════════════════ */}
+      <SectionLabel>Ringkasan</SectionLabel>
       <motion.div variants={itemVariants}>
-        <AnalyticsTabs
-          stats={stats}
-          forecastData={forecastData ?? null}
-          forecastLoading={forecastLoading}
-          hasForecasting={!!hasForecasting}
-          isOwner={isOwner}
-          isPro={isPro}
+        <StatCards stats={stats} isOwner={isOwner} />
+      </motion.div>
+
+      {/* ═══════════════════════════════════════════════════
+          SECTION 3 — Penjualan & Produk (moved UP — primary activity)
+          ═══════════════════════════════════════════════════ */}
+      <SectionLabel>Penjualan &amp; Produk</SectionLabel>
+      <motion.div variants={itemVariants}>
+        <SalesProductsCard
+          lowStockList={stats.lowStockList}
+          lowStockVariantList={stats.lowStockVariantList}
+          lowStockVariants={stats.lowStockVariants}
+          fallbackCustomers={stats.topCustomers}
         />
       </motion.div>
 
       {/* ═══════════════════════════════════════════════════
-          GROUP C — ENTERPRISE: Multi-Outlet Intelligence
+          SECTION 4 — Analitik & Prediksi (owner only)
+          ═══════════════════════════════════════════════════ */}
+      {isOwner && (
+        <>
+          <SectionLabel>Analitik &amp; Prediksi</SectionLabel>
+          <motion.div variants={itemVariants}>
+            <AnalyticsTabs
+              stats={stats}
+              forecastData={forecastData ?? null}
+              forecastLoading={forecastLoading}
+              hasForecasting={!!hasForecasting}
+              isOwner={isOwner}
+              isPro={isPro}
+            />
+          </motion.div>
+        </>
+      )}
+
+      {/* ═══════════════════════════════════════════════════
+          SECTION 5 — Inteligensi Inventori (MERGED)
+          Expiry banner + Freshness + Heatmap + Stock alerts
+          ═══════════════════════════════════════════════════ */}
+      <SectionLabel>Inteligensi Inventori</SectionLabel>
+
+      {/* Expiry alert banner — auto-hides if no alerts */}
+      <motion.div variants={itemVariants}>
+        <ExpiryAlertBanner
+          onShowDetail={() => {
+            expiryHeatmapRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          }}
+        />
+      </motion.div>
+
+      {/* Freshness Score + Expiry Heatmap (2-col) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <motion.div variants={itemVariants}>
+          <InventoryFreshnessWidget />
+        </motion.div>
+        <motion.div variants={itemVariants} ref={expiryHeatmapRef}>
+          <ExpiryHeatmapWidget />
+        </motion.div>
+      </div>
+
+      {/* Stock endurance alerts — auto-hides if no critical/warning */}
+      <motion.div variants={itemVariants}>
+        <InventoryAlertsSection stats={stats} />
+      </motion.div>
+
+      {/* ═══════════════════════════════════════════════════
+          SECTION 6 — Multi-Outlet Intelligence (Enterprise — moved to BOTTOM)
           ═══════════════════════════════════════════════════ */}
       {showEnterprise && (
         <>
-          <motion.div variants={itemVariants}>
-            <SectionLabel>Multi-Outlet Intelligence</SectionLabel>
-          </motion.div>
+          <SectionLabel>Multi-Outlet Intelligence</SectionLabel>
 
           {/* Row: Bubble Chart (7) + Pending Transfers (5) */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
@@ -209,44 +252,6 @@ export default function DashboardPage() {
           </motion.div>
         </>
       )}
-
-      {/* ═══════════════════════════════════════════════════
-          GROUP D — Sales & Products
-          ═══════════════════════════════════════════════════ */}
-      <motion.div variants={itemVariants}>
-        <SalesProductsCard
-          lowStockList={stats.lowStockList}
-          lowStockVariantList={stats.lowStockVariantList}
-          lowStockVariants={stats.lowStockVariants}
-          fallbackCustomers={stats.topCustomers}
-        />
-      </motion.div>
-
-      {/* ═══════════════════════════════════════════════════
-          GROUP E — Inventory Alerts
-          ═══════════════════════════════════════════════════ */}
-      <motion.div variants={itemVariants}>
-        <InventoryAlertsSection stats={stats} />
-      </motion.div>
-
-      {/* ═══════════════════════════════════════════════════
-          GROUP F — Inventory Intelligence
-          ═══════════════════════════════════════════════════ */}
-      <motion.div variants={itemVariants}>
-        <ExpiryAlertBanner
-          onShowDetail={() => {
-            expiryHeatmapRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-          }}
-        />
-      </motion.div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        <motion.div variants={itemVariants}>
-          <InventoryFreshnessWidget />
-        </motion.div>
-        <motion.div variants={itemVariants} ref={expiryHeatmapRef}>
-          <ExpiryHeatmapWidget />
-        </motion.div>
-      </div>
 
       {/* Score Explanation Dialog */}
       {isOwner && insightData && (

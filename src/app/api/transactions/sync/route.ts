@@ -249,21 +249,56 @@ export async function POST(request: NextRequest) {
             }),
           })
 
-          // 7. Update stock — decrement variant stock OR parent product stock
+          // 7. ATOMIC stock deduction — race-condition-free (P1-3 AUDIT-3 fix)
+          //    PREVIOUSLY: validation SELECT in step 2 + non-atomic `{ decrement: qty }`.
+          //    Two parallel sync calls could both pass the validation SELECT, then both
+          //    decrement, driving stock below zero. The non-atomic decrement is a
+          //    TOCTOU race window.
+          //    NOW: raw SQL `UPDATE ... SET stock = stock - qty WHERE stock >= qty`
+          //    is atomic in SQLite — the WHERE check and the SET happen under a
+          //    single statement-level lock. If affected rows = 0, another transaction
+          //    took the last stock; we abort the whole batch (transaction rolls back).
+          //    Pattern backported from /api/pos/checkout (lines 213-240).
           for (const item of payload.items) {
+            const product = productMap.get(item.productId)!
             if (item.variantId) {
-              // Decrement variant stock
-              await txDb.productVariant.update({
-                where: { id: item.variantId },
-                data: { stock: { decrement: item.qty } },
-              })
+              const affected = await txDb.$executeRaw`
+                UPDATE "ProductVariant" SET stock = stock - ${item.qty}
+                WHERE id = ${item.variantId} AND stock >= ${item.qty} AND "outletId" = ${outletId}
+              `
+              if (affected === 0) {
+                throw new Error(
+                  `Stok tidak cukup untuk ${product.name} - ${item.variantName || item.variantId}. Kemungkinan stok terakhir sudah diambil transaksi lain. Coba lagi.`
+                )
+              }
             } else {
-              // Decrement parent product stock
-              await txDb.product.update({
-                where: { id: item.productId },
-                data: { stock: { decrement: item.qty } },
-              })
+              const affected = await txDb.$executeRaw`
+                UPDATE "Product" SET stock = stock - ${item.qty}
+                WHERE id = ${item.productId} AND stock >= ${item.qty} AND "outletId" = ${outletId}
+              `
+              if (affected === 0) {
+                throw new Error(
+                  `Stok tidak cukup untuk ${product.name}. Kemungkinan stok terakhir sudah diambil transaksi lain. Coba lagi.`
+                )
+              }
             }
+          }
+
+          // 7b. Recalculate parent product stock for variant products (atomic)
+          //     This keeps parent.stock == SUM(variants.stock) invariant after
+          //     variant stock changes. Mirrors /api/pos/checkout pattern.
+          const variantProductIds = new Set<string>()
+          for (const item of payload.items) {
+            if (item.variantId) variantProductIds.add(item.productId)
+          }
+          for (const productId of variantProductIds) {
+            await txDb.$executeRaw`
+              UPDATE "Product" SET stock = (
+                SELECT COALESCE(SUM(stock), 0) FROM "ProductVariant"
+                WHERE "productId" = ${productId} AND "outletId" = ${outletId}
+              )
+              WHERE id = ${productId}
+            `
           }
 
           // 7c. Deduct inventory via InventoryConsumptionService (atomic, yield-aware)

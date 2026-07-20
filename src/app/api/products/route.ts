@@ -313,6 +313,37 @@ export async function POST(request: NextRequest) {
       return safeJsonError('Product name already exists in this outlet', 400)
     }
 
+    // FIX-B (P0-1 AUDIT-4): Validate user-provided SKU uniqueness per outlet.
+    // Schema has NO @@unique on sku — without this check, two products can share
+    // the same SKU → POS lookup by SKU returns ambiguous results.
+    const trimmedSku = sku?.trim() || ''
+    if (trimmedSku) {
+      const skuCollision = await db.product.findFirst({
+        where: { sku: trimmedSku, outletId },
+      })
+      if (skuCollision) {
+        return safeJsonError(`SKU "${trimmedSku}" sudah digunakan oleh produk lain di outlet ini`, 400)
+      }
+      // Also check ProductVariant SKUs (variants of other products can collide)
+      const variantSkuCollision = await db.productVariant.findFirst({
+        where: { sku: trimmedSku, outletId },
+      })
+      if (variantSkuCollision) {
+        return safeJsonError(`SKU "${trimmedSku}" sudah digunakan oleh varian produk lain`, 400)
+      }
+    }
+
+    // FIX-B (P0-1 AUDIT-4): Validate user-provided barcode uniqueness per outlet.
+    const trimmedBarcode = barcode?.trim() || ''
+    if (trimmedBarcode) {
+      const barcodeCollision = await db.product.findFirst({
+        where: { barcode: trimmedBarcode, outletId },
+      })
+      if (barcodeCollision) {
+        return safeJsonError(`Barcode "${trimmedBarcode}" sudah digunakan oleh produk lain di outlet ini`, 400)
+      }
+    }
+
     // Validate categoryId if provided
     if (categoryId) {
       const category = await db.category.findFirst({

@@ -83,10 +83,27 @@ export async function POST(
     const getVariantSku = (item: typeof transactionItems[number]) =>
       (item as any).variantSku || (item.variantId ? (variantSkuMap.get(item.variantId) || null) : null)
 
-    // Determine which product IDs need parent stock recalculation (variant products)
+    // Determine which product IDs need parent stock recalculation (variant products).
+    // P1-2 AUDIT-3 fix: only count items whose variantId is still non-null.
+    // Items where variantId was SetNull'd by variant deletion (variantName snapshot
+    // still present) must NOT contribute to parent recalc — their parent.stock is
+    // already SUM(variants.stock) and should remain so.
     const variantProductIds = [...new Set(
       transactionItems.filter(i => i.variantId).map(i => i.productId).filter(Boolean)
     )]
+
+    // P1-2 AUDIT-3 fix: detect items that were ORIGINALLY variant sales but whose
+    // variantId was SetNull'd by a later variant deletion (full-replace edit).
+    // These items cannot have their variant stock restored (variant record is gone),
+    // and incrementing the parent Product.stock would be wrong because parent.stock
+    // for a hasVariants=true product must always equal SUM(variants.stock).
+    // The inventory (raw material) restoration in STEP 3 still works correctly
+    // because it uses TransactionConsumption snapshots keyed by transactionId.
+    const orphanedVariantItems = transactionItems.filter(i =>
+      !i.variantId &&
+      i.productId &&
+      i.variantName && i.variantName.trim().length > 0
+    )
 
     // Perform void in a transaction: restore stock + reverse inventory + reverse loyalty + audit logs
     await db.$transaction(async (tx) => {
@@ -100,6 +117,19 @@ export async function POST(
             data: { stock: { increment: item.qty } },
           })
         } else if (item.productId) {
+          // P1-2 AUDIT-3 fix: if this item was originally a variant sale
+          // (variantName snapshot present) but variantId is NULL, the variant
+          // was deleted after the sale. Skip parent.stock increment — it would
+          // inflate parent.stock beyond SUM(variants.stock) and break the
+          // invariant that parent.stock == SUM(variants.stock) for variant products.
+          const wasOriginallyVariantSale =
+            !!(item.variantName && item.variantName.trim().length > 0)
+          if (wasOriginallyVariantSale) {
+            // Cannot restore variant stock — variant record was deleted.
+            // Inventory (raw material) restoration still happens via STEP 3 snapshots.
+            continue
+          }
+          // Normal non-variant product → safe to restore parent.stock
           await tx.product.update({
             where: { id: item.productId },
             data: { stock: { increment: item.qty } },
@@ -310,12 +340,26 @@ export async function POST(
             inventoryRestoreMethod,
             loyaltyReversed: !!transaction.customerId,
             parentStockRecalculated: variantProductIds.length > 0,
+            // P1-2 AUDIT-3: surface orphaned variant items explicitly so auditors
+            // can see which line items had their variant stock skipped (variant was
+            // deleted between sale and void).
+            orphanedVariantItems: orphanedVariantItems.map(i => ({
+              productName: i.productName,
+              productSku: getProductSku(i),
+              variantName: i.variantName,
+              variantSku: getVariantSku(i),
+              qty: i.qty,
+              note: 'Variant was deleted after sale; variant stock NOT restored. Raw-material inventory was restored via snapshot.',
+            })),
             itemsRestored: transactionItems.map(i => ({
               productName: i.productName,
               productSku: getProductSku(i),
               variantName: i.variantName ?? undefined,
               variantSku: getVariantSku(i),
               qty: i.qty,
+              stockRestoreTarget:
+                i.variantId ? 'VARIANT' :
+                (i.variantName && i.variantName.trim().length > 0 ? 'ORPHANED_VARIANT_SKIPPED' : 'PRODUCT'),
             })),
           }),
           outletId,

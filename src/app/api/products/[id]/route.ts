@@ -82,12 +82,53 @@ export async function PUT(
     const { name, sku, barcode, hpp, price, stock, lowStockAlert, image, unit, categoryId, hasVariants, variants } = body
 
     // Check unique name if changed
+    // FIX-E (P2-4 AUDIT-4): Use NOT: { id } for defensive correctness —
+    // avoids false positive if pre-check `name !== existing.name` is ever refactored out.
     if (name && name !== existing.name) {
       const nameExists = await db.product.findFirst({
-        where: { name, outletId },
+        where: { name, outletId, NOT: { id } },
       })
       if (nameExists) {
         return safeJsonError('Product name already exists in this outlet', 400)
+      }
+    }
+
+    // FIX-B (P0-2 AUDIT-4): Validate user-provided SKU uniqueness per outlet (excluding self).
+    const trimmedSkuInput = typeof sku === 'string' ? sku.trim() : ''
+    if (trimmedSkuInput && trimmedSkuInput !== existing.sku) {
+      const skuCollision = await db.product.findFirst({
+        where: { sku: trimmedSkuInput, outletId, NOT: { id } },
+      })
+      if (skuCollision) {
+        return safeJsonError(`SKU "${trimmedSkuInput}" sudah digunakan oleh produk lain di outlet ini`, 400)
+      }
+      const variantSkuCollision = await db.productVariant.findFirst({
+        where: { sku: trimmedSkuInput, outletId, NOT: { product: { id } } },
+      })
+      if (variantSkuCollision) {
+        return safeJsonError(`SKU "${trimmedSkuInput}" sudah digunakan oleh varian produk lain`, 400)
+      }
+    }
+
+    // FIX-B (P0-2 AUDIT-4): Validate user-provided barcode uniqueness per outlet (excluding self).
+    const trimmedBarcodeInput = typeof barcode === 'string' ? barcode.trim() : ''
+    if (trimmedBarcodeInput && trimmedBarcodeInput !== existing.barcode) {
+      const barcodeCollision = await db.product.findFirst({
+        where: { barcode: trimmedBarcodeInput, outletId, NOT: { id } },
+      })
+      if (barcodeCollision) {
+        return safeJsonError(`Barcode "${trimmedBarcodeInput}" sudah digunakan oleh produk lain di outlet ini`, 400)
+      }
+    }
+
+    // FIX-E (P0-3 AUDIT-4): Validate categoryId belongs to this outlet.
+    // Without this check, a user could link their product to another outlet's category.
+    if (categoryId !== undefined && categoryId !== null && categoryId !== '') {
+      const category = await db.category.findFirst({
+        where: { id: categoryId, outletId },
+      })
+      if (!category) {
+        return safeJsonError('Category not found in this outlet', 400)
       }
     }
 
@@ -172,41 +213,137 @@ export async function PUT(
         data: updateData,
       })
 
-      // Handle variants — full-replace pattern
+      // Handle variants — upsert-by-name pattern (P1-1 AUDIT-3 fix)
+      // PREVIOUSLY: full-replace (delete all + create all). This orphaned
+      // TransactionItem.variantId for past sales because schema onDelete=SetNull
+      // sets the FK to NULL when the variant is deleted. Snapshots survived but
+      // variant-level analytics joins lost the FK link, and void could not
+      // restore variant stock.
+      // NOW: match incoming variants to existing variants by name (case-insensitive).
+      //  - Match found → UPDATE (preserves variant ID, keeps historical FK intact)
+      //  - No match in incoming → DELETE (truly removed variants)
+      //  - No match in existing → CREATE (new variants)
+      // Trade-off: renaming a variant still loses its ID (treated as delete + create),
+      // but that's an acceptable edge case — snapshots preserve historical names.
       if (variants !== undefined) {
-        // Delete all existing variants (cascade handles transactionItem references)
-        const oldVariantCount = existing.variants.length
-        if (oldVariantCount > 0) {
-          await tx.productVariant.deleteMany({
-            where: { productId: id },
-          })
+        const oldVariants = existing.variants
+        const oldByName = new Map(
+          oldVariants.map((v) => [v.name.trim().toLowerCase(), v])
+        )
+        const incomingByName = new Map<
+          string,
+          (typeof variantsWithSku)[number]
+        >()
+        for (const v of variantsWithSku) {
+          const key = v.name.trim().toLowerCase()
+          // If duplicate names slipped past the unique-name check (shouldn't happen),
+          // last one wins — this is consistent with prior createMany behavior.
+          incomingByName.set(key, v)
         }
 
-        // Create new variants
-        if (variantsWithSku.length > 0) {
-          await tx.productVariant.createMany({
-            data: variantsWithSku.map((v) => ({
+        const toDelete: string[] = []
+        const toUpdate: Array<{
+          id: string
+          data: {
+            name: string
+            sku: string
+            barcode: string
+            hpp: number
+            price: number
+            stock: number
+          }
+        }> = []
+        const toCreate: Array<{
+          productId: string
+          name: string
+          sku: string
+          barcode: string
+          hpp: number
+          price: number
+          stock: number
+          outletId: string
+        }> = []
+
+        // Categorize existing variants: update if name matches, delete otherwise
+        for (const [key, oldV] of oldByName.entries()) {
+          const incoming = incomingByName.get(key)
+          if (incoming) {
+            toUpdate.push({
+              id: oldV.id,
+              data: {
+                name: incoming.name,
+                sku: incoming.sku,
+                barcode: incoming.barcode,
+                hpp: incoming.hpp || 0,
+                price: incoming.price,
+                stock: incoming.stock || 0,
+              },
+            })
+          } else {
+            toDelete.push(oldV.id)
+          }
+        }
+
+        // Categorize incoming variants not matched → CREATE
+        for (const [key, incoming] of incomingByName.entries()) {
+          if (!oldByName.has(key)) {
+            toCreate.push({
               productId: id,
-              name: v.name,
-              sku: v.sku,
-              barcode: v.barcode,
-              hpp: v.hpp || 0,
-              price: v.price,
-              stock: v.stock || 0,
+              name: incoming.name,
+              sku: incoming.sku,
+              barcode: incoming.barcode,
+              hpp: incoming.hpp || 0,
+              price: incoming.price,
+              stock: incoming.stock || 0,
               outletId,
-            })),
+            })
+          }
+        }
+
+        // Execute deletes (orphan TransactionItem.variantId will be SetNull'd)
+        if (toDelete.length > 0) {
+          await tx.productVariant.deleteMany({
+            where: { id: { in: toDelete } },
           })
         }
+        // Execute updates (preserves ID — historical transactions keep FK link)
+        for (const u of toUpdate) {
+          await tx.productVariant.update({
+            where: { id: u.id },
+            data: u.data,
+          })
+        }
+        // Execute creates
+        if (toCreate.length > 0) {
+          await tx.productVariant.createMany({ data: toCreate })
+        }
+
+        // PARENT STOCK RECALCULATION — after any variant change (delete/update/create),
+        // parent.Product.stock must equal SUM(variants.stock). This invariant was NOT
+        // enforced by the old full-replace pattern either, leaving parent.stock stale
+        // after variant edits. Backported from bulk-update-excel route (AUDIT-2 fix).
+        // Atomic raw SQL avoids TOCTOU race with concurrent sales/syncs.
+        await tx.$executeRaw`
+          UPDATE "Product" SET stock = (
+            SELECT COALESCE(SUM(stock), 0) FROM "ProductVariant"
+            WHERE "productId" = ${id} AND "outletId" = ${outletId}
+          )
+          WHERE id = ${id}
+        `
 
         changes.variants = {
           from: {
-            count: oldVariantCount,
-            names: existing.variants.map((v) => v.name),
+            count: oldVariants.length,
+            names: oldVariants.map((v) => v.name),
           },
           to: {
-            count: parsedVariants.length,
-            names: parsedVariants.map((v) => v.name),
+            count: variantsWithSku.length,
+            names: variantsWithSku.map((v) => v.name),
           },
+          // P1-1 audit trail: which variants preserved vs recreated vs removed
+          preservedVariantIds: toUpdate.map((u) => u.id),
+          deletedVariantIds: toDelete,
+          createdVariantCount: toCreate.length,
         }
       }
 

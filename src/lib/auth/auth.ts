@@ -20,44 +20,49 @@ export const authOptions: NextAuthOptions = {
           throw new Error('Email and password are required');
         }
 
-        const user = await db.user.findFirst({
-          where: { email: credentials.email },
-          include: { outlet: true },
-        });
+        try {
+          const user = await db.user.findFirst({
+            where: { email: credentials.email },
+            include: { outlet: true },
+          });
 
-        if (!user) {
-          throw new Error('No user found with this email');
+          if (!user) {
+            throw new Error('No user found with this email');
+          }
+
+          const isPasswordValid = await bcrypt.compare(
+            credentials.password,
+            user.password
+          );
+
+          if (!isPasswordValid) {
+            throw new Error('Invalid password');
+          }
+
+          // ---- Plan Expiry Check ----
+          const expiryStatus = await checkPlanExpiry(user.outletId);
+
+          if (expiryStatus.status === 'expired_branch') {
+            // Branch outlet expired → block login
+            throw new Error('PLAN_EXPIRED_BRANCH');
+          }
+
+          if (expiryStatus.status === 'expired_main') {
+            // Main outlet expired → auto-downgrade to free, allow login
+            await downgradeExpiredPlan(user.outletId);
+          }
+
+          return {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            outletId: user.outletId,
+          };
+        } catch (err) {
+          console.error('[auth.authorize] Error:', err instanceof Error ? err.message : err);
+          throw err;
         }
-
-        const isPasswordValid = await bcrypt.compare(
-          credentials.password,
-          user.password
-        );
-
-        if (!isPasswordValid) {
-          throw new Error('Invalid password');
-        }
-
-        // ---- Plan Expiry Check ----
-        const expiryStatus = await checkPlanExpiry(user.outletId);
-
-        if (expiryStatus.status === 'expired_branch') {
-          // Branch outlet expired → block login
-          throw new Error('PLAN_EXPIRED_BRANCH');
-        }
-
-        if (expiryStatus.status === 'expired_main') {
-          // Main outlet expired → auto-downgrade to free, allow login
-          await downgradeExpiredPlan(user.outletId);
-        }
-
-        return {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          outletId: user.outletId,
-        };
       },
     }),
   ],

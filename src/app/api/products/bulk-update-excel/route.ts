@@ -10,8 +10,10 @@ import {
   normalizeHeader,
   findColumn,
   isNonEmpty,
+  isPresent, // FIX-P0-4 (AUDIT-2): distinguishes "absent" from "0"
   validateUnit,
 } from '@/lib/excel-utils'
+import { validateCompositionStock, validateVariantCompositionStock } from '@/lib/comp-stock'
 
 export const maxDuration = 60
 const MAX_ROWS = 500
@@ -95,48 +97,107 @@ export async function POST(request: NextRequest) {
         // Name
         const name = String(findColumn(row, ['NAMA PRODUK*', 'NAMA PRODUK', 'Nama Produk', 'Nama', 'NAME', 'name', 'Product Name', 'Produk']) || '').trim()
         if (isNonEmpty(name) && name !== existing.name) {
+          // FIX-P1-2 (AUDIT-2): Pre-check name uniqueness (excluding self).
+          // Without this, the @@unique([name, outletId]) DB constraint throws
+          // and rolls back the ENTIRE transaction (all 100+ rows fail).
+          const nameClash = await tx.product.findFirst({
+            where: { name, outletId, NOT: { id: productId } },
+            select: { id: true },
+          })
+          if (nameClash) {
+            result.errors.push(`Baris ${rowNum}: Nama produk "${name}" sudah digunakan oleh produk lain`)
+            continue
+          }
           updateData.name = name
           changes.name = { from: existing.name, to: name }
         }
 
         // SKU
         const sku = String(findColumn(row, ['SKU', 'sku', 'Kode']) || '').trim()
-        if (isNonEmpty(sku)) {
+        if (isNonEmpty(sku) && sku !== (existing.sku || '')) {
+          // FIX-P0-5 (AUDIT-4): Pre-check SKU uniqueness (excluding self).
+          const skuClash = await tx.product.findFirst({
+            where: { sku, outletId, NOT: { id: productId } },
+            select: { id: true },
+          })
+          if (skuClash) {
+            result.errors.push(`Baris ${rowNum}: SKU "${sku}" sudah digunakan oleh produk lain`)
+            continue
+          }
+          // Also check against variant SKUs
+          const variantSkuClash = await tx.productVariant.findFirst({
+            where: { sku, outletId, NOT: { product: { id: productId } } },
+            select: { id: true },
+          })
+          if (variantSkuClash) {
+            result.errors.push(`Baris ${rowNum}: SKU "${sku}" sudah digunakan oleh varian produk lain`)
+            continue
+          }
           updateData.sku = sku || null
-          if (sku !== (existing.sku || '')) changes.sku = { from: existing.sku || '', to: sku }
+          changes.sku = { from: existing.sku || '', to: sku }
         }
 
-        // HPP
-        const hpp = sanitizeNumber(findColumn(row, ['HPP (Rp)', 'HPP', 'Harga Pokok', 'harga_pokok', 'Cost', 'Modal']))
-        if (isNonEmpty(findColumn(row, ['HPP (Rp)', 'HPP', 'Harga Pokok', 'harga_pokok', 'Cost', 'Modal']))) {
+        // HPP — FIX-P0-4 (AUDIT-2): use isPresent so 0 is honored
+        const hppRaw = findColumn(row, ['HPP (Rp)', 'HPP', 'Harga Pokok', 'harga_pokok', 'Cost', 'Modal'])
+        const hpp = sanitizeNumber(hppRaw)
+        if (isPresent(hppRaw)) {
+          if (hpp < 0) {
+            result.errors.push(`Baris ${rowNum}: HPP tidak boleh negatif (Nama: ${existing.name})`)
+            continue
+          }
           updateData.hpp = hpp
           if (hpp !== existing.hpp) changes.hpp = { from: existing.hpp, to: hpp }
         }
 
-        // Price
-        const price = sanitizeNumber(findColumn(row, [
+        // Price — FIX-P0-4 (AUDIT-2): use isPresent so 0 is honored (e.g. freebie / variant-only product)
+        const priceRaw = findColumn(row, [
           'HARGA JUAL* (Rp)', 'HARGA JUAL (Rp)', 'HARGA JUAL', 'Harga Jual',
           'Harga', 'Price', 'harga_jual', 'harga', 'price', 'Sell Price', 'Jual'
-        ]))
-        if (isNonEmpty(findColumn(row, [
-          'HARGA JUAL* (Rp)', 'HARGA JUAL (Rp)', 'HARGA JUAL', 'Harga Jual',
-          'Harga', 'Price', 'harga_jual', 'harga', 'price', 'Sell Price', 'Jual'
-        ]))) {
-          if (price > 0) {
+        ])
+        const price = sanitizeNumber(priceRaw)
+        if (isPresent(priceRaw)) {
+          if (price < 0) {
+            result.errors.push(`Baris ${rowNum}: Harga Jual tidak boleh negatif (Nama: ${existing.name})`)
+            continue
+          }
+          // Allow price=0 only if product has variants (variant-only product) — same logic as bulk-upload
+          if (price > 0 || existing.hasVariants) {
             updateData.price = price
             if (price !== existing.price) changes.price = { from: existing.price, to: price }
+          } else if (price === 0) {
+            result.errors.push(`Baris ${rowNum}: Harga Jual harus lebih dari 0 untuk produk tanpa varian (Nama: ${existing.name})`)
+            continue
           }
         }
 
-        // Stock with validation (Fix Bug #7)
-        const stock = sanitizeNumber(findColumn(row, ['QTY / STOK', 'QTY', 'qty', 'Stok', 'stok', 'Stock', 'stock', 'Quantity', 'Jumlah']))
-        if (isNonEmpty(findColumn(row, ['QTY / STOK', 'QTY', 'qty', 'Stok', 'stok', 'Stock', 'stock', 'Quantity', 'Jumlah']))) {
+        // Stock — FIX-P0-1+P0-2+P0-4 (AUDIT-2): composition validation + variant parent guard + isPresent
+        const stockRaw = findColumn(row, ['QTY / STOK', 'QTY', 'qty', 'Stok', 'stok', 'Stock', 'stock', 'Quantity', 'Jumlah'])
+        const stock = sanitizeNumber(stockRaw)
+        if (isPresent(stockRaw)) {
           if (stock < 0) {
             result.errors.push(`Baris ${rowNum}: Stok tidak boleh negatif (Nama: ${existing.name})`)
             continue
           }
-          updateData.stock = Math.round(stock)
-          if (Math.round(stock) !== existing.stock) changes.stock = { from: existing.stock, to: Math.round(stock) }
+          const roundedStock = Math.round(stock)
+          // FIX-P0-2 (AUDIT-2): For variant products, parent.stock must equal SUM(variant.stock).
+          // Excel cannot directly set parent stock for variant products — must update variant rows instead.
+          if (existing.hasVariants) {
+            result.errors.push(
+              `Baris ${rowNum}: Produk "${existing.name}" memiliki varian. ` +
+              `Stok produk induk tidak dapat diubah langsung — ubah stok di sheet varian.`
+            )
+            continue
+          }
+          // FIX-P0-1 (AUDIT-2): Validate composition capacity for non-variant composed products.
+          if (existing.hasComposition) {
+            const compError = await validateCompositionStock(productId, outletId, roundedStock)
+            if (compError) {
+              result.errors.push(`Baris ${rowNum}: ${compError}`)
+              continue
+            }
+          }
+          updateData.stock = roundedStock
+          if (roundedStock !== existing.stock) changes.stock = { from: existing.stock, to: roundedStock }
         }
 
         // Unit
@@ -168,9 +229,14 @@ export async function POST(request: NextRequest) {
           if (categoryId !== existing.categoryId) changes.categoryId = { from: existing.categoryId || '', to: categoryId }
         }
 
-        // Low Stock Alert
-        const lsa = sanitizeNumber(findColumn(row, ['LOW STOCK ALERT', 'Low Stock Alert', 'low_stock_alert', 'Low Stock', 'lowStockAlert', 'Alert Stok']))
-        if (isNonEmpty(findColumn(row, ['LOW STOCK ALERT', 'Low Stock Alert', 'low_stock_alert', 'Low Stock', 'lowStockAlert', 'Alert Stok']))) {
+        // Low Stock Alert — FIX-P0-4 (AUDIT-2): use isPresent so 0 is honored
+        const lsaRaw = findColumn(row, ['LOW STOCK ALERT', 'Low Stock Alert', 'low_stock_alert', 'Low Stock', 'lowStockAlert', 'Alert Stok'])
+        const lsa = sanitizeNumber(lsaRaw)
+        if (isPresent(lsaRaw)) {
+          if (lsa < 0) {
+            result.errors.push(`Baris ${rowNum}: Low Stock Alert tidak boleh negatif (Nama: ${existing.name})`)
+            continue
+          }
           updateData.lowStockAlert = Math.round(lsa)
           if (Math.round(lsa) !== existing.lowStockAlert) changes.lowStockAlert = { from: existing.lowStockAlert, to: Math.round(lsa) }
         }
@@ -179,13 +245,18 @@ export async function POST(request: NextRequest) {
 
         await tx.product.update({ where: { id: productId }, data: updateData })
 
-        await safeAuditLog({
-          action: 'BULK_UPDATE',
-          entityType: 'PRODUCT',
-          entityId: productId,
-          details: JSON.stringify({ bulkUpdateExcel: true, changes, fileName: file.name }),
-          outletId,
-          userId,
+        // FIX-P1-1 (AUDIT-2): Use tx.auditLog.create (transactional) instead of safeAuditLog (global db).
+        // safeAuditLog uses the GLOBAL db client, so audit logs would persist even if the
+        // surrounding transaction rolls back → phantom audit logs for updates that never committed.
+        await tx.auditLog.create({
+          data: {
+            action: 'BULK_UPDATE',
+            entityType: 'PRODUCT',
+            entityId: productId,
+            details: JSON.stringify({ bulkUpdateExcel: true, changes, fileName: file.name }),
+            outletId,
+            userId,
+          },
         })
 
         result.updated++
@@ -240,34 +311,80 @@ export async function POST(request: NextRequest) {
 
               const vUpd: Record<string, unknown> = {}
               const vSku = String(findColumn(vRow, ['SKU VARIAN', 'SKU Varian', 'SKU', 'sku']) || '').trim()
-              if (isNonEmpty(vSku)) vUpd.sku = vSku || null
+              if (isNonEmpty(vSku) && vSku !== (eVar.sku || '')) {
+                // FIX-P0-5 (AUDIT-4): Validate variant SKU uniqueness within outlet
+                const vSkuClash = await tx.productVariant.findFirst({
+                  where: { sku: vSku, outletId, NOT: { id: eVar.id } },
+                  select: { id: true },
+                })
+                if (vSkuClash) {
+                  result.errors.push(`Baris ${rNum} (Varian): SKU "${vSku}" sudah digunakan oleh varian lain`)
+                  continue
+                }
+                const pSkuClash = await tx.product.findFirst({
+                  where: { sku: vSku, outletId },
+                  select: { id: true },
+                })
+                if (pSkuClash) {
+                  result.errors.push(`Baris ${rNum} (Varian): SKU "${vSku}" sudah digunakan oleh produk lain`)
+                  continue
+                }
+                vUpd.sku = vSku || null
+              }
 
-              const vHpp = sanitizeNumber(findColumn(vRow, ['HPP (Rp)', 'HPP', 'Harga Pokok', 'harga_pokok', 'Cost', 'Modal']))
-              if (isNonEmpty(findColumn(vRow, ['HPP (Rp)', 'HPP', 'Harga Pokok', 'harga_pokok', 'Cost', 'Modal']))) vUpd.hpp = vHpp
+              // FIX-P0-4 (AUDIT-2): use isPresent so 0 is honored
+              const vHppRaw = findColumn(vRow, ['HPP (Rp)', 'HPP', 'Harga Pokok', 'harga_pokok', 'Cost', 'Modal'])
+              const vHpp = sanitizeNumber(vHppRaw)
+              if (isPresent(vHppRaw)) {
+                if (vHpp < 0) {
+                  result.errors.push(`Baris ${rNum} (Varian): HPP tidak boleh negatif`)
+                  continue
+                }
+                vUpd.hpp = vHpp
+              }
 
-              const vPr = sanitizeNumber(findColumn(vRow, [
+              const vPrRaw = findColumn(vRow, [
                 'HARGA JUAL* (Rp)', 'HARGA JUAL (Rp)', 'HARGA JUAL', 'Harga Jual',
                 'Harga', 'Price', 'harga_jual', 'harga', 'price', 'Sell Price', 'Jual'
-              ]))
-              if (isNonEmpty(findColumn(vRow, [
-                'HARGA JUAL* (Rp)', 'HARGA JUAL (Rp)', 'HARGA JUAL', 'Harga Jual',
-                'Harga', 'Price', 'harga_jual', 'harga', 'price', 'Sell Price', 'Jual'
-              ]))) {
+              ])
+              const vPr = sanitizeNumber(vPrRaw)
+              if (isPresent(vPrRaw)) {
+                if (vPr < 0) {
+                  result.errors.push(`Baris ${rNum} (Varian): Harga Jual tidak boleh negatif`)
+                  continue
+                }
                 if (vPr > 0) vUpd.price = vPr
               }
 
-              const vStk = sanitizeNumber(findColumn(vRow, ['STOK', 'Stok', 'stok', 'Stock', 'stock', 'QTY', 'qty', 'Quantity', 'Jumlah']))
-              if (isNonEmpty(findColumn(vRow, ['STOK', 'Stok', 'stok', 'Stock', 'stock', 'QTY', 'qty', 'Quantity', 'Jumlah']))) {
+              const vStkRaw = findColumn(vRow, ['STOK', 'Stok', 'stok', 'Stock', 'stock', 'QTY', 'qty', 'Quantity', 'Jumlah'])
+              const vStk = sanitizeNumber(vStkRaw)
+              if (isPresent(vStkRaw)) {
                 if (vStk < 0) {
                   result.errors.push(`Baris ${rNum} (Varian): Stok tidak boleh negatif`)
                   continue
                 }
-                vUpd.stock = Math.round(vStk)
+                const roundedVStk = Math.round(vStk)
+                // FIX-P1-4 (AUDIT-2): Validate variant composition capacity
+                const vCompError = await validateVariantCompositionStock(eVar.id, eVar.name, roundedVStk)
+                if (vCompError) {
+                  result.errors.push(`Baris ${rNum} (Varian): ${vCompError}`)
+                  continue
+                }
+                vUpd.stock = roundedVStk
               }
 
               if (Object.keys(vUpd).length === 0) continue
 
               await tx.productVariant.update({ where: { id: eVar.id }, data: vUpd })
+              // FIX-P0-3 (AUDIT-2): Recalculate parent product stock = SUM(variant.stock) after variant update.
+              const vAgg = await tx.productVariant.aggregate({
+                where: { productId: parent.id, outletId },
+                _sum: { stock: true },
+              })
+              await tx.product.update({
+                where: { id: parent.id },
+                data: { stock: vAgg._sum.stock ?? 0 },
+              })
               result.variantsUpdated++
               continue
             }
@@ -283,37 +400,94 @@ export async function POST(request: NextRequest) {
             const vUpd2: Record<string, unknown> = {}
 
             const vName2 = String(findColumn(vRow, ['NAMA VARIAN*', 'NAMA VARIAN', 'Nama Varian', 'Variant Name', 'Varian', 'name']) || '').trim()
-            if (isNonEmpty(vName2)) vUpd2.name = vName2
+            if (isNonEmpty(vName2) && vName2 !== eVar.name) {
+              // FIX: Validate variant name uniqueness within the same product (excluding self)
+              const vNameClash = await tx.productVariant.findFirst({
+                where: { name: vName2, productId: eVar.productId, outletId, NOT: { id: vId } },
+                select: { id: true },
+              })
+              if (vNameClash) {
+                result.errors.push(`Baris ${rNum} (Varian): Nama varian "${vName2}" sudah digunakan di produk ini`)
+                continue
+              }
+              vUpd2.name = vName2
+            }
 
             const vSku2 = String(findColumn(vRow, ['SKU VARIAN', 'SKU Varian', 'SKU', 'sku']) || '').trim()
-            if (isNonEmpty(vSku2)) vUpd2.sku = vSku2 || null
+            if (isNonEmpty(vSku2) && vSku2 !== (eVar.sku || '')) {
+              // FIX-P0-5 (AUDIT-4): Validate variant SKU uniqueness within outlet
+              const vSkuClash = await tx.productVariant.findFirst({
+                where: { sku: vSku2, outletId, NOT: { id: vId } },
+                select: { id: true },
+              })
+              if (vSkuClash) {
+                result.errors.push(`Baris ${rNum} (Varian): SKU "${vSku2}" sudah digunakan oleh varian lain`)
+                continue
+              }
+              const pSkuClash = await tx.product.findFirst({
+                where: { sku: vSku2, outletId },
+                select: { id: true },
+              })
+              if (pSkuClash) {
+                result.errors.push(`Baris ${rNum} (Varian): SKU "${vSku2}" sudah digunakan oleh produk lain`)
+                continue
+              }
+              vUpd2.sku = vSku2 || null
+            }
 
-            const vHpp2 = sanitizeNumber(findColumn(vRow, ['HPP (Rp)', 'HPP', 'Harga Pokok', 'harga_pokok', 'Cost', 'Modal']))
-            if (isNonEmpty(findColumn(vRow, ['HPP (Rp)', 'HPP', 'Harga Pokok', 'harga_pokok', 'Cost', 'Modal']))) vUpd2.hpp = vHpp2
+            // FIX-P0-4 (AUDIT-2): use isPresent so 0 is honored
+            const vHpp2Raw = findColumn(vRow, ['HPP (Rp)', 'HPP', 'Harga Pokok', 'harga_pokok', 'Cost', 'Modal'])
+            const vHpp2 = sanitizeNumber(vHpp2Raw)
+            if (isPresent(vHpp2Raw)) {
+              if (vHpp2 < 0) {
+                result.errors.push(`Baris ${rNum} (Varian): HPP tidak boleh negatif (ID: ${vId})`)
+                continue
+              }
+              vUpd2.hpp = vHpp2
+            }
 
-            const vPr2 = sanitizeNumber(findColumn(vRow, [
+            const vPr2Raw = findColumn(vRow, [
               'HARGA JUAL* (Rp)', 'HARGA JUAL (Rp)', 'HARGA JUAL', 'Harga Jual',
               'Harga', 'Price', 'harga_jual', 'harga', 'price', 'Sell Price', 'Jual'
-            ]))
-            if (isNonEmpty(findColumn(vRow, [
-              'HARGA JUAL* (Rp)', 'HARGA JUAL (Rp)', 'HARGA JUAL', 'Harga Jual',
-              'Harga', 'Price', 'harga_jual', 'harga', 'price', 'Sell Price', 'Jual'
-            ]))) {
+            ])
+            const vPr2 = sanitizeNumber(vPr2Raw)
+            if (isPresent(vPr2Raw)) {
+              if (vPr2 < 0) {
+                result.errors.push(`Baris ${rNum} (Varian): Harga Jual tidak boleh negatif (ID: ${vId})`)
+                continue
+              }
               if (vPr2 > 0) vUpd2.price = vPr2
             }
 
-            const vStk2 = sanitizeNumber(findColumn(vRow, ['STOK', 'Stok', 'stok', 'Stock', 'stock', 'QTY', 'qty', 'Quantity', 'Jumlah']))
-            if (isNonEmpty(findColumn(vRow, ['STOK', 'Stok', 'stok', 'Stock', 'stock', 'QTY', 'qty', 'Quantity', 'Jumlah']))) {
+            const vStk2Raw = findColumn(vRow, ['STOK', 'Stok', 'stok', 'Stock', 'stock', 'QTY', 'qty', 'Quantity', 'Jumlah'])
+            const vStk2 = sanitizeNumber(vStk2Raw)
+            if (isPresent(vStk2Raw)) {
               if (vStk2 < 0) {
                 result.errors.push(`Baris ${rNum} (Varian): Stok tidak boleh negatif (ID: ${vId})`)
                 continue
               }
-              vUpd2.stock = Math.round(vStk2)
+              const roundedVStk2 = Math.round(vStk2)
+              // FIX-P1-4 (AUDIT-2): Validate variant composition capacity
+              const vCompError = await validateVariantCompositionStock(vId, eVar.name, roundedVStk2)
+              if (vCompError) {
+                result.errors.push(`Baris ${rNum} (Varian): ${vCompError}`)
+                continue
+              }
+              vUpd2.stock = roundedVStk2
             }
 
             if (Object.keys(vUpd2).length === 0) continue
 
             await tx.productVariant.update({ where: { id: vId }, data: vUpd2 })
+            // FIX-P0-3 (AUDIT-2): Recalculate parent product stock = SUM(variant.stock) after variant update.
+            const vAgg2 = await tx.productVariant.aggregate({
+              where: { productId: eVar.productId, outletId },
+              _sum: { stock: true },
+            })
+            await tx.product.update({
+              where: { id: eVar.productId },
+              data: { stock: vAgg2._sum.stock ?? 0 },
+            })
             result.variantsUpdated++
           } catch (vErr) {
             const errMsg = vErr instanceof Error ? vErr.message : 'Unknown error'

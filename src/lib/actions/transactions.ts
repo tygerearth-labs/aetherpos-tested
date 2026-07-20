@@ -275,8 +275,13 @@ export async function processCheckout(data: CheckoutInput) {
         );
       }
 
-      // Calculate earned points: Math.floor(total / 10000)
-      const earnedPoints = Math.floor(total / 10000);
+      // P0-5: Use OutletSetting.loyaltyPointsPerAmount instead of hardcoded 10000
+      const outletSetting = await db.outletSetting.findUnique({
+        where: { outletId },
+        select: { loyaltyPointsPerAmount: true },
+      });
+      const pointsPerAmount = outletSetting?.loyaltyPointsPerAmount || 10000;
+      const earnedPoints = Math.floor(total / pointsPerAmount);
 
       // Combine customer updates into a single query
       const customerUpdateData: { totalSpend: { increment: number }; points?: { increment: number } | { decrement: number } } = {
