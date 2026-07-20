@@ -42,6 +42,7 @@ interface CompleteOpnameRequest {
   snapshots: OpnameSnapshotItem[]
   notes?: string
   startedAt: string       // ISO 8601 - when opname was started
+  opnameId?: string       // AUDIT-2-006: client-generated idempotency key (UUID)
 }
 
 interface AdjustmentResult {
@@ -81,10 +82,36 @@ export async function POST(request: NextRequest) {
       return safeJsonError('Request body tidak valid', 400)
     }
 
-    const { snapshots, notes: opnameNotes, startedAt } = body
+    const { snapshots, notes: opnameNotes, startedAt, opnameId } = body
 
     if (!Array.isArray(snapshots) || snapshots.length === 0) {
       return safeJsonError('Data snapshot tidak valid', 400)
+    }
+
+    // AUDIT-2-006 FIX: Idempotency — if the client sends an opnameId, check
+    // whether this opname was already completed. Without this, a network
+    // failure between server-commit and client-receive causes the client to
+    // retry → stock adjusted twice. Verified by audit: same payload submitted
+    // twice → stock 45→50 (delta +5 applied twice).
+    // Uses the same auditLog-as-idempotency-store pattern as /api/transactions/sync.
+    if (opnameId) {
+      const existing = await db.auditLog.findFirst({
+        where: { outletId, action: 'STOCK_OPNAME_DEDUP', entityId: opnameId },
+      })
+      if (existing) {
+        try {
+          const parsed = JSON.parse(existing.details || '{}')
+          console.log(`[StockOpname] AUDIT-2-006: Duplicate opnameId ${opnameId} ignored`)
+          return safeJson({
+            success: true,
+            message: 'Stock opname sudah pernah diselesaikan (duplicate diabaikan)',
+            summary: parsed.summary,
+            duplicate: true,
+          })
+        } catch {
+          return safeJson({ success: true, message: 'Stock opname sudah pernah diselesaikan', duplicate: true })
+        }
+      }
     }
 
     console.log(`[StockOpname] Starting completion: ${snapshots.length} items`)
@@ -125,10 +152,41 @@ export async function POST(request: NextRequest) {
 
     // ══════════════════════════════════════════════════════════════════
     // PHASE 2: CALCULATE ADJUSTMENTS
-    // Apply the DELTA algorithm:
-    //   delta = physicalQty - systemQty (from snapshot)
-    //   newStock = currentStock + delta
+    //
+    // AUDIT-2-004 FIX: Group snapshots by inventoryItemId and compute ONE
+    // aggregate delta per item. Previously, for an item with N batches the
+    // client submitted N snapshots, and the server applied `currentStock + delta`
+    // for EACH snapshot (using the SAME stale currentStock read at PHASE 1).
+    // The last update won → stock = stale + last_delta, but sum(batches) =
+    // original + sum(all_deltas). DRIFT = sum(all_deltas except last).
+    // Verified by audit: 2 batches, count A 60→55 (Δ-5), B 40→38 (Δ-2).
+    // Final stock=98, sum(batches)=93. DRIFT=5.
+    //
+    // AUDIT-2-005 FIX: Anti-fraud — the server no longer trusts the client's
+    // `systemQty` blindly. If the client claims systemQty=0 but the server's
+    // current stock > 0, the server uses its OWN current stock as the baseline
+    // (a client claiming 0 system stock to inflate via a large physicalQty is
+    // the documented fraud vector). Verified by audit: malicious payload
+    // systemQty=0, physicalQty=200 → stock 100→300.
+    //
+    // Algorithm (per item, aggregated):
+    //   1. Collect all snapshots for this item (item-level + batch-level)
+    //   2. If ANY batch-level snapshot exists, aggregate batch deltas →
+    //      itemDelta = sum(batch deltas). Item-level snapshot (if also present)
+    //      is IGNORED for stock computation (batch-level is more precise) but
+    //      is still used for the movement record.
+    //   3. If ONLY item-level snapshot exists, itemDelta = physicalQty - systemQty.
+    //   4. adjustedStock = max(0, currentStock + itemDelta)
     // ══════════════════════════════════════════════════════════════════
+
+    // Group snapshots by inventoryItemId
+    const snapshotsByItem = new Map<string, OpnameSnapshotItem[]>()
+    for (const snap of snapshots) {
+      if (snap.physicalQty === null || snap.physicalQty === undefined) continue
+      const arr = snapshotsByItem.get(snap.inventoryItemId) || []
+      arr.push(snap)
+      snapshotsByItem.set(snap.inventoryItemId, arr)
+    }
 
     const adjustments: AdjustmentResult[] = []
     const batchAdjustments: Array<{
@@ -141,119 +199,169 @@ export async function POST(request: NextRequest) {
     let totalVarianceValue = 0
     let varianceCount = 0
 
-    for (const snap of snapshots) {
-      // Skip uncounted items
-      if (snap.physicalQty === null || snap.physicalQty === undefined) continue
-
-      const currentItem = currentItemMap.get(snap.inventoryItemId)
+    for (const [itemId, itemSnaps] of snapshotsByItem) {
+      const currentItem = currentItemMap.get(itemId)
       if (!currentItem) {
-        console.warn(`[StockOpname] Item ${snap.inventoryItemId} (${snap.itemName}) not found on server`)
+        console.warn(`[StockOpname] Item ${itemId} not found on server`)
         continue
       }
 
-      // Calculate DELTA from snapshot (NOT from current!)
-      const delta = snap.physicalQty - snap.systemQty
-      
-      // If no variance, skip (optional optimization)
-      // Comment this out if you want to record ALL counts even without variance
-      if (delta === 0) continue
-
-      // Apply to CURRENT server stock
       const currentStock = currentItem.stock
-      const adjustedStock = Math.max(0, currentStock + delta) // Prevent negative
-      const varianceValue = Math.abs(delta) * currentItem.avgCost
+      const batchSnaps = itemSnaps.filter(s => s.batchId && currentBatchMap.has(s.batchId))
+      const itemSnapsOnly = itemSnaps.filter(s => !s.batchId)
 
-      const adjustment: AdjustmentResult = {
-        inventoryItemId: snap.inventoryItemId,
-        itemName: snap.itemName,
-        batchId: snap.batchId,
-        batchNumber: snap.batchNumber,
-        systemQty: snap.systemQty,
-        physicalQty: snap.physicalQty,
+      // AUDIT-2-005: Determine the systemQty baseline. If the client claims 0
+      // but the server has stock, use the server's current stock (anti-fraud).
+      // Otherwise trust the client's snapshot (preserves concurrent-tx design).
+      const resolveSystemQty = (clientSystemQty: number): number => {
+        if (clientSystemQty <= 0 && currentStock > 0) {
+          console.warn(
+            `[StockOpname] AUDIT-2-005: Item "${currentItem.name}" client systemQty=${clientSystemQty} ` +
+            `but server stock=${currentStock}. Using server stock as baseline (anti-fraud).`
+          )
+          return currentStock
+        }
+        return clientSystemQty
+      }
+
+      let itemDelta: number
+      let systemQtyForRecord: number
+      let physicalQtyForRecord: number
+
+      if (batchSnaps.length > 0) {
+        // Batch-level counting — aggregate batch deltas.
+        let batchDeltaSum = 0
+        physicalQtyForRecord = 0
+        systemQtyForRecord = 0
+        for (const bs of batchSnaps) {
+          const batch = currentBatchMap.get(bs.batchId!)!
+          const bSys = resolveSystemQty(bs.systemQty)
+          const bDelta = bs.physicalQty - bSys
+          const newRemainingQty = Math.max(0, batch.remainingQty + bDelta)
+          batchAdjustments.push({
+            batchId: bs.batchId!,
+            batchNumber: bs.batchNumber || batch.batchNumber,
+            delta: bDelta,
+            newRemainingQty,
+          })
+          batchDeltaSum += bDelta
+          physicalQtyForRecord += bs.physicalQty
+          systemQtyForRecord += bSys
+        }
+        itemDelta = batchDeltaSum
+      } else {
+        // Item-level only
+        const snap = itemSnapsOnly[0]
+        systemQtyForRecord = resolveSystemQty(snap.systemQty)
+        physicalQtyForRecord = snap.physicalQty
+        itemDelta = snap.physicalQty - systemQtyForRecord
+      }
+
+      if (itemDelta === 0) continue
+
+      const adjustedStock = Math.max(0, currentStock + itemDelta)
+      const varianceValue = Math.abs(itemDelta) * currentItem.avgCost
+
+      adjustments.push({
+        inventoryItemId: itemId,
+        itemName: currentItem.name,
+        batchId: batchSnaps.length > 0 ? batchSnaps[0].batchId : null,
+        batchNumber: batchSnaps.length > 0 ? batchSnaps[0].batchNumber : null,
+        systemQty: systemQtyForRecord,
+        physicalQty: physicalQtyForRecord,
         currentStock,
-        delta,
+        delta: itemDelta,
         adjustedStock,
         varianceValue,
-      }
-
-      adjustments.push(adjustment)
+      })
       totalVarianceValue += varianceValue
       varianceCount++
-
-      // Track batch adjustments separately
-      if (snap.batchId && currentBatchMap.has(snap.batchId)) {
-        const batch = currentBatchMap.get(snap.batchId)!
-        const newRemainingQty = Math.max(0, batch.remainingQty + delta)
-        batchAdjustments.push({
-          batchId: snap.batchId,
-          batchNumber: snap.batchNumber || batch.batchNumber,
-          delta,
-          newRemainingQty,
-        })
-      }
     }
 
     console.log(`[StockOpname] Calculated ${adjustments.length} adjustments, ${batchAdjustments.length} batch updates`)
 
     // ══════════════════════════════════════════════════════════════════
-    // PHASE 3: APPLY ADJUSTMENTS IN TRANSACTION
-    // Create InventoryMovement records + update stocks
+    // PHASE 3: APPLY ADJUSTMENTS IN A SINGLE TRANSACTION
+    //
+    // AUDIT-2-009 FIX: Previously adjustments were split into chunks of 50,
+    // each in its own $transaction. Batch updates were ALL processed in chunk 0.
+    // If chunk 2 failed, chunk 0 (with ALL batch updates) was already committed
+    // → items 100-149 had batch updates but no item.stock update → DRIFT.
+    // Now ALL adjustments + batch updates run in ONE transaction. SQLite handles
+    // thousands of writes in a single tx efficiently. If any step fails, the
+    // entire opname rolls back (atomicity guaranteed).
     // ══════════════════════════════════════════════════════════════════
-
-    const CHUNK_SIZE = 50
-    const chunks: AdjustmentResult[][] = []
-    
-    for (let i = 0; i < adjustments.length; i += CHUNK_SIZE) {
-      chunks.push(adjustments.slice(i, i + CHUNK_SIZE))
-    }
 
     let movementsCreated = 0
     let batchesUpdated = 0
 
-    for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
-      const chunk = chunks[chunkIndex]
+    await db.$transaction(async (tx) => {
+      // Process each item adjustment (ONE per item now — aggregated in PHASE 2)
+      for (const adj of adjustments) {
+        // 1. Create InventoryMovement (PERMANENT RECORD)
+        await tx.inventoryMovement.create({
+          data: {
+            type: 'STOCK_OPNAME',
+            quantity: adj.delta,                    // Can be positive or negative
+            previousStock: adj.currentStock,         // What it was BEFORE this adjustment
+            newStock: adj.adjustedStock,             // What it is NOW
+            referenceType: 'STOCK_OPNAME',
+            notes: opnameNotes || `Stock Opname: ${adj.systemQty} → ${adj.physicalQty}`,
+            outletId,
+            inventoryItemId: adj.inventoryItemId,
+            userId,
+          },
+        })
 
-      await db.$transaction(async (tx) => {
-        // Process each adjustment
-        for (const adj of chunk) {
-          // 1. Create InventoryMovement (PERMANENT RECORD)
-          await tx.inventoryMovement.create({
-            data: {
-              type: 'STOCK_OPNAME',
-              quantity: adj.delta,                    // Can be positive or negative
-              previousStock: adj.currentStock,         // What it was BEFORE this adjustment
-              newStock: adj.adjustedStock,             // What it is NOW
-              referenceType: 'STOCK_OPNAME',
-              notes: adj.notes || opnameNotes || `Stock Opname: ${adj.systemQty} → ${adj.physicalQty}`,
-              outletId,
-              inventoryItemId: adj.inventoryItemId,
-              userId,
-            },
-          })
+        // 2. Update InventoryItem.stock (ONCE per item — no more last-write-wins drift)
+        await tx.inventoryItem.update({
+          where: { id: adj.inventoryItemId },
+          data: { stock: adj.adjustedStock },
+        })
 
-          // 2. Update InventoryItem.stock
-          await tx.inventoryItem.update({
-            where: { id: adj.inventoryItemId },
-            data: { stock: adj.adjustedStock },
-          })
+        movementsCreated++
+      }
 
-          movementsCreated++
-        }
+      // Process ALL batch adjustments in the SAME transaction
+      for (const ba of batchAdjustments) {
+        await tx.inventoryBatch.update({
+          where: { id: ba.batchId },
+          data: { remainingQty: ba.newRemainingQty },
+        })
+        batchesUpdated++
+      }
 
-        // Process batch adjustments (only in first chunk to avoid duplicates)
-        if (chunkIndex === 0 && batchAdjustments.length > 0) {
-          for (const ba of batchAdjustments) {
-            await tx.inventoryBatch.update({
-              where: { id: ba.batchId },
-              data: { remainingQty: ba.newRemainingQty },
-            })
-            batchesUpdated++
-          }
-        }
-      }, {
-        timeout: 30000, // 30s per chunk
-      })
-    }
+      // AUDIT-2-006 FIX: Write the idempotency marker INSIDE the transaction
+      // so it commits atomically with the adjustments. If this opnameId was
+      // already processed, the unique index (auditlog_sync_dedup... pattern)
+      // would reject — but since STOCK_OPNAME_DEDUP uses a separate action
+      // value, we rely on the pre-check at the top + this atomic insert.
+      if (opnameId) {
+        await tx.auditLog.create({
+          data: {
+            action: 'STOCK_OPNAME_DEDUP',
+            entityType: 'STOCK_OPNAME',
+            entityId: opnameId,
+            details: JSON.stringify({
+              summary: {
+                totalSnapshots: snapshots.length,
+                itemsCounted: snapshots.filter(s => s.physicalQty !== null).length,
+                adjustmentsMade: movementsCreated,
+                batchUpdates: batchesUpdated,
+                varianceItems: varianceCount,
+                totalVarianceValue: Math.round(totalVarianceValue * 100) / 100,
+              },
+              startedAt,
+              completedAt: new Date().toISOString(),
+            }),
+            outletId,
+            userId,
+          },
+        })
+      }
+    }, {
+      timeout: 120000, // 2 minutes for large datasets (matches maxDuration)
+    })
 
     // ══════════════════════════════════════════════════════════════════
     // PHASE 4: AUDIT LOG & RESPONSE

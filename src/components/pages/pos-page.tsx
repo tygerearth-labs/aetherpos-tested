@@ -1384,11 +1384,22 @@ export default function PosPage() {
       }
 
       // STEP 1: Save to IndexedDB first
+      // AUDIT-1-001 FIX: Generate a stable eventId (idempotency key) so the
+      // server's DEX-007 dedup check actually fires. Previously the localDB row
+      // had NO eventId field → /api/transactions/sync line 80 `if (tx.eventId)`
+      // was always false → duplicate sync (double-click, refresh-during-checkout,
+      // auto-resync) created duplicate server transactions + double stock decrement.
+      // The eventId is stable across retries (stored in the row, re-sent on each
+      // sync attempt) so the server can recognize and skip re-submissions.
+      const eventId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : `evt-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
       const localId = await localDB.transactions.add({
         payload: checkoutPayload,
         isSynced: 0,
         createdAt: Date.now(),
         retryCount: 0,
+        eventId, // AUDIT-1-001: idempotency key for server-side dedup
       })
 
       // STEP 1b: Decrement stock locally in IndexedDB to prevent overselling while offline (parallel)

@@ -689,15 +689,21 @@ export async function PATCH(
             }
           }
 
-          // Update transfer status
-          await tx.outletTransfer.update({
-            where: { id },
-            data: {
-              status: 'RECEIVED',
-              receivedById: user.id,
-              receivedAt: new Date(),
-            },
-          })
+          // AUDIT-2-003 FIX: Atomic RECEIVED transition (INVENTORY path).
+          // Previously this used a non-atomic `update({ where: { id } })` — two
+          // concurrent RECEIVE requests could both pass the pre-tx status check
+          // (both read status=IN_TRANSIT) and both commit, inflating destination
+          // stock 2x. Now we use atomic `UPDATE ... WHERE status='IN_TRANSIT'`:
+          // only one concurrent request can win (affected=1); the loser gets
+          // affected=0 and throws, rolling back its stock additions.
+          const invReceivedAffected = await tx.$executeRaw`
+            UPDATE "OutletTransfer"
+            SET status = 'RECEIVED', "receivedById" = ${user.id}, "receivedAt" = ${new Date()}
+            WHERE id = ${id} AND status = 'IN_TRANSIT'
+          `
+          if (invReceivedAffected === 0) {
+            throw new Error('Transfer sudah diterima oleh pengguna lain atau status sudah berubah')
+          }
 
           const totalQty = invItems.reduce((s, i) => s + i.quantity, 0)
           const totalValue = invItems.reduce((s, i) => s + i.quantity * i.avgCost, 0)
@@ -984,15 +990,17 @@ export async function PATCH(
           }
         }
 
-        // Update transfer status
-        await tx.outletTransfer.update({
-          where: { id },
-          data: {
-            status: 'RECEIVED',
-            receivedById: user.id,
-            receivedAt: new Date(),
-          },
-        })
+        // AUDIT-2-003 FIX: Atomic RECEIVED transition (PRODUCT path).
+        // Same atomic guard as the INVENTORY path above — prevents concurrent
+        // RECEIVE from inflating destination stock 2x.
+        const prodReceivedAffected = await tx.$executeRaw`
+          UPDATE "OutletTransfer"
+          SET status = 'RECEIVED', "receivedById" = ${user.id}, "receivedAt" = ${new Date()}
+          WHERE id = ${id} AND status = 'IN_TRANSIT'
+        `
+        if (prodReceivedAffected === 0) {
+          throw new Error('Transfer sudah diterima oleh pengguna lain atau status sudah berubah')
+        }
 
         // Build detailed audit items for summary logs
         const receivedTotalQty = transfer.items.reduce((s, i) => s + i.quantity, 0)
@@ -1127,11 +1135,14 @@ export async function PATCH(
             }
           }
 
-          // Update transfer status
-          await tx.outletTransfer.update({
-            where: { id },
-            data: { status: 'CANCELLED' },
-          })
+          // AUDIT-2-003 FIX: Atomic CANCELLED transition (INVENTORY path).
+          // Prevents double-cancel from restoring source stock twice.
+          const invCancelAffected = await tx.$executeRaw`
+            UPDATE "OutletTransfer" SET status = 'CANCELLED' WHERE id = ${id} AND status = 'IN_TRANSIT'
+          `
+          if (invCancelAffected === 0) {
+            throw new Error('Transfer sudah dibatalkan atau status sudah berubah')
+          }
 
           const totalQty = invItems.reduce((s, i) => s + i.quantity, 0)
           const totalValue = invItems.reduce((s, i) => s + i.quantity * i.avgCost, 0)
@@ -1271,8 +1282,13 @@ export async function PATCH(
             }
           }
 
-          // Update transfer status
-          await tx.outletTransfer.update({ where: { id }, data: { status: 'CANCELLED' } })
+          // AUDIT-2-003 FIX: Atomic CANCELLED transition (PRODUCT path).
+          const prodCancelAffected = await tx.$executeRaw`
+            UPDATE "OutletTransfer" SET status = 'CANCELLED' WHERE id = ${id} AND status = 'IN_TRANSIT'
+          `
+          if (prodCancelAffected === 0) {
+            throw new Error('Transfer sudah dibatalkan atau status sudah berubah')
+          }
 
           // Summary audit log at source outlet
           await tx.auditLog.create({
@@ -1410,10 +1426,13 @@ export async function PATCH(
       const cancelTotalValue = transfer.items.reduce((s, i) => s + i.quantity * i.price, 0)
 
       await db.$transaction(async (tx) => {
-        await tx.outletTransfer.update({
-          where: { id },
-          data: { status: 'CANCELLED' },
-        })
+        // AUDIT-2-003 FIX: Atomic DRAFT→CANCELLED transition.
+        const draftCancelAffected = await tx.$executeRaw`
+          UPDATE "OutletTransfer" SET status = 'CANCELLED' WHERE id = ${id} AND status = 'DRAFT'
+        `
+        if (draftCancelAffected === 0) {
+          throw new Error('Transfer tidak bisa dibatalkan — status sudah berubah')
+        }
 
         await tx.auditLog.create({
           data: {

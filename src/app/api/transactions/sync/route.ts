@@ -68,7 +68,9 @@ export async function POST(request: NextRequest) {
     const batch = transactions.slice(0, 50)
     const results: SyncResult[] = []
 
-    for (const tx of batch) {
+    // AUDIT-1-004 FIX: label the batch loop so inner validation `continue`s can
+    // skip to the next transaction instead of falling through into the $transaction.
+    outerLoop: for (const tx of batch) {
       try {
         // Validate localId
         if (!tx.id) {
@@ -76,9 +78,16 @@ export async function POST(request: NextRequest) {
           continue
         }
 
-        // DEX-007 FIX: Idempotency check — skip if event was already processed
+        // DEX-007 FIX: Idempotency check — skip if event was already processed.
+        // AUDIT-1-001 FIX: Frontend now sends eventId on every checkout, so this
+        // fast pre-check actually fires for the common case (double-click, auto-
+        // resync, refresh-during-checkout).
+        // AUDIT-1-004 FIX: The pre-check is a FAST PATH only. The authoritative
+        // atomic guard is the unique-index INSERT inside the $transaction below.
+        // Two parallel syncs can both pass this pre-check (neither sees the
+        // other's uncommitted marker), but only one can win the unique-index
+        // INSERT — the other throws and rolls back.
         if (tx.eventId) {
-          // Use auditLog as idempotency store (existing table, no schema change needed)
           const existingAudit = await db.auditLog.findFirst({
             where: {
               outletId,
@@ -109,6 +118,35 @@ export async function POST(request: NextRequest) {
         if (!payload.items || payload.items.length === 0) {
           results.push({ localId: tx.id, success: false, error: 'Empty cart' })
           continue
+        }
+
+        // AUDIT-1-002 FIX (sync path): Reject non-positive qty (fraud / stock inflation).
+        // Same validation as /api/pos/checkout — without this, a malicious offline
+        // payload with qty=-5 would be accepted by sync (the atomic SQL
+        // `WHERE stock >= -5` is always true) and inflate stock.
+        for (const item of payload.items) {
+          if (!Number.isFinite(item.qty) || item.qty <= 0) {
+            results.push({ localId: tx.id, success: false, error: `Qty tidak valid untuk ${item.productName}. Qty harus > 0.` })
+            continue outerLoop // skip to next transaction in batch
+          }
+          if (!Number.isFinite(item.price) || item.price < 0) {
+            results.push({ localId: tx.id, success: false, error: `Harga tidak valid untuk ${item.productName}.` })
+            continue outerLoop
+          }
+        }
+
+        // AUDIT-1-003 FIX (sync path): Server-side recompute of subtotal & total.
+        // Same anti-fraud check as /api/pos/checkout. Offline payloads could
+        // otherwise carry a manipulated total.
+        const computedSubtotal = payload.items.reduce((s, it) => s + (it.price * it.qty), 0)
+        const computedTotal = computedSubtotal - (payload.discount || 0) + (payload.taxAmount || 0)
+        if (Math.abs((payload.subtotal || 0) - computedSubtotal) > 1) {
+          results.push({ localId: tx.id, success: false, error: `Subtotal tidak sesuai server (Rp ${computedSubtotal.toLocaleString('id-ID')}).` })
+          continue outerLoop
+        }
+        if (Math.abs((payload.total || 0) - computedTotal) > 1) {
+          results.push({ localId: tx.id, success: false, error: `Total tidak sesuai server (Rp ${computedTotal.toLocaleString('id-ID')}).` })
+          continue outerLoop
         }
 
         const transactionDate = new Date(createdAt)
@@ -454,27 +492,43 @@ export async function POST(request: NextRequest) {
             }
           }
 
+          // AUDIT-1-004 FIX: Atomic idempotency marker — INSERT ... WHERE NOT EXISTS
+          // guarded by the unique partial index `auditlog_sync_dedup_eventid_uidx`
+          // (created by ensureMigrated). This is the authoritative dedup guard:
+          // two parallel sync transactions can both pass the fast pre-check
+          // (neither sees the other's uncommitted write), but only ONE can win
+          // this INSERT — the other gets affected=0 (or a unique-constraint
+          // violation on race) and we throw, rolling back the transaction.create
+          // and stock decrements so no duplicate is persisted.
+          if (tx.eventId) {
+            const markerDetails = JSON.stringify({
+              invoiceNumber,
+              serverId: transaction.id,
+              localId: tx.id,
+              processedAt: new Date().toISOString(),
+            })
+            const affected = await txDb.$executeRaw`
+              INSERT INTO "AuditLog" (id, action, "entityType", "entityId", "outletId", "userId", details, "createdAt")
+              SELECT ${crypto.randomUUID()}, 'SYNC_DEDUP', 'SYNC_EVENT', ${tx.eventId}, ${outletId}, ${userId}, ${markerDetails}, ${new Date()}
+              WHERE NOT EXISTS (
+                SELECT 1 FROM "AuditLog"
+                WHERE action = 'SYNC_DEDUP' AND "entityId" = ${tx.eventId}
+              )
+            `
+            if (affected === 0) {
+              // Another parallel sync won the race — fetch its result and treat as duplicate.
+              const winner = await txDb.auditLog.findFirst({
+                where: { action: 'SYNC_DEDUP', entityId: tx.eventId },
+              })
+              throw new Error(
+                'DUPLICATE_SYNC_EVENT' +
+                (winner ? `::${winner.details}` : '')
+              )
+            }
+          }
+
           return { transactionId: transaction.id, invoiceNumber }
         }, { timeout: 15000 })
-
-        // DEX-007: Record eventId as processed (idempotency marker)
-        if (tx.eventId) {
-          await db.auditLog.create({
-            data: {
-              action: 'SYNC_DEDUP',
-              entityType: 'SYNC_EVENT',
-              entityId: tx.eventId,
-              details: JSON.stringify({
-                invoiceNumber: result.invoiceNumber,
-                serverId: result.transactionId,
-                localId: tx.id,
-                processedAt: new Date().toISOString(),
-              }),
-              outletId,
-              userId,
-            },
-          })
-        }
 
         results.push({
           localId: tx.id,
@@ -484,6 +538,27 @@ export async function POST(request: NextRequest) {
         })
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : 'Sync failed'
+        // AUDIT-1-004: A duplicate-event throw is NOT a failure — another parallel
+        // sync request already committed this transaction. Surface it as success
+        // with the winner's invoice number so the client marks the local row synced.
+        if (message.startsWith('DUPLICATE_SYNC_EVENT')) {
+          const [, winnerDetails] = message.split('::')
+          try {
+            const parsed = JSON.parse(winnerDetails || '{}')
+            results.push({
+              localId: tx.id,
+              success: true,
+              invoiceNumber: parsed.invoiceNumber,
+              serverId: parsed.serverId,
+            })
+            console.log(`[sync] AUDIT-1-004: Parallel duplicate event ${tx.eventId} resolved to winner ${parsed.invoiceNumber}`)
+            continue
+          } catch {
+            // Fall through to success-without-details
+            results.push({ localId: tx.id, success: true, error: 'Already synced (parallel duplicate)' })
+            continue
+          }
+        }
         results.push({
           localId: tx.id,
           success: false,

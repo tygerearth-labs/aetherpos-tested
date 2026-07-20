@@ -45,6 +45,7 @@ export interface OpnameSession {
   countedItems: number
   varianceItems: number
   notes: string | null
+  opnameId?: string // AUDIT-2-006: idempotency key for server-side dedup
 }
 
 export interface CompleteResult {
@@ -199,6 +200,13 @@ export async function startOpname(
   await db.stockOpnameSnapshots.bulkAdd(snapshots)
   
   // Create session record
+  // AUDIT-2-006: Generate a stable opnameId (idempotency key) at start time.
+  // This is sent to the server at complete time so the server can detect
+  // duplicate submissions (network failure between server-commit and
+  // client-receive → client retries → server sees same opnameId → skips).
+  const opnameId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : `opname-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
   await db.stockOpnameSession.put({
     id: 'current',
     status: 'COUNTING',
@@ -207,6 +215,7 @@ export async function startOpname(
     countedItems: 0,
     varianceItems: 0,
     notes: null,
+    opnameId,
   })
   
   console.log(`[StockOpname] Started with ${snapshots.length} snapshots (${filteredItems.length} items + batches)`)
@@ -350,6 +359,7 @@ export async function completeOpname(): Promise<CompleteResult> {
     })),
     notes: session?.notes,
     startedAt: session?.startedAt,
+    opnameId: session?.opnameId, // AUDIT-2-006: idempotency key
   }
   
   // Send to server

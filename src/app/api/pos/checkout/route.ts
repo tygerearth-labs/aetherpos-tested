@@ -56,6 +56,51 @@ export async function POST(request: NextRequest) {
 
     const checkoutItems: CheckoutItem[] = items
 
+    // AUDIT-1-002 FIX: Reject non-positive qty (fraud / stock inflation).
+    // Previously `qty=-5` was accepted → `UPDATE Product SET stock = stock - (-5)
+    // WHERE stock >= -5` succeeded (the WHERE is always true for negative qty) →
+    // stock INCREASED. Verified by audit: stock 48→53, transaction qty=-5.
+    for (const item of checkoutItems) {
+      if (!Number.isFinite(item.qty) || item.qty <= 0) {
+        return safeJsonError(`Jumlah qty tidak valid untuk ${item.productName}. Qty harus lebih besar dari 0.`, 400)
+      }
+      if (!Number.isFinite(item.price) || item.price < 0) {
+        return safeJsonError(`Harga tidak valid untuk ${item.productName}.`, 400)
+      }
+      if (!Number.isFinite(item.subtotal) || item.subtotal < 0) {
+        return safeJsonError(`Subtotal tidak valid untuk ${item.productName}.`, 400)
+      }
+    }
+
+    // AUDIT-1-003 FIX: Server-side recompute of subtotal & total (anti-fraud).
+    // Previously the server trusted client-supplied subtotal/total verbatim.
+    // Verified by audit: sent total=1000 for items summing to 18000 → recorded
+    // total=1000 (undercharging). Now we recompute from items and reject if the
+    // client values diverge by more than Rp 1 (rounding tolerance).
+    //
+    // Formula mirrors the client (pos-page.tsx handleCheckout):
+    //   subtotal = Σ(item.price * item.qty)
+    //   discount = manualDiscount + pointsDiscount + promoDiscount  (already
+    //              includes the points-cash-value, so we do NOT subtract
+    //              pointsUsed*100 again here)
+    //   total    = subtotal - discount + taxAmount
+    const computedSubtotal = checkoutItems.reduce((sum, it) => sum + (it.price * it.qty), 0)
+    const computedTotal = computedSubtotal - (discount || 0) + (taxAmount || 0)
+    if (Math.abs((subtotal || 0) - computedSubtotal) > 1) {
+      return safeJsonError(
+        `Subtotal tidak sesuai. Server: Rp ${computedSubtotal.toLocaleString('id-ID')}, ` +
+        `Klien: Rp ${(subtotal || 0).toLocaleString('id-ID')}. Transaksi ditolak.`,
+        400
+      )
+    }
+    if (Math.abs((total || 0) - computedTotal) > 1) {
+      return safeJsonError(
+        `Total tidak sesuai. Server: Rp ${computedTotal.toLocaleString('id-ID')}, ` +
+        `Klien: Rp ${(total || 0).toLocaleString('id-ID')}. Transaksi ditolak.`,
+        400
+      )
+    }
+
     // K4: Monthly transaction limit check
     const outlet = await db.outlet.findUnique({
       where: { id: outletId },

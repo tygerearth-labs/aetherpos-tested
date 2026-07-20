@@ -365,6 +365,25 @@ export async function POST(request: NextRequest) {
           ? product.variants.reduce((s, v) => s + v.stock, 0)
           : product.stock
 
+        // AUDIT-2-001/002 FIX: Reject variant-product transfers at create time.
+        // The transfer UI captures only an aggregate `item.quantity` and snapshots
+        // each variant's FULL current stock. The IN_TRANSIT/RECEIVE code then
+        // deducted/restocked the snapshot stock (not item.quantity) per variant,
+        // breaking `parent.stock == sum(variants)` at BOTH source and destination.
+        // Verified by audit: source Small 50→0, Large 30→0, parent 80→77 (drift 77).
+        // The correct fix requires per-variant qty input in the UI (a larger
+        // effort). Until then, REJECT with a clear error so no new corrupted
+        // transfers are created. Non-variant products and INVENTORY items are
+        // unaffected.
+        if (product.hasVariants && product.variants.length > 0) {
+          return safeJsonError(
+            `Transfer produk dengan varian belum didukung. ` +
+            `Produk "${product.name}" memiliki ${product.variants.length} varian. ` +
+            `Silakan transfer produk tanpa varian, atau ubah produk menjadi non-varian terlebih dahulu.`,
+            400
+          )
+        }
+
         // Compute real hpp (average from variants if needed)
         const realHpp = product.hasVariants && product.variants.length > 0
           ? Math.round(product.variants.reduce((s, v) => s + v.hpp, 0) / product.variants.length)

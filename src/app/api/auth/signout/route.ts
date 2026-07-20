@@ -1,4 +1,6 @@
 import { NextResponse } from 'next/server'
+import { getAuthUser } from '@/lib/api/get-auth'
+import { safeAuditLog } from '@/lib/safe-audit'
 
 /**
  * POST /api/auth/signout — Sign out the current user
@@ -8,6 +10,28 @@ import { NextResponse } from 'next/server'
  * and return a JSON response telling the client to redirect.
  */
 export async function POST(request: Request) {
+  // AUDIT-3-001 FIX: Log logout BEFORE clearing cookies (we need the session
+  // to resolve the user). Uses safeAuditLog so an audit failure never blocks
+  // logout.
+  try {
+    const user = await getAuthUser(request)
+    if (user) {
+      await safeAuditLog({
+        action: 'LOGOUT',
+        entityType: 'USER',
+        entityId: user.id,
+        details: JSON.stringify({
+          email: user.email,
+          userName: user.name,
+          role: user.role,
+          timestamp: new Date().toISOString(),
+        }),
+        outletId: user.outletId,
+        userId: user.id,
+      })
+    }
+  } catch { /* best-effort — logout must proceed even if audit fails */ }
+
   const response = NextResponse.json({ url: '/' }, { status: 200 })
 
   // Clear all next-auth related cookies

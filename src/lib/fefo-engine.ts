@@ -144,7 +144,27 @@ export class FEFOEngine {
 
     // 1. Fetch AVAILABLE batches sorted by FEFO: expiredDate ASC, null last
     //    BAT-008: Also filter out expired dates directly as a safety net
-    const batches: AvailableBatch[] = await tx.$queryRaw`
+    //
+    // FEFO-SHAPE-FIX: $queryRaw returns FLAT columns (itemName, baseUnit) because
+    // SQL aliases cannot produce nested objects. The AvailableBatch interface,
+    // however, declares `inventoryItem: { name, baseUnit }` (nested) so that the
+    // SAME type can be shared with Prisma `include` callers (which DO return nested).
+    // We therefore map the flat raw rows into the nested shape right after the query.
+    // Previously the code read `batches[0].inventoryItem.name` directly on the flat
+    // result → `inventoryItem` was undefined → "Cannot read properties of undefined
+    // (reading 'name')" → FATAL throw → entire checkout/sync rolled back.
+    const rawBatches: Array<{
+      id: string
+      batchNumber: string
+      inventoryItemId: string
+      initialQty: number
+      remainingQty: number
+      unitCost: number
+      expiredDate: Date | null
+      status: string
+      itemName: string
+      baseUnit: string
+    }> = await tx.$queryRaw`
       SELECT
         ib.id, ib."batchNumber", ib."inventoryItemId", ib."initialQty",
         ib."remainingQty", ib."unitCost", ib."expiredDate", ib.status,
@@ -161,6 +181,17 @@ export class FEFOEngine {
         ib."expiredDate" ASC,
         ib."createdAt" ASC
     `
+    const batches: AvailableBatch[] = rawBatches.map(b => ({
+      id: b.id,
+      batchNumber: b.batchNumber,
+      inventoryItemId: b.inventoryItemId,
+      initialQty: b.initialQty,
+      remainingQty: b.remainingQty,
+      unitCost: b.unitCost,
+      expiredDate: b.expiredDate,
+      status: b.status,
+      inventoryItem: { name: b.itemName, baseUnit: b.baseUnit },
+    }))
 
     if (batches.length === 0) {
       // No batches available — fall through (let the caller handle plain stock deduction)
@@ -504,7 +535,22 @@ export class FEFOEngine {
 
     // 1. Fetch AVAILABLE batches sorted by FEFO: expiredDate ASC, null last
     //    BAT-008: Filter out expired dates as safety net
-    const batches: AvailableBatch[] = await tx.$queryRaw`
+    //
+    // FEFO-SHAPE-FIX: see consumeBatch() above for full explanation.
+    // $queryRaw returns flat columns; AvailableBatch interface expects nested
+    // `inventoryItem`. Map flat→nested to prevent `undefined.name` crash.
+    const rawBatches: Array<{
+      id: string
+      batchNumber: string
+      inventoryItemId: string
+      initialQty: number
+      remainingQty: number
+      unitCost: number
+      expiredDate: Date | null
+      status: string
+      itemName: string
+      baseUnit: string
+    }> = await tx.$queryRaw`
       SELECT
         ib.id, ib."batchNumber", ib."inventoryItemId", ib."initialQty",
         ib."remainingQty", ib."unitCost", ib."expiredDate", ib.status,
@@ -521,6 +567,17 @@ export class FEFOEngine {
         ib."expiredDate" ASC,
         ib."createdAt" ASC
     `
+    const batches: AvailableBatch[] = rawBatches.map(b => ({
+      id: b.id,
+      batchNumber: b.batchNumber,
+      inventoryItemId: b.inventoryItemId,
+      initialQty: b.initialQty,
+      remainingQty: b.remainingQty,
+      unitCost: b.unitCost,
+      expiredDate: b.expiredDate,
+      status: b.status,
+      inventoryItem: { name: b.itemName, baseUnit: b.baseUnit },
+    }))
 
     if (batches.length === 0) {
       // No batch tracking for this item — that's fine
@@ -871,6 +928,23 @@ export class FEFOEngine {
   ): Promise<number> {
     const now = new Date()
 
+    // AUDIT-1-010 FIX: Before marking batches EXPIRED, fetch their remainingQty
+    // per inventoryItem so we can ALSO decrement InventoryItem.stock. Previously
+    // this method only flipped the batch status AVAILABLE→EXPIRED, leaving
+    // InventoryItem.stock unchanged → `stock != SUM(AVAILABLE batches.remainingQty)`
+    // drift. Verified by audit: Anti Septic Solution had stock=1000 but only 1
+    // EXPIRED batch (remaining=1000) → stock said 1000 available but no AVAILABLE
+    // batch existed to consume from.
+    const expiringBatches = await tx.inventoryBatch.findMany({
+      where: {
+        outletId,
+        status: 'AVAILABLE',
+        expiredDate: { lt: now },
+        remainingQty: { gt: 0 },
+      },
+      select: { id: true, inventoryItemId: true, remainingQty: true, batchNumber: true },
+    })
+
     const result = await tx.inventoryBatch.updateMany({
       where: {
         outletId,
@@ -886,6 +960,39 @@ export class FEFOEngine {
 
     if (result.count > 0) {
       console.log(`[FEFO] Marked ${result.count} batch(es) as EXPIRED for outlet ${outletId}`)
+
+      // AUDIT-1-010: Decrement InventoryItem.stock by the expired remainingQty
+      // so the invariant `stock == SUM(AVAILABLE batches.remainingQty)` holds.
+      // Group by inventoryItemId and apply one decrement per item (atomic SQL).
+      const expiryByItem = new Map<string, number>()
+      for (const b of expiringBatches) {
+        expiryByItem.set(b.inventoryItemId, (expiryByItem.get(b.inventoryItemId) || 0) + b.remainingQty)
+      }
+      for (const [itemId, expiredQty] of expiryByItem) {
+        // Decrement stock but never below 0 (defensive — stock should already
+        // be >= expiredQty if the invariant held before).
+        await tx.$executeRaw`
+          UPDATE "InventoryItem" SET stock = MAX(0, stock - ${expiredQty})
+          WHERE id = ${itemId} AND "outletId" = ${outletId}
+        `
+        // Record an inventory movement so the expiry write-off is auditable.
+        try {
+          await tx.inventoryMovement.create({
+            data: {
+              type: 'EXPIRY_WRITEOFF',
+              inventoryItemId: itemId,
+              quantity: -expiredQty,
+              previousStock: 0, // unknown without a pre-read; movement type itself is the signal
+              newStock: 0,
+              referenceType: 'BATCH_EXPIRY',
+              notes: `Write-off batch expired (${expiredQty} units)`,
+              outletId,
+              userId: null, // system-generated; userId is nullable
+            },
+          })
+        } catch { /* movement is best-effort */ }
+      }
+      console.log(`[FEFO] AUDIT-1-010: Decremented stock for ${expiryByItem.size} item(s) due to batch expiry`)
     }
 
     return result.count

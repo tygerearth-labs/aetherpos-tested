@@ -229,7 +229,18 @@ export async function PUT(request: NextRequest) {
     const settingsChanged: Record<string, unknown> = {}
     for (const key of SETTINGS_KEYS) {
       if (body[key] !== undefined) {
-        settingsChanged[key] = body[key]
+        // AUDIT-3-003 FIX: NEVER persist secrets (telegramBotToken) in plaintext
+        // to the audit log. Anyone with DB read access OR the Excel Export button
+        // can recover the raw token otherwise. Mask it to '••••••<last4>' so the
+        // audit trail shows the field was changed without leaking the secret.
+        if (key === 'telegramBotToken' && typeof body[key] === 'string' && body[key].length > 0) {
+          const token = body[key] as string
+          settingsChanged[key] = token.length > 8
+            ? `••••••••${token.slice(-4)}`
+            : '••••••••'
+        } else {
+          settingsChanged[key] = body[key]
+        }
       }
     }
     if (Object.keys(settingsChanged).length > 0) {

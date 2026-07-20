@@ -430,7 +430,21 @@ export async function PUT(
       })
 
       // ── STEP 5.5: Create new InventoryBatch records for FEFO tracking ──
-      // Old batch records were kept as-is (not deleted) — the inventory reversal above handled stock.
+      //
+      // AUDIT-3-002 FIX: Previously the old batch records were LEFT as AVAILABLE
+      // with their full remainingQty, and NEW batches were created on top. This
+      // broke `InventoryItem.stock == SUM(AVAILABLE batches.remainingQty)` and
+      // caused FEFO to consume from phantom old batches. Verified by audit:
+      // editing PO with batch A→B left BOTH batches as AVAILABLE.
+      //
+      // Now we DELETE the old batches first (same as the DELETE handler does).
+      // `deleteBatchesForPurchase` throws if any batch was partially consumed
+      // (remainingQty < initialQty) — this protects consumption-log integrity.
+      // The stock check at STEP 1 already blocks edits when stock < oldBaseQty
+      // (which happens when a sale consumed from the batch), so this is a
+      // belt-and-suspenders guard with a clearer error message.
+      await FEFOEngine.deleteBatchesForPurchase(tx, { purchaseOrderId: id, outletId })
+
       // Create new batch records to reflect the edited items.
       const orderSupplier = await tx.purchaseOrder.findFirst({
         where: { id, outletId },
