@@ -253,6 +253,11 @@ export async function GET(request: NextRequest) {
       return sum + aggStock
     }, 0)
 
+    // FIX-102 (P0): Changed from CACHE.MEDIUM (30s) to CACHE.SHORT (5s).
+    // Products list is mutation-heavy (restock, sale, adjust, bulk update). With 30s cache
+    // + 60s stale-while-revalidate, UI showed stale stock values for up to 90 seconds
+    // after any mutation — causing the "stock jumping" bug reported by users.
+    // 5s is enough for same-page pagination burst; post-mutation refreshes use cache-bust param.
     return safeJson({
       products,
       totalPages: Math.ceil(total / limit),
@@ -263,7 +268,7 @@ export async function GET(request: NextRequest) {
         lowStock: lowStockCount,
         inventoryValue: totalInventoryValue,
       },
-    }, 200, CACHE.MEDIUM)
+    }, 200, CACHE.SHORT)
   } catch (error) {
     console.error('Products GET error:', error)
     return safeJsonError('Failed to load products')

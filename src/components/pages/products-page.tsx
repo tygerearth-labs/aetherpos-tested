@@ -643,13 +643,19 @@ export default function ProductsPage() {
     void fetchCategories()
   }, [fetchCategories])
 
-  const fetchProducts = useCallback(async () => {
+  // FIX-102 (P0): Added optional `bustCache` parameter. When true, appends a timestamp
+  // query parameter to bypass browser HTTP cache. This is critical after stock mutations
+  // (restock, adjust, sale, void) because even with reduced CACHE.SHORT (5s), we need
+  // immediate fresh data — not "fresh within 5 seconds".
+  const fetchProducts = useCallback(async (bustCache = false) => {
     setLoading(true)
     try {
       const params = new URLSearchParams({ page: String(page), limit: '20' })
       if (search) params.set('search', search)
       if (sort !== 'newest') params.set('sort', sort)
       if (activeCategoryId) params.set('categoryId', activeCategoryId)
+      // Cache-busting: unique param forces browser to skip HTTP cache
+      if (bustCache) params.set('_t', Date.now().toString())
       const res = await fetch(`/api/products?${params}`)
       if (res.ok) {
         const data: ProductListResponse = await res.json()
@@ -744,7 +750,7 @@ export default function ProductsPage() {
       const res = await fetch(`/api/products/${deleteId}`, { method: 'DELETE' })
       if (res.ok) {
         toast.success('Produk berhasil dihapus')
-        fetchProducts()
+        fetchProducts(true) // FIX-102: bust cache after product deletion
       } else {
         const data = await res.json().catch(() => ({}))
         toast.error(data.error || 'Gagal menghapus produk')
@@ -775,7 +781,7 @@ export default function ProductsPage() {
         })
         if (res.ok) {
           toast.success(`Restocked ${restockProduct.name} (${variantData.length} varian)`)
-          fetchProducts()
+          fetchProducts(true) // FIX-102: bust cache after stock mutation
           if (detailOpen && detailProduct?.id === restockProduct.id) {
             fetchDetail(restockProduct, detailPage)
           }
@@ -803,7 +809,7 @@ export default function ProductsPage() {
         })
         if (res.ok) {
           toast.success(`Restocked ${restockProduct.name} +${restockQty}`)
-          fetchProducts()
+          fetchProducts(true) // FIX-102: bust cache after stock mutation
           if (detailOpen && detailProduct?.id === restockProduct.id) {
             fetchDetail({ ...restockProduct, stock: restockProduct.stock + Number(restockQty) }, detailPage)
           }
@@ -845,7 +851,7 @@ export default function ProductsPage() {
         })
         if (res.ok) {
           toast.success(`Stok varian disesuaikan`)
-          fetchProducts()
+          fetchProducts(true) // FIX-102: bust cache after stock mutation
           if (detailOpen && detailProduct?.id === adjustProduct.id) {
             fetchDetail(detailProduct, detailPage)
           }
@@ -879,7 +885,7 @@ export default function ProductsPage() {
           const diff = newStock - oldStock
           const diffStr = diff >= 0 ? `+${diff}` : `${diff}`
           toast.success(`Stok disesuaikan: ${oldStock} → ${newStock} (${diffStr})`)
-          fetchProducts()
+          fetchProducts(true) // FIX-102: bust cache after stock mutation
           if (detailOpen && detailProduct?.id === adjustProduct.id) {
             fetchDetail({ ...adjustProduct, stock: newStock }, detailPage)
           }
@@ -1058,10 +1064,10 @@ export default function ProductsPage() {
     }
   }
 
-  // Force refresh helper - increments refreshKey and fetches products
+  // Force refresh helper - increments refreshKey and fetches products with cache-bust
   const forceRefresh = useCallback(async () => {
     setRefreshKey((prev) => prev + 1)
-    await fetchProducts()
+    await fetchProducts(true) // FIX-102: bust cache to get fresh post-mutation data
   }, [fetchProducts])
 
   // Select all products across all pages (for current filter)
@@ -1323,7 +1329,7 @@ export default function ProductsPage() {
           setActiveCategoryId(null)
         }
         fetchCategories()
-        fetchProducts()
+        fetchProducts(true) // FIX-102: bust cache after category delete (filter changed)
       } else {
         const data = await res.json().catch(() => ({}))
         toast.error(data.error || 'Gagal menghapus kategori')
@@ -1375,7 +1381,7 @@ export default function ProductsPage() {
       setBulkCatDeleteOpen(false)
       if (selectedCatIds.has(activeCategoryId || '')) setActiveCategoryId(null)
       void fetchCategories()
-      void fetchProducts()
+      void fetchProducts(true) // FIX-102: bust cache after bulk category delete
     } catch {
       toast.error('Gagal menghapus beberapa kategori')
     } finally {
@@ -2575,7 +2581,7 @@ export default function ProductsPage() {
         onOpenChange={setFormOpen}
         product={editProduct}
         onSaved={() => {
-          fetchProducts()
+          fetchProducts(true) // FIX-102: bust cache after create/edit product
           fetchCategories()
           // Refresh detail sheet if open for the same product
           if (detailOpen && detailProduct) {
