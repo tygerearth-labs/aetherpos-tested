@@ -122,6 +122,7 @@ import {
   Check,
   Palette,
   FolderOpen,
+  Settings2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import SupplierSearchInput from '@/components/purchase/supplier-search-input'
@@ -662,7 +663,8 @@ export default function PurchasePage() {
   const [poCreateLoading, setPoCreateLoading] = useState(false)
   const [poCreateNotes, setPoCreateNotes] = useState('')
   const [poCreateItems, setPoCreateItems] = useState<PurchaseOrderItem[]>([
-    { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0', batch: '', expiredDate: '' },
+    // UX-SIMPLIFY: baseQty defaults to '1' (retail mode: 1 beli = 1 dasar)
+    { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '1', pricePerItem: '0', batch: '', expiredDate: '' },
   ])
 
   // Item picker for purchase dialog (pre-loaded)
@@ -746,7 +748,7 @@ export default function PurchasePage() {
   const [poEditLoading, setPoEditLoading] = useState(false)
   const [poEditNotes, setPoEditNotes] = useState('')
   const [poEditItems, setPoEditItems] = useState<PurchaseOrderItem[]>([
-    { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0', batch: '', expiredDate: '' },
+    { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '1', pricePerItem: '0', batch: '', expiredDate: '' },
   ])
 
   // ══════════════════════════════════════════════════════════
@@ -1161,7 +1163,7 @@ export default function PurchasePage() {
   const handleAddPoEditItem = () => {
     setPoEditItems(prev => [
       ...prev,
-      { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0', batch: '', expiredDate: '' },
+      { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '1', pricePerItem: '0', batch: '', expiredDate: '' },
     ])
   }
 
@@ -1379,7 +1381,7 @@ export default function PurchasePage() {
   const resetPoCreateForm = () => {
     setPoCreateNotes('')
     setPoCreateSupplierId('')
-    setPoCreateItems([{ inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0', batch: '', expiredDate: '' }])
+    setPoCreateItems([{ inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '1', pricePerItem: '0', batch: '', expiredDate: '' }])
     setShowItemPicker(false)
     setActiveItemSearchIdx(null)
     setItemPickerFilter('')
@@ -1660,7 +1662,8 @@ export default function PurchasePage() {
   const handleAddPoItem = () => {
     setPoCreateItems(prev => [
       ...prev,
-      { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0', batch: '', expiredDate: '' },
+      // UX-SIMPLIFY: baseQty defaults to '1' (retail mode: 1 beli = 1 dasar)
+      { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '1', pricePerItem: '0', batch: '', expiredDate: '' },
     ])
   }
 
@@ -1678,7 +1681,18 @@ export default function PurchasePage() {
   const handleSelectInvItem = (idx: number, item: InventoryItemOption) => {
     setPoCreateItems(prev => prev.map((it, i) =>
       i === idx
-        ? { ...it, inventoryItemId: item.id, inventoryItemName: item.name, inventoryItemSku: item.sku, baseUnit: item.baseUnit }
+        ? {
+            ...it,
+            inventoryItemId: item.id,
+            inventoryItemName: item.name,
+            inventoryItemSku: item.sku,
+            baseUnit: item.baseUnit,
+            // UX-SIMPLIFY: Auto-fill retail defaults
+            // Default: 1 unit beli = 1 unit dasar (retail mode)
+            // User can change in "Opsi Lanjutan" if buying in bulk (e.g., 1 sak = 25 kg)
+            unit: it.unit || item.baseUnit,  // Satuan beli defaults to base unit
+            baseQty: it.baseQty && it.baseQty !== '0' ? it.baseQty : '1',  // Default isi = 1
+          }
         : it
     ))
     setShowItemPicker(false)
@@ -1703,18 +1717,13 @@ export default function PurchasePage() {
       toast.error('Nama item wajib diisi')
       return
     }
-    if (!quickItemSku.trim()) {
-      toast.error('SKU wajib diisi untuk item baru')
-      return
-    }
-    if (!quickItemUnit) {
-      toast.error('Pilih satuan (base unit) untuk item baru')
-      return
-    }
+    // Auto-generate SKU if not provided
+    const finalSku = quickItemSku.trim() || `SKU-${quickItemName.trim().replace(/\s+/g, '-').toUpperCase().slice(0, 12)}-${Date.now().toString(36).toUpperCase()}`
+    const finalUnit = quickItemUnit || 'pcs'
     // Check duplicate SKU
-    const duplicateSku = poItemOptions.find(i => i.sku && i.sku.toLowerCase() === quickItemSku.trim().toLowerCase())
+    const duplicateSku = poItemOptions.find(i => i.sku && i.sku.toLowerCase() === finalSku.toLowerCase())
     if (duplicateSku) {
-      toast.error(`SKU "${quickItemSku.trim()}" sudah digunakan oleh "${duplicateSku.name}"`)
+      toast.error(`SKU "${finalSku}" sudah digunakan oleh "${duplicateSku.name}"`)
       return
     }
     pendingCounterRef.current++
@@ -1722,8 +1731,8 @@ export default function PurchasePage() {
     const newItem: InventoryItemOption = {
       id: tempId,
       name: quickItemName.trim(),
-      sku: quickItemSku.trim(),
-      baseUnit: quickItemUnit,
+      sku: finalSku,
+      baseUnit: finalUnit,
       stock: 0,
       active: true,
       _isNew: true,
@@ -1744,7 +1753,7 @@ export default function PurchasePage() {
       if (nextEmpty >= 0) {
         setQuickAddTargetIdx(nextEmpty)
       } else {
-        setPoCreateItems(prev => [...prev, { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0', batch: '', expiredDate: '' }])
+        setPoCreateItems(prev => [...prev, { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '1', pricePerItem: '0', batch: '', expiredDate: '' }])
         setQuickAddTargetIdx(poCreateItems.length)
       }
       toast.success(`Item "${newItem.name}" ditambahkan — lanjut ${remaining.length} item lagi`)
@@ -1815,7 +1824,7 @@ export default function PurchasePage() {
         if (emptyIdx >= 0) {
           handleSelectInvItem(emptyIdx, skuMatch)
         } else {
-          setPoCreateItems(prev => [...prev, { inventoryItemId: skuMatch.id, inventoryItemName: skuMatch.name, inventoryItemSku: skuMatch.sku, baseUnit: skuMatch.baseUnit, qty: '1', unit: '', baseQty: '0', pricePerItem: '0', batch: '', expiredDate: '' }])
+          setPoCreateItems(prev => [...prev, { inventoryItemId: skuMatch.id, inventoryItemName: skuMatch.name, inventoryItemSku: skuMatch.sku, baseUnit: skuMatch.baseUnit, qty: '1', unit: skuMatch.baseUnit, baseQty: '1', pricePerItem: '0', batch: '', expiredDate: '' }])
         }
         toast.success(`${skuMatch.name} ditambahkan (scan)`)
       }
@@ -1866,7 +1875,7 @@ export default function PurchasePage() {
           if (emptyIdx >= 0) {
             handleSelectInvItem(emptyIdx, skuMatch)
           } else {
-            setPoCreateItems(prev => [...prev, { inventoryItemId: skuMatch.id, inventoryItemName: skuMatch.name, inventoryItemSku: skuMatch.sku, baseUnit: skuMatch.baseUnit, qty: '1', unit: '', baseQty: '0', pricePerItem: '0', batch: '', expiredDate: '' }])
+            setPoCreateItems(prev => [...prev, { inventoryItemId: skuMatch.id, inventoryItemName: skuMatch.name, inventoryItemSku: skuMatch.sku, baseUnit: skuMatch.baseUnit, qty: '1', unit: skuMatch.baseUnit, baseQty: '1', pricePerItem: '0', batch: '', expiredDate: '' }])
           }
         }
         setSmartInput('')
@@ -1886,7 +1895,7 @@ export default function PurchasePage() {
           if (emptyIdx >= 0) {
             handleSelectInvItem(emptyIdx, nameMatch)
           } else {
-            setPoCreateItems(prev => [...prev, { inventoryItemId: nameMatch.id, inventoryItemName: nameMatch.name, inventoryItemSku: nameMatch.sku, baseUnit: nameMatch.baseUnit, qty: '1', unit: '', baseQty: '0', pricePerItem: '0', batch: '', expiredDate: '' }])
+            setPoCreateItems(prev => [...prev, { inventoryItemId: nameMatch.id, inventoryItemName: nameMatch.name, inventoryItemSku: nameMatch.sku, baseUnit: nameMatch.baseUnit, qty: '1', unit: nameMatch.baseUnit, baseQty: '1', pricePerItem: '0', batch: '', expiredDate: '' }])
           }
         }
         setSmartInput('')
@@ -1899,7 +1908,7 @@ export default function PurchasePage() {
       const emptyIdx = poCreateItems.findIndex(i => !i.inventoryItemId)
       const targetIdx = emptyIdx >= 0 ? emptyIdx : poCreateItems.length
       if (emptyIdx < 0) {
-        setPoCreateItems(prev => [...prev, { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0', batch: '', expiredDate: '' }])
+        setPoCreateItems(prev => [...prev, { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '1', pricePerItem: '0', batch: '', expiredDate: '' }])
       }
       setQuickAddTargetIdx(targetIdx)
       setQuickAddQueue([names[0]])
@@ -1925,7 +1934,7 @@ export default function PurchasePage() {
       const matched = poItemOptions.find(i => i.sku && i.sku.toLowerCase() === query)
         || poItemOptions.find(i => i.name.toLowerCase() === query)
       if (matched) {
-        matchedItems.push({ inventoryItemId: matched.id, inventoryItemName: matched.name, inventoryItemSku: matched.sku, baseUnit: matched.baseUnit, qty: '1', unit: '', baseQty: '0', pricePerItem: '0', batch: '', expiredDate: '' })
+        matchedItems.push({ inventoryItemId: matched.id, inventoryItemName: matched.name, inventoryItemSku: matched.sku, baseUnit: matched.baseUnit, qty: '1', unit: matched.baseUnit, baseQty: '1', pricePerItem: '0', batch: '', expiredDate: '' })
       } else {
         unmatchedNames.push(name)
       }
@@ -1954,7 +1963,7 @@ export default function PurchasePage() {
       const targetIdx = poCreateItems.findIndex(i => !i.inventoryItemId)
       const actualTarget = targetIdx >= 0 ? targetIdx : poCreateItems.length
       if (targetIdx < 0) {
-        setPoCreateItems(prev => [...prev, { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0', batch: '', expiredDate: '' }])
+        setPoCreateItems(prev => [...prev, { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '1', pricePerItem: '0', batch: '', expiredDate: '' }])
       }
       setQuickAddTargetIdx(actualTarget)
       setQuickAddQueue(unmatchedNames)
@@ -2987,23 +2996,30 @@ export default function PurchasePage() {
     const items = invList.filter(i => selectedInvIds.has(i.id))
     let created = 0
     let failed = 0
+    const failedItems: string[] = []
 
     for (const item of items) {
       const price = retailUseBulkPrice
         ? (parseFloat(retailBulkPrice) || 0)
         : (parseFloat(retailPrices[item.id]) || 0)
-      if (price <= 0) { failed++; continue }
+      if (price <= 0) {
+        failed++
+        failedItems.push(`${item.name}: harga belum diisi`)
+        continue
+      }
 
       const compQty = parseFloat(retailQtyPerProduct[item.id]) || 1
-      const hpp = compQty * item.avgCost
+      const hpp = compQty * (item.avgCost || 0)
       const maxStock = compQty > 0 ? Math.floor(item.stock / compQty) : 0
 
       try {
-        const res = await fetch('/api/products', {
+        // Try with original name first, auto-suffix on collision
+        let productName = item.name
+        let res = await fetch('/api/products', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            name: item.name,
+            name: productName,
             price,
             hpp,
             stock: maxStock,
@@ -3012,11 +3028,42 @@ export default function PurchasePage() {
             hasComposition: true,
           }),
         })
-        if (!res.ok) { failed++; continue }
+
+        // If name collision, auto-suffix and retry
+        if (res.status === 400) {
+          const data = await res.json()
+          if (data.error?.includes('already exists')) {
+            productName = `${item.name} (Ritel)`
+            res = await fetch('/api/products', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                name: productName,
+                price,
+                hpp,
+                stock: maxStock,
+                unit: item.baseUnit,
+                categoryId: retailCategory || undefined,
+                hasComposition: true,
+              }),
+            })
+          } else {
+            failed++
+            failedItems.push(`${item.name}: ${data.error}`)
+            continue
+          }
+        }
+
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({ error: 'Unknown error' }))
+          failed++
+          failedItems.push(`${item.name}: ${data.error || 'Gagal membuat produk'}`)
+          continue
+        }
         const product = await res.json()
 
         // Set 1:1 composition
-        await fetch(`/api/products/${product.id}/composition`, {
+        const compRes = await fetch(`/api/products/${product.id}/composition`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -3024,19 +3071,26 @@ export default function PurchasePage() {
             compositions: [{ inventoryItemId: item.id, qty: compQty, baseUnit: item.baseUnit }],
           }),
         })
+        if (!compRes.ok) {
+          console.warn(`[Retail] Composition failed for ${productName}, but product was created`)
+        }
         created++
-      } catch {
+      } catch (err) {
         failed++
+        failedItems.push(`${item.name}: Network error`)
       }
     }
 
     if (created > 0) {
-      toast.success(`${created} produk berhasil dibuat dari ${items.length} item${failed > 0 ? ` (${failed} gagal)` : ''}`)
+      const msg = failed > 0
+        ? `${created} produk berhasil, ${failed} gagal (${failedItems.slice(0, 3).join(', ')}${failedItems.length > 3 ? '...' : ''})`
+        : `${created} produk berhasil dibuat`
+      toast.success(msg)
       setPostProductOpen(false)
       resetPostProductForm()
       void fetchInventoryItems()
     } else {
-      toast.error(`Gagal membuat semua produk (${failed} gagal)`)
+      toast.error(`Gagal membuat semua produk: ${failedItems.slice(0, 3).join(', ')}`)
     }
     setRetailSubmitting(false)
   }
@@ -5136,7 +5190,7 @@ export default function PurchasePage() {
                       </span>
                     </div>
                   )}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     {/* Nama item */}
                     <div className="space-y-1">
                       <label className="text-[10px] text-slate-400 font-medium">Nama Barang <span className="text-amber-400">*</span></label>
@@ -5149,20 +5203,9 @@ export default function PurchasePage() {
                         className="w-full bg-white/[0.04] border border-white/[0.08] text-white text-xs h-8 rounded-lg px-2.5 outline-none focus:border-emerald-500/40 placeholder:text-slate-500"
                       />
                     </div>
-                    {/* SKU */}
-                    <div className="space-y-1">
-                      <label className="text-[10px] text-slate-400 font-medium">SKU (Kode Unik) <span className="text-amber-400">*</span></label>
-                      <input
-                        value={quickItemSku}
-                        onChange={(e) => setQuickItemSku(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === 'Enter') handleQuickAddItem(quickAddTargetIdx) }}
-                        placeholder="cth: TP-SGB-001"
-                        className="w-full bg-white/[0.04] border border-white/[0.08] text-white text-xs h-8 rounded-lg px-2.5 outline-none focus:border-emerald-500/40 placeholder:text-slate-500 font-mono"
-                      />
-                    </div>
                     {/* Satuan (Base Unit) */}
                     <div className="space-y-1">
-                      <label className="text-[10px] text-slate-400 font-medium">Satuan Dasar <span className="text-amber-400">*</span></label>
+                      <label className="text-[10px] text-slate-400 font-medium">Satuan Dasar <span className="text-slate-500 font-normal">(default: pcs)</span></label>
                       <Select value={quickItemUnit} onValueChange={setQuickItemUnit}>
                         <SelectTrigger className="h-8 text-xs bg-white/[0.04] border-white/[0.08] text-white rounded-lg px-2.5">
                           <SelectValue placeholder="Pilih satuan..." />
@@ -5178,7 +5221,7 @@ export default function PurchasePage() {
                   <button
                     className="w-full h-8 rounded-lg bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
                     onClick={() => handleQuickAddItem(quickAddTargetIdx)}
-                    disabled={!quickItemName.trim() || !quickItemSku.trim() || !quickItemUnit}
+                    disabled={!quickItemName.trim()}
                   >
                     <CheckCircle2 className="h-3 w-3" />
                     {quickAddQueue.length > 1 ? 'Daftarkan & Lanjut ke Berikutnya' : 'Daftarkan & Tambahkan ke Pembelian'}
@@ -5198,7 +5241,7 @@ export default function PurchasePage() {
                           if (nextEmpty >= 0) {
                             setQuickAddTargetIdx(nextEmpty)
                           } else {
-                            setPoCreateItems(prev => [...prev, { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '0', pricePerItem: '0', batch: '', expiredDate: '' }])
+                            setPoCreateItems(prev => [...prev, { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '1', pricePerItem: '0', batch: '', expiredDate: '' }])
                             setQuickAddTargetIdx(poCreateItems.length)
                           }
                         } else {
@@ -5288,28 +5331,15 @@ export default function PurchasePage() {
                       )}
                     </div>
 
-                    {/* Compact fields: 2-column layout with better labels */}
+                    {/* Compact fields: simplified essential + expandable advanced */}
                     {item.inventoryItemId && (
                       <div className="space-y-2 pl-0.5">
+                        {/* ── ESSENTIAL: Qty + Price (always visible) ── */}
                         <div className="grid grid-cols-2 gap-2">
-                          {/* Satuan Beli */}
-                          <div className="space-y-1">
-                            <label className="text-[10px] text-slate-400 font-medium">
-                              Satuan Beli
-                              <span className="text-slate-600 font-normal ml-1">(cth: sak, karung, dus)</span>
-                            </label>
-                            <Input
-                              value={item.unit}
-                              onChange={(e) => handleUpdatePoItem(idx, 'unit', e.target.value)}
-                              className={inputClass}
-                              placeholder="cth: sak"
-                            />
-                          </div>
-                          {/* Jumlah */}
+                          {/* Jumlah Beli */}
                           <div className="space-y-1">
                             <label className="text-[10px] text-slate-400 font-medium">
                               Jumlah Beli
-                              <span className="text-slate-600 font-normal ml-1">(berapa {item.unit || 'satuan'})</span>
                             </label>
                             <Input
                               type="number"
@@ -5319,32 +5349,13 @@ export default function PurchasePage() {
                               onChange={(e) => handleUpdatePoItem(idx, 'qty', e.target.value)}
                               className={cn(inputClass, 'text-center')}
                               placeholder="1"
+                              autoFocus
                             />
                           </div>
-                          {/* Isi per 1 Satuan Beli */}
-                          <div className="space-y-1">
-                            <label className="text-[10px] text-slate-400 font-medium">
-                              Isi dalam 1 {item.unit || 'satuan beli'}
-                              <span className="text-slate-600 font-normal ml-1">(dalam {item.baseUnit || 'satuan dasar'})</span>
-                            </label>
-                            <div className="relative">
-                              <Input
-                                type="number"
-                                min="0"
-                                step="any"
-                                value={item.baseQty}
-                                onChange={(e) => handleUpdatePoItem(idx, 'baseQty', e.target.value)}
-                                className={cn(inputClass, 'pr-10 text-center')}
-                                placeholder="1"
-                              />
-                              <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-500 pointer-events-none">{item.baseUnit || 'kg'}</span>
-                            </div>
-                          </div>
-                          {/* Harga per Satuan Beli */}
+                          {/* Harga Total / per Satuan */}
                           <div className="space-y-1">
                             <label className="text-[10px] text-slate-400 font-medium">
                               Harga per {item.unit || 'satuan'}
-                              <span className="text-slate-600 font-normal ml-1">(Rp dari supplier)</span>
                             </label>
                             <Input
                               type="number"
@@ -5355,37 +5366,87 @@ export default function PurchasePage() {
                               placeholder="cth: 320000"
                             />
                           </div>
-                          {/* Batch / No. Lot */}
-                          <div className="space-y-1">
-                            <label className="text-[10px] text-slate-400 font-medium">
-                              Batch / No. Lot
-                              <span className="text-slate-600 font-normal ml-1">(opsional)</span>
-                            </label>
-                            <Input
-                              value={item.batch}
-                              onChange={(e) => handleUpdatePoItem(idx, 'batch', e.target.value)}
-                              className={inputClass}
-                              placeholder="cth: B2025-001"
-                            />
-                          </div>
-                          {/* Expired Date */}
-                          <div className="space-y-1">
-                            <label className="text-[10px] text-slate-400 font-medium">
-                              Expired
-                              <span className="text-slate-600 font-normal ml-1">(opsional)</span>
-                            </label>
-                            <Input
-                              type="date"
-                              value={item.expiredDate}
-                              onChange={(e) => handleUpdatePoItem(idx, 'expiredDate', e.target.value)}
-                              className={cn(inputClass, expiredWarnings[idx] ? 'border-red-500/40 text-red-300' : 'text-slate-300')}
-                            />
-                            {expiredWarnings[idx] && (
-                              <p className="text-[10px] text-red-400 flex items-center gap-1 mt-1">
-                                <AlertCircle className="h-3 w-3 shrink-0" />
-                                🔴 Barang sudah kadaluarsa. Tidak bisa disimpan.
-                              </p>
-                            )}
+                        </div>
+
+                        {/* ── Expandable Advanced Options ── */}
+                        <button
+                          type="button"
+                          className="flex items-center gap-1.5 text-[10px] text-slate-500 hover:text-slate-300 transition-colors w-full"
+                          onClick={() => {
+                            const el = document.getElementById(`po-advanced-${idx}`)
+                            if (el) el.classList.toggle('hidden')
+                          }}
+                        >
+                          <Settings2 className="h-3 w-3" />
+                          <span>Opsi Lanjutan (Beli grosir, Batch, Expired)</span>
+                          <ChevronDown className="h-3 w-3 ml-auto" />
+                        </button>
+                        <div id={`po-advanced-${idx}`} className="hidden space-y-2">
+                          <div className="grid grid-cols-2 gap-2">
+                            {/* Satuan Beli */}
+                            <div className="space-y-1">
+                              <label className="text-[10px] text-slate-400 font-medium">
+                                Satuan Beli
+                                <span className="text-slate-600 font-normal ml-1">(cth: sak, karung)</span>
+                              </label>
+                              <Input
+                                value={item.unit}
+                                onChange={(e) => handleUpdatePoItem(idx, 'unit', e.target.value)}
+                                className={inputClass}
+                                placeholder="cth: sak"
+                              />
+                            </div>
+                            {/* Isi per 1 Satuan Beli */}
+                            <div className="space-y-1">
+                              <label className="text-[10px] text-slate-400 font-medium">
+                                Isi dalam 1 {item.unit || 'satuan beli'}
+                                <span className="text-slate-600 font-normal ml-1">({item.baseUnit || 'satuan dasar'})</span>
+                              </label>
+                              <div className="relative">
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  step="any"
+                                  value={item.baseQty}
+                                  onChange={(e) => handleUpdatePoItem(idx, 'baseQty', e.target.value)}
+                                  className={cn(inputClass, 'pr-10 text-center')}
+                                  placeholder="1"
+                                />
+                                <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-500 pointer-events-none">{item.baseUnit || 'kg'}</span>
+                              </div>
+                            </div>
+                            {/* Batch / No. Lot */}
+                            <div className="space-y-1">
+                              <label className="text-[10px] text-slate-400 font-medium">
+                                Batch / No. Lot
+                                <span className="text-slate-600 font-normal ml-1">(opsional)</span>
+                              </label>
+                              <Input
+                                value={item.batch}
+                                onChange={(e) => handleUpdatePoItem(idx, 'batch', e.target.value)}
+                                className={inputClass}
+                                placeholder="cth: B2025-001"
+                              />
+                            </div>
+                            {/* Expired Date */}
+                            <div className="space-y-1">
+                              <label className="text-[10px] text-slate-400 font-medium">
+                                Expired
+                                <span className="text-slate-600 font-normal ml-1">(opsional)</span>
+                              </label>
+                              <Input
+                                type="date"
+                                value={item.expiredDate}
+                                onChange={(e) => handleUpdatePoItem(idx, 'expiredDate', e.target.value)}
+                                className={cn(inputClass, expiredWarnings[idx] ? 'border-red-500/40 text-red-300' : 'text-slate-300')}
+                              />
+                              {expiredWarnings[idx] && (
+                                <p className="text-[10px] text-red-400 flex items-center gap-1 mt-1">
+                                  <AlertCircle className="h-3 w-3 shrink-0" />
+                                  Barang sudah kadaluarsa
+                                </p>
+                              )}
+                            </div>
                           </div>
                         </div>
 

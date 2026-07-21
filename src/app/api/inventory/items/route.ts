@@ -40,11 +40,30 @@ export async function GET(request: NextRequest) {
       orderBy: { name: 'asc' },
       include: {
         category: { select: { id: true, name: true, color: true } },
-        _count: { select: { compositions: true, purchaseItems: true } },
+        _count: { select: { compositions: true, purchaseItems: true, batches: true } },
+        batches: {
+          where: { status: 'AVAILABLE' },
+          select: { remainingQty: true },
+        },
       },
     })
 
-    return safeJson({ items: items.map((i) => ({ ...i, status: i.status })) })
+    return safeJson({
+      items: items.map((i) => {
+        const batchSum = i.batches.reduce((sum, b) => sum + b.remainingQty, 0)
+        const drift = i.stock - batchSum
+        return {
+          ...i,
+          status: i.status,
+          _batchSum: batchSum,
+          _drift: Math.abs(drift) > 0.001 ? drift : 0,
+          _driftStatus: Math.abs(drift) > 0.001
+            ? (drift > 0 ? 'LEGACY_DRIFT' : 'PHANTOM_BATCH')
+            : 'INVARIANT_VALID',
+          batches: undefined, // Don't expose batch details in list
+        }
+      }),
+    })
   } catch (error) {
     console.error('Inventory items GET error:', error)
     return safeJsonError('Failed to load inventory items')
@@ -86,18 +105,68 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-      const item = await db.inventoryItem.create({
-        data: {
-          name: name.trim(),
-          sku: sku?.trim() || null,
-          baseUnit: baseUnit.trim(),
-          stock: stock || 0,
-          avgCost: avgCost || 0,
-          lowStockAlert: lowStockAlert || 0,
-          outletId: user.outletId,
-          categoryId: categoryId || null,
-        },
-      })
+      const item = await db.$transaction(async (tx) => {
+        const created = await tx.inventoryItem.create({
+          data: {
+            name: name.trim(),
+            sku: sku?.trim() || null,
+            baseUnit: baseUnit.trim(),
+            stock: stock || 0,
+            avgCost: avgCost || 0,
+            lowStockAlert: lowStockAlert || 0,
+            outletId: user.outletId,
+            categoryId: categoryId || null,
+          },
+        })
+
+        // INV-RECONCILE-001: Create RECONCILE batch for initial stock
+        // This preserves the core invariant: stock == Σ(AVAILABLE batch.remainingQty)
+        // Without this, any subsequent purchase POST would detect drift and
+        // create a RECONCILE batch anyway — but this proactively prevents the
+        // drift from ever existing, making the item immediately compatible
+        // with FEFO-based consumption from the moment of creation.
+        const initialStock = stock || 0
+        if (initialStock > 0) {
+          await tx.inventoryBatch.create({
+            data: {
+              batchNumber: `RECONCILE-INIT-${created.id.slice(-6)}-${Date.now()}`,
+              inventoryItemId: created.id,
+              initialQty: initialStock,
+              remainingQty: initialStock,
+              unitCost: avgCost || 0,
+              expiredDate: null,
+              purchaseOrderId: null,
+              supplierId: null,
+              supplierName: null,
+              status: 'AVAILABLE',
+              outletId: user.outletId,
+              purchaseOrderItemId: null,
+            },
+          })
+
+          // Create opening balance movement for audit trail
+          await tx.inventoryMovement.create({
+            data: {
+              type: 'PURCHASE',
+              inventoryItemId: created.id,
+              quantity: initialStock,
+              previousStock: 0,
+              newStock: initialStock,
+              referenceType: 'MIGRATION',
+              notes: `Stok awal item: ${name.trim()}`,
+              outletId: user.outletId,
+              userId: user.id,
+            },
+          })
+
+          console.log(
+            `[InventoryItem POST] Created RECONCILE-INIT batch for "${name.trim()}" ` +
+            `stock=${initialStock}, avgCost=${avgCost || 0}`
+          )
+        }
+
+        return created
+      }, { timeout: 15000 })
 
       return safeJsonCreated(item)
     } catch (error: unknown) {
