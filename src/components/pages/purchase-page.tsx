@@ -661,6 +661,8 @@ export default function PurchasePage() {
   // Purchase create dialog
   const [poCreateOpen, setPoCreateOpen] = useState(false)
   const [poCreateLoading, setPoCreateLoading] = useState(false)
+  // Input method selection: 'excel' | 'manual' | null (null = show selection screen)
+  const [inputMethod, setInputMethod] = useState<'excel' | 'manual' | null>(null)
   const [poCreateNotes, setPoCreateNotes] = useState('')
   const [poCreateItems, setPoCreateItems] = useState<PurchaseOrderItem[]>([
     // UX-SIMPLIFY: baseQty defaults to '1' (retail mode: 1 beli = 1 dasar)
@@ -887,6 +889,11 @@ export default function PurchasePage() {
   const [retailUseBulkPrice, setRetailUseBulkPrice] = useState(true)
   const [retailCategory, setRetailCategory] = useState('')
   const [retailSubmitting, setRetailSubmitting] = useState(false)
+
+  // Retail mode: per-item variants support
+  const [retailHasVariants, setRetailHasVariants] = useState(false)
+  const [retailVariants, setRetailVariants] = useState<Record<string, Array<{ name: string; price: string }>>>({})
+  const [retailExpandedVariant, setRetailExpandedVariant] = useState<string | null>(null) // Which item's variant panel is expanded
 
   // ══════════════════════════════════════════════════════════
   // Fetch: Purchase Orders
@@ -1379,6 +1386,7 @@ export default function PurchasePage() {
   }
 
   const resetPoCreateForm = () => {
+    setInputMethod(null)
     setPoCreateNotes('')
     setPoCreateSupplierId('')
     setPoCreateItems([{ inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '1', pricePerItem: '0', batch: '', expiredDate: '' }])
@@ -2893,6 +2901,9 @@ export default function PurchasePage() {
     setRetailUseBulkPrice(true)
     setRetailCategory('')
     setRetailSubmitting(false)
+    setRetailHasVariants(false)
+    setRetailVariants({})
+    setRetailExpandedVariant(null)
   }
 
   const handlePostProductSubmit = async () => {
@@ -2986,12 +2997,28 @@ export default function PurchasePage() {
     }
   }
 
-  // Retail mode submit: each inventory item → 1 product with 1:1 composition
+  // Retail mode submit: each inventory item → 1 product with 1:1 composition (optionally with variants)
   const handleRetailSubmit = async () => {
     if (retailUseBulkPrice && !retailBulkPrice) {
       toast.error('Isi harga jual bulk atau aktifkan harga per item')
       return
     }
+    
+    // Validate variants if enabled
+    if (retailHasVariants) {
+      for (const item of invList.filter(i => selectedInvIds.has(i.id))) {
+        const itemVariants = retailVariants[item.id] || []
+        if (itemVariants.length > 0) {
+          for (const v of itemVariants) {
+            if (!v.name.trim()) {
+              toast.error(`Varian untuk "${item.name}" belum memiliki nama`)
+              return
+            }
+          }
+        }
+      }
+    }
+    
     setRetailSubmitting(true)
     const items = invList.filter(i => selectedInvIds.has(i.id))
     let created = 0
@@ -3011,22 +3038,42 @@ export default function PurchasePage() {
       const compQty = parseFloat(retailQtyPerProduct[item.id]) || 1
       const hpp = compQty * (item.avgCost || 0)
       const maxStock = compQty > 0 ? Math.floor(item.stock / compQty) : 0
+      
+      // Get variants for this item
+      const itemVariants = retailHasVariants ? (retailVariants[item.id] || []) : []
 
       try {
         // Try with original name first, auto-suffix on collision
         let productName = item.name
+        
+        // Build product payload - with or without variants
+        const productPayload: Record<string, unknown> = {
+          name: productName,
+          price,
+          hpp,
+          stock: maxStock,
+          unit: item.baseUnit,
+          categoryId: retailCategory || undefined,
+          hasComposition: true,
+        }
+        
+        // Add variants if enabled and this item has variants
+        if (itemVariants.length > 0) {
+          productPayload.hasVariants = true
+          productPayload.variants = itemVariants.map(v => ({
+            name: v.name,
+            price: parseFloat(v.price) || price,
+            hpp, // Same HPP as parent for 1:1 mode
+            stock: maxStock, // Same stock as parent
+          }))
+          // Parent stock = sum of all variant stocks (or 0 if no variants)
+          productPayload.stock = maxStock
+        }
+        
         let res = await fetch('/api/products', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: productName,
-            price,
-            hpp,
-            stock: maxStock,
-            unit: item.baseUnit,
-            categoryId: retailCategory || undefined,
-            hasComposition: true,
-          }),
+          body: JSON.stringify(productPayload),
         })
 
         // If name collision, auto-suffix and retry
@@ -3034,18 +3081,11 @@ export default function PurchasePage() {
           const data = await res.json()
           if (data.error?.includes('already exists')) {
             productName = `${item.name} (Ritel)`
+            productPayload.name = productName
             res = await fetch('/api/products', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                name: productName,
-                price,
-                hpp,
-                stock: maxStock,
-                unit: item.baseUnit,
-                categoryId: retailCategory || undefined,
-                hasComposition: true,
-              }),
+              body: JSON.stringify(productPayload),
             })
           } else {
             failed++
@@ -3062,17 +3102,34 @@ export default function PurchasePage() {
         }
         const product = await res.json()
 
-        // Set 1:1 composition
-        const compRes = await fetch(`/api/products/${product.id}/composition`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            hasComposition: true,
-            compositions: [{ inventoryItemId: item.id, qty: compQty, baseUnit: item.baseUnit }],
-          }),
-        })
-        if (!compRes.ok) {
-          console.warn(`[Retail] Composition failed for ${productName}, but product was created`)
+        // Set 1:1 composition (for parent product or each variant)
+        if (itemVariants.length > 0 && product.variants) {
+          // Set composition for each variant
+          const variantCompositions: Record<string, Array<{ inventoryItemId: string; qty: number; baseUnit: string }>> = {}
+          for (const variant of product.variants) {
+            variantCompositions[variant.id] = [{ inventoryItemId: item.id, qty: compQty, baseUnit: item.baseUnit }]
+          }
+          await fetch(`/api/products/${product.id}/composition`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              hasComposition: true,
+              variantCompositions,
+            }),
+          })
+        } else {
+          // Standard 1:1 composition without variants
+          const compRes = await fetch(`/api/products/${product.id}/composition`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              hasComposition: true,
+              compositions: [{ inventoryItemId: item.id, qty: compQty, baseUnit: item.baseUnit }],
+            }),
+          })
+          if (!compRes.ok) {
+            console.warn(`[Retail] Composition failed for ${productName}, but product was created`)
+          }
         }
         created++
       } catch (err) {
@@ -4917,251 +4974,157 @@ export default function PurchasePage() {
 
           <div className="space-y-4 mt-1 flex-1 overflow-y-auto">
 
-            {/* ══════════════════════════════════════════════════════ */}
-            {/* STEP-BY-STEP GUIDE (collapsible) — Linear / Stripe Style */}
-            {/* ══════════════════════════════════════════════════════ */}
-            <div className={cn(
-              "rounded-lg border transition-all duration-200",
-              showPurchaseDialogGuide
-                ? "bg-white/[0.03] border-white/[0.08]"
-                : "bg-white/[0.02] border-white/[0.06] hover:border-white/[0.1]"
-            )}>
-              <button
-                type="button"
-                className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-white/[0.01] transition-colors"
-                onClick={() => setShowPurchaseDialogGuide(prev => !prev)}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center justify-center w-6 h-6 rounded-md bg-white/[0.04]">
-                    <Info className="h-3.5 w-3.5 text-slate-400" />
-                  </div>
-                  <span className="text-xs font-medium text-slate-300">Panduan 3 Langkah</span>
+            {/* ══════════════════════════════════════════════════════════ */}
+            {/* STEP 1: METHOD SELECTION (shown when no method selected)   */}
+            {/* ══════════════════════════════════════════════════════════ */}
+            {!inputMethod && (
+              <>
+                <div className="text-center py-2">
+                  <p className="text-sm text-slate-300 font-medium">Pilih Metode Input</p>
+                  <p className="text-[11px] text-slate-500 mt-1">Cara mana yang ingin kamu gunakan untuk mencatat pembelian?</p>
                 </div>
-                <ChevronDown className={cn(
-                  "h-4 w-4 text-slate-500 transition-transform duration-200",
-                  showPurchaseDialogGuide && 'rotate-180 text-slate-300'
-                )} />
-              </button>
 
-              {showPurchaseDialogGuide && (
-                <div className="px-4 pb-4 space-y-0 border-t border-white/[0.04] pt-4">
-                  {/* Step 1 */}
-                  <div className="flex gap-3 py-3">
-                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-white/[0.06] flex items-center justify-center text-[10px] font-medium text-slate-300 mt-px">1</span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-slate-200 mb-1">Cari atau ketik nama barang</p>
-                      <p className="text-[11px] text-slate-400 leading-relaxed">
-                        Ketik nama item di kolom pencarian. Jika barang belum ada, sistem akan otomatis meminta SKU dan satuan — item baru langsung tercatat saat pembelian disimpan.
-                      </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                  {/* ── Manual Input Card ── */}
+                  <button
+                    type="button"
+                    className="group rounded-xl border border-white/[0.08] bg-white/[0.02] p-4 text-left hover:bg-white/[0.04] hover:border-emerald-500/30 transition-all duration-200"
+                    onClick={() => setInputMethod('manual')}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center shrink-0 group-hover:bg-emerald-500/15 transition-colors">
+                        <ScanBarcode className="h-5 w-5 text-emerald-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-slate-200 group-hover:text-emerald-300 transition-colors">Input Manual</p>
+                        <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                          Tambah barang satu per satu. Ketik nama atau scan barcode. Cocok untuk pembelian dengan sedikit item.
+                        </p>
+                        <div className="flex items-center gap-1.5 mt-2.5 text-[10px] text-slate-600">
+                          <CheckCircle2 className="h-3 w-3" />
+                          <span>Cepat untuk 1-10 item</span>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                  <div className="h-px bg-white/[0.04]" />
+                  </button>
 
-                  {/* Step 2 */}
-                  <div className="flex gap-3 py-3">
-                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-white/[0.06] flex items-center justify-center text-[10px] font-medium text-slate-300 mt-px">2</span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-slate-200 mb-1">Isi detail pembelian tiap item</p>
-                      <ul className="text-[11px] text-slate-400 leading-relaxed space-y-1.5 mt-1.5 ml-0.5">
-                        <li className="flex items-start gap-2">
-                          <span className="text-slate-600 shrink-0 mt-0.5">—</span>
-                          <span><span className="text-slate-200 font-medium">Satuan Beli</span> — Cara supplier menjual (cth: sak, karung, dus, ekor)</span>
-                        </li>
-                        <li className="flex items-start gap-2">
-                          <span className="text-slate-600 shrink-0 mt-0.5">—</span>
-                          <span><span className="text-slate-200 font-medium">Jumlah</span> — Berapa satuan beli yang dipesan (cth: 5 sak)</span>
-                        </li>
-                        <li className="flex items-start gap-2">
-                          <span className="text-slate-600 shrink-0 mt-0.5">—</span>
-                          <span><span className="text-slate-200 font-medium">Isi per Satuan</span> — Isi dalam satuan dasar (cth: 1 sak = 25 kg)</span>
-                        </li>
-                        <li className="flex items-start gap-2">
-                          <span className="text-slate-600 shrink-0 mt-0.5">—</span>
-                          <span><span className="text-slate-200 font-medium">Harga per Satuan Beli</span> — Harga dari supplier per satuan beli (cth: Rp320.000/sak)</span>
-                        </li>
-                        <li className="flex items-start gap-2">
-                          <span className="text-slate-600 shrink-0 mt-0.5">—</span>
-                          <span><span className="text-slate-200 font-medium">Batch / No. Lot</span> — Nomor batch dari supplier <span className="text-slate-500">(opsional, otomatis dibuat jika kosong)</span></span>
-                        </li>
-                        <li className="flex items-start gap-2">
-                          <span className="text-slate-600 shrink-0 mt-0.5">—</span>
-                          <span><span className="text-slate-200 font-medium">Tanggal Kadaluarsa</span> — Tanggal expired barang <span className="text-slate-500">(opsional, untuk tracking FEFO)</span></span>
-                        </li>
-                      </ul>
+                  {/* ── Excel/CSV Import Card ── */}
+                  <button
+                    type="button"
+                    className="group rounded-xl border border-white/[0.08] bg-white/[0.02] p-4 text-left hover:bg-white/[0.04] hover:border-blue-500/30 transition-all duration-200"
+                    onClick={() => setInputMethod('excel')}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center shrink-0 group-hover:bg-blue-500/15 transition-colors">
+                        <FileSpreadsheet className="h-5 w-5 text-blue-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-slate-200 group-hover:text-blue-300 transition-colors">Import Excel / CSV</p>
+                        <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                          Upload file Excel atau paste data dari spreadsheet. Ideal untuk pembelian banyak item sekaligus.
+                        </p>
+                        <div className="flex items-center gap-1.5 mt-2.5 text-[10px] text-slate-600">
+                          <CheckCircle2 className="h-3 w-3" />
+                          <span>Cocok untuk 10+ item</span>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                  <div className="h-px bg-white/[0.04]" />
+                  </button>
+                </div>
+              </>
+            )}
 
-                  {/* Step 3 */}
-                  <div className="flex gap-3 py-3">
-                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-white/[0.06] flex items-center justify-center text-[10px] font-medium text-slate-300 mt-px">3</span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-slate-200 mb-1">Klik "Simpan Pembelian"</p>
-                      <p className="text-[11px] text-slate-400 leading-relaxed">
-                        Stok otomatis bertambah di inventory. HPP (Harga Pokok) dihitung rata-rata dari semua pembelian. Item baru otomatis tercatat.
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Example — Stripe-style callout */}
-                  <div className="mt-1 rounded-md bg-white/[0.02] border border-white/[0.06] border-l-2 border-l-amber-500/50 px-3 py-3">
-                    <p className="text-[10px] text-slate-500 uppercase tracking-wide font-medium mb-2">Contoh: Beli Tepung Segitiga</p>
-                    <div className="space-y-1 text-[11px]">
-                      <div className="flex justify-between text-slate-400">
-                        <span>Satuan Beli</span>
-                        <span className="text-slate-200 font-mono">sak</span>
-                      </div>
-                      <div className="flex justify-between text-slate-400">
-                        <span>Jumlah</span>
-                        <span className="text-slate-200 font-mono">10</span>
-                      </div>
-                      <div className="flex justify-between text-slate-400">
-                        <span>Isi per sak</span>
-                        <span className="text-slate-200 font-mono">25 kg</span>
-                      </div>
-                      <div className="flex justify-between text-slate-400">
-                        <span>Harga/sak</span>
-                        <span className="text-slate-200 font-mono">Rp320.000</span>
-                      </div>
-                    </div>
-                    <div className="mt-2 pt-2 border-t border-white/[0.04] text-[11px] text-slate-400 space-y-1">
-                      <div className="flex justify-between">
-                        <span>Subtotal</span>
-                        <span className="text-slate-200 font-medium">Rp3.200.000</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Stok masuk</span>
-                        <span className="text-emerald-400 font-medium">250 kg</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>HPP otomatis</span>
-                        <span className="text-amber-400 font-medium">Rp12.800/kg</span>
-                      </div>
-                    </div>
+            {/* ══════════════════════════════════════════════════════════ */}
+            {/* STEP 2: INPUT FORM (shown after method selection)           */}
+            {/* ══════════════════════════════════════════════════════════ */}
+            {inputMethod && (
+              <>
+                {/* ── Back Button + Method Indicator ── */}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] text-slate-400 hover:text-slate-200 hover:bg-white/[0.06] transition-colors"
+                    onClick={() => setInputMethod(null)}
+                  >
+                    <ArrowLeft className="h-3.5 w-3.5" />
+                    Ganti Metode
+                  </button>
+                  <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/[0.04] text-[11px]">
+                    {inputMethod === 'manual' ? (
+                      <>
+                        <ScanBarcode className="h-3.5 w-3.5 text-emerald-400" />
+                        <span className="text-slate-300">Input Manual</span>
+                      </>
+                    ) : (
+                      <>
+                        <FileSpreadsheet className="h-3.5 w-3.5 text-blue-400" />
+                        <span className="text-slate-300">Import Excel</span>
+                      </>
+                    )}
                   </div>
                 </div>
-              )}
-            </div>
 
-            {/* ══════════════════════════════════════════════════════ */}
-            {/* CATATAN                                                  */}
-            {/* ══════════════════════════════════════════════════════ */}
-            <div className="space-y-1.5">
-              <div className="flex items-center gap-1.5">
-                <FileText className="h-3 w-3 text-slate-500" />
-                <label className="text-[11px] text-slate-300 font-medium">Catatan Pembelian</label>
-                <span className="text-[10px] text-slate-600">(opsional)</span>
-              </div>
-              <Textarea
-                value={poCreateNotes}
-                onChange={(e) => setPoCreateNotes(e.target.value)}
-                placeholder="Cth: Bayar tempo 7 hari, dari PT Bogasari, invoice #INV-001..."
-                className="bg-white/[0.04] border-white/[0.04] text-white text-xs min-h-[40px] rounded-lg resize-none placeholder:text-slate-500"
-              />
-            </div>
+                {/* ══════════════════════════════════════════════════════ */}
+                {/* CATATAN                                                  */}
+                {/* ══════════════════════════════════════════════════════ */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <FileText className="h-3 w-3 text-slate-500" />
+                    <label className="text-[11px] text-slate-300 font-medium">Catatan Pembelian</label>
+                    <span className="text-[10px] text-slate-600">(opsional)</span>
+                  </div>
+                  <Textarea
+                    value={poCreateNotes}
+                    onChange={(e) => setPoCreateNotes(e.target.value)}
+                    placeholder="Cth: Bayar tempo 7 hari, dari PT Bogasari, invoice #INV-001..."
+                    className="bg-white/[0.04] border-white/[0.04] text-white text-xs min-h-[40px] rounded-lg resize-none placeholder:text-slate-500"
+                  />
+                </div>
 
-            {/* ══════════════════════════════════════════════════════ */}
-            {/* SUPPLIER                                                 */}
-            {/* ══════════════════════════════════════════════════════ */}
-            <div className="space-y-1.5">
-              <div className="flex items-center gap-1.5">
-                <Package className="h-3 w-3 text-slate-500" />
-                <label className="text-[11px] text-slate-300 font-medium">Supplier</label>
-                <span className="text-[10px] text-slate-600">(opsional)</span>
-              </div>
-              <SupplierSearchInput
-                value={poCreateSupplierId}
-                onChange={setPoCreateSupplierId}
-                options={supplierOptions}
-                onCreateSupplier={handleCreateSupplierForCreate}
-              />
-            </div>
+                {/* ══════════════════════════════════════════════════════ */}
+                {/* SUPPLIER                                                 */}
+                {/* ══════════════════════════════════════════════════════ */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <Package className="h-3 w-3 text-slate-500" />
+                    <label className="text-[11px] text-slate-300 font-medium">Supplier</label>
+                    <span className="text-[10px] text-slate-600">(opsional)</span>
+                  </div>
+                  <SupplierSearchInput
+                    value={poCreateSupplierId}
+                    onChange={setPoCreateSupplierId}
+                    options={supplierOptions}
+                    onCreateSupplier={handleCreateSupplierForCreate}
+                  />
+                </div>
 
-            <Separator className="bg-white/[0.06]" />
+                <Separator className="bg-white/[0.06]" />
 
-            {/* ══════════════════════════════════════════════════════ */}
-            {/* DAFTAR ITEM                                              */}
-            {/* ══════════════════════════════════════════════════════ */}
-            <div className="space-y-3">
-              {/* ── Section Label ── */}
-              <div className="flex items-center gap-2">
-                <Package className="h-3.5 w-3.5 text-slate-400" />
-                <span className="text-[11px] text-slate-400 font-medium">Daftar Barang yang Dibeli</span>
-              </div>
+                {/* ══════════════════════════════════════════════════════ */}
+                {/* MANUAL INPUT FORM                                        */}
+                {/* ══════════════════════════════════════════════════════ */}
+                {inputMethod === 'manual' && (
+                  <div className="space-y-3">
+                    {/* ── Section Label ── */}
+                    <div className="flex items-center gap-2">
+                      <Package className="h-3.5 w-3.5 text-slate-400" />
+                      <span className="text-[11px] text-slate-400 font-medium">Daftar Barang yang Dibeli</span>
+                    </div>
 
-              {/* ── Smart Input Bar ── */}
-              <div className="relative">
-                <ScanBarcode className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500 pointer-events-none" />
-                <input
-                  ref={smartInputRef}
-                  value={smartInput}
-                  onChange={(e) => handleSmartInputChange(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') handleSmartInputSubmit() }}
-                  placeholder="Ketik nama barang / scan barcode — pisahkan dengan koma: Gula, Tepung, Minyak"
-                  className={cn(inputClass, 'pl-8 pr-2 h-9')}
-                />
-              </div>
+                    {/* ── Smart Input Bar ── */}
+                    <div className="relative">
+                      <ScanBarcode className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500 pointer-events-none" />
+                      <input
+                        ref={smartInputRef}
+                        value={smartInput}
+                        onChange={(e) => handleSmartInputChange(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleSmartInputSubmit() }}
+                        placeholder="Ketik nama barang / scan barcode — pisahkan dengan koma: Gula, Tepung, Minyak"
+                        className={cn(inputClass, 'pl-8 pr-2 h-9')}
+                      />
+                    </div>
 
-              {/* ── Import / Paste Actions ── */}
-              <div className="flex gap-2">
-                <input
-                  ref={(el) => { importFileRef.current = el }}
-                  type="file"
-                  accept=".xlsx,.xls,.csv"
-                  className="hidden"
-                  onChange={handleImportExcel}
-                />
-                <button
-                  className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-white/[0.04] border border-white/[0.04] text-slate-500 hover:text-slate-300 hover:bg-white/[0.06] transition-colors text-[11px]"
-                  onClick={() => importFileRef.current?.click()}
-                  disabled={importLoading}
-                >
-                  {importLoading ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <FileSpreadsheet className="h-3.5 w-3.5" />
-                  )}
-                  {importLoading ? 'Membaca...' : 'Import Excel / CSV'}
-                </button>
-                <button
-                  className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.04] text-slate-500 hover:text-slate-300 hover:bg-white/[0.06] transition-colors text-[11px]"
-                  onClick={() => void downloadBlob('/api/purchases/import-excel/template', 'template-pembelian-aether-pos.xlsx', setTemplateDownloadLoading)}
-                  disabled={templateDownloadLoading}
-                  title="Download template Excel untuk import pembelian"
-                >
-                  {templateDownloadLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-                </button>
-                <button
-                  className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.04] text-slate-500 hover:text-slate-300 hover:bg-white/[0.06] transition-colors text-[11px]"
-                  onClick={async () => {
-                    try {
-                      const text = await navigator.clipboard.readText()
-                      if (text && text.includes('\t')) {
-                        // Tab-separated = likely Excel paste
-                        const lines = text.trim().split('\n').filter(l => l.trim())
-                        const items = lines.map(line => {
-                          const cols = line.split('\t').map(c => c.trim())
-                          return cols.join(', ')
-                        }).filter(Boolean).join(', ')
-                        if (items) {
-                          setSmartInput(items)
-                          toast.info(`${lines.length} baris dari clipboard — tekan Enter untuk proses`)
-                        }
-                      } else if (text) {
-                        setSmartInput(text)
-                        toast.info('Data dari clipboard — tekan Enter untuk proses')
-                      }
-                    } catch {
-                      toast.error('Gagal membaca clipboard')
-                    }
-                  }}
-                  title="Tempel dari Excel / spreadsheet"
-                >
-                  <ClipboardPaste className="h-3.5 w-3.5" />
-                </button>
-              </div>
-
-              {/* ── Quick Add Inline Form (for new items from smart input) ── */}
+                    {/* ── Quick Add Inline Form (for new items from smart input) ── */}
               {showQuickAddItem && (
                 <div className="rounded-xl bg-amber-500/[0.04] border border-amber-500/10 p-3.5 space-y-3">
                   <div className="flex items-center justify-between">
@@ -5495,7 +5458,225 @@ export default function PurchasePage() {
                   Tambah Barang Lain
                 </button>
               </div>
-            </div>
+                  </div>
+                )}
+
+                {/* ══════════════════════════════════════════════════════ */}
+                {/* EXCEL IMPORT FORM                                        */}
+                {/* ══════════════════════════════════════════════════════ */}
+                {inputMethod === 'excel' && (
+                  <div className="space-y-4">
+                    {/* ── Section Label ── */}
+                    <div className="flex items-center gap-2">
+                      <FileSpreadsheet className="h-3.5 w-3.5 text-blue-400" />
+                      <span className="text-[11px] text-slate-400 font-medium">Import dari File Excel / CSV</span>
+                    </div>
+
+                    {/* ── Upload Area ── */}
+                    <div className="rounded-xl border border-dashed border-white/[0.1] bg-white/[0.02] p-6 text-center space-y-3">
+                      <div className="w-12 h-12 rounded-xl bg-blue-500/10 flex items-center justify-center mx-auto">
+                        <Upload className="h-6 w-6 text-blue-400" />
+                      </div>
+                      <div>
+                        <p className="text-sm text-slate-300 font-medium">Upload File Excel / CSV</p>
+                        <p className="text-[11px] text-slate-500 mt-1">Format .xlsx, .xls, atau .csv — Maks 2MB</p>
+                      </div>
+                      <input
+                        ref={(el) => { importFileRef.current = el }}
+                        type="file"
+                        accept=".xlsx,.xls,.csv"
+                        className="hidden"
+                        onChange={handleImportExcel}
+                      />
+                      <button
+                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-blue-500/15 text-blue-400 hover:bg-blue-500/25 text-xs font-medium transition-colors disabled:opacity-50"
+                        onClick={() => importFileRef.current?.click()}
+                        disabled={importLoading}
+                      >
+                        {importLoading ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Membaca File...
+                          </>
+                        ) : (
+                          <>
+                            <FileSpreadsheet className="h-4 w-4" />
+                            Pilih File
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    {/* ── Or Divider ── */}
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 h-px bg-white/[0.06]" />
+                      <span className="text-[11px] text-slate-600">atau</span>
+                      <div className="flex-1 h-px bg-white/[0.06]" />
+                    </div>
+
+                    {/* ── Paste from Clipboard ── */}
+                    <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 space-y-3">
+                      <div className="flex items-center gap-2">
+                        <ClipboardPaste className="h-4 w-4 text-slate-400" />
+                        <span className="text-xs text-slate-300 font-medium">Tempel dari Spreadsheet</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 leading-relaxed">
+                        Copy data dari Excel/Google Sheets, lalu tempel di sini. Data tabular akan otomatis terdeteksi.
+                      </p>
+                      <button
+                        className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-white/[0.04] border border-white/[0.08] text-slate-400 hover:text-slate-300 hover:bg-white/[0.06] transition-colors text-xs"
+                        onClick={async () => {
+                          try {
+                            const text = await navigator.clipboard.readText()
+                            if (text && text.includes('\t')) {
+                              // Tab-separated = likely Excel paste
+                              const lines = text.trim().split('\n').filter(l => l.trim())
+                              const items = lines.map(line => {
+                                const cols = line.split('\t').map(c => c.trim())
+                                return cols.join(', ')
+                              }).filter(Boolean).join(', ')
+                              if (items) {
+                                setSmartInput(items)
+                                toast.info(`${lines.length} baris dari clipboard — tekan Enter untuk proses`)
+                              }
+                            } else if (text) {
+                              setSmartInput(text)
+                              toast.info('Data dari clipboard — tekan Enter untuk proses')
+                            }
+                          } catch {
+                            toast.error('Gagal membaca clipboard')
+                          }
+                        }}
+                      >
+                        <ClipboardPaste className="h-4 w-4" />
+                        Tempel dari Clipboard
+                      </button>
+                    </div>
+
+                    {/* ── Template Download ── */}
+                    <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 space-y-3">
+                      <div className="flex items-center gap-2">
+                        <Download className="h-4 w-4 text-slate-400" />
+                        <span className="text-xs text-slate-300 font-medium">Butuh Template?</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 leading-relaxed">
+                        Download template Excel yang sudah terformat dengan benar. Cukup isi data barang dan upload.
+                      </p>
+                      <button
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/[0.04] border border-white/[0.08] text-slate-400 hover:text-slate-300 hover:bg-white/[0.06] transition-colors text-xs"
+                        onClick={() => void downloadBlob('/api/purchases/import-excel/template', 'template-pembelian-aether-pos.xlsx', setTemplateDownloadLoading)}
+                        disabled={templateDownloadLoading}
+                      >
+                        {templateDownloadLoading ? (
+                          <>
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            Mendownload...
+                          </>
+                        ) : (
+                          <>
+                            <Download className="h-3.5 w-3.5" />
+                            Download Template Excel
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    {/* ── Smart Input Fallback (after paste) ── */}
+                    {smartInput && (
+                      <div className="rounded-xl bg-emerald-500/[0.04] border border-emerald-500/10 p-3.5 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] text-emerald-300 font-medium">Data siap diproses:</span>
+                          <button
+                            className="text-[10px] text-slate-500 hover:text-slate-300"
+                            onClick={() => setSmartInput('')}
+                          >
+                            Hapus
+                          </button>
+                        </div>
+                        <div className="bg-white/[0.03] rounded-lg p-2.5 max-h-24 overflow-y-auto">
+                          <p className="text-[11px] text-slate-300 font-mono break-all whitespace-pre-wrap">{smartInput}</p>
+                        </div>
+                        <button
+                          className="w-full h-8 rounded-lg bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors"
+                          onClick={handleSmartInputSubmit}
+                        >
+                          <CheckCircle2 className="h-3 w-3" />
+                          Proses Data
+                        </button>
+                      </div>
+                    )}
+
+                    {/* ── Imported Items Preview ── */}
+                    {poCreateItems.some(i => i.inventoryItemId) && (
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-2">
+                          <Package className="h-3.5 w-3.5 text-slate-400" />
+                          <span className="text-[11px] text-slate-400 font-medium">
+                            Item yang Diimport ({poCreateItems.filter(i => i.inventoryItemId).length})
+                          </span>
+                        </div>
+                        <div className="space-y-2">
+                          {poCreateItems.filter(i => i.inventoryItemId).map((item, idx) => {
+                            const originalIdx = poCreateItems.findIndex(i => i === item)
+                            return (
+                              <div
+                                key={originalIdx}
+                                className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.04] space-y-2"
+                              >
+                                <div className="flex items-center gap-2">
+                                  <CheckCircle2 className={cn(
+                                    "h-3.5 w-3.5 shrink-0",
+                                    item.inventoryItemId.startsWith('__pending_') ? "text-amber-400" : "text-emerald-400"
+                                  )} />
+                                  <span className={cn(
+                                    "text-xs font-medium truncate",
+                                    item.inventoryItemId.startsWith('__pending_') ? "text-amber-300" : "text-emerald-300"
+                                  )}>{item.inventoryItemName}</span>
+                                  {poCreateItems.filter(i => i.inventoryItemId).length > 1 && (
+                                    <button
+                                      className="w-5 h-5 rounded bg-red-500/10 flex items-center justify-center text-red-400 hover:text-red-300 hover:bg-red-500/20 transition-colors ml-auto"
+                                      onClick={() => handleRemovePoItem(originalIdx)}
+                                      title="Hapus item ini"
+                                    >
+                                      <Trash2 className="h-3 w-3" />
+                                    </button>
+                                  )}
+                                </div>
+                                <div className="grid grid-cols-2 gap-2 pl-5">
+                                  <div className="space-y-1">
+                                    <label className="text-[10px] text-slate-500">Jumlah</label>
+                                    <Input
+                                      type="number"
+                                      min="0"
+                                      step="any"
+                                      value={item.qty}
+                                      onChange={(e) => handleUpdatePoItem(originalIdx, 'qty', e.target.value)}
+                                      className={cn(inputClass, 'text-xs h-8')}
+                                      placeholder="1"
+                                    />
+                                  </div>
+                                  <div className="space-y-1">
+                                    <label className="text-[10px] text-slate-500">Harga</label>
+                                    <Input
+                                      type="number"
+                                      min="0"
+                                      value={item.pricePerItem}
+                                      onChange={(e) => handleUpdatePoItem(originalIdx, 'pricePerItem', e.target.value)}
+                                      className={cn(inputClass, 'text-xs h-8')}
+                                      placeholder="0"
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
           </div>
 
           {/* ── Sticky Total Biaya + Footer ── */}
@@ -7290,6 +7471,150 @@ export default function PurchasePage() {
                     <p className="text-sm font-bold text-violet-400">1:1</p>
                   </div>
                 </div>
+
+                {/* Variant toggle for retail mode */}
+                <div className="flex items-center justify-between p-3 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+                  <div>
+                    <p className="text-xs text-slate-200 font-medium">Aktifkan Varian per Produk</p>
+                    <p className="text-[10px] text-slate-500">Tambahkan varian (cth: ukuran, rasa) untuk setiap produk</p>
+                  </div>
+                  <Switch
+                    checked={retailHasVariants}
+                    onCheckedChange={(checked) => {
+                      setRetailHasVariants(checked)
+                      if (!checked) {
+                        setRetailVariants({})
+                        setRetailExpandedVariant(null)
+                      }
+                    }}
+                  />
+                </div>
+
+                {/* Per-item variant definitions when variants enabled */}
+                {retailHasVariants && (
+                  <div className="space-y-3">
+                    <p className="text-[11px] text-slate-400 font-medium flex items-center gap-1.5">
+                      <Tags className="h-3.5 w-3.5 text-emerald-400" />
+                      Varian per Produk
+                    </p>
+                    {selectedInvItems.map((item) => {
+                      const itemVariants = retailVariants[item.id] || []
+                      const isExpanded = retailExpandedVariant === item.id
+                      const itemPrice = retailUseBulkPrice
+                        ? (parseFloat(retailBulkPrice) || 0)
+                        : (parseFloat(retailPrices[item.id]) || 0)
+                      return (
+                        <div key={item.id} className="rounded-lg bg-white/[0.02] border border-white/[0.04] overflow-hidden">
+                          {/* Item header - clickable to expand/collapse */}
+                          <button
+                            className="w-full p-3 flex items-center gap-2.5 hover:bg-white/[0.02] transition-colors"
+                            onClick={() => setRetailExpandedVariant(isExpanded ? null : item.id)}
+                          >
+                            <div className={cn(
+                              "w-6 h-6 rounded-md flex items-center justify-center transition-colors",
+                              isExpanded ? 'bg-emerald-500/15' : 'bg-white/[0.04]'
+                            )}>
+                              {isExpanded ? (
+                                <ChevronDown className="h-3.5 w-3.5 text-emerald-400" />
+                              ) : (
+                                <ChevronDown className="h-3.5 w-3.5 text-slate-500 -rotate-90" />
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0 text-left">
+                              <p className="text-xs text-white font-medium truncate">{item.name}</p>
+                              <p className="text-[10px] text-slate-500">
+                                {itemVariants.length} varian · Harga dasar: {formatCurrency(itemPrice)}
+                              </p>
+                            </div>
+                            <Badge variant="outline" className={cn(
+                              "text-[10px] px-1.5 py-0 leading-none border font-medium",
+                              itemVariants.length > 0 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-white/[0.03] text-slate-500 border-white/[0.06]'
+                            )}>
+                              {itemVariants.length > 0 ? `${itemVariants.length} varian` : 'Belum ada'}
+                            </Badge>
+                          </button>
+
+                          {/* Expanded variant list */}
+                          {isExpanded && (
+                            <div className="px-3 pb-3 space-y-2 border-t border-white/[0.04]">
+                              {/* Add variant button */}
+                              <button
+                                className="w-full py-2 rounded-lg border border-dashed border-white/[0.08] bg-white/[0.01] hover:bg-white/[0.03] hover:border-emerald-500/30 transition-colors flex items-center justify-center gap-1.5"
+                                onClick={() => {
+                                  setRetailVariants(prev => ({
+                                    ...prev,
+                                    [item.id]: [...(prev[item.id] || []), { name: '', price: String(itemPrice) }]
+                                  }))
+                                }}
+                              >
+                                <Plus className="h-3.5 w-3.5 text-emerald-400" />
+                                <span className="text-[11px] text-emerald-400 font-medium">Tambah Varian</span>
+                              </button>
+
+                              {/* Variant list */}
+                              {itemVariants.length === 0 ? (
+                                <div className="py-3 text-center">
+                                  <Tags className="h-5 w-5 text-slate-600 mx-auto mb-1.5" />
+                                  <p className="text-[11px] text-slate-500">Klik "Tambah Varian" untuk menambahkan varian produk ini</p>
+                                </div>
+                              ) : (
+                                <div className="space-y-2">
+                                  {itemVariants.map((variant, vi) => (
+                                    <div key={vi} className="flex items-center gap-2 p-2 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+                                      <input
+                                        value={variant.name}
+                                        onChange={(e) => setRetailVariants(prev => ({
+                                          ...prev,
+                                          [item.id]: prev[item.id].map((v, i) => i === vi ? { ...v, name: e.target.value } : v)
+                                        }))}
+                                        className="bg-white/[0.04] border-white/[0.04] text-white text-xs h-7 w-24 rounded-md px-2 outline-none placeholder:text-slate-500"
+                                        placeholder="Nama varian"
+                                      />
+                                      <span className="text-[10px] text-slate-500">:</span>
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        value={variant.price}
+                                        onChange={(e) => setRetailVariants(prev => ({
+                                          ...prev,
+                                          [item.id]: prev[item.id].map((v, i) => i === vi ? { ...v, price: e.target.value } : v)
+                                        }))}
+                                        className="bg-white/[0.04] border-white/[0.04] text-white text-xs h-7 w-24 rounded-md px-2 text-right outline-none placeholder:text-slate-500"
+                                        placeholder="Harga"
+                                      />
+                                      <span className="text-[10px] text-slate-500">Rp</span>
+                                      <div className="flex-1" />
+                                      {/* Variant margin indicator */}
+                                      {variant.price && (
+                                        <span className={cn(
+                                          "text-[10px] font-medium",
+                                          (parseFloat(variant.price) || 0) >= (parseFloat(retailQtyPerProduct[item.id]) || 1) * item.avgCost
+                                            ? 'text-emerald-400'
+                                            : 'text-red-400'
+                                        )}>
+                                          {formatCurrency((parseFloat(variant.price) || 0) - (parseFloat(retailQtyPerProduct[item.id]) || 1) * item.avgCost)}
+                                        </span>
+                                      )}
+                                      <button
+                                        className="w-6 h-6 rounded flex items-center justify-center text-red-400/70 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                                        onClick={() => setRetailVariants(prev => ({
+                                          ...prev,
+                                          [item.id]: prev[item.id].filter((_, i) => i !== vi)
+                                        }))}
+                                      >
+                                        <X className="h-3 w-3" />
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
             )}
 

@@ -884,7 +884,8 @@ export default function ProductsPage() {
             fetchDetail({ ...adjustProduct, stock: newStock }, detailPage)
           }
         } else {
-          toast.error('Gagal menyesuaikan stok')
+          const errData = await res.json().catch(() => ({}))
+          toast.error(errData.error || 'Gagal menyesuaikan stok')
         }
       } catch {
         toast.error('Gagal menyesuaikan stok')
@@ -897,6 +898,26 @@ export default function ProductsPage() {
         setAdjustProduct(null)
       }
     }
+  }
+
+  // Helper to open adjust dialog with proper initialization
+  const openAdjustDialog = (product: Product, variants?: Array<{ id: string; name: string; stock: number }>) => {
+    setAdjustProduct(product)
+    setAdjustNewStock('')
+    setAdjustReason('')
+    // Initialize variant stock inputs from current variant stocks
+    const vStocks: Record<string, string> = {}
+    if (variants && variants.length > 0) {
+      for (const v of variants) {
+        vStocks[v.id] = String(v.stock)
+      }
+    } else if (product.variants && product.variants.length > 0) {
+      for (const v of product.variants) {
+        vStocks[v.id] = String(v.stock)
+      }
+    }
+    setAdjustVariantStocks(vStocks)
+    setAdjustOpen(true)
   }
 
   // Bulk edit handlers
@@ -2132,6 +2153,14 @@ export default function ProductsPage() {
                           <Button
                             variant="ghost"
                             size="icon"
+                            className="h-7 w-7 text-slate-500 hover:text-orange-400 hover:bg-orange-500/10 rounded-lg"
+                            onClick={() => openAdjustDialog(product)}
+                          >
+                            <FilePenLine className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
                             className="h-7 w-7 text-slate-500 hover:text-white hover:bg-white/[0.04] rounded-lg"
                             onClick={() => handleEdit(product)}
                           >
@@ -2431,6 +2460,15 @@ export default function ProductsPage() {
                           }}
                       >
                         <RefreshCw className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-9 w-9 text-slate-500 hover:text-orange-400 hover:bg-orange-500/10 rounded-lg transition-colors"
+                        onClick={() => openAdjustDialog(product)}
+                        title="Penyesuaian Stok"
+                      >
+                        <FilePenLine className="h-4 w-4" />
                       </Button>
                       <Button
                         variant="ghost"
@@ -2793,8 +2831,8 @@ export default function ProductsPage() {
                 <div className="text-xs text-slate-400">
                   Sesuaikan stok per varian. Stok parent akan dihitung otomatis.
                 </div>
-                <div className="space-y-2">
-                  {detailData?.product.variants.map((v) => (
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {(adjustProduct?.variants || []).map((v) => (
                     <div key={v.id} className="space-y-1">
                       <div className="flex items-center justify-between">
                         <Label className="text-slate-300 text-xs">{v.name}</Label>
@@ -3786,18 +3824,12 @@ export default function ProductsPage() {
                                 variant="ghost"
                                 className="h-6 text-[10px] px-2 bg-orange-500/10 text-orange-400 border border-orange-500/20 hover:bg-orange-500/20"
                                 onClick={() => {
-                                  setAdjustProduct(detailProduct!)
-                                  setAdjustNewStock('')
-                                  setAdjustReason('')
-                                  // Initialize variant stock inputs from current variant stocks
-                                  const vStocks: Record<string, string> = {}
-                                  if (detailData?.product.variants) {
-                                    for (const v of detailData.product.variants) {
-                                      vStocks[v.id] = String(v.stock)
-                                    }
-                                  }
-                                  setAdjustVariantStocks(vStocks)
-                                  setAdjustOpen(true)
+                                  // Use detailData.product as the base since it has fresh variants data
+                                  const productForAdjust = detailProduct ? {
+                                    ...detailProduct,
+                                    variants: detailData?.product.variants || detailProduct.variants
+                                  } : detailData.product as unknown as Product
+                                  openAdjustDialog(productForAdjust, detailData?.product.variants)
                                 }}
                               >
                                 <FilePenLine className="h-2.5 w-2.5 mr-0.5" /> Penyesuaian
