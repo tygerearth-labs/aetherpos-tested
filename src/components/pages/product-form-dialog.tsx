@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useSession } from 'next-auth/react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -132,6 +133,13 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
     categoryId: '',
     unit: 'pcs',
   })
+
+  // Batch 1 — Add/Edit Form Safety: inline validation state
+  const [errors, setErrors] = useState<Record<string, string>>({})
+  const [touched, setTouched] = useState<Record<string, boolean>>({})
+
+  // Batch 1 — Add/Edit Form Safety: unsaved-changes tracking
+  const initialSnapshot = useRef<string>('')
 
   // Variant summary calculations
   const variantSummary = useMemo(() => {
@@ -353,6 +361,14 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
 
   const updateVariant = (index: number, key: keyof ProductVariant, value: string) => {
     setVariants((prev) => prev.map((v, i) => (i === index ? { ...v, [key]: value } : v)))
+    // Batch 1 — clear inline error on edit
+    const fieldId = `variant-${index}-${String(key)}`
+    setErrors((prev) => {
+      if (!prev[fieldId]) return prev
+      const next = { ...prev }
+      delete next[fieldId]
+      return next
+    })
   }
 
   const addVariant = () => {
@@ -381,8 +397,161 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
     }
   }
 
+  // Batch 1 — Add/Edit Form Safety: dirty-state computation (excludes compositions/variantCompositions
+  // because composition data loads async in Edit mode; tracking them would cause false-positive
+  // dirty state. Composition toggle (hasComposition) IS tracked. Per-item composition changes are
+  // a known Batch 1 limitation — covered by the form's other dirty signals in practice.)
+  const isDirty = useMemo(() => {
+    if (!open || !initialSnapshot.current) return false
+    const current = JSON.stringify({
+      form,
+      hasVariants,
+      hasComposition,
+      variants: variants.map((v) => ({ name: v.name, sku: v.sku, hpp: v.hpp, price: v.price, stock: v.stock })),
+    })
+    return current !== initialSnapshot.current
+  }, [open, form, hasVariants, hasComposition, variants])
+
+  // Batch 1 — capture snapshot when dialog opens. setTimeout(0) ensures form/variants state
+  // (set synchronously in the load useEffect) is committed before snapshot is taken.
+  // Composition data is excluded from snapshot (see isDirty note above).
+  useEffect(() => {
+    if (!open) {
+      initialSnapshot.current = ''
+      setErrors({})
+      setTouched({})
+      return
+    }
+    const timer = setTimeout(() => {
+      initialSnapshot.current = JSON.stringify({
+        form,
+        hasVariants,
+        hasComposition,
+        variants: variants.map((v) => ({ name: v.name, sku: v.sku, hpp: v.hpp, price: v.price, stock: v.stock })),
+      })
+    }, 0)
+    return () => clearTimeout(timer)
+  }, [open, product])
+
+  // Batch 1 — Add/Edit Form Safety: double-click-to-confirm pattern for discard.
+  // Uses inline state instead of a separate dialog (Dialog-inside-Dialog has event/focus-trap conflicts
+  // that prevent onClick handlers from firing in the portaled overlay).
+  const [discardConfirmMode, setDiscardConfirmMode] = useState(false)
+  const discardConfirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const batalBtnRef = useRef<HTMLButtonElement | null>(null)
+
+  const [variantToggleOpen, setVariantToggleOpen] = useState(false)
+  const [variantToggleItemCount, setVariantToggleItemCount] = useState(0)
+
+  // Batch 1 — Add/Edit Form Safety: wrapped onOpenChange intercepts close when dirty
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen && isDirty && !saving) {
+      // Enter double-click confirm mode — user must click Batal again within 3s to confirm discard
+      setDiscardConfirmMode(true)
+      if (discardConfirmTimer.current) clearTimeout(discardConfirmTimer.current)
+      discardConfirmTimer.current = setTimeout(() => setDiscardConfirmMode(false), 3000)
+    } else {
+      onOpenChange(nextOpen)
+    }
+  }
+
+  const handleBatalClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    e.preventDefault()
+    if (discardConfirmMode) {
+      // Second click within 3s — confirm discard
+      if (discardConfirmTimer.current) clearTimeout(discardConfirmTimer.current)
+      setDiscardConfirmMode(false)
+      onOpenChange(false)
+    } else {
+      handleOpenChange(false)
+    }
+  }
+
+  // Batch 1 — Native click listener on Batal button (React onClick doesn't fire reliably inside Dialog portal)
+  useEffect(() => {
+    const btn = batalBtnRef.current
+    if (!btn) return
+    const handler = (e: MouseEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      if (discardConfirmMode) {
+        if (discardConfirmTimer.current) clearTimeout(discardConfirmTimer.current)
+        setDiscardConfirmMode(false)
+        onOpenChange(false)
+      } else if (isDirty && !saving) {
+        setDiscardConfirmMode(true)
+        if (discardConfirmTimer.current) clearTimeout(discardConfirmTimer.current)
+        discardConfirmTimer.current = setTimeout(() => setDiscardConfirmMode(false), 3000)
+      } else {
+        onOpenChange(false)
+      }
+    }
+    btn.addEventListener('click', handler, true)
+    return () => btn.removeEventListener('click', handler, true)
+  }, [discardConfirmMode, isDirty, saving, onOpenChange])
+
+  // Batch 1 — cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (discardConfirmTimer.current) clearTimeout(discardConfirmTimer.current)
+    }
+  }, [])
+
+  // Batch 1 — reset confirm mode when dialog closes
+  useEffect(() => {
+    if (!open) {
+      setDiscardConfirmMode(false)
+      if (discardConfirmTimer.current) clearTimeout(discardConfirmTimer.current)
+    }
+  }, [open])
+
+  // Batch 1 — Add/Edit Form Safety: warn before switching product-level composition to variant mode
+  // (PUT composition hard-replaces, so product-level items would be discarded on save)
+  const handleVariantToggle = (checked: boolean) => {
+    if (checked && hasComposition && compositions.length > 0) {
+      setVariantToggleItemCount(compositions.length)
+      setVariantToggleOpen(true)
+    } else {
+      setHasVariants(checked)
+      if (checked && variants.length === 0) {
+        setVariants([{ name: '', sku: '', hpp: '', price: '', stock: '' }])
+        setExpandedVariant(0)
+      } else if (!checked) {
+        setVariants([])
+        setExpandedVariant(-1)
+      }
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    // Batch 1 — populate inline errors + mark all required fields as touched
+    const requiredFields: string[] = ['name', ...(hasVariants ? [] : ['price'])]
+    if (hasVariants) {
+      variants.forEach((_, i) => {
+        requiredFields.push(`variant-${i}-name`, `variant-${i}-price`)
+      })
+    }
+    const newErrors: Record<string, string> = {}
+    const newTouched: Record<string, boolean> = {}
+    for (const f of requiredFields) {
+      newTouched[f] = true
+      const err = validateField(f)
+      if (err) newErrors[f] = err
+    }
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors)
+      setTouched(newTouched)
+      // Focus first error field for accessibility
+      const firstErrorField = requiredFields.find((f) => newErrors[f])
+      if (firstErrorField) {
+        const el = document.querySelector<HTMLInputElement>(`[data-field-id="${firstErrorField}"]`)
+        el?.focus()
+      }
+      toast.error('Periksa kembali field yang wajib diisi')
+      return
+    }
     if (!form.name.trim()) {
       toast.error('Nama produk wajib diisi')
       return
@@ -606,6 +775,48 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
 
   const updateField = (key: string, value: string) => {
     setForm((prev) => ({ ...prev, [key]: value }))
+    // Batch 1 — clear inline error on edit
+    setErrors((prev) => {
+      if (!prev[key]) return prev
+      const next = { ...prev }
+      delete next[key]
+      return next
+    })
+  }
+
+  // Batch 1 — Add/Edit Form Safety: inline validation helpers
+  const validateField = (fieldId: string): string | null => {
+    if (fieldId === 'name') {
+      if (!form.name.trim()) return 'Nama produk wajib diisi'
+      return null
+    }
+    if (fieldId === 'price') {
+      if (!hasVariants && (!form.price || Number(form.price) <= 0)) return 'Harga jual wajib diisi'
+      return null
+    }
+    // Variant fields: variant-<index>-name | variant-<index>-price
+    if (fieldId.startsWith('variant-')) {
+      const parts = fieldId.split('-')
+      const idx = Number(parts[1])
+      const vField = parts[2]
+      const v = variants[idx]
+      if (!v) return null
+      if (vField === 'name' && !v.name.trim()) return `Varian ${idx + 1}: nama wajib diisi`
+      if (vField === 'price' && (!v.price || Number(v.price) <= 0)) return `Varian ${idx + 1}: harga jual wajib diisi`
+      return null
+    }
+    return null
+  }
+
+  const handleBlur = (fieldId: string) => {
+    setTouched((prev) => ({ ...prev, [fieldId]: true }))
+    const err = validateField(fieldId)
+    setErrors((prev) => {
+      const next = { ...prev }
+      if (err) next[fieldId] = err
+      else delete next[fieldId]
+      return next
+    })
   }
 
   const toggleVariantExpand = (idx: number) => {
@@ -690,7 +901,8 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
   }
 
   return (
-    <ResponsiveDialog open={open} onOpenChange={onOpenChange}>
+    <>
+    <ResponsiveDialog open={open} onOpenChange={handleOpenChange}>
       <ResponsiveDialogContent className="bg-deep-space border-white/[0.06] p-0 max-h-[92vh] overflow-hidden flex flex-col" desktopClassName="max-w-xl">
         {/* Header */}
         <div className="px-5 pt-5 pb-4 border-b border-white/[0.06]">
@@ -728,10 +940,23 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                 <Input
                   value={form.name}
                   onChange={(e) => updateField('name', e.target.value)}
+                  onBlur={() => handleBlur('name')}
+                  data-field-id="name"
                   placeholder="Contoh: Kopi Susu Gula Aren"
                   required
-                  className="bg-nebula border-white/[0.06] text-white placeholder:text-slate-600 h-10 text-sm rounded-lg focus-visible:theme-ring focus-visible:theme-border"
+                  aria-required="true"
+                  aria-invalid={!!(touched.name && errors.name)}
+                  className={cn(
+                    "bg-nebula border-white/[0.06] text-white placeholder:text-slate-600 h-10 text-sm rounded-lg focus-visible:theme-ring focus-visible:theme-border",
+                    touched.name && errors.name && "border-red-500/50 focus-visible:ring-red-500/30 focus-visible:border-red-500/50"
+                  )}
                 />
+                {touched.name && errors.name && (
+                  <p className="text-[10px] text-red-400 mt-1 flex items-center gap-1" role="alert">
+                    <AlertCircle className="h-2.5 w-2.5" />
+                    {errors.name}
+                  </p>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -853,10 +1078,23 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                         step="any"
                         value={form.price}
                         onChange={(e) => updateField('price', e.target.value)}
+                        onBlur={() => handleBlur('price')}
+                        data-field-id="price"
                         placeholder="0"
                         required
-                        className="bg-nebula border-white/[0.06] text-white placeholder:text-slate-600 h-10 text-sm rounded-lg pl-8 focus-visible:theme-ring focus-visible:theme-border"
+                        aria-required="true"
+                        aria-invalid={!!(touched.price && errors.price)}
+                        className={cn(
+                          "bg-nebula border-white/[0.06] text-white placeholder:text-slate-600 h-10 text-sm rounded-lg pl-8 focus-visible:theme-ring focus-visible:theme-border",
+                          touched.price && errors.price && "border-red-500/50 focus-visible:ring-red-500/30 focus-visible:border-red-500/50"
+                        )}
                       />
+                      {touched.price && errors.price && (
+                        <p className="text-[10px] text-red-400 mt-1 flex items-center gap-1" role="alert">
+                          <AlertCircle className="h-2.5 w-2.5" />
+                          {errors.price}
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -987,13 +1225,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                     : 'bg-nebula/40 border-white/[0.06] hover:border-white/[0.08]'
                 }`}
                 onClick={() => {
-                  if (!hasVariants) {
-                    setHasVariants(true)
-                    if (variants.length === 0) {
-                      setVariants([{ name: '', sku: '', hpp: '', price: '', stock: '' }])
-                      setExpandedVariant(0)
-                    }
-                  }
+                  if (!hasVariants) handleVariantToggle(true)
                 }}
               >
                 <div className="flex items-center justify-between">
@@ -1015,16 +1247,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                   </div>
                   <Switch
                     checked={hasVariants}
-                    onCheckedChange={(checked) => {
-                      setHasVariants(checked)
-                      if (checked && variants.length === 0) {
-                        setVariants([{ name: '', sku: '', hpp: '', price: '', stock: '' }])
-                        setExpandedVariant(0)
-                      } else if (!checked) {
-                        setVariants([])
-                        setExpandedVariant(-1)
-                      }
-                    }}
+                    onCheckedChange={handleVariantToggle}
                     onClick={(e) => e.stopPropagation()}
                   />
                 </div>
@@ -1238,9 +1461,22 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                               <Input
                                 value={variant.name}
                                 onChange={(e) => updateVariant(index, 'name', e.target.value)}
+                                onBlur={() => handleBlur(`variant-${index}-name`)}
+                                data-field-id={`variant-${index}-name`}
                                 placeholder="Contoh: Small, Medium, Large"
-                                className="bg-white/[0.05] border-white/[0.08] text-white placeholder:text-slate-600 h-9 text-xs rounded-lg focus-visible:theme-ring focus-visible:theme-border"
+                                aria-required="true"
+                                aria-invalid={!!(touched[`variant-${index}-name`] && errors[`variant-${index}-name`])}
+                                className={cn(
+                                  "bg-white/[0.05] border-white/[0.08] text-white placeholder:text-slate-600 h-9 text-xs rounded-lg focus-visible:theme-ring focus-visible:theme-border",
+                                  touched[`variant-${index}-name`] && errors[`variant-${index}-name`] && "border-red-500/50 focus-visible:ring-red-500/30 focus-visible:border-red-500/50"
+                                )}
                               />
+                              {touched[`variant-${index}-name`] && errors[`variant-${index}-name`] && (
+                                <p className="text-[10px] text-red-400 mt-1 flex items-center gap-1" role="alert">
+                                  <AlertCircle className="h-2.5 w-2.5" />
+                                  {errors[`variant-${index}-name`]}
+                                </p>
+                              )}
                             </div>
 
                             <div className="space-y-1.5">
@@ -1292,9 +1528,22 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                                     step="any"
                                     value={variant.price}
                                     onChange={(e) => updateVariant(index, 'price', e.target.value)}
+                                    onBlur={() => handleBlur(`variant-${index}-price`)}
+                                    data-field-id={`variant-${index}-price`}
                                     placeholder="0"
-                                    className="bg-white/[0.05] border-white/[0.08] text-white placeholder:text-slate-600 h-9 text-xs rounded-lg pl-7 focus-visible:theme-ring focus-visible:theme-border"
+                                    aria-required="true"
+                                    aria-invalid={!!(touched[`variant-${index}-price`] && errors[`variant-${index}-price`])}
+                                    className={cn(
+                                      "bg-white/[0.05] border-white/[0.08] text-white placeholder:text-slate-600 h-9 text-xs rounded-lg pl-7 focus-visible:theme-ring focus-visible:theme-border",
+                                      touched[`variant-${index}-price`] && errors[`variant-${index}-price`] && "border-red-500/50 focus-visible:ring-red-500/30 focus-visible:border-red-500/50"
+                                    )}
                                   />
+                                  {touched[`variant-${index}-price`] && errors[`variant-${index}-price`] && (
+                                    <p className="text-[10px] text-red-400 mt-1 flex items-center gap-1" role="alert">
+                                      <AlertCircle className="h-2.5 w-2.5" />
+                                      {errors[`variant-${index}-price`]}
+                                    </p>
+                                  )}
                                 </div>
                               </div>
                               <div className="space-y-1.5">
@@ -1594,24 +1843,82 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
           <div className="flex items-center justify-between gap-3">
             <Button
               type="button"
-              variant="ghost"
-              onClick={() => onOpenChange(false)}
-              className="text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] h-9 text-xs rounded-lg"
+              variant={discardConfirmMode ? 'destructive' : 'ghost'}
+              ref={batalBtnRef}
+              disabled={saving}
+              className={cn(
+                "h-9 text-xs rounded-lg transition-all",
+                discardConfirmMode
+                  ? "bg-red-500 hover:bg-red-600 text-white animate-pulse"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] disabled:opacity-50 disabled:cursor-not-allowed"
+              )}
             >
-              Batal
+              {discardConfirmMode ? '⚠ Yakin Buang?' : 'Batal'}
             </Button>
             <Button
               type="submit"
               onClick={handleSubmit}
               disabled={saving}
-              className="theme-bg hover:theme-hover text-white h-9 text-xs font-medium rounded-lg shadow-lg theme-shadow min-w-[100px]"
+              aria-busy={saving}
+              aria-label={saving ? 'Menyimpan produk' : isEdit ? 'Simpan produk' : 'Tambah produk'}
+              className="theme-bg hover:theme-hover text-white h-9 text-xs font-medium rounded-lg shadow-lg theme-shadow min-w-[100px] disabled:opacity-70 disabled:cursor-wait"
             >
-              {saving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-              {isEdit ? 'Simpan' : 'Tambah Produk'}
+              {saving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
+              {saving ? 'Menyimpan...' : isEdit ? 'Simpan' : 'Tambah Produk'}
             </Button>
           </div>
         </div>
       </ResponsiveDialogContent>
     </ResponsiveDialog>
+
+    {/* Batch 1 — Add/Edit Form Safety: composition → variant toggle warning.
+        Uses AlertDialog portaled to document.body (z-[100]) — works because this is a warning
+        about a toggle action, not about closing the form, so no close-intercept conflict. */}
+    {variantToggleOpen && createPortal(
+      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setVariantToggleOpen(false)}>
+        <div
+          className="bg-deep-space border border-white/[0.06] rounded-xl p-6 max-w-md w-[calc(100%-2rem)] shadow-2xl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-center mb-3">
+            <div className="h-12 w-12 rounded-full bg-amber-500/10 flex items-center justify-center">
+              <AlertCircle className="h-6 w-6 text-amber-400" />
+            </div>
+          </div>
+          <h2 className="text-white text-sm font-semibold text-center mb-2">Beralih ke mode varian?</h2>
+          <p className="text-slate-400 text-xs text-center mb-3">Komposisi produk saat ini ({variantToggleItemCount} item) akan disembunyikan. Saat disimpan, komposisi tingkat produk akan dihapus dan harus diatur ulang per varian.</p>
+          <ul className="mb-5 space-y-1.5 text-[11px] text-slate-400">
+            <li className="flex items-start gap-2"><span className="text-slate-500 mt-0.5">•</span><span>Komposisi tingkat produk akan dihapus saat disimpan</span></li>
+            <li className="flex items-start gap-2"><span className="text-slate-500 mt-0.5">•</span><span>Setiap varian harus diatur komposisinya sendiri</span></li>
+          </ul>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setVariantToggleOpen(false)}
+              className="flex-1 bg-white/[0.04] border-white/[0.04] text-slate-300 hover:bg-white/[0.04] h-9 text-xs"
+            >
+              Batal
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                setVariantToggleOpen(false)
+                setHasVariants(true)
+                if (variants.length === 0) {
+                  setVariants([{ name: '', sku: '', hpp: '', price: '', stock: '' }])
+                  setExpandedVariant(0)
+                }
+              }}
+              className="flex-1 bg-amber-600 hover:bg-amber-500 text-white h-9 text-xs"
+            >
+              Ya, Beralih
+            </Button>
+          </div>
+        </div>
+      </div>,
+      document.body
+    )}
+    </>
   )
 }
