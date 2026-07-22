@@ -59,8 +59,6 @@ import { syncAllData, getAllSyncTimes, syncSettingsFromServer, getCachedSettings
 import { cn } from '@/lib/utils'
 import { useSession } from 'next-auth/react'
 import { usePageStore } from '@/hooks/use-page-store'
-import { PaymentDialog } from '@/components/pos/payment-dialog'
-import { ReceiptDialog } from '@/components/pos/receipt-dialog'
 
 // ==================== HOOKS (Phase 1A modularization) ====================
 
