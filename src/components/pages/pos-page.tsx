@@ -71,6 +71,15 @@ import { usePosCart as UsePosCartHook, type CartItem as CartItemType2, type Belo
 import { usePosSync } from '../pos/hooks/use-pos-sync'
 import { usePosCheckout, type CheckoutResult, type PendingTransaction as PendingTxType } from '../pos/hooks/use-pos-checkout'
 
+// ==================== EXTRACTED UI COMPONENTS (Phase 1A-7) ====================
+
+import CategoryFilter from '../pos/components/CategoryFilter'
+import ProductGrid, { Pagination } from '../pos/components/ProductGrid'
+import { CustomerSelector } from '../pos/components/CustomerSelector'
+import CartItemList from '../pos/components/CartItemList'
+import CartSummary from '../pos/components/CartSummary'
+import PendingTransactionsList from '../pos/components/PendingTransactionsList'
+
 // ==================== CONSTANTS (stay in component) ====================
 
 const PRODUCTS_PER_PAGE = 24
@@ -356,650 +365,19 @@ export default function PosPage() {
   }, [cartHook.total])
 
   // ═══════════════════════════════════════════════════
-  // RENDER HELPERS (all stay in component — same JSX output)
+  // RENDER HELPERS replaced by extracted components (Phase 1A-7)
   // ═══════════════════════════════════════════════════
 
-  const renderCategoryChips = () => (
-    <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide px-1">
-      <button
-        onClick={() => productsHook.handleCategorySelect(null)}
-        className={`shrink-0 px-3 py-1.5 sm:px-3 sm:py-1.5 rounded-full text-[11px] font-medium border transition-all backdrop-blur-sm ${
-          !productsHook.selectedCategoryId
-            ? `${themeColors.activeBg} ${themeColors.text} ${themeColors.border} shadow-sm`
-            : 'aether-card text-slate-500 hover:text-slate-300'
-        }`}
-      >
-        <LayoutGrid className="inline h-3 w-3 mr-1 -mt-0.5" strokeWidth={1.5} />
-        Semua
-      </button>
-      {productsHook.categories.map((cat) => {
-        const colors = CATEGORY_COLORS[cat.color] || CATEGORY_COLORS.zinc
-        const isActive = productsHook.selectedCategoryId === cat.id
-        return (
-          <button
-            key={cat.id}
-            onClick={() => productsHook.handleCategorySelect(cat.id)}
-            className={`shrink-0 px-3 py-1.5 sm:px-3 sm:py-1.5 rounded-full text-[11px] font-medium border transition-all backdrop-blur-sm ${
-              isActive
-                ? `${colors.activeBg} ${colors.text} ${colors.border} shadow-sm`
-                : 'aether-card text-slate-500 hover:text-slate-300'
-            }`}
-          >
-            {cat.name}
-          </button>
-        )
-      })}
-    </div>
-  )
+  // (renderProductGrid replaced by <ProductGrid> component)
+  // (renderPagination replaced by <Pagination> component)
 
-  const renderProductGrid = () => {
-    if (productsHook.productsLoading) {
-      return Array.from({ length: 8 }).map((_, i) => (
-        <div key={i} className="h-[88px] md:h-[72px] rounded-xl aether-shimmer" />
-      ))
-    }
+  // (renderCustomerSelector replaced by <CustomerSelector> component)
 
-    if (productsHook.products.length === 0) {
-      return (
-        <div className="col-span-full text-center py-12">
-          <Package className="h-10 w-10 text-slate-600 mx-auto mb-2" strokeWidth={1.5} />
-          <p className="text-xs text-slate-500">
-            {productsHook.selectedCategoryId ? 'Tidak ada produk di kategori ini' : 'Tidak ada produk ditemukan'}
-          </p>
-        </div>
-      )
-    }
+  // (renderCartItemsMobile replaced by <CartItemList compact={false} />)
 
-    return productsHook.products.map((product) => {
-      const cartItemsForProduct = cartHook.cart.filter((i) => i.product.id === product.id)
-      const hasCartItems = cartItemsForProduct.length > 0
-      const isVariantProduct = product.hasVariants && product._variantCount > 0
+  // (renderCartItems replaced by <CartItemList compact={...} />)
 
-      const cartItem = !isVariantProduct ? cartHook.cart.find((i) => i.product.id === product.id && !i.variant) : null
-      const outOfStock = isVariantProduct
-        ? product.variants.length > 0 && product.variants.every(v => v.stock <= 0)
-        : product.stock <= 0
-      const catColor = product.categoryId && productsHook.categories.find(c => c.id === product.categoryId)?.color
-      const accentColor = catColor ? (CATEGORY_COLORS[catColor] || themeColors) : themeColors
-      const lowStock = product.stock > 0 && product.stock <= 5
-
-      const displayPrice = isVariantProduct
-        ? (product.variants && product.variants.length > 0
-          ? (() => {
-              const prices = product.variants.map(v => v.price)
-              const min = Math.min(...prices)
-              const max = Math.max(...prices)
-              return min === max ? formatCurrency(min) : `${formatCurrency(min)} - ${formatCurrency(max)}`
-            })()
-          : formatCurrency(product.price))
-        : formatCurrency(product.price)
-
-      const totalCartQty = isVariantProduct
-        ? cartItemsForProduct.reduce((sum, ci) => sum + ci.qty, 0)
-        : (cartItem?.qty || 0)
-
-      return (
-        <div
-          key={product.id}
-          className={cn(
-            'relative group min-h-[68px] md:min-h-0 rounded-2xl md:rounded-xl border text-left transition-all duration-200',
-            outOfStock
-              ? 'opacity-40 cursor-not-allowed aether-card p-2.5 md:p-3'
-              : hasCartItems
-              ? `${accentColor.border} ${accentColor.bg} ring-1 ring-inset ${accentColor.border.replace('border-', 'ring-')} cursor-pointer active:scale-[0.98]`
-              : 'aether-card cursor-pointer active:scale-[0.98]'
-          )}
-        >
-          {!outOfStock && (
-            <button
-              className="absolute inset-0 z-[2] rounded-2xl md:rounded-xl"
-              onClick={() => isVariantProduct ? productsHook.openVariantPicker(product) : cartHook.addToCart(product)}
-            />
-          )}
-          {hasCartItems && !outOfStock && (
-            <div className="absolute -top-1.5 -right-1.5 z-[3] flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full theme-bg text-white text-[10px] font-bold shadow-lg theme-shadow pointer-events-none">
-              {totalCartQty}
-            </div>
-          )}
-          <div className={cn(
-            'relative z-[1] pointer-events-none',
-            'p-2.5 md:p-3'
-          )}>
-            {/* Product Image */}
-            {product.image && (
-              <div className="relative w-full aspect-square max-h-[72px] md:max-h-[96px] mx-auto mb-2 md:mb-2.5 rounded-lg overflow-hidden bg-white/[0.03]">
-                <img
-                  src={product.image}
-                  alt={product.name}
-                  className="w-full h-full object-cover"
-                  onError={(e) => {
-                    e.currentTarget.style.display = 'none'
-                    const next = e.currentTarget.nextElementSibling
-                    if (next) next.setAttribute('style', 'display:flex')
-                  }}
-                />
-                <div className="absolute inset-0 items-center justify-center bg-white/[0.02] hidden">
-                  <Package className="h-5 w-5 text-slate-700" strokeWidth={1.5} />
-                </div>
-              </div>
-            )}
-            <div className="flex items-start justify-between gap-1 mb-1 md:mb-1.5">
-              <p className="text-[11px] md:text-xs font-medium text-slate-200 truncate">{product.name}</p>
-              {isVariantProduct && (
-                <span className="shrink-0 inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-md font-medium bg-violet-500/10 text-violet-400 border border-violet-500/20">
-                  <Layers className="h-2.5 w-2.5" strokeWidth={1.5} />
-                  {product._variantCount}
-                </span>
-              )}
-            </div>
-            <p className={cn('text-xs md:text-sm font-bold', isVariantProduct ? 'text-violet-400' : accentColor.text)}>{displayPrice}</p>
-            <div className="flex items-center justify-between mt-1.5">
-                {outOfStock ? (
-                  <span className="text-[10px] text-red-400 font-medium">Habis</span>
-                ) : isVariantProduct ? (
-                  (() => {
-                    const availableCount = product.variants.filter(v => v.stock > 0).length
-                    const totalCount = product.variants.length
-                    return (
-                      <span className={cn(
-                        'text-[10px] font-medium',
-                        availableCount === 0 ? 'text-red-400' : 'text-violet-400/70'
-                      )}>
-                        {availableCount === totalCount
-                          ? `${totalCount} varian tersedia`
-                          : availableCount > 0
-                            ? `${availableCount}/${totalCount} tersedia`
-                            : 'Semua varian habis'}
-                      </span>
-                    )
-                  })()
-                ) : (
-                  <span className={cn(
-                    'inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md font-medium',
-                    lowStock
-                      ? 'bg-amber-500/10 text-amber-400'
-                      : 'bg-white/[0.04] text-slate-500'
-                  )}>
-                    <span className={cn('w-1 h-1 rounded-full', lowStock ? 'bg-amber-400' : 'bg-slate-600')} />
-                    {product.stock}
-                  </span>
-                )}
-              </div>
-          </div>
-        </div>
-      )
-    })
-  }
-
-  const renderPagination = () => {
-    if (productsHook.totalProductPages <= 1 && !productsHook.productSearch) return null
-    return (
-      <div className="flex items-center justify-between px-1 py-2">
-        <Button variant="outline" size="sm" onClick={() => productsHook.setProductPage(p => Math.max(1, p - 1))} disabled={productsHook.productPage <= 1 || productsHook.productsLoading}
-          className="bg-nebula border-white/[0.06] text-slate-400 hover:bg-white/[0.04] hover:text-slate-200 h-7 text-xs">
-          <ChevronLeft className="h-3 w-3 mr-1" strokeWidth={1.5} /> Prev
-        </Button>
-        <span className="text-[11px] text-slate-500 font-medium">{productsHook.productPage}/{productsHook.totalProductPages}</span>
-        <Button variant="outline" size="sm" onClick={() => productsHook.setProductPage(p => Math.min(productsHook.totalProductPages, p + 1))} disabled={productsHook.productPage >= productsHook.totalProductPages || productsHook.productsLoading}
-          className="bg-nebula border-white/[0.06] text-slate-400 hover:bg-white/[0.04] hover:text-slate-200 h-7 text-xs">
-          Next <ChevronRight className="h-3 w-3 ml-1" strokeWidth={1.5} />
-        </Button>
-      </div>
-    )
-  }
-
-  // Customer selector for mobile cart sheet
-  const renderCustomerSelector = (isMobileView = false) => (
-    <div className={isMobileView ? 'aether-card rounded-2xl p-3.5 space-y-2' : 'border-b border-white/[0.06] px-4 py-3'}>
-      <div className="flex items-center justify-between">
-        <Label className="text-[11px] text-slate-500 font-medium tracking-wide uppercase">Customer</Label>
-        <button onClick={() => customersHook.setAddCustomerOpen(true)} className="text-[10px] theme-text hover:theme-text font-semibold flex items-center gap-1 transition-colors">
-          <UserPlus className="h-3 w-3" strokeWidth={1.5} /> Tambah Baru
-        </button>
-      </div>
-      <div className="relative">
-        <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" strokeWidth={1.5} />
-        <Input
-          placeholder={customersHook.selectedCustomer ? customersHook.selectedCustomer.name : 'Cari customer (walk-in jika kosong)'}
-          value={customersHook.customerSearch}
-          onChange={(e) => { customersHook.setCustomerSearch(e.target.value); customersHook.setCustomerDropdownOpen(true) }}
-          onFocus={() => customersHook.setCustomerDropdownOpen(true)}
-          className="pl-10 pr-8 h-10 text-sm bg-white/[0.04] border-white/[0.06] text-white placeholder:text-slate-500 rounded-xl backdrop-blur-sm"
-        />
-        {customersHook.selectedCustomer && (
-          <button onClick={() => { customersHook.setSelectedCustomer(null); customersHook.setCustomerSearch(''); cartHook.setPointsToUse(0) }}
-            className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 flex items-center justify-center rounded-full bg-white/[0.06] text-slate-400 hover:text-slate-200 hover:bg-white/[0.06] transition-colors">
-            <X className="h-3 w-3" strokeWidth={1.5} />
-          </button>
-        )}
-      </div>
-      {customersHook.customerDropdownOpen && customersHook.filteredCustomers.length > 0 && !customersHook.selectedCustomer && (
-        <div className={`absolute z-30 ${isMobileView ? 'w-[calc(100%-1.75rem)]' : 'w-full'} mt-1 aether-card-elevated rounded-2xl max-h-44 overflow-y-auto`}>
-          {customersHook.filteredCustomers.map((customer) => (
-            <button key={customer.id} onClick={() => { customersHook.setSelectedCustomer(customer); customersHook.setCustomerSearch(''); customersHook.setCustomerDropdownOpen(false); cartHook.setPointsToUse(0) }}
-              className="w-full text-left px-4 py-2.5 hover:bg-white/[0.04] border-b border-white/[0.04] last:border-0 transition-colors first:rounded-t-2xl last:rounded-b-2xl">
-              <p className="text-xs text-slate-200 font-medium">{customer.name}</p>
-              <p className="text-[10px] text-slate-500 mt-0.5">{customer.whatsapp} · <span className="text-amber-400">{customer.points} pts</span></p>
-            </button>
-          ))}
-        </div>
-      )}
-      {customersHook.selectedCustomer && (
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl theme-bg-very-light border theme-border-light">
-            <User className="h-3 w-3 theme-text" strokeWidth={1.5} />
-            <span className="text-[11px] theme-text font-medium">{customersHook.selectedCustomer.name}</span>
-          </div>
-          {customersHook.selectedCustomer.points > 0 && (
-            <Badge className="bg-amber-500/10 border-amber-500/20 text-amber-400 text-[10px] rounded-lg">
-              <Coins className="mr-1 h-2.5 w-2.5" strokeWidth={1.5} />
-              {customersHook.selectedCustomer.points} poin
-            </Badge>
-          )}
-        </div>
-      )}
-    </div>
-  )
-
-  // Cart items — mobile card-style layout (dedicated, not shared)
-  const renderCartItemsMobile = () => {
-    if (cartHook.cart.length === 0) return null
-    return (
-      <div className="space-y-3 pb-4">
-        {cartHook.cart.map((item) => {
-          const itemKey = cartHook.getCartKey(item.product.id, item.variant?.id || null)
-          const itemTotal = cartHook.getEffectivePrice(item) * item.qty
-          return (
-            <div key={itemKey} className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
-              {/* Top: Image + Name + Delete */}
-              <div className="flex items-center gap-3 mb-3">
-                {/* Image */}
-                {item.product.image ? (
-                  <div className="w-12 h-12 rounded-xl bg-white/[0.03] shrink-0 overflow-hidden relative">
-                    <img
-                      src={item.product.image}
-                      alt={item.product.name}
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        e.currentTarget.style.display = 'none'
-                        const fb = e.currentTarget.parentElement?.querySelector('.img-fb')
-                        if (fb) fb.setAttribute('style', 'display:flex')
-                      }}
-                    />
-                    <div className="img-fb absolute inset-0 items-center justify-center bg-white/[0.03] hidden">
-                      <Package className="h-5 w-5 text-slate-600" strokeWidth={1.5} />
-                    </div>
-                  </div>
-                ) : (
-                  <div className="w-12 h-12 rounded-xl bg-white/[0.03] flex items-center justify-center shrink-0">
-                    <Package className="h-5 w-5 text-slate-600" strokeWidth={1.5} />
-                  </div>
-                )}
-                <div className="flex-1 min-w-0">
-                  <p className="text-[14px] font-semibold text-white truncate">{item.product.name}</p>
-                  {item.variant && (
-                    <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-violet-500/10 border border-violet-500/15 mt-1">
-                      <span className="text-[10px] font-medium text-violet-400">{item.variant.name}</span>
-                    </span>
-                  )}
-                  {(() => {
-                    const bKey = `${item.product.id}::${item.variant?.id || 'base'}`
-                    const bInfo = batchInfo[bKey]
-                    if (!bInfo || !bInfo.batchNumber) return null
-                    const d = bInfo.daysUntilExpiry
-                    if (d == null) return null
-                    if (d <= 7) return <span className="text-[10px] text-rose-400 leading-tight">🔴 Exp {d} hari</span>
-                    if (d <= 30) return <span className="text-[10px] text-amber-400 leading-tight">🟠 Exp {d} hari</span>
-                    return <span className="text-[10px] text-emerald-400 leading-tight">🟢 Batch: {bInfo.batchNumber}</span>
-                  })()}
-                </div>
-                <button
-                  onClick={() => cartHook.removeFromCart(item.product.id, item.variant?.id)}
-                  className="h-9 w-9 flex items-center justify-center rounded-xl text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-all active:scale-95"
-                >
-                  <Trash2 className="h-4 w-4" strokeWidth={1.5} />
-                </button>
-              </div>
-
-              {/* Bottom: Price + Qty + Total */}
-              <div className="flex items-center justify-between gap-3">
-                {/* Price info */}
-                <div className="min-w-0">
-                  {cartHook.editingPriceId === itemKey ? (
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[10px] text-slate-500">Rp</span>
-                      <input
-                        ref={cartHook.priceInputRef}
-                        type="number"
-                        min="0"
-                        value={cartHook.editingPriceValue}
-                        onChange={(e) => {} /* handled internally by hook — but we need to wire this */}
-                        onBlur={() => {} /* handled internally */}
-                        onKeyDown={(e) => { if (e.key === 'Enter') cartHook.confirmEditPrice(); if (e.key === 'Escape') cartHook.cancelEditPrice() }}
-                        className="flex-1 h-8 text-sm font-bold bg-white/[0.04] border border-amber-500/25 text-amber-400 rounded-lg outline-none text-right min-w-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                      />
-                    </div>
-                  ) : settingsHook.settings.manualDiscountEnabled ? (
-                    <button onClick={() => cartHook.startEditPrice(itemKey, cartHook.getEffectivePrice(item))} className="text-left">
-                      {item.customPrice != null && (
-                        <span className="block text-[11px] text-slate-500 line-through">{formatCurrency(cartHook.getItemPrice(item))}</span>
-                      )}
-                      <div className="flex items-center gap-1">
-                        <span className={cn('text-[13px] font-medium', item.customPrice != null ? 'text-amber-400' : 'text-slate-300')}>@{formatCurrency(cartHook.getEffectivePrice(item))}</span>
-                        <Pencil className="h-3 w-3 text-slate-500" strokeWidth={1.5} />
-                      </div>
-                    </button>
-                  ) : (
-                    <span className="text-[13px] text-slate-400">@{formatCurrency(cartHook.getItemPrice(item))}</span>
-                  )}
-                  <span className="text-[11px] text-slate-500 mt-0.5 block">× {item.qty} item</span>
-                </div>
-
-                {/* Qty stepper — LARGE touch targets */}
-                <div className="flex items-center gap-1">
-                  <button
-                    className="h-10 w-10 rounded-xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/[0.08] active:scale-95 transition-all"
-                    onClick={() => cartHook.updateQty(item.product.id, item.qty - 1, item.variant?.id)}
-                  >
-                    <Minus className="h-4 w-4" strokeWidth={1.5} />
-                  </button>
-                  {cartHook.editingQtyId === itemKey ? (
-                    <input
-                      ref={cartHook.qtyInputRef}
-                      type="number"
-                      min="0"
-                      max={cartHook.getItemStock(item)}
-                      value={cartHook.editingQtyValue}
-                      onChange={(e) => {} /* handled internally */}
-                      onBlur={() => cartHook.confirmEditQty()}
-                      onKeyDown={(e) => { if (e.key === 'Enter') cartHook.confirmEditQty(); if (e.key === 'Escape') cartHook.cancelEditQty() }}
-                      className="w-12 h-10 text-[15px] font-bold text-white text-center bg-white/[0.04] border border-white/[0.08] rounded-xl outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                    />
-                  ) : (
-                    <span
-                      className="w-12 text-center text-[15px] font-bold text-white cursor-pointer hover:theme-text transition-colors"
-                      onClick={() => cartHook.startEditQty(itemKey, item.qty)}
-                    >{item.qty}</span>
-                  )}
-                  <button
-                    className="h-10 w-10 rounded-xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/[0.08] active:scale-95 transition-all"
-                    onClick={() => cartHook.updateQty(item.product.id, item.qty + 1, item.variant?.id)}
-                  >
-                    <Plus className="h-4 w-4" strokeWidth={1.5} />
-                  </button>
-                </div>
-
-                {/* Total */}
-                <p className="text-[15px] font-bold theme-text shrink-0 tabular-nums">{formatCurrency(itemTotal)}</p>
-              </div>
-            </div>
-          )
-        })}
-      </div>
-    )
-  }
-
-  // Cart items list — shared between desktop and mobile
-  const renderCartItems = (compact = false) => {
-    if (cartHook.cart.length === 0) return null
-    return (
-      <div className={compact ? 'space-y-2 pb-2' : 'space-y-1.5'}>
-        {cartHook.cart.map((item) => {
-          const itemKey = cartHook.getCartKey(item.product.id, item.variant?.id || null)
-          const itemTotal = cartHook.getEffectivePrice(item) * item.qty
-          return (
-            <div key={itemKey} className={cn(
-              'group flex items-center gap-2.5 rounded-xl aether-card transition-all duration-150',
-              compact ? 'p-3' : 'p-2.5'
-            )}>
-              {/* Product Image */}
-              {item.product.image ? (
-                <div className={cn(
-                  'shrink-0 relative rounded-lg overflow-hidden bg-white/[0.03]',
-                  compact ? 'w-11 h-11' : 'w-9 h-9'
-                )}>
-                  <img
-                    src={item.product.image}
-                    alt={item.product.name}
-                    className="w-full h-full object-cover"
-                    onError={(e) => {
-                      e.currentTarget.style.display = 'none'
-                      const fb = e.currentTarget.parentElement?.querySelector('.img-fallback')
-                      if (fb) fb.setAttribute('style', 'display:flex')
-                    }}
-                  />
-                  <div className="img-fallback absolute inset-0 items-center justify-center bg-white/[0.03] hidden">
-                    <Package className="h-3.5 w-3.5 text-slate-700" strokeWidth={1.5} />
-                  </div>
-                </div>
-              ) : (
-                <div className={cn(
-                  'shrink-0 rounded-lg bg-white/[0.03] flex items-center justify-center',
-                  compact ? 'w-11 h-11' : 'w-9 h-9'
-                )}>
-                  <Package className="h-3.5 w-3.5 text-slate-700" strokeWidth={1.5} />
-                </div>
-              )}
-              {/* Product Info */}
-              <div className="flex-1 min-w-0">
-                <p className={cn('font-semibold text-white truncate leading-tight', compact ? 'text-[13px]' : 'text-xs')}>{item.product.name}</p>
-                {item.variant && (
-                  <span className="inline-flex items-center gap-1 mt-0.5 px-1.5 py-0.5 rounded-md bg-violet-500/10 border border-violet-500/15">
-                    <span className="text-[9px] font-medium text-violet-400 leading-tight">{item.variant.name}</span>
-                  </span>
-                )}
-                {(() => {
-                  const bKey = `${item.product.id}::${item.variant?.id || 'base'}`
-                  const bInfo = batchInfo[bKey]
-                  if (!bInfo || !bInfo.batchNumber) return null
-                  const d = bInfo.daysUntilExpiry
-                  if (d == null) return null
-                  if (d <= 7) return <span className="text-[10px] text-rose-400 leading-tight">🔴 Exp {d} hari</span>
-                  if (d <= 30) return <span className="text-[10px] text-amber-400 leading-tight">🟠 Exp {d} hari</span>
-                  return <span className="text-[10px] text-emerald-400 leading-tight">🟢 Batch: {bInfo.batchNumber}</span>
-                })()}
-                {/* Price — editable when manual discount enabled */}
-                {settingsHook.settings.manualDiscountEnabled ? (
-                  cartHook.editingPriceId === itemKey ? (
-                    <div className="flex items-center gap-1.5 mt-1">
-                      <span className="text-[10px] text-slate-500">Rp</span>
-                      <input
-                        ref={cartHook.priceInputRef}
-                        type="number"
-                        min="0"
-                        value={cartHook.editingPriceValue}
-                        onChange={(e) => {} /* internal */}
-                        onBlur={() => cartHook.confirmEditPrice()}
-                        onKeyDown={(e) => { if (e.key === 'Enter') cartHook.confirmEditPrice(); if (e.key === 'Escape') cartHook.cancelEditPrice() }}
-                        className={cn(
-                          'flex-1 h-6 text-xs font-bold bg-white/[0.04] border border-amber-500/25 text-amber-400 rounded-md outline-none text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none',
-                          compact ? 'min-w-0' : 'min-w-0'
-                        )}
-                      />
-                      <span className={cn('text-slate-600', compact ? 'text-[11px]' : 'text-[10px]')}>× {item.qty}</span>
-                    </div>
-                  ) : (
-                    <button
-                      className="flex items-center gap-1.5 mt-1 group/price"
-                      onClick={() => cartHook.startEditPrice(itemKey, cartHook.getEffectivePrice(item))}
-                    >
-                      {item.customPrice != null && (
-                        <span className={cn('line-through text-slate-600', compact ? 'text-[10px]' : 'text-[9px]')}>
-                          {formatCurrency(cartHook.getItemPrice(item))}
-                        </span>
-                      )}
-                      <span className={cn(
-                        'font-medium tabular-nums',
-                        compact ? 'text-[12px]' : 'text-[11px]',
-                        item.customPrice != null ? 'text-amber-400' : 'text-slate-300'
-                      )}>
-                        @{formatCurrency(cartHook.getEffectivePrice(item))}
-                      </span>
-                      <Pencil className="h-2.5 w-2.5 text-slate-600 opacity-0 group-hover/price:opacity-100 transition-opacity" strokeWidth={1.5} />
-                    </button>
-                  )
-                ) : (
-                  <span className={cn(
-                    'text-slate-400 tabular-nums mt-0.5 block',
-                    compact ? 'text-[11px]' : 'text-[10px]'
-                  )}>
-                    @{formatCurrency(cartHook.getItemPrice(item))} × {item.qty}
-                  </span>
-                )}
-              </div>
-              {/* Qty Controls */}
-              <div className={cn('flex items-center gap-1 shrink-0', compact ? 'ml-auto' : '')}>
-                <button
-                  className={cn(
-                    'w-6 h-6 md:w-7 md:h-7 flex items-center justify-center rounded-lg text-slate-500 hover:text-white hover:bg-white/[0.06] transition-all',
-                    compact ? 'text-xs' : 'text-[11px]'
-                  )}
-                  onClick={() => cartHook.updateQty(item.product.id, item.qty - 1, item.variant?.id)}
-                >
-                  <Minus className={cn('stroke-[1.5]', compact ? 'h-3 w-3' : 'h-3.5 w-3.5')} />
-                </button>
-                {cartHook.editingQtyId === itemKey ? (
-                  <input
-                    ref={cartHook.qtyInputRef}
-                    type="number"
-                    min="0"
-                    max={cartHook.getItemStock(item)}
-                    value={cartHook.editingQtyValue}
-                    onChange={(e) => {} /* internal */}
-                    onBlur={() => cartHook.confirmEditQty()}
-                    onKeyDown={(e) => { if (e.key === 'Enter') cartHook.confirmEditQty(); if (e.key === 'Escape') cartHook.cancelEditQty() }}
-                    className={cn(
-                      'font-bold text-white text-center bg-white/[0.04] border border-white/[0.08] rounded-lg outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none',
-                      compact ? 'w-8 h-6 text-xs' : 'w-8 h-7 text-[11px]'
-                    )}
-                  />
-                ) : (
-                  <span
-                    className={cn(
-                      'cursor-pointer hover:theme-text transition-colors font-bold text-white tabular-nums',
-                      compact ? 'w-8 h-6 text-xs flex items-center justify-center' : 'w-8 h-7 text-[11px] flex items-center justify-center'
-                    )}
-                    onClick={() => cartHook.startEditQty(itemKey, item.qty)}
-                  >{item.qty}</span>
-                )}
-                <button
-                  className={cn(
-                    'w-6 h-6 md:w-7 md:h-7 flex items-center justify-center rounded-lg text-slate-500 hover:text-white hover:bg-white/[0.06] transition-all',
-                    compact ? 'text-xs' : 'text-[11px]'
-                  )}
-                  onClick={() => cartHook.updateQty(item.product.id, item.qty + 1, item.variant?.id)}
-                >
-                  <Plus className={cn('stroke-[1.5]', compact ? 'h-3 w-3' : 'h-3.5 w-3.5')} />
-                </button>
-              </div>
-              {/* Item Total & Delete */}
-              <div className={cn('text-right shrink-0', compact ? 'ml-2' : '')}>
-                <p className={cn('font-bold tabular-nums', compact ? 'text-sm text-white' : 'text-xs text-slate-200')}>
-                  {formatCurrency(itemTotal)}
-                </p>
-                <button
-                  onClick={() => cartHook.removeFromCart(item.product.id, item.variant?.id)}
-                  className={cn(
-                    'mt-0.5 flex items-center justify-center text-slate-600 hover:text-red-400 transition-colors ml-auto',
-                    compact ? 'h-6 w-6' : 'h-5 w-5'
-                  )}
-                >
-                  <X className={cn('stroke-[1.5]', compact ? 'h-3.5 w-3.5' : 'h-3 w-3')} />
-                </button>
-              </div>
-            </div>
-          )
-        })}
-      </div>
-    )
-  }
-
-  // Cart summary section (desktop right panel bottom)
-  const renderCartSummary = () => (
-    <>
-      {/* Subtotal row */}
-      <div className="flex items-center justify-between text-[11px]">
-        <span className="text-slate-500">Subtotal</span>
-        <span className="text-slate-300 font-medium tabular-nums">{formatCurrency(cartHook.subtotal)}</span>
-      </div>
-
-      {/* Manual Discount (if any) */}
-      {cartHook.manualDiscountTotal > 0 && (
-        <div className="flex items-center justify-between text-[11px]">
-          <span className="text-amber-400">Diskon Manual</span>
-          <span className="text-amber-400 font-medium tabular-nums">-{formatCurrency(cartHook.manualDiscountTotal)}</span>
-        </div>
-      )}
-
-      {/* Points Discount (if any) */}
-      {cartHook.pointsDiscount > 0 && (
-        <div className="flex items-center justify-between text-[11px]">
-          <span className="text-cyan-400 flex items-center gap-1"><Coins className="h-3 w-3" strokeWidth={1.5} /> Poin ({cartHook.pointsToUse})</span>
-          <span className="text-cyan-400 font-medium tabular-nums">-{formatCurrency(cartHook.pointsDiscount)}</span>
-        </div>
-      )}
-
-      {/* Promo Discount (if any) */}
-      {promoDiscount > 0 && (
-        <div className="flex items-center justify-between text-[11px]">
-          <span className="text-emerald-400 flex items-center gap-1"><Tag className="h-3 w-3" strokeWidth={1.5} /> {selectedPromo?.name || 'Promo'}</span>
-          <span className="text-emerald-400 font-medium tabular-nums">-{formatCurrency(promoDiscount)}</span>
-        </div>
-      )}
-
-      {/* PPN/Tax (if enabled) */}
-      {cartHook.ppnAmount > 0 && (
-        <div className="flex items-center justify-between text-[11px]">
-          <span className="text-slate-500">PPN ({settingsHook.settings.ppnRate}%)</span>
-          <span className="text-slate-300 font-medium tabular-nums">{formatCurrency(cartHook.ppnAmount)}</span>
-        </div>
-      )}
-
-      <Separator className="bg-white/[0.06]" />
-
-      {/* Total */}
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold text-slate-300">Total</span>
-        <span className="text-lg font-bold theme-text tabular-nums">{formatCurrency(cartHook.total)}</span>
-      </div>
-
-      {/* Points usage (if customer selected with points) */}
-      {customersHook.selectedCustomer && customersHook.selectedCustomer.points > 0 && settingsHook.settings.loyaltyEnabled && (
-        <div className="pt-2 space-y-1.5">
-          <div className="flex items-center justify-between text-[10px]">
-            <span className="text-slate-500">Poin tersedia</span>
-            <span className="text-amber-400 font-medium">{customersHook.selectedCustomer.points} poin (maks. {formatCurrency(Math.min(customersHook.selectedCustomer.points * settingsHook.settings.loyaltyPointValue, cartHook.subtotal - cartHook.manualDiscountTotal - promoDiscount))})</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Label className="text-[10px] text-slate-500 shrink-0">Gunakan poin:</Label>
-            <input
-              type="number"
-              min="0"
-              max={cartHook.maxPointsToUse}
-              value={cartHook.pointsToUse || ''}
-              onChange={(e) => checkoutHook.handlePointsChange(e.target.value)}
-              placeholder="0"
-              className="flex-1 h-7 text-xs bg-white/[0.04] border border-white/[0.08] text-white rounded-lg px-2 outline-none focus-visible:ring-1 focus-visible:ring-cyan-500/50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-            />
-            {cartHook.pointsToUse > 0 && (
-              <span className="text-[10px] text-cyan-400 font-medium shrink-0">-{formatCurrency(cartHook.pointsDiscount)}</span>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Below-HPP Warning */}
-      {cartHook.hasBelowHpp && (
-        <div className="flex items-start gap-1.5 px-2.5 py-2 rounded-lg bg-red-500/[0.08] border border-red-500/15">
-          <AlertTriangle className="h-3.5 w-3.5 text-red-400 shrink-0 mt-0.5" strokeWidth={1.5} />
-          <div className="text-[10px] text-red-400/90 leading-relaxed">
-            <p className="font-semibold">⚠️ {cartHook.belowHppItems.length} item di bawah HPP!</p>
-            <p className="mt-0.5">Rugi total: <strong>-{formatCurrency(cartHook.belowHppTotalLoss)}</strong></p>
-          </div>
-        </div>
-      )}
-    </>
-  )
+  // (renderCartSummary replaced by <CartSummary> component)
 
   // ═══════════════════════════════════════════════════
   // MAIN RENDER
@@ -1220,17 +598,45 @@ export default function PosPage() {
           </div>
 
           {/* Category Chips */}
-          <div className="shrink-0">{renderCategoryChips()}</div>
+          <div className="shrink-0">
+            <CategoryFilter
+              categories={productsHook.categories}
+              selectedCategoryId={productsHook.selectedCategoryId}
+              onSelect={(id) => productsHook.handleCategorySelect(id)}
+              themeColors={themeColors}
+            />
+          </div>
 
           {/* Product Grid — scrollable middle (pt-2 for badge clearance) */}
           <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pt-2">
             <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 pb-2">
-              {renderProductGrid()}
+              <ProductGrid
+                products={productsHook.products}
+                productsLoading={productsHook.productsLoading}
+                selectedCategoryId={productsHook.selectedCategoryId}
+                cart={cartHook.cart}
+                categories={productsHook.categories}
+                onAddToCart={cartHook.addToCart}
+                onOpenVariantPicker={productsHook.openVariantPicker}
+                getItemPrice={cartHook.getItemPrice}
+                getCartKey={cartHook.getCartKey}
+                themeColors={themeColors}
+                formatCurrency={formatCurrency}
+              />
             </div>
           </div>
 
           {/* Pagination — fixed bottom */}
-          <div className="shrink-0">{renderPagination()}</div>
+          <div className="shrink-0">
+            <Pagination
+              currentPage={productsHook.productPage}
+              totalPages={productsHook.totalProductPages}
+              hasSearch={!!productsHook.productSearch}
+              loading={productsHook.productsLoading}
+              onPrev={() => productsHook.setProductPage(p => Math.max(1, p - 1))}
+              onNext={() => productsHook.setProductPage(p => Math.min(productsHook.totalProductPages, p + 1))}
+            />
+          </div>
         </div>
 
         {/* Cart - Right (2/5) — CLEAN DESIGN: no inline payment */}
@@ -1331,14 +737,60 @@ export default function PosPage() {
                 <p className="text-[11px] text-slate-600 mt-1">Pilih produk dari kiri untuk memulai</p>
               </div>
             ) : (
-              renderCartItems(false)
+              <CartItemList
+                cart={cartHook.cart}
+                compact={false}
+                getCartKey={cartHook.getCartKey}
+                getItemPrice={cartHook.getItemPrice}
+                getEffectivePrice={cartHook.getEffectivePrice}
+                getItemStock={cartHook.getItemStock}
+                editingQtyId={cartHook.editingQtyId}
+                editingQtyValue={cartHook.editingQtyValue}
+                editingPriceId={cartHook.editingPriceId}
+                editingPriceValue={cartHook.editingPriceValue}
+                priceInputRef={cartHook.priceInputRef}
+                qtyInputRef={cartHook.qtyInputRef}
+                onUpdateQty={cartHook.updateQty}
+                onRemoveFromCart={cartHook.removeFromCart}
+                onStartEditQty={cartHook.startEditQty}
+                onConfirmEditQty={cartHook.confirmEditQty}
+                onCancelEditQty={cartHook.cancelEditQty}
+                onStartEditPrice={cartHook.startEditPrice}
+                onConfirmEditPrice={cartHook.confirmEditPrice}
+                onCancelEditPrice={cartHook.cancelEditPrice}
+                formatCurrency={formatCurrency}
+                batchInfo={batchInfo}
+                manualDiscountEnabled={settingsHook.settings.manualDiscountEnabled}
+              />
             )}
           </div>
 
           {/* Summary & Action Buttons — fixed bottom (NO inline payment) */}
           {cartHook.cart.length > 0 && (
             <div className="shrink-0 border-t border-white/[0.06] bg-gradient-to-t from-deep-space to-nebula/80 p-4 space-y-3">
-              {renderCartSummary()}
+              <CartSummary
+                subtotal={cartHook.subtotal}
+                manualDiscountTotal={cartHook.manualDiscountTotal}
+                pointsDiscount={cartHook.pointsDiscount}
+                promoDiscount={promoDiscount}
+                ppnAmount={cartHook.ppnAmount}
+                total={cartHook.total}
+                paidAmount={checkoutHook.paidAmount}
+                change={cartHook.change}
+                hasBelowHpp={cartHook.hasBelowHpp}
+                belowHppItems={cartHook.belowHppItems}
+                maxPointsToUse={cartHook.maxPointsToUse}
+                pointsToUse={cartHook.pointsToUse}
+                ppnEnabled={settingsHook.settings.ppnEnabled}
+                loyaltyEnabled={settingsHook.settings.loyaltyEnabled}
+                ppnRate={settingsHook.settings.ppnRate}
+                customerPoints={customersHook.selectedCustomer?.points}
+                loyaltyPointValue={settingsHook.settings.loyaltyPointValue}
+                promoName={selectedPromo?.name}
+                onSetPointsToUse={(val) => checkoutHook.handlePointsChange(String(val))}
+                onSetPaidAmount={checkoutHook.setPaidAmount}
+                formatCurrency={formatCurrency}
+              />
               <div className="flex gap-2">
                 <Button onClick={checkoutHook.handleHoldTransaction} variant="outline"
                   className="h-11 px-4 font-semibold text-sm rounded-xl border-white/[0.08] text-slate-300 hover:bg-white/[0.04] hover:text-white transition-all shrink-0">
@@ -1373,12 +825,36 @@ export default function PosPage() {
             className="pl-10 h-11 text-sm bg-nebula/80 border-white/[0.06] text-white placeholder:text-slate-500 rounded-xl"
           />
         </div>
-        {renderCategoryChips()}
+        <CategoryFilter
+          categories={productsHook.categories}
+          selectedCategoryId={productsHook.selectedCategoryId}
+          onSelect={(id) => productsHook.handleCategorySelect(id)}
+          themeColors={themeColors}
+        />
         <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pt-2 pb-20">
           <div className="grid grid-cols-2 gap-2.5 pb-2">
-            {renderProductGrid()}
+            <ProductGrid
+              products={productsHook.products}
+              productsLoading={productsHook.productsLoading}
+              selectedCategoryId={productsHook.selectedCategoryId}
+              cart={cartHook.cart}
+              categories={productsHook.categories}
+              onAddToCart={cartHook.addToCart}
+              onOpenVariantPicker={productsHook.openVariantPicker}
+              getItemPrice={cartHook.getItemPrice}
+              getCartKey={cartHook.getCartKey}
+              themeColors={themeColors}
+              formatCurrency={formatCurrency}
+            />
           </div>
-          {renderPagination()}
+          <Pagination
+            currentPage={productsHook.productPage}
+            totalPages={productsHook.totalProductPages}
+            hasSearch={!!productsHook.productSearch}
+            loading={productsHook.productsLoading}
+            onPrev={() => productsHook.setProductPage(p => Math.max(1, p - 1))}
+            onNext={() => productsHook.setProductPage(p => Math.min(productsHook.totalProductPages, p + 1))}
+          />
         </div>
       </div>
 
@@ -1662,13 +1138,72 @@ export default function PosPage() {
 
           {/* Sheet Body — scrollable */}
           <div className="flex-1 overflow-y-auto overscroll-contain">
-            {renderCustomerSelector(true)}
-            {renderCartItemsMobile()}
+            <CustomerSelector
+              selectedCustomer={customersHook.selectedCustomer}
+              customerSearch={customersHook.customerSearch}
+              filteredCustomers={customersHook.filteredCustomers}
+              customerDropdownOpen={customersHook.customerDropdownOpen}
+              manualDiscountEnabled={settingsHook.settings.manualDiscountEnabled}
+              onCustomerSearchChange={(v) => { customersHook.setCustomerSearch(v); customersHook.setCustomerDropdownOpen(true) }}
+              onCustomerDropdownOpen={customersHook.setCustomerDropdownOpen}
+              onSelectCustomer={(c) => { customersHook.setSelectedCustomer(c); customersHook.setCustomerSearch(''); customersHook.setCustomerDropdownOpen(false); cartHook.setPointsToUse(0) }}
+              onClearCustomer={() => { customersHook.setSelectedCustomer(null); customersHook.setCustomerSearch(''); cartHook.setPointsToUse(0) }}
+              onAddNewCustomer={() => customersHook.setAddCustomerOpen(true)}
+              onSetPointsToUse={cartHook.setPointsToUse}
+              isMobileView={true}
+            />
+            <CartItemList
+              cart={cartHook.cart}
+              compact={false}
+              getCartKey={cartHook.getCartKey}
+              getItemPrice={cartHook.getItemPrice}
+              getEffectivePrice={cartHook.getEffectivePrice}
+              getItemStock={cartHook.getItemStock}
+              editingQtyId={cartHook.editingQtyId}
+              editingQtyValue={cartHook.editingQtyValue}
+              editingPriceId={cartHook.editingPriceId}
+              editingPriceValue={cartHook.editingPriceValue}
+              priceInputRef={cartHook.priceInputRef}
+              qtyInputRef={cartHook.qtyInputRef}
+              onUpdateQty={cartHook.updateQty}
+              onRemoveFromCart={cartHook.removeFromCart}
+              onStartEditQty={cartHook.startEditQty}
+              onConfirmEditQty={cartHook.confirmEditQty}
+              onCancelEditQty={cartHook.cancelEditQty}
+              onStartEditPrice={cartHook.startEditPrice}
+              onConfirmEditPrice={cartHook.confirmEditPrice}
+              onCancelEditPrice={cartHook.cancelEditPrice}
+              formatCurrency={formatCurrency}
+              batchInfo={batchInfo}
+              manualDiscountEnabled={settingsHook.settings.manualDiscountEnabled}
+            />
 
             {/* Summary Section */}
             {cartHook.cart.length > 0 && (
               <div className="px-4 py-3 space-y-2 border-t border-white/[0.06] mt-2">
-                {renderCartSummary()}
+                <CartSummary
+                  subtotal={cartHook.subtotal}
+                  manualDiscountTotal={cartHook.manualDiscountTotal}
+                  pointsDiscount={cartHook.pointsDiscount}
+                  promoDiscount={promoDiscount}
+                  ppnAmount={cartHook.ppnAmount}
+                  total={cartHook.total}
+                  paidAmount={checkoutHook.paidAmount}
+                  change={cartHook.change}
+                  hasBelowHpp={cartHook.hasBelowHpp}
+                  belowHppItems={cartHook.belowHppItems}
+                  maxPointsToUse={cartHook.maxPointsToUse}
+                  pointsToUse={cartHook.pointsToUse}
+                  ppnEnabled={settingsHook.settings.ppnEnabled}
+                  loyaltyEnabled={settingsHook.settings.loyaltyEnabled}
+                  ppnRate={settingsHook.settings.ppnRate}
+                  customerPoints={customersHook.selectedCustomer?.points}
+                  loyaltyPointValue={settingsHook.settings.loyaltyPointValue}
+                  promoName={selectedPromo?.name}
+                  onSetPointsToUse={(val) => checkoutHook.handlePointsChange(String(val))}
+                  onSetPaidAmount={checkoutHook.setPaidAmount}
+                  formatCurrency={formatCurrency}
+                />
               </div>
             )}
           </div>
@@ -1709,7 +1244,7 @@ export default function PosPage() {
               Transaksi yang belum tersinkronisasi ke server
             </ResponsiveDialogDescription>
           </ResponsiveDialogHeader>
-          <OfflineSyncContent
+          <PendingTransactionsList
             isOnline={sync.isOnline}
             onSynced={() => {
               // Trigger refresh after sync
@@ -1858,324 +1393,6 @@ function PendingListContent({
           </div>
         )
       })}
-    </div>
-  )
-}
-
-// ==================== OFFLINE SYNC SUB-COMPONENT (unchanged) ====================
-
-function OfflineSyncContent({
-  isOnline,
-  onSynced,
-}: {
-  isOnline: boolean
-  onSynced: () => void
-}) {
-  const offlineList = useLiveQuery(
-    async () => {
-      const list = await localDB.transactions.where('isSynced').equals(0).toArray()
-      return list.sort((a, b) => b.createdAt - a.createdAt)
-    },
-    []
-  )
-  const [syncingIds, setSyncingIds] = useState<Set<number>>(new Set())
-  const [syncingAll, setSyncingAll] = useState(false)
-
-  const syncOne = async (tx: OfflineTransaction) => {
-    if (!tx.id || syncingIds.has(tx.id)) return
-    setSyncingIds(prev => new Set(prev).add(tx.id!))
-    try {
-      const res = await fetch('/api/transactions/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transactions: [tx] }),
-      })
-      const data = await res.json()
-      if (res.ok && data.results?.[0]?.success) {
-        await localDB.transactions.update(tx.id, {
-          isSynced: 1,
-          syncedAt: Date.now(),
-          invoiceNumber: data.results[0].invoiceNumber,
-          serverTransactionId: data.results[0].serverId,
-        })
-        toast.success('Transaksi berhasil disync!')
-        onSynced()
-      } else {
-        const error = data.results?.[0]?.error || data.error || 'Gagal sync'
-        await localDB.transactions.update(tx.id, {
-          retryCount: (tx.retryCount || 0) + 1,
-          lastError: error,
-        })
-        toast.error('Sync gagal', { description: error })
-      }
-    } catch {
-      await localDB.transactions.update(tx.id, {
-        retryCount: (tx.retryCount || 0) + 1,
-        lastError: 'Tidak ada koneksi internet',
-      })
-      toast.error('Sync gagal — tidak ada koneksi')
-    } finally {
-      setSyncingIds(prev => {
-        const next = new Set(prev)
-        next.delete(tx.id!)
-        return next
-      })
-    }
-  }
-
-  const syncAll = async () => {
-    if (!offlineList || offlineList.length === 0 || syncingAll) return
-    setSyncingAll(true)
-    try {
-      const res = await fetch('/api/transactions/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transactions: offlineList }),
-      })
-      const data = await res.json()
-      if (res.ok) {
-        let synced = 0
-        let failed = 0
-        for (const result of data.results || []) {
-          if (result.success) {
-            await localDB.transactions.update(result.localId, {
-              isSynced: 1,
-              syncedAt: Date.now(),
-              invoiceNumber: result.invoiceNumber,
-              serverTransactionId: result.serverId,
-            })
-            synced++
-          } else {
-            const existing = await localDB.transactions.get(result.localId)
-            await localDB.transactions.update(result.localId, {
-              retryCount: (existing?.retryCount || 0) + 1,
-              lastError: result.error,
-            })
-            failed++
-          }
-        }
-        if (synced > 0) {
-          toast.success(`${synced} transaksi berhasil disync!`)
-          onSynced()
-        }
-        if (failed > 0) {
-          toast.error(`${failed} transaksi gagal sync`, { description: 'Periksa stok produk.' })
-        }
-      } else {
-        toast.error('Sync gagal — server error')
-      }
-    } catch {
-      toast.error('Sync gagal — tidak ada koneksi internet')
-    } finally {
-      setSyncingAll(false)
-    }
-  }
-
-  const deleteOne = async (id: number) => {
-    await localDB.transactions.delete(id)
-    toast.success('Transaksi offline dihapus')
-  }
-
-  const deleteAll = async () => {
-    if (!offlineList) return
-    for (const tx of offlineList) {
-      if (tx.id) await localDB.transactions.delete(tx.id)
-    }
-    toast.success(`${offlineList.length} transaksi offline dihapus`)
-  }
-
-  const formatTime = (ts: number) => {
-    const d = new Date(ts)
-    return d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-  }
-
-  const getTxInfo = (tx: OfflineTransaction) => {
-    const p = tx.payload
-    const invoice = (tx.invoiceNumber as string) || (p.invoiceNumber as string) || `OFF-${tx.createdAt.toString(36).toUpperCase()}`
-    const total = (p.total as number) || (p.subtotal as number) || 0
-    const items = (p.items as Array<{ product?: { name: string }; variant?: { name: string }; qty: number }>) || []
-    const itemCount = items.reduce((s, i) => s + (i.qty || 1), 0)
-    return { invoice, total, itemCount }
-  }
-
-  if (!offlineList) {
-    return (
-      <div className="flex items-center justify-center py-10">
-        <Loader2 className="h-5 w-5 text-slate-500 animate-spin" />
-      </div>
-    )
-  }
-
-  if (offlineList.length === 0) {
-    return (
-      <div className="text-center py-8">
-        <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/15 flex items-center justify-center mx-auto mb-3.5">
-          <Check className="h-7 w-7 text-emerald-400" strokeWidth={1.5} />
-        </div>
-        <p className="text-sm font-bold text-white">Semua Tersinkronisasi</p>
-        <p className="text-xs text-slate-500 mt-1.5">Tidak ada transaksi yang perlu disinkronkan</p>
-        <Separator className="mt-5 bg-white/[0.06]" />
-      </div>
-    )
-  }
-
-  const totalNominal = offlineList.reduce((s, tx) => {
-    const p = tx.payload
-    return s + ((p.total as number) || (p.subtotal as number) || 0)
-  }, 0)
-
-  return (
-    <div className="space-y-3 py-2">
-      {/* Offline warning banner */}
-      {!isOnline && (
-        <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-red-500/[0.08] border border-red-500/[0.15]">
-          <span className="relative flex h-2.5 w-2.5 shrink-0">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
-            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
-          </span>
-          <WifiOff className="h-4 w-4 text-red-400 shrink-0" strokeWidth={1.5} />
-          <div className="min-w-0">
-            <p className="text-[11px] text-red-400 font-bold leading-tight">Mode Offline Aktif</p>
-            <p className="text-[10px] text-red-400/60 mt-0.5 leading-relaxed">Sinkronisasi otomatis akan dilakukan saat koneksi kembali</p>
-          </div>
-        </div>
-      )}
-
-      {/* Summary stats bar */}
-      <div className="flex gap-2">
-        <div className="flex-1 rounded-xl bg-white/[0.03] border border-white/[0.06] px-3 py-2.5">
-          <p className="text-[10px] text-slate-500">Transaksi</p>
-          <p className="text-sm font-bold text-white tabular-nums">{offlineList.length}</p>
-        </div>
-        <div className="flex-1 rounded-xl bg-white/[0.03] border border-white/[0.06] px-3 py-2.5">
-          <p className="text-[10px] text-slate-500">Total Nominal</p>
-          <p className="text-sm font-bold text-white tabular-nums">{formatCurrency(totalNominal)}</p>
-        </div>
-        <div className="flex-1 rounded-xl bg-white/[0.03] border border-white/[0.06] px-3 py-2.5">
-          <p className="text-[10px] text-slate-500">Status</p>
-          <div className="flex items-center gap-1.5 mt-0.5">
-            <span className={cn("h-1.5 w-1.5 rounded-full", isOnline ? "bg-emerald-400" : "bg-red-400")} />
-            <span className={cn("text-xs font-semibold", isOnline ? "text-emerald-400" : "text-red-400")}>{isOnline ? 'Online' : 'Offline'}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Sticky bulk actions bar */}
-      <div className="sticky top-0 z-10 -mx-1 px-1 pb-2 bg-nebula/95 backdrop-blur-sm">
-        <div className="flex items-center justify-between gap-2 rounded-xl bg-white/[0.03] border border-white/[0.06] px-3 py-2">
-          <Button
-            size="sm"
-            onClick={syncAll}
-            disabled={syncingAll || !isOnline}
-            className="h-8 text-[11px] font-medium rounded-lg theme-bg hover:theme-hover text-white transition-colors disabled:opacity-40"
-          >
-            {syncingAll ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : <RefreshCw className="mr-1.5 h-3 w-3" strokeWidth={1.5} />}
-            Sinkronkan Semua
-            {offlineList.length > 0 && (
-              <Badge variant="secondary" className="ml-1.5 bg-white/[0.15] text-white border-white/[0.2] text-[9px] px-1.5 py-0 h-4 font-semibold">
-                {offlineList.length}
-              </Badge>
-            )}
-          </Button>
-          <button
-            onClick={deleteAll}
-            className="text-[11px] text-slate-500 hover:text-red-400 transition-colors font-medium shrink-0"
-          >
-            Hapus Semua
-          </button>
-        </div>
-      </div>
-
-      {/* Transaction List */}
-      <div className="space-y-2.5 max-h-[50vh] overflow-y-auto">
-        {offlineList.map((tx) => {
-          const { invoice, total, itemCount } = getTxInfo(tx)
-          const isSyncing = syncingIds.has(tx.id!)
-          const hasError = !!tx.lastError
-          const borderColor = hasError ? 'border-l-red-500/40' : 'border-l-amber-500/40'
-
-          return (
-            <div key={tx.id} className={cn(
-              "relative rounded-xl border border-white/[0.06] bg-white/[0.02] border-l-[3px] p-3.5 space-y-3",
-              borderColor
-            )}>
-              {/* Delete button overlay top-right */}
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => deleteOne(tx.id!)}
-                className="absolute top-2.5 right-2.5 h-6 w-6 px-0 text-slate-600 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
-              >
-                <X className="h-3 w-3" strokeWidth={2} />
-              </Button>
-
-              {/* Header: Invoice + OFFLINE tag + item count | Total */}
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <p className="text-xs font-semibold text-slate-200 font-mono truncate">{invoice}</p>
-                    <Badge variant="secondary" className="bg-red-500/10 text-red-400 border-red-500/15 text-[8px] px-1.5 py-0 h-4 font-bold tracking-wider shrink-0">
-                      OFFLINE
-                    </Badge>
-                  </div>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className="text-[10px] text-slate-500 flex items-center gap-1">
-                      <Package className="h-2.5 w-2.5" strokeWidth={1.5} />
-                      {itemCount} item
-                    </span>
-                    <span className="text-slate-700">·</span>
-                    <span className="text-[10px] text-slate-600">{formatTime(tx.createdAt)}</span>
-                  </div>
-                </div>
-                <div className="shrink-0">
-                  <p className="text-sm font-bold text-white tabular-nums">{formatCurrency(total)}</p>
-                </div>
-              </div>
-
-              {/* Status section: retry badge + error */}
-              <div className="flex items-center gap-2 flex-wrap">
-                <Badge
-                  variant="secondary"
-                  className={cn(
-                    "text-[9px] px-1.5 py-0 h-4 font-semibold border",
-                    (tx.retryCount || 0) > 2
-                      ? "bg-red-500/10 text-red-400 border-red-500/15"
-                      : "bg-amber-500/10 text-amber-400 border-amber-500/15"
-                  )}
-                >
-                  {(tx.retryCount || 0)}x retry
-                </Badge>
-                {tx.lastError && (
-                  <span className="flex items-center gap-1 text-[10px] text-red-400/80 min-w-0">
-                    <AlertTriangle className="h-2.5 w-2.5 shrink-0" strokeWidth={1.5} />
-                    <span className="truncate" title={tx.lastError}>{tx.lastError}</span>
-                  </span>
-                )}
-              </div>
-
-              {/* Sync button — full width */}
-              <Button
-                size="sm"
-                onClick={() => syncOne(tx)}
-                disabled={isSyncing || !isOnline}
-                className="w-full h-8 text-[11px] font-medium rounded-xl theme-bg hover:theme-hover text-white transition-colors disabled:opacity-40"
-              >
-                {isSyncing ? (
-                  <>
-                    <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
-                    Menyinkronkan...
-                  </>
-                ) : (
-                  <>
-                    <RefreshCw className="mr-1.5 h-3 w-3" strokeWidth={1.5} />
-                    Sync Sekarang
-                  </>
-                )}
-              </Button>
-            </div>
-          )
-        })}
-      </div>
     </div>
   )
 }
