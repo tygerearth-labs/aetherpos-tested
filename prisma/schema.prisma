@@ -161,12 +161,14 @@ model Customer {
   outletId    String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?            // CUST-002 soft-delete — null = active. Code already filters `deletedAt: null` (21 sites)
 
   outlet       Outlet       @relation(fields: [outletId], references: [id])
   transactions Transaction[]
   loyaltyLogs  LoyaltyLog[]
 
   @@unique([whatsapp, outletId])
+  @@index([outletId, deletedAt])   // CUST-002: partial-index equivalent — optimizes "active customers by outlet"
 }
 
 // ==================== TRANSACTION ====================
