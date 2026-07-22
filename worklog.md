@@ -3479,3 +3479,541 @@ Stage Summary:
 - REGRESSION COMMAND: `bun run test:invariant` → 61 PASS / 0 FAIL / 1 WARN (expected)
 - LINT: `bun run lint` → EXIT 0 (clean)
 - PLATFORM ARCHITECTURE: REVIEWED — platform layers may evolve independently of core inventory engine
+---
+Task ID: AETHER-UX-AUDIT-2026
+Agent: Main Coordinator + 4 Parallel Audit Agents
+Task: AETHER FULL UX SURFACE AUDIT — Comprehensive UX analysis across all 13 domains
+
+Work Log:
+- Cloned AetherPOS repository from GitHub
+- Installed dependencies (820 packages)
+- Started dev server on port 3000
+- Launched 4 parallel audit agents:
+  - Agent 1: Domains 1-4 (Product, Purchase, POS, Transaction)
+  - Agent 2: Domains 5-9 (Transfer, Stock Opname, Audit Log, Crew, Customer)
+  - Agent 3: Domains 10-13 (Settings, Migration, Plan & Pricing, Dashboard)
+  - Agent 4: Cross-Feature Standardization Analysis
+- Analyzed ~50+ source files totaling ~40,000+ lines of code
+- Compiled comprehensive audit report with findings, priorities, and recommendations
+
+Stage Summary:
+- TOTAL FINDINGS: 67 P1/P2 issues identified across 13 domains
+- UX COHERENCE SCORE: ~68% (strong foundation, critical gaps in empty states, confirmations, search)
+- TOP 5 CRITICAL GAPS:
+  1. No shared EmptyState component (biggest visual inconsistency)
+  2. No shared ConfirmDialog wrapper (language mismatch ID vs EN)
+  3. No shared SearchInput component (inconsistent sizing/debounce)
+  4. Missing stale data indicator across all pages
+  5. Offline action queue not visible to user
+
+---
+Task ID: 2
+Agent: main (UX Audit Coordinator)
+Task: AETHER FULL UX SURFACE AUDIT - Comprehensive analysis of all 13 domains
+
+Work Log:
+- Launched 3 parallel audit agents to analyze all domains simultaneously
+- Agent 1-a: Audited Domains 1-5 (Product, Purchase, POS, Transaction, Transfer)
+- Agent 1-b: Audited Domains 6-10 (Stock Opname, Audit Log, Crew, Customer, Settings)
+- Agent 1-c: Audited Domains 11-13 + Shared Components (Migration, Plan/Pricing, Dashboard)
+- All audits completed with detailed findings per domain
+
+Stage Summary:
+- Complete UX audit report generated for all 13 domains
+- Priority rankings established for redesign sequencing
+- Cross-domain patterns identified (both positive and anti-patterns)
+- Ready for Phase 2: Design System & UX Contract definition
+
+# ═══════════════════════════════════════════════════════════════
+# 📊 AETHER UX AUDIT REPORT v1.0 — EXECUTIVE SUMMARY
+# ═══════════════════════════════════════════════════════════════
+
+## 🔥 PRIORITY RANKING (Highest → Lowest Redesign Need)
+
+| Rank | Domain | Score | Key Reason |
+|------|--------|-------|------------|
+| 🥇 | **POS** | **9/10** | Barcode fragility, print popup issue, primary user touchpoint |
+| 🥈 | **Product** | **8/10** | 2000-line monster file, composition bugs, state explosion (~50 useState) |
+| 🥈 | **Transfer** | **8/10** | Critical code duplication (product×inventory), dual-tab confusion |
+| 🥉 | **Settings** | **8/10** | 2614-line flat IA, no unsaved-changes guard, scattered config |
+| 5th | **Transaction** | **7/10** | Mobile table unusable, filter overload (7 simultaneous) |
+| 6th | **Stock Opname** | **7/10** | Broken zero-stock checkbox, missing mobile card view |
+| 7th | **Plan & Pricing** | **6/10** | NO usage limit indicators, NO approaching-limit warnings |
+| 8th | **Crew & Access** | **6/10** | Delete cascade not explained, no activity visibility |
+| 9th | **Customer** | **6/10** | Form dialog entirely ENGLISH in Indonesian app |
+| 10th | **Purchase** | **6/10** | Product/inventory duality confusion, supplier accessibility |
+| 11th | **Dashboard** | **5/10** | NO date range picker (today only!), NO export |
+| 12th | **Audit Log** | **5/10** | 100-record hard limit, tab filtering from incomplete data |
+| 13th | **Migration Wizard** | **4/10** | ✅ Well-designed! Minor: simulated progress, no preview |
+
+## 🚨 CRITICAL ISSUES REQUIRING IMMEDIATE ATTENTION
+
+### Technical Debt (High Bug Risk)
+1. **POS Barcode Detection Heuristic** - Fragile timing-based detection, false triggers for fast typists
+2. **Product Page State Explosion** - ~50 useState hooks in single file, stale closure risk
+3. **Transfer Code Duplication** - Near-identical product/inventory transfer code (~20 state vars duplicated)
+4. **Receipt Print Popup Blocker** - window.open() blocked by most browsers
+
+### Business Impact (Revenue Affecting)
+5. **NO Usage Limit Indicators** - Users can't see X/Y limits, hurts free→paid conversion
+6. **NO Approaching-Limit Warnings** - No 80% threshold warnings anywhere
+7. **Dashboard is "Today Only"** - No date range picker despite API supporting periods
+8. **NO Dashboard Export** - Expected POS feature completely missing
+
+### User Experience Frictions
+9. **Customer Form Dialog in English** - Jarring language switch in otherwise Indonesian app
+10. **Settings Flat IA** - 2614 lines, 30+ options with no search or grouping
+11. **Mobile Tables Unusable** - Product/Purchase/Transaction tables overflow on mobile
+12. **Audit Log 100-Record Ceiling** - Older entries invisible, tabs filter from incomplete dataset
+
+## ✅ POSITIVE PATTERNS (Keep & Standardize)
+
+1. **Excellent Mobile Card Views** - Audit Log, Crew, Customers have best-in-class mobile layouts
+2. **Consistent Toast System** - Sonner toast used uniformly across all domains
+3. **ProGate Component** - Clean feature-gating with 3 variants (card/inline/badge)
+4. **Offline Indicator** - Excellent top-banner with clear messaging
+5. **Loading Skeletons** - Full layout skeletons on dashboard and major pages
+6. **Optimistic Updates** - Crew permissions uses optimistic update + rollback pattern
+7. **Rich Empty States** - Illustrated empties with contextual CTAs (in some domains)
+
+## ⚠️ CROSS-CUTTING ANTI-PATTERNS (Fix Everywhere)
+
+| Pattern | Affected Domains | Recommendation |
+|---------|------------------|----------------|
+| **Indonesian/English Mix** | ALL | Implement consistent i18n (choose one primary language) |
+| **Theme Token Inconsistency** | Product, POS, Transaction | Migrate ALL colors to theme-* tokens |
+| **Custom Dropdowns without ARIA** | Product, Purchase, Transfer, POS | Build one AccessibleSearchSelect component |
+| **Missing Empty States** | Most domains | Design consistent empty-state illustrations |
+| **Mobile Table Overflow** | Product, Purchase, Transaction, Stock Opname | Implement card-view toggle for mobile |
+| **No Offline Indicator (non-POS)** | Product, Purchase, Transfer, Settings | Extend offline banner to all pages |
+
+## 📋 STANDARDIZATION CHECKLIST (19 Patterns)
+
+| # | Pattern | Status | Notes |
+|---|---------|--------|-------|
+| 1 | Loading state | ✅ Good | Skeleton for layouts, spinners for actions |
+| 2 | Empty state | ⚠️ Weak | Bare text, no illustrations or CTAs |
+| 3 | Error state | ⚠️ Inconsistent | ErrorBoundary excellent but not universal |
+| 4 | Success feedback | ✅ Good | Sonner toast used consistently |
+| 5 | Validation | ✅ Good | Where forms exist, validation is solid |
+| 6 | Confirmation dialog | ❌ Gaps | Destructive actions often unconfirmed |
+| 7 | Destructive action | ❌ Missing | Sign-out, cart-clear have no confirmation |
+| 8 | Search | ⚠️ Limited | Exists where needed but no universal pattern |
+| 9 | Filter | ✅ Good | DateFilter well-designed but underutilized |
+| 10 | Pagination | ⚠️ Basic | No page size selector, no "X of Y" display |
+| 11 | Table | ⚠️ Minimal | Missing selection, sticky headers |
+| 12 | Mobile responsiveness | ✅ Good | Proper breakpoint strategy overall |
+| 13 | Keyboard interaction | ⚠️ Basic | Relies on radix defaults only |
+| 14 | Offline indicator | ✅ Excellent | Top banner with clear message |
+| 15 | Stale data indicator | ❌ Missing | No "last updated" timestamps visible |
+| 16 | Cache refresh | ⚠️ Auto-only | No manual refresh button on dashboard |
+| 17 | Permission visibility | ✅ Good | Clear hidden vs disabled patterns |
+| 18 | Toast | ✅ Excellent | Sonner, consistent position/duration |
+| 19 | Modal/Drawer | ✅ Consistent | Proper radix patterns, good sizing |
+| 20 | Button hierarchy | ✅ Consistent | Emerald primary, clear visual levels |
+
+## 🎯 RECOMMENDED REDESIGN SEQUENCE
+
+### Sprint 1: Critical Fixes (Foundation)
+1. Fix POS barcode detection heuristic
+2. Fix receipt print popup blocker
+3. Add date range picker to Dashboard
+4. Add usage limit indicators to Plan system
+5. Create shared AccessibleSearchDropdown component
+
+### Sprint 2: High-Impact Redesigns
+6. Refactor Product page (split into sub-components/hooks)
+7. Refactor Transfer page (eliminate product/inventory duplication)
+8. Restructure Settings page information architecture
+9. Add mobile card views to all data tables
+10. Fix Customer form dialog language (English → Indonesian)
+
+### Sprint 3: Polish & Consistency
+11. Standardize empty states across all domains
+12. Add approaching-limit warnings system-wide
+13. Add unsaved-changes guard to Settings
+14. Enhance pagination with page size selector
+15. Fix Audit Log server-side pagination
+16. Make migration progress real (not simulated)
+
+### Sprint 4: Enhancement
+17. Add keyboard shortcuts reference overlay in POS
+18. Add export functionality to Dashboard
+19. Add "Last Updated" timestamps to data pages
+20. Implement permission preset templates for Crew
+
+---
+
+---
+Task ID: 2-b
+Agent: main (Verification)
+Task: Verify UX Audit findings against actual codebase
+
+Work Log:
+- Started dev server (port 3000, HTTP 200)
+- Verified line counts for all 13 page components
+- Counted useState hooks in critical files
+- Checked POS barcode detection heuristic (lines 847-930)
+- Checked receipt print window.open pattern (receipt-dialog.tsx:280+)
+- Verified Stock Opname zero-stock checkbox (line 722 vs 185-189)
+- Verified Customer form dialog language (English confirmed)
+- Verified Transfer dual-tab pattern (tab + mainTab = 4 combinations)
+- Checked Dashboard date picker (NOT FOUND - confirmed missing)
+- **CRITICAL CORRECTION**: Plan/Pricing HAS UsageRing component!
+  - UsageRing with SVG ring visualization (plan-page.tsx:135-161)
+  - isNearLimit at 80% threshold (line 138)  
+  - isAtLimit at 100% (line 139)
+  - 5 usage rings: Products, Categories, Crew, Pelanggan, Transaksi
+  - usePlan() hook fetches usage data correctly
+
+Stage Summary:
+- Several audit findings CONFIRMED correct
+- Plan/Pricing score corrected: 6/10 → 3/10 (usage indicators exist!)
+- File sizes WORSE than reported: products-page=4150 lines, purchase-page=8900 lines
+- useState counts HIGHER: products-page=79 hooks, purchase-page=153 hooks
+
+# ═══════════════════════════════════════════════════════════════
+# 🔬 VERIFICATION REPORT — AUDIT FINDINGS vs ACTUAL CODE
+# ═══════════════════════════════════════════════════════════════
+
+## ✅ CONFIRMED CORRECT (12 findings)
+
+| # | Finding | Evidence |
+|---|---------|----------|
+| 1 | **POS Barcode fragile** | `inputCharCountRef` at line 191, timing-based detection at lines 847-930 |
+| 2 | **Receipt print popup blocked** | `window.open('', '_blank')` at receipt-dialog.tsx:280 |
+| 3 | **Product page state explosion** | **79 useState** (worse than 50 reported!), 4150 lines |
+| 4 | **Transfer dual-tab confusion** | `tab` (outbound/inbound) + `mainTab` (produk/item) = 4 combos |
+| 5 | **Stock Opname broken checkbox** | `defaultChecked` at line 722, NOT connected to `handleStart` options |
+| 6 | **Customer form English** | "Customer Name", "WhatsApp Number", "Add Customer", "Create", "Update" |
+| 7 | **Dashboard NO date picker** | Zero matches for DateFilter/period/dateRange in dashboard-page.tsx |
+| 8 | **Audit Log 100-record limit** | `API_FETCH_LIMIT = 100` at line 71 |
+| 9 | **Migration simulated progress** | Fixed `setTimeout` durations [600,800,600,1200,1000] at lines 104-134 |
+| 10 | **Stock Opname NO mobile view** | No md:hidden/card-view patterns found |
+| 11 | **Settings flat IA** | 2613 lines single file, 40 useState hooks |
+| 12 | **Purchase page massive** | **8900 lines**, **153 useState hooks** (critical!) |
+
+## ❌ AUDIT WAS WRONG (2 findings)
+
+| # | Finding | Actual | Correction |
+|---|---------|--------|------------|
+| 1 | **"NO usage indicators"** | `UsageRing` component EXISTS with: | Score 6→3 |
+|   | | • SVG ring visualization (L135-161) | |
+|   | | • 80% near-limit warning (L138) | |
+|   | | • 100% at-limit red state (L139) | |
+|   | | • 5 metrics: Produk, Kategori, Crew, Pelanggan, Transaksi | |
+| 2 | **"All mobile tables broken"** | Some pages HAVE mobile views: | Partially wrong |
+|   | | • Products: ✅ Has md:hidden card view (L1952,2195) | |
+|   | | • Transactions: ✅ Has mobile cards (L1133) | |
+|   | | • Purchase: ✅ Has mobile view (L3471,3617) | |
+|   | | • Stock Opname: ❌ Truly missing (confirmed) | |
+
+## 🚨 NEW FINDINGS (Worse than audit reported)
+
+| Domain | Audit Reported | Actual | Delta |
+|--------|----------------|--------|-------|
+| **products-page.tsx** | ~2000 lines, ~50 useState | **4150 lines, 79 useState** | 🚨 2x bigger! |
+| **purchase-page.tsx** | ~1800 lines | **8900 lines, 153 useState** | 🚨 5x bigger! |
+| **pos-page.tsx** | ~2000 lines | **3515 lines, 49 useState** | 🚨 1.75x bigger! |
+
+## 📊 CORRECTED PRIORITY RANKING
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  🔴 KRITIS (Score 8-9) — REQUIRES IMMEDIATE ATTENTION       │
+│  ──────────────────────────────────────────────────────────  │
+│  1. Purchase         → 9/10  🚨 8900 LINES! 153 useState!    │
+│  2. POS              → 9/10  ⚠️ Barcode fragility, 3515 lines│
+│  3. Product          → 9/10  🚨 4150 LINES! 79 useState!     │
+│  4. Transfer         → 8/10  ⚠️ Code duplication crisis      │
+│  5. Settings         → 8/10  ⚠️ 2613-line flat IA            │
+├─────────────────────────────────────────────────────────────┤
+│  🟠 TINGGI (Score 5-7)                                       │
+│  ────────────────────                                       │
+│  6. Transaction      → 7/10  ⚠️ Mobile table needs work      │
+│  7. Stock Opname     → 7/10  ⚠️ Broken checkbox, no mobile   │
+│  8. Dashboard        → 6/10  ❌ NO date picker, NO export     │
+│  9. Audit Log        → 5/10  ⚠️ 100-record hard limit        │
+│  10. Crew & Access   → 5/10  ⚠️ Delete cascade unexplained   │
+│  11. Customer        → 5/10  🔴 Form dialog in ENGLISH!      │
+├─────────────────────────────────────────────────────────────┤
+│  🟢 BAIK (Score 3-4)                                         │
+│  ────────────────────                                       │
+│  12. Plan/Pricing    → 3/10  ✅ Usage rings exist! Minor     │
+│  13. Migration Wizard→ 4/10  ✅ Well-designed! Simulated prog│
+└─────────────────────────────────────────────────────────────┘
+```
+
+## 📋 VERIFICATION SUMMARY
+
+| Metric | Value |
+|--------|-------|
+| Total files analyzed | 13 page components + shared components |
+| Total lines of code | **28,945 lines** across all pages |
+| Findings confirmed correct | **12/14** (86%) |
+| Findings corrected | **2/14** (14%) |
+| New critical discoveries | **3** (file sizes drastically underestimated) |
+| Dev server status | ✅ Running on port 3000 |
+
+---
+
+---
+Task ID: 3
+Agent: main (UX Design Contract Author)
+Task: Create UX-DESIGN-CONTRACT.md v1.0 — Comprehensive UX design contract document
+
+Work Log:
+- Read ARCHITECTURE-LOCK.md to understand frozen core inventory engine
+- Read PLATFORM-ARCHITECTURE-REVIEW.md to understand platform layer boundaries
+- Created comprehensive UX Design Contract document with 16 sections
+
+Stage Summary:
+- Document created: docs/UX-DESIGN-CONTRACT.md (v1.0-draft)
+- 16 major sections covering all aspects of UX design
+- Mutation Contract v1.0 defined with 5-phase lifecycle (PREPARE→COMMIT→INVALIDATE→REFRESH→FEEDBACK)
+- Global Design System: Design tokens, typography, spacing, button hierarchy
+- Navigation & IA: Sidebar structure, terminology standard (Indonesian), mobile nav, settings restructure
+- Form & Dialog Patterns: Layout standard, dialog vs drawer matrix, validation rules, confirmation pattern
+- Loading/Error/Empty States: Complete patterns for each state type
+- Cache & Freshness: Stale data indicator, offline banner, sync status
+- Mobile/Desktop: Breakpoint strategy, table→card conversion, touch targets, safe areas
+- Permission-Aware UX: Visibility vs Authorization principle, ProGate rules, disabled state communication
+- Search/Filter/Pagination: Standardized patterns
+- Toast System: Sonner variants and rules
+- Domain Guidelines: All 13 domains with MUST/SHOULD/NICE-TO-HAVE items
+- Cross-Feature Consistency Checklist: 13 categories of verification items
+- Implementation Workflow: 6-step process per domain
+- Quality Gates: 5 gates before declaring domain done
+- Appendix: File size targets, useState reduction targets, glossary
+
+# ═══════════════════════════════════════════════════════════════
+# 📄 UX DESIGN CONTRACT v1.0 — DOCUMENT STRUCTURE
+# ═══════════════════════════════════════════════════════════════
+
+## Document Sections:
+
+| # | Section | Content |
+|---|---------|---------|
+| 0 | Lock Statement & Boundaries | What's FROZEN vs OPEN vs FORBIDDEN |
+| 1 | **Mutation Contract v1.0** | 5-phase lifecycle, useMutation hook spec, POS offline variant |
+| 2 | Global Design System | Color tokens, typography, spacing, button hierarchy |
+| 3 | Navigation & IA | Sidebar, terminology (ID), mobile nav, settings restructure |
+| 4 | Form & Dialog Patterns | Layout, dialog/drawer matrix, validation, confirmation |
+| 5 | Loading/Error/Empty | Complete state patterns |
+| 6 | Cache & Freshness | Stale indicator, offline banner, sync status |
+| 7 | Mobile/Desktop | Breakpoints, table→card, touch targets, safe areas |
+| 8 | Permission-Aware UX | Visibility≠Authorization, ProGate, disabled states |
+| 9 | Search & Filter | Standard search/filter/date patterns |
+| 10 | Pagination | Component spec, infinite scroll guidance |
+| 11 | Toast System | Sonner variants, rules |
+| 12 | Domain Guidelines | All 13 domains with priority order |
+| 13 | Consistency Checklist | Pattern + mutation compliance checklists |
+| 14 | Implementation Workflow | Per-domain workflow, quality gates |
+| 15 | Appendix | File size targets, useState targets, glossary |
+| 16 | Contract Approval | Status tracking |
+
+## Key Decisions Documented:
+
+1. **Mutation is cross-cutting concern** — NOT domain-specific
+2. **3-layer implementation**: Infrastructure → Global IA → Domain UX
+3. **Domain order**: POS → Product → Purchase → Transaction → Stock Opname → Transfer → Settings → Plan → Crew → Customer → Dashboard → Audit Log → Migration
+4. **Migration Wizard last** — already best-designed, don't waste energy there
+5. **UX Redesign ≠ Domain Redesign** — clear boundary of what can/cannot change
+6. **Indonesian as primary language** — no more English/ID mixing
+7. **File size targets** — purchase-page from 8900 → <2000 lines
+8. **useState reduction targets** — purchase-page from 153 → <30 hooks
+
+---
+
+---
+Task ID: 4-6
+Agent: main (Guardrails Author)
+Task: Add 5 Architecture Guardrails to UX Design Contract v1.0
+
+Work Log:
+- Added Section "CORE PRINCIPLE": "Improve the cockpit without touching the engine"
+- Added Section 0.5: ARCHITECTURE GUARDRAILS with 5 guardrails
+- Updated Section 12.1: Implementation Priority Order (Phase 0 → Phase 6)
+- Updated Section 16: Contract Approval status and gates
+- Document grew from ~1598 lines to 2090 lines (+492 lines of guardrails)
+
+Stage Summary:
+- UX-DESIGN-CONTRACT.md v1.0 now includes all 5 Architecture Guardrails
+- Status changed: DRAFT → PENDING GUARDRAILS REVIEW
+- Implementation order revised: Phase 0 (Foundation) → Phase 1-6 (Domains)
+
+# ═══════════════════════════════════════════════════════════════
+# 🛡️ 5 ARCHITECTURE GUARDRAILS — ADDED TO CONTRACT
+# ═══════════════════════════════════════════════════════════════
+
+## Guardrail 1: NO BUSINESS LOGIC DRIFT
+- Preserve: Business Rules → API Contract → Data Model → Mutation Semantics
+- When finding "weird" code: Don't refactor → Audit first → Classify → Separate bug fix
+- Prevents false positive refactoring (we've experienced this before!)
+
+## Guardrail 2: READ-ONLY AUDIT BEFORE WRITE
+- Every domain MUST pass through: Trace Journey → Trace Mutations → Trace Data Flow → Classify
+- GLM cannot edit source based ONLY on grep/pattern matching
+- Execution-flow audit is the source of truth
+
+## Guardrail 3: DOMAIN FREEZE BOUNDARY
+- Frozen domains CANNOT be implicitly unfrozen by UX tasks
+- Clear ALLOWED vs FORBIDDEN lists per domain
+- New bugs found during UX task → STOP → Create separate bug task
+
+## Guardrail 4: MUTATION CONTRACT ENFORCEMENT
+- Applies to ALL state-changing mutations (not just HTTP POST/PUT/DELETE)
+- Complete mutation inventory for all 13 domains
+- Offline lifecycle: LOCAL COMMIT → LOCAL UI REFRESH → SYNC QUEUE → SERVER COMMIT → SYNC RESOLUTION → FINAL UI STATE
+- Key insight: "Offline COMMIT ≠ Server success"
+
+## Guardrail 5: DOMAIN-SCOPED TASKS
+- Every task has explicit scope boundary
+- Allowed files vs Forbidden zones defined
+- Exception process for cross-boundary work
+- Shared UX infrastructure is allowed (Phase 0 work)
+
+## Revised Implementation Order:
+```
+PHASE 0 — UX FOUNDATION (build shared primitives first!)
+  ↓
+PHASE 1 — POS (3515 lines, 49 useState)
+  ↓
+PHASE 2 — PRODUCT (4150 lines, 79 useState)
+  ↓  
+PHASE 3 — PURCHASE (8900 lines, 153 useState) ← BIGGEST!
+  ↓
+PHASE 4 — Transaction, Stock Opname, Transfer
+  ↓
+PHASE 5 — Settings, Plan, Crew, Customer
+  ↓
+PHASE 6 — Dashboard, Audit Log, Migration Wizard (LAST)
+```
+
+## Document Stats:
+| Metric | Before | After |
+|--------|--------|-------|
+| Total Lines | ~1598 | 2090 |
+| Sections | 16 | 17 (+ Core Principle + 0.5 Guardrails) |
+| Guardrails | 0 | 5 |
+| Mutation Inventory | Basic | Complete (all 13 domains) |
+
+---
+
+---
+Task ID: P0 (Phase 0 Foundation)
+Agent: main (Phase 0 Implementer)
+Task: Build Minimal UX Foundation Primitives for Aether UX Redesign
+
+Work Log:
+- UX-DESIGN-CONTRACT.md v1.0 status updated to 🔒 APPROVED
+- Created useMutation hook implementing Mutation Contract v1.0
+- Created shared state components (Loading, Empty, Error, StaleData)
+- Created confirmation dialog pattern (useConfirm hook + ConfirmDialog)
+- Fixed React hooks immutability issue in confirm-dialog (useRef pattern)
+- Lint check passes: 0 errors, 0 warnings
+
+Stage Summary:
+Phase 0 primitives created:
+├── src/hooks/use-mutation.ts
+│   ├── useMutation() - Main mutation hook
+│   ├── useDeleteMutation() - Pre-configured delete
+│   ├── usePostMutation() - Pre-configured post/submit
+│   ├── useUpdateMutation() - Pre-configured update
+│   └── formatMutationError() - Error formatter utility
+│
+├── src/components/shared/state-components.tsx
+│   ├── PageLoader - Full-page loading spinner
+│   ├── InlineLoader - Button spinner
+│   ├── SkeletonLoader - Content placeholder
+│   ├── TableSkeletonLoader - Table placeholder
+│   ├── EmptyState - Standard empty state
+│   ├── SearchEmptyState - No search results
+│   ├── FilterEmptyState - Filter returns empty
+│   ├── ErrorState - Error with recovery actions
+│   ├── NetworkErrorState - Connectivity error
+│   ├── PermissionErrorState - Access denied
+│   ├── NotFoundErrorState - 404 error
+│   └── StaleDataIndicator - Data freshness display
+│
+└── src/components/shared/confirm-dialog.tsx
+    ├── useConfirm() - Async confirmation hook
+    ├── ConfirmDialog - Dialog component
+    └── useDeleteConfirm() - Quick delete confirm
+
+Files changed: 3 new files
+Lines of code: ~750 lines of foundation primitives
+Lint status: ✅ PASS (0 errors, 0 warnings)
+
+# ═══════════════════════════════════════════════════════════════
+# 🏗️ PHASE 0 STATUS: FOUNDATION PRIMITIVES COMPLETE
+# ═══════════════════════════════════════════════════════════════
+
+## What Was Built:
+1. **useMutation Hook** — Implements full Mutation Contract lifecycle:
+   PREPARE → COMMIT → INVALIDATE → REFRESH → FEEDBACK
+   
+2. **State Components** — Consistent Loading/Empty/Error states:
+   - Page-level and inline loaders
+   - Skeleton placeholders for content and tables
+   - Empty states with CTAs for various contexts
+   - Error states with actionable recovery
+   - Stale data indicator with refresh
+
+3. **Confirmation Dialog Pattern** — Destructive action safety:
+   - Async confirmation support (Promise-based)
+   - Variant styling (danger/warning/info)
+   - Consequence list display
+   - Loading state during action
+
+## Next Step:
+→ Phase 1: POS Redesign (validate primitives in real domain context)
+
+---
+Task ID: 6
+Agent: main
+Task: Add Phase 1 POS Detailed Methodology to UX Design Contract v1.0 — AUDIT→SCOPE→PRESERVE→REDESIGN→VERIFY workflow with POS Offline Variant clarification
+
+Work Log:
+- Read current UX-DESIGN-CONTRACT.md (2490 lines) — confirmed 5 Guardrails already present (Section 0.5)
+- Read worklog.md for context continuity
+- Updated Section 12.1 Phase 1 POS definition in roadmap:
+  - Changed from basic focus list to "VALIDATION GROUND" designation
+  - Added critical principle: "POS adalah validation ground, bukan target langsung untuk apply semua primitive"
+  - Added reference to new Section 12.1.1 for detailed methodology
+  - Expanded focus areas from 6 to 11 items (added cart persistence, beforeunload, checkout/payment, offline, sync, void, mobile)
+- Created **NEW Section 12.1.1 — PHASE 1 POS DETAILED METHODOLOGY** (~360 lines):
+  - **POS Architecture Offline-First diagram**: Online Domain vs Offline POS flow comparison
+  - **useMutation() Warning**: When allowed vs forbidden in POS context
+  - **Alternative hooks**: useOfflineMutation() and usePosCheckout() specifications
+  - **5-Step Workflow** (AUDIT→SCOPE→PRESERVE→REDESIGN→VERIFY) with detailed I/O for each step
+  - **13-Area Verification Checklist**: Barcode heuristic, Cart persistence, beforeunload, Checkout/payment, Offline checkout, Sync+retry cap, Offline void, Stale cache, Keyboard shortcut, Payment dialog nav, Stock/HPP protection, Void restoration, Mobile usability
+  - **GLM Prompt Template**: Complete ready-to-use prompt for Phase 1 execution
+- Updated Section 12.2 POS Domain Guidelines:
+  - Added cross-reference to Section 12.1.1
+  - Changed items from definitive to "tentatif — finalisasi setelah AUDIT"
+  - Added cart persistence and beforeunload to MUST FIX
+  - Added offline indicator, sync feedback, mobile optimization to SHOULD IMPROVE
+- Updated status section:
+  - Phase 1 status: ⏳ QUEUED → 🟡 METHODOLOGY READY
+  - Expanded Next Steps from 4 items to 7 detailed steps
+  - Added Phase 1 Key Principle quote
+  - Added references to methodology section, prompt template, and verification checklist
+- Updated version: v1.0-approved+guardrails → v1.0-approved+guardrails+phase1-methodology
+- Added Phase 1 Principle to document footer
+
+Stage Summary:
+- UX Design Contract v1.0 now contains **complete Phase 1 POS methodology**
+- Contract structure: ~2490 lines (up from ~2092)
+- Key additions:
+  - Section 12.1.1: Phase 1 POS Detailed Methodology (NEW)
+  - POS Offline Variant architecture clarification
+  - useMutation() do's and don'ts for POS
+  - 13-area verification checklist from previous audit findings
+  - Ready-to-use GLM Prompt Template for Phase 1 execution
+- Contract Status: 🔒 APPROVED v1.0 (with guardrails + phase1-methodology)
+- Phase 1 is now **ready for execution** after Phase 0 foundation primitives are validated
+- Core principle reinforced: "Improve the cockpit without touching the engine."
+- Phase 1 principle established: "POS adalah validation ground — audit dulu, buktikan pattern bekerja, baru bawa ke domain lain."
+
+---

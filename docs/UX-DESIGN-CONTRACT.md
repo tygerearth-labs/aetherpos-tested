@@ -1,9 +1,10 @@
 # AETHER UX DESIGN CONTRACT v1.0
 
 > **Scope**: Seluruh layer UX AetherPOS — Design System, Navigation, Form Patterns, Mutation Lifecycle, States, Mobile, Permission-aware UX
-> **Status**: DRAFT → PENDING GUARDRAILS REVIEW
+> **Status**: 🔒 APPROVED v1.0
 > **Contract Date**: 2026-01-29
-> **Last Updated**: 2026-01-29 (v1.0-draft + Guardrails)
+> **Approval Date**: 2026-01-29
+> **Last Updated**: 2026-01-29 (v1.0-approved+guardrails+phase1-methodology)
 > **Basis**: Full UX Surface Audit (13 domains) + Code Verification
 > **Companion Documents**:
 > - `docs/ARCHITECTURE-LOCK.md` — Core Inventory Engine (LOCKED)
@@ -1430,17 +1431,29 @@ AETHER UX REDESIGN ROADMAP
 ║                                                               ║
 ╠═══════════════════════════════════════════════════════════════╣
 ║                                                               ║
-║  PHASE 1 — POS 🧾                                           ║
-║  ═════════════════                                            ║
+║  PHASE 1 — POS 🧾 [VALIDATION GROUND] ⭐                    ║
+║  ═══════════════════════════════════                         ║
 ║  Primary user touchpoint. 3515 baris. 49 useState.            ║
 ║                                                               ║
-║  Focus:                                                     ║
-║  ├── Barcode detection heuristic fix                        ║
-║  ├── Receipt print (popup blocker)                          ║
-║  ├── Cart clear confirmation                                 ║
-║  ├── Settings fetch deduplication                            ║
-║  ├── Keyboard workflow improvement                          ║
-║  └── Mobile optimization                                     ║
+║  ⚠️ PRINSIP KRITIS:                                          ║
+║  "POS adalah VALIDATION GROUND, bukan target langsung        ║
+║   untuk apply semua primitive."                               ║
+║                                                               ║
+║  Workflow: AUDIT → SCOPE → PRESERVE → REDESIGN → VERIFY      ║
+║  (Lihat Section 12.1.1 untuk detail lengkap)                  ║
+║                                                               ║
+║  Focus Areas (setelah audit):                                ║
+║  ├── Barcode detection heuristic                             ║
+║  ├── Receipt print (popup blocker)                           ║
+║  ├── Cart persistence + recovery                             ║
+║  ├── beforeunload integration                                ║
+║  ├── Checkout/payment flow                                   ║
+║  ├── Offline checkout + sync                                 ║
+║  ├── Sync retry cap                                          ║
+║  ├── Offline void                                           ║
+║  ├── Keyboard shortcut + navigation                          ║
+║  ├── Mobile POS usability                                   ║
+║  └── Stock/HPP protection verification                       ║
 ║                                                               ║
 ╠═══════════════════════════════════════════════════════════════╣
 ║                                                               ║
@@ -1501,7 +1514,375 @@ AETHER UX REDESIGN ROADMAP
 KEY PRINCIPLE:
 "Phase 0 membangun fondasi. Phase 1-6 menggunakan fondasi itu.
  Jangan skip Phase 0 atau Anda akan membangun di atas pasir."
+
+POS VALIDATION GROUND PRINCIPLE:
+"Phase 1 POS adalah laboratorium pertama. Jangan apply semua primitive
+ langsung — audit dulu, buktikan pattern bekerja, baru bawa ke domain lain.
+ Kalau Phase 1 POS sukses, pattern bisa dibawa ke Product → Purchase → ..."
 ```
+
+### 12.1.1 ⭐ PHASE 1 POS — DETAILED METHODOLOGY
+
+> **Status**: 🟡 READY FOR EXECUTION (setelah Phase 0 selesai)
+> **Principle**: "POS adalah validation ground, bukan target langsung"
+
+#### Mengapa POS Berbeda?
+
+```
+POS ARCHITEKTUR OFFLINE-FIRST
+═════════════════════════════
+
+ONLINE DOMAIN (biasa):
+┌─────────┐    ┌─────────┐    ┌───────┐    ┌──────────────────┐
+│   UI    │ →  │   API   │ →  │   DB  │ → │ REFRESH / CACHE   │
+└─────────┘    └─────────┘    └───────┘    │   INVALIDATION    │
+                                           └────────┬─────────┘
+                                                      ↓
+                                           ┌──────────────────┐
+                                                   UI Update
+                                           └──────────────────┘
+
+
+OFFLINE POS (Aether khusus):
+┌─────────┐    ┌───────────┐    ┌───────────┐
+│   UI    │ →  │ IndexedDB │ →  │ UI Update  │
+└─────────┘    │  Local    │    │ (Optimis)  │
+               │  Commit   │    └───────────┘
+               └─────┬─────┘           │
+                     ↓                 │
+               ┌───────────┐          │
+               │Sync Queue  │──────────┘
+               └─────┬─────┘
+                     ↓ (when online)
+               ┌───────────┐    ┌───────────┐    ┌──────────────┐
+               │  Server   │ →  │ Dedup/    │ →  │ Final UI     │
+               │  Commit   │    │ Conflict  │    │ State        │
+               └───────────┘    └───────────┘    └──────────────┘
+
+
+⚠️ IMPLIKASI KRITIS:
+"useMutation() jangan dipaksakan ke semua flow POS
+ kalau itu membuat IndexedDB/local commit menjadi
+ sekadar wrapper HTTP."
+
+Mutation Contract TETAP BERLAKU, tetapi implementasinya
+harus mengikuti POS Offline Variant yang sudah disepakati.
+```
+
+#### Phase 1 Workflow: 5 Step
+
+```
+PHASE 1 — POS REDESIGN WORKFLOW
+════════════════════════════════
+
+┌─────────────────────────────────────────────────────────────┐
+│  STEP 1 — AUDIT (READ-ONLY) 🔍                             │
+│  ═══════════════════════════                               │
+│                                                             │
+│  Trace lengkap POS user journey:                            │
+│  ├── Product discovery (search, category, barcode)          │
+│  ├── Barcode scan (heuristic, timing, edge cases)          │
+│  ├── Add to cart (validation, stock check)                  │
+│  ├── Cart persistence/recovery (IndexedDB, beforeunload)    │
+│  ├── Checkout (validation, total calculation)              │
+│  ├── Payment (method selection, processing)                │
+│  ├── Transaction commit (online vs offline)                │
+│  ├── Offline transaction (local commit, queue)             │
+│  ├── Sync (queue, retry cap, dedup)                        │
+│  ├── Void (online void, offline void, restoration)         │
+│  └── Error recovery (network, payment, inventory)          │
+│                                                             │
+│  Trace SETIAP mutation dan data flow.                      │
+│  Jangan rely pada grep/static pattern matching saja.        │
+│  Follow execution flow ke actual state mutation.            │
+│                                                             │
+│  OUTPUT: Audit Report dengan classification                 │
+│  (UX issue / Data issue / Arch issue / False positive)      │
+└─────────────────────────────────────────────────────────────┘
+                           ↓
+┌─────────────────────────────────────────────────────────────┐
+│  STEP 2 — SCOPE 📋                                         │
+│  ═════════════════                                          │
+│                                                             │
+│  Definisikan dengan eksplisit:                              │
+│  ├── Files/components allowed to modify                    │
+│  ├── Shared UX primitives allowed to use                   │
+│  ├── Frozen architecture zones (TIDAK BOLEH DISENTUH)      │
+│  ├── Existing business rules that must remain unchanged    │
+│  └── Confirmed bugs vs UX issues vs false positives        │
+│                                                             │
+│  OUTPUT: Scope Document dengan ALLOWED/FORBIDDEN list      │
+└─────────────────────────────────────────────────────────────┘
+                           ↓
+┌─────────────────────────────────────────────────────────────┐
+│  STEP 3 — PRESERVE 🛡️                                      │
+│  ═══════════════════                                        │
+│                                                             │
+│  Verifikasi dan pertahankan secara EKSPLISIT:               │
+│  ├── ✅ InventoryConsumptionService                         │
+│  ├── ✅ FEFOEngine (First Expired First Out)                │
+│  ├── ✅ COGS semantics (Cost of Goods Sold)                 │
+│  ├── ✅ Inventory invariants                                │
+│  ├── ✅ IndexedDB offline-first flow                       │
+│  ├── ✅ EventId idempotency                                │
+│  ├── ✅ Sync deduplication                                 │
+│  ├── ✅ Atomic server mutations                            │
+│  ├── ✅ Payment validation                                 │
+│  ├── ✅ Void/restoration semantics                         │
+│  └── ✅ Permission boundaries                              │
+│                                                             │
+│  OUTPUT: Preservation Checklist (signed off sebelum step 4) │
+└─────────────────────────────────────────────────────────────┘
+                           ↓
+┌─────────────────────────────────────────────────────────────┐
+│  STEP 4 — REDESIGN ✏️                                       │
+│  ════════════════════                                       │
+│                                                             │
+│  Apply UX Foundation primitives dimana COCOK:               │
+│  ├── Loading states (skeletons, spinners)                   │
+│  ├── Empty states (illustrations + CTAs)                    │
+│  ├── Error states (actionable, retryable)                   │
+│  ├── Confirmation dialogs                                  │
+│  ├── Stale/freshness indicators                            │
+│  └── Mutation feedback (toast, progress)                   │
+│                                                             │
+│  Improve:                                                  │
+│  ├── Barcode workflow (detection, feedback, error)         │
+│  ├── Cart UX (persistence, recovery, clear confirm)        │
+│  ├── Checkout UX (validation, summary, flow)               │
+│  ├── Payment UX (method selection, processing state)       │
+│  ├── Offline visibility (indicator, queue status)          │
+│  ├── Sync visibility (progress, retry, error)              │
+│  ├── Keyboard efficiency (shortcuts, focus management)     │
+│  └── Mobile responsiveness (touch targets, layout)         │
+│                                                             │
+│  ⚠️ JANGAN ubah business semantics atau domain contracts!  │
+│                                                             │
+│  OUTPUT: Redesigned components + Integration test          │
+└─────────────────────────────────────────────────────────────┘
+                           ↓
+┌─────────────────────────────────────────────────────────────┐
+│  STEP 5 — VERIFY ✓                                         │
+│  ══════════════════                                         │
+│                                                             │
+│  Setelah implementation:                                    │
+│  ├── □ Run lint (bun run lint)                             │
+│  ├── □ Run TypeScript checks                               │
+│  ├── □ Run relevant tests                                  │
+│  ├── □ Verify online checkout flow                         │
+│  ├── □ Verify offline checkout flow                        │
+│  ├── □ Verify sync (queue → server → resolution)           │
+│  ├── □ Verify retry cap behavior                           │
+│  ├── □ Verify cart recovery (refresh, reconnect)           │
+│  ├── □ Verify beforeunload (warning saat cart tidak kosong)│
+│  ├── □ Verify void/restoration (stock restored correctly)  │
+│  ├── □ Verify inventory/COGS invariants (tidak berubah)    │
+│  └── □ UX consistency (pattern compliance)                 │
+│                                                             │
+│  OUTPUT: Verification Report + Regression sign-off         │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### Area Verifikasi Kritis (dari Audit Sebelumnya)
+
+```
+POS VERIFICATION CHECKLIST (13 Areas)
+═════════════════════════════════════
+
+Area-area ini HARUS diverifikasi ulang selama Step 1 AUDIT.
+Jangan diasumsikan benar dari audit sebelumnya.
+
+┌──┬──────────────────────────┬───────────────────────────────┐
+│# │ Area                     │ Verifikasi                    │
+├──┼──────────────────────────┼───────────────────────────────┤
+│1 │Barcode detection         │Timing heuristic reliable?     │
+│  │heuristic                 │Edge cases handled?            │
+├──┼──────────────────────────┼───────────────────────────────┤
+│2 │Cart persistence          │IndexedDB write correct?       │
+│  │                          │Recovery on reconnect works?   │
+├──┼──────────────────────────┼───────────────────────────────┤
+│3 │beforeunload              │Warning triggered when cart    │
+│  │integration               │not empty? Data saved?         │
+├──┼──────────────────────────┼───────────────────────────────┤
+│4 │Checkout/payment flow     │All payment methods work?      │
+│  │                          │Validation complete?           │
+├──┼──────────────────────────┼───────────────────────────────┤
+│5 │Offline checkout          │Local commit works?            │
+│  │                          │UI shows correct status?       │
+├──┼──────────────────────────┼───────────────────────────────┤
+│6 │Sync + retry cap          │Queue processed correctly?     │
+│  │                          │Retry cap enforced?            │
+├──┼──────────────────────────┼───────────────────────────────┤
+│7 │Offline void              │Void works without server?     │
+│  │                          │Queued for sync?               │
+├──┼──────────────────────────┼───────────────────────────────┤
+│8 │Stale cache               │Cache invalidated after        │
+│  │                          │mutation? Freshness indicator? │
+├──┼──────────────────────────┼───────────────────────────────┤
+│9 │Keyboard shortcut         │All shortcuts work?            │
+│  │+ navigation              │Focus management correct?      │
+├──┼──────────────────────────┼───────────────────────────────┤
+│10│Payment dialog            │Tab order logical?             │
+│  │navigation                │Escape cancels?                │
+├──┼──────────────────────────┼───────────────────────────────┤
+│11│Stock/HPP protection      │Stock cannot go negative?      │
+│  │                          │HPP preserved on transaction?  │
+├──┼──────────────────────────┼───────────────────────────────┤
+│12│Void restoration          │Full atomic rollback?          │
+│  │                          │Inventory fully restored?      │
+├──┼──────────────────────────┼───────────────────────────────┤
+│13│Mobile POS usability      │Touch targets ≥44px?           │
+│  │                          │Layout usable on small screen? │
+└──┴──────────────────────────┴───────────────────────────────┘
+
+CATATAN PENTING:
+Cart persistence + beforeunload + retry cap SUDAH diimplementasikan.
+Phase 1 harus memastikan implementasinya BENAR-BENAR terintegrasi
+dengan flow POS lengkap, bukan cuma lolos lint secara isolated.
+```
+
+#### useMutation() Warning untuk POS
+
+```
+⚠️ useMutation() DI POS — KAPAN BOLEH, KAPAN TIDAK
+═══════════════════════════════════════════════════
+
+BOLEH pakai useMutation() di POS:
+  ✅ Mutations yang purely HTTP (settings fetch, non-critical ops)
+  ✅ UI-only state mutations (dialog open/close, form field changes)
+  ✅ Mutations where local commit ≈ server success semantics
+  
+TIDAK BOLEH pakai useMutation() standar:
+  ❌ Offline checkout (harus ikut LOCAL COMMIT → SYNC QUEUE flow)
+  ❌ Offline void (harus preserve restoration semantics)
+  ❌ Cart operations yang persist ke IndexedDB
+  ❌ Apapun yang mengubah sync queue
+  
+ALTERNATIF UNTUK POS OFFLINE:
+  📦 useOfflineMutation() — custom hook yang:
+     - Mengikuti Mutation Contract 5-phase
+     - Tetapi COMMIT = IndexedDB local commit
+     - REFRESH = optimistic UI update
+     - SYNC = background process terpisah
+     - FINAL STATE = setelah server confirm
+     
+  📦 usePosCheckout() — dedicated hook yang:
+     - Handle full checkout lifecycle
+     - Integrate dengan InventoryConsumptionService
+     - Preserve COGS calculation
+     - Handle online/offline branching
+```
+
+#### Phase 1 GLM Prompt Template
+
+```markdown
+PHASE 1 — POS REDESIGN
+
+Read and follow:
+1. docs/ARCHITECTURE-LOCK.md
+2. docs/PLATFORM-ARCHITECTURE-REVIEW.md
+3. docs/UX-DESIGN-CONTRACT.md
+4. Existing POS architecture and offline/sync implementation
+
+CORE PRINCIPLE:
+"Improve the cockpit without touching the engine."
+
+WORKFLOW:
+AUDIT → SCOPE → PRESERVE → REDESIGN → VERIFY
+
+STEP 1 — AUDIT (READ-ONLY)
+Trace the complete POS user journey:
+- Product discovery
+- Barcode scan
+- Add to cart
+- Cart persistence/recovery
+- Checkout
+- Payment
+- Transaction commit
+- Offline transaction
+- Sync
+- Sync retry
+- Void
+- Error recovery
+
+Trace every mutation and data flow.
+Do not rely on grep/static pattern matching alone.
+Follow execution flow to the actual state mutation.
+
+STEP 2 — SCOPE
+Define:
+- Files/components allowed to modify
+- Shared UX primitives allowed to use
+- Frozen architecture zones
+- Existing business rules that must remain unchanged
+- Confirmed bugs vs UX issues vs false positives
+
+STEP 3 — PRESERVE
+Explicitly verify and preserve:
+- InventoryConsumptionService
+- FEFOEngine
+- COGS semantics
+- Inventory invariants
+- IndexedDB offline-first flow
+- EventId idempotency
+- Sync deduplication
+- Atomic server mutations
+- Payment validation
+- Void/restoration semantics
+- Permission boundaries
+
+STEP 4 — REDESIGN
+Apply UX Foundation primitives where appropriate:
+- Loading states
+- Empty states
+- Error states
+- Confirmation dialogs
+- Stale/freshness indicators
+- Mutation feedback
+
+Improve:
+- Barcode workflow
+- Cart UX
+- Checkout UX
+- Payment UX
+- Offline visibility
+- Sync visibility
+- Keyboard efficiency
+- Mobile responsiveness
+
+Do NOT change business semantics or domain contracts.
+
+STEP 5 — VERIFY
+After implementation:
+- Run lint
+- Run TypeScript checks
+- Run relevant tests
+- Verify online checkout
+- Verify offline checkout
+- Verify sync
+- Verify retry cap
+- Verify cart recovery
+- Verify beforeunload
+- Verify void/restoration
+- Verify inventory/COGS invariants
+
+REPORT:
+1. Files modified
+2. UX improvements
+3. Confirmed bugs fixed
+4. Business logic preserved
+5. Tests executed
+6. Regression results
+7. Deferred issues
+
+IMPORTANT:
+If a new bug is discovered outside the UX scope:
+STOP → classify → report separately → do not silently expand scope.
+
+Do not modify frozen architecture unless explicitly approved.
+```
+
+---
 
 ### 12.2 Domain-Specific Guidelines
 
@@ -1511,17 +1892,25 @@ KEY PRINCIPLE:
 POS UX REQUIREMENTS
 ═════════════════════
 
-MUST FIX:
+⚠️ LIHAT Section 12.1.1 untuk methodology lengkap!
+Phase 1 POS menggunakan workflow: AUDIT→SCOPE→PRESERVE→REDESIGN→VERIFY
+
+MUST FIX (tentatif — finalisasi setelah AUDIT):
 □ Barcode detection heuristic (timing-based → event-based)
 □ Receipt print (window.open → iframe/print API)
 □ Cart clear confirmation
 □ Settings fetch deduplication (70 lines duplicated)
+□ Cart persistence integration verification
+□ beforeunload integration verification
 
-SHOULD IMPROVE:
+SHOULD IMPROVE (tentatif — finalisasi setelah AUDIT):
 □ Keyboard shortcut reference overlay
 □ Low stock warning during product selection
 □ Session timeout handling mid-transaction
 □ Printer connection detection
+□ Offline visibility indicator
+□ Sync progress feedback
+□ Mobile POS layout optimization
 
 NICE TO HAVE:
 □ Hold/restore transaction feature
@@ -2028,8 +2417,8 @@ GATE 5: Accessibility (Basic)
 │                                                             │
 │   AETHER UX DESIGN CONTRACT v1.0                            │
 │                                                             │
-│   Status:        🟡 PENDING GUARDRAILS REVIEW               │
-│   Version:       1.0-draft+guardrails                       │
+│   Status:        🔒 APPROVED v1.0               │
+│   Version:       1.0-approved+guardrails                       │
 │   Created:       2026-01-29                                 │
 │   Last Updated:  2026-01-29 (added 5 Architecture Guardrails)│
 │   Author:        UX Audit Coordinator                      │
@@ -2041,7 +2430,7 @@ GATE 5: Accessibility (Basic)
 │   ├─ PLATFORM ARCHITECTURE          🔒 REVIEWED           │
 │   ├─ PRODUCT DOMAIN                 🔒 FROZEN             │
 │   ├─ MUTATION CONTRACT              🔒 v1.0 (this doc)    │
-│   └─ UX DESIGN CONTRACT             🟡 THIS DOCUMENT      │
+│   └─ UX DESIGN CONTRACT             🔒 APPROVED v1.0      │
 │                                                             │
 │   Guardrails Included:                                      │
 │   ├─ ✅ G1: No Business Logic Drift                       │
@@ -2052,7 +2441,7 @@ GATE 5: Accessibility (Basic)
 │                                                             │
 │   Approvals:                                                 │
 │   ┌─────────────────────────────────────────────────────┐  │
-│   │ Guardrails Review:  ⬜ Pending  ◄── CURRENT GATE      │  │
+│   │ Guardrails Review:  ✅ APPROVED      │  │
 │   │ Architecture Review:  ⬜ Pending                     │  │
 │   │ UX Review:             ⬜ Pending                     │  │
 │   │ Product Owner:         ⬜ Pending                     │  │
@@ -2060,22 +2449,31 @@ GATE 5: Accessibility (Basic)
 │                                                             │
 │   Implementation Status:                                    │
 │   ┌─────────────────────────────────────────────────────┐  │
-│   │ UX Foundation (Phase 0):  ⏸️ WAITING FOR APPROVAL   │  │
-│   │ POS (Phase 1):            ⏸️ WAITING                │  │
-│   │ Product (Phase 2):         ⏸️ WAITING                │  │
-│   │ Purchase (Phase 3):        ⏸️ WAITING                │  │
-│   │ Phases 4-6:               ⏸️ WAITING                │  │
+│   │ UX Foundation (Phase 0):  🟢 IN PROGRESS   │  │
+│   │ POS (Phase 1):            🟡 METHODOLOGY READY     │  │
+│   │              (AUDIT→SCOPE→PRESERVE→REDESIGN→VERIFY)│  │
+│   │ Product (Phase 2):         ⏳ QUEUED                │  │
+│   │ Purchase (Phase 3):        ⏳ QUEUED                │  │
+│   │ Phases 4-6:               ⏳ QUEUED                │  │
 │   └─────────────────────────────────────────────────────┘  │
 │                                                             │
 │   Next Steps (after approval):                               │
-│   1. Begin Phase 0: Build UX Foundation primitives          │
-│   2. Begin Phase 1: POS Redesign (using Phase 0 foundation)│
-│   3. Continue through phases 2-6 in order                   │
-│   4. Per domain: Audit → Scope → Preserve → Redesign → Verify│
+│   1. ✅ Phase 0: Build UX Foundation primitives             │
+│   2. 🔄 Phase 1: POS AUDIT (READ-ONLY) — trace user journey,│
+│      mutation surface, data flow, offline flow, sync flow   │
+│   3. Phase 1: POS SCOPE — define allowed/forbidden files    │
+│   4. Phase 1: PRESERVE — sign off preservation checklist    │
+│   5. Phase 1: REDESIGN — apply primitives where appropriate  │
+│   6. Phase 1: VERIFY — lint, types, tests, regression       │
+│   7. Continue through phases 2-6 in order                   │
 │                                                             │
-│   Prompt Template for each domain:                          │
-│   "Audit → Scope → Preserve → Redesign → Verify"           │
-│   With rule: "Improve the cockpit without touching the engine"│
+│   Phase 1 Key Principle:                                    │
+│   "POS adalah VALIDATION GROUND — audit dulu, buktikan      │
+│    pattern bekerja, baru bawa ke domain lain."              │
+│                                                             │
+│   Phase 1 Methodology: Section 12.1.1                       │
+│   Phase 1 Prompt Template: Section 12.1.1 (GLM Prompt)      │
+│   POS Verification Checklist: 13 areas (Section 12.1.1)     │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -2085,6 +2483,7 @@ GATE 5: Accessibility (Basic)
 **Document End**
 
 *Companion: ARCHITECTURE-LOCK.md | PLATFORM-ARCHITECTURE-REVIEW.md*
-*Version: 1.0-draft+guardrails | Last Updated: 2026-01-29*
+*Version: 1.0-approved+guardrails+phase1-methodology | Last Updated: 2026-01-29*
 *
 *Core Principle: "Improve the cockpit without touching the engine."*
+*Phase 1 Principle: "POS adalah validation ground — audit dulu, buktikan, baru bawa ke domain lain."*
