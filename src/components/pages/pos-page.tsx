@@ -80,6 +80,12 @@ import CartItemList from '../pos/components/CartItemList'
 import CartSummary from '../pos/components/CartSummary'
 import PendingTransactionsList from '../pos/components/PendingTransactionsList'
 
+// ==================== LAYOUT COMPONENTS (Phase 1A-8 integration) ====================
+
+import POSDesktopLayout from '../pos/components/POSDesktopLayout'
+import POSMobileLayout from '../pos/components/POSMobileLayout'
+import POSDialogsLayer from '../pos/components/POSDialogsLayer'
+
 // ==================== CONSTANTS (stay in component) ====================
 
 const PRODUCTS_PER_PAGE = 24
@@ -144,7 +150,7 @@ export default function PosPage() {
   // We use placeholder values initially; cart totals recalculate via React re-renders
   const [promoDiscount, setPromoDiscount] = useState(0) // Local state — promo calculation stays here
 
-  const cartHook = usePosCart({
+  const cartHook = UsePosCartHook({
     loyaltyPointValue: settingsHook.settings.loyaltyPointValue,
     ppnEnabled: settingsHook.settings.ppnEnabled,
     ppnRate: settingsHook.settings.ppnRate,
@@ -531,7 +537,7 @@ export default function PosPage() {
               <span>{sync.dataSyncing ? 'Syncing...' : sync.timeAgo(sync.lastSyncTimes.products)}</span>
             </div>
           ) : (
-            <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[11px] font-medium">
+            <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-500/10 border-amber-500/20 text-amber-400 text-[11px] font-medium">
               <Database className="h-3 w-3" /><span>No cache</span>
             </div>
           )}
@@ -539,7 +545,7 @@ export default function PosPage() {
           {/* Unsynced */}
           {sync.unsyncedCount > 0 && (
             <button onClick={() => sync.setOfflineListOpen(true)}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[11px] font-medium hover:bg-amber-500/15 transition-all cursor-pointer">
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/10 border-amber-500/20 text-amber-400 text-[11px] font-medium hover:bg-amber-500/15 transition-all cursor-pointer">
               <CloudOff className="h-3 w-3" strokeWidth={1.5} /><span>{sync.unsyncedCount} pending</span>
             </button>
           )}
@@ -580,680 +586,319 @@ export default function PosPage() {
         </div>
       </div>
 
-      {/* ══════ DESKTOP LAYOUT ══════ */}
-      <div className="hidden lg:grid lg:grid-cols-5 gap-3 flex-1 min-h-0">
-        {/* Products - Left (3/5) */}
-        <div className="lg:col-span-3 flex flex-col min-h-0">
-          {/* Search */}
-          <div className="relative mb-3 shrink-0">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" strokeWidth={1.5} />
-            <Input
-              ref={searchInputRef}
-              placeholder="Scan barcode atau cari produk..."
-              value={productsHook.productSearch}
-              onChange={(e) => productsHook.handleSearchChange(e.target.value)}
-              onKeyDown={productsHook.handleSearchKeyDown}
-              className="pl-10 h-10 text-sm bg-nebula/80 border-white/[0.06] text-white placeholder:text-slate-500 rounded-xl"
-            />
-          </div>
-
-          {/* Category Chips */}
-          <div className="shrink-0">
-            <CategoryFilter
-              categories={productsHook.categories}
-              selectedCategoryId={productsHook.selectedCategoryId}
-              onSelect={(id) => productsHook.handleCategorySelect(id)}
-              themeColors={themeColors}
-            />
-          </div>
-
-          {/* Product Grid — scrollable middle (pt-2 for badge clearance) */}
-          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pt-2">
-            <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 pb-2">
-              <ProductGrid
-                products={productsHook.products}
-                productsLoading={productsHook.productsLoading}
-                selectedCategoryId={productsHook.selectedCategoryId}
-                cart={cartHook.cart}
-                categories={productsHook.categories}
-                onAddToCart={cartHook.addToCart}
-                onOpenVariantPicker={productsHook.openVariantPicker}
-                getItemPrice={cartHook.getItemPrice}
-                getCartKey={cartHook.getCartKey}
-                themeColors={themeColors}
-                formatCurrency={formatCurrency}
-              />
-            </div>
-          </div>
-
-          {/* Pagination — fixed bottom */}
-          <div className="shrink-0">
-            <Pagination
-              currentPage={productsHook.productPage}
-              totalPages={productsHook.totalProductPages}
-              hasSearch={!!productsHook.productSearch}
-              loading={productsHook.productsLoading}
-              onPrev={() => productsHook.setProductPage(p => Math.max(1, p - 1))}
-              onNext={() => productsHook.setProductPage(p => Math.min(productsHook.totalProductPages, p + 1))}
-            />
-          </div>
-        </div>
-
-        {/* Cart - Right (2/5) — CLEAN DESIGN: no inline payment */}
-        <div className="lg:col-span-2 flex flex-col h-full bg-deep-space border border-white/[0.06] rounded-2xl overflow-hidden shadow-2xl shadow-black/20">
-          {/* Cart Header */}
-          <div className="px-4 py-3 border-b border-white/[0.06] bg-gradient-to-b from-nebula/50 to-transparent shrink-0">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl theme-gradient-subtle flex items-center justify-center border theme-border-light">
-                  <ShoppingCart className="h-4 w-4 theme-text" strokeWidth={1.5} />
-                </div>
-                <div>
-                  <h2 className="text-sm font-bold text-white leading-tight">Keranjang</h2>
-                  {cartHook.cart.length > 0 && <p className="text-[10px] text-slate-500 leading-tight">{cartHook.cart.length} produk · {cartHook.cart.reduce((s, i) => s + i.qty, 0)} item</p>}
-                </div>
-              </div>
-              {cartHook.cart.length > 0 && (
-                <div className="flex items-center gap-1.5">
-                  <button onClick={() => sync.setPendingListOpen(true)} className={cn(
-                    "relative flex items-center gap-1.5 h-7 px-2.5 rounded-lg text-[10px] font-semibold transition-all",
-                    pendingCount > 0
-                      ? "text-amber-400 bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/15"
-                      : "text-slate-500 hover:text-amber-400 hover:bg-amber-500/10 border border-transparent hover:border-amber-500/20"
-                  )}>
-                    <ClockArrowDown className="h-3 w-3" strokeWidth={1.5} />
-                    {pendingCount > 0 && <span>{pendingCount}</span>}
-                  </button>
-                  <button onClick={cartHook.clearCart} className="h-7 px-2.5 rounded-lg text-[10px] font-semibold text-slate-500 hover:text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 transition-all">
-                    Hapus Semua
-                  </button>
-                </div>
-              )}
-              {cartHook.cart.length === 0 && pendingCount > 0 && (
-                <button onClick={() => sync.setPendingListOpen(true)} className="relative flex items-center gap-1.5 h-7 px-2.5 rounded-lg text-[10px] font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/15 transition-all">
-                  <ClockArrowDown className="h-3 w-3" strokeWidth={1.5} />
-                  <span>{pendingCount} pending</span>
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Customer Selector — embedded at top of scrollable area */}
-          <div className="shrink-0 px-4 pt-3 pb-1">
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">Customer</span>
-              <button onClick={() => customersHook.setAddCustomerOpen(true)} className="text-[10px] theme-text hover:theme-text font-semibold flex items-center gap-0.5 transition-colors">
-                <UserPlus className="h-2.5 w-2.5" strokeWidth={1.5} /> Baru
-              </button>
-            </div>
-            <div className="relative">
-              <User className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" strokeWidth={1.5} />
-              <Input
-                placeholder={customersHook.selectedCustomer ? customersHook.selectedCustomer.name : 'Tambah customer (opsional)'}
-                value={customersHook.customerSearch}
-                onChange={(e) => { customersHook.setCustomerSearch(e.target.value); customersHook.setCustomerDropdownOpen(true) }}
-                onFocus={() => customersHook.setCustomerDropdownOpen(true)}
-                className="pl-9 pr-8 h-9 text-xs bg-nebula border-white/[0.06] text-white placeholder:text-slate-600 rounded-xl"
-              />
-              {customersHook.selectedCustomer && (
-                <button onClick={() => { customersHook.setSelectedCustomer(null); customersHook.setCustomerSearch(''); cartHook.setPointsToUse(0) }}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 h-5 w-5 flex items-center justify-center rounded-full bg-white/[0.04] text-slate-400 hover:text-slate-200 transition-colors">
-                  <X className="h-2.5 w-2.5" strokeWidth={1.5} />
-                </button>
-              )}
-            </div>
-            {customersHook.customerDropdownOpen && customersHook.filteredCustomers.length > 0 && !customersHook.selectedCustomer && (
-              <div className="absolute z-30 w-full mt-1 bg-nebula border border-white/[0.08] rounded-xl shadow-2xl shadow-black/50 max-h-40 overflow-y-auto">
-                {customersHook.filteredCustomers.map((customer) => (
-                  <button key={customer.id} onClick={() => { customersHook.setSelectedCustomer(customer); customersHook.setCustomerSearch(''); customersHook.setCustomerDropdownOpen(false); cartHook.setPointsToUse(0) }}
-                    className="w-full text-left px-3.5 py-2 hover:bg-white/[0.04] border-b border-white/[0.04] last:border-0 transition-colors">
-                    <p className="text-xs text-slate-200 font-medium">{customer.name}</p>
-                    <p className="text-[10px] text-slate-500 mt-0.5">{customer.whatsapp} · <span className="text-amber-400">{customer.points} pts</span></p>
-                  </button>
-                ))}
-              </div>
-            )}
-            {customersHook.selectedCustomer && (
-              <div className="flex items-center gap-1.5 mt-1.5">
-                <div className="flex items-center gap-1 px-2 py-1 rounded-lg theme-bg-very-light border theme-border-light">
-                  <User className="h-2.5 w-2.5 theme-text" strokeWidth={1.5} />
-                  <span className="text-[10px] theme-text font-medium">{customersHook.selectedCustomer.name}</span>
-                </div>
-                {customersHook.selectedCustomer.points > 0 && (
-                  <span className="text-[10px] text-amber-400 font-medium">{customersHook.selectedCustomer.points} pts</span>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Items — scrollable middle */}
-          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 py-2">
-            {cartHook.cart.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-10">
-                <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-white/[0.04] to-nebula border border-white/[0.04] flex items-center justify-center mb-4">
-                  <ShoppingCart className="h-8 w-8 text-slate-700/60" strokeWidth={1.5} />
-                </div>
-                <p className="text-sm font-medium text-slate-500">Keranjang Kosong</p>
-                <p className="text-[11px] text-slate-600 mt-1">Pilih produk dari kiri untuk memulai</p>
-              </div>
-            ) : (
-              <CartItemList
-                cart={cartHook.cart}
-                compact={false}
-                getCartKey={cartHook.getCartKey}
-                getItemPrice={cartHook.getItemPrice}
-                getEffectivePrice={cartHook.getEffectivePrice}
-                getItemStock={cartHook.getItemStock}
-                editingQtyId={cartHook.editingQtyId}
-                editingQtyValue={cartHook.editingQtyValue}
-                editingPriceId={cartHook.editingPriceId}
-                editingPriceValue={cartHook.editingPriceValue}
-                priceInputRef={cartHook.priceInputRef}
-                qtyInputRef={cartHook.qtyInputRef}
-                onUpdateQty={cartHook.updateQty}
-                onRemoveFromCart={cartHook.removeFromCart}
-                onStartEditQty={cartHook.startEditQty}
-                onConfirmEditQty={cartHook.confirmEditQty}
-                onCancelEditQty={cartHook.cancelEditQty}
-                onStartEditPrice={cartHook.startEditPrice}
-                onConfirmEditPrice={cartHook.confirmEditPrice}
-                onCancelEditPrice={cartHook.cancelEditPrice}
-                formatCurrency={formatCurrency}
-                batchInfo={batchInfo}
-                manualDiscountEnabled={settingsHook.settings.manualDiscountEnabled}
-              />
-            )}
-          </div>
-
-          {/* Summary & Action Buttons — fixed bottom (NO inline payment) */}
-          {cartHook.cart.length > 0 && (
-            <div className="shrink-0 border-t border-white/[0.06] bg-gradient-to-t from-deep-space to-nebula/80 p-4 space-y-3">
-              <CartSummary
-                subtotal={cartHook.subtotal}
-                manualDiscountTotal={cartHook.manualDiscountTotal}
-                pointsDiscount={cartHook.pointsDiscount}
-                promoDiscount={promoDiscount}
-                ppnAmount={cartHook.ppnAmount}
-                total={cartHook.total}
-                paidAmount={checkoutHook.paidAmount}
-                change={cartHook.change}
-                hasBelowHpp={cartHook.hasBelowHpp}
-                belowHppItems={cartHook.belowHppItems}
-                maxPointsToUse={cartHook.maxPointsToUse}
-                pointsToUse={cartHook.pointsToUse}
-                ppnEnabled={settingsHook.settings.ppnEnabled}
-                loyaltyEnabled={settingsHook.settings.loyaltyEnabled}
-                ppnRate={settingsHook.settings.ppnRate}
-                customerPoints={customersHook.selectedCustomer?.points}
-                loyaltyPointValue={settingsHook.settings.loyaltyPointValue}
-                promoName={selectedPromo?.name}
-                onSetPointsToUse={(val) => checkoutHook.handlePointsChange(String(val))}
-                onSetPaidAmount={checkoutHook.setPaidAmount}
-                formatCurrency={formatCurrency}
-              />
-              <div className="flex gap-2">
-                <Button onClick={checkoutHook.handleHoldTransaction} variant="outline"
-                  className="h-11 px-4 font-semibold text-sm rounded-xl border-white/[0.08] text-slate-300 hover:bg-white/[0.04] hover:text-white transition-all shrink-0">
-                  <ClockArrowDown className="mr-1.5 h-4 w-4" strokeWidth={1.5} />
-                  Tunda
-                </Button>
-                <Button onClick={checkoutHook.openPaymentDialog} disabled={cartHook.cart.length === 0 || cartHook.hasBelowHpp}
-                  className={`flex-1 h-11 font-bold text-sm rounded-xl transition-all ${
-                    cartHook.cart.length > 0 && !cartHook.hasBelowHpp
-                      ? 'theme-gradient hover:theme-hover text-white shadow-lg theme-shadow hover:theme-shadow active:scale-[0.99]'
-                      : 'bg-white/[0.04] text-slate-500 cursor-not-allowed'
-                  }`}>
-                  <Check className="mr-1.5 h-4 w-4" strokeWidth={1.5} />
-                  {cartHook.hasBelowHpp ? 'Harga di bawah HPP' : 'Proses Bayar'}
-                </Button>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* ══════ MOBILE LAYOUT — Product view + floating cart ══════ */}
-      <div className="md:hidden shrink-0">
-        <div className="relative mb-3">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" strokeWidth={1.5} />
-          <Input
-            ref={searchInputRef}
-            placeholder="Cari produk..."
-            value={productsHook.productSearch}
-            onChange={(e) => productsHook.handleSearchChange(e.target.value)}
-            onKeyDown={productsHook.handleSearchKeyDown}
-            className="pl-10 h-11 text-sm bg-nebula/80 border-white/[0.06] text-white placeholder:text-slate-500 rounded-xl"
-          />
-        </div>
-        <CategoryFilter
-          categories={productsHook.categories}
-          selectedCategoryId={productsHook.selectedCategoryId}
-          onSelect={(id) => productsHook.handleCategorySelect(id)}
-          themeColors={themeColors}
-        />
-        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pt-2 pb-20">
-          <div className="grid grid-cols-2 gap-2.5 pb-2">
-            <ProductGrid
-              products={productsHook.products}
-              productsLoading={productsHook.productsLoading}
-              selectedCategoryId={productsHook.selectedCategoryId}
-              cart={cartHook.cart}
-              categories={productsHook.categories}
-              onAddToCart={cartHook.addToCart}
-              onOpenVariantPicker={productsHook.openVariantPicker}
-              getItemPrice={cartHook.getItemPrice}
-              getCartKey={cartHook.getCartKey}
-              themeColors={themeColors}
-              formatCurrency={formatCurrency}
-            />
-          </div>
-          <Pagination
-            currentPage={productsHook.productPage}
-            totalPages={productsHook.totalProductPages}
-            hasSearch={!!productsHook.productSearch}
-            loading={productsHook.productsLoading}
-            onPrev={() => productsHook.setProductPage(p => Math.max(1, p - 1))}
-            onNext={() => productsHook.setProductPage(p => Math.min(productsHook.totalProductPages, p + 1))}
-          />
-        </div>
-      </div>
-
-      {/* Mobile Floating Cart Button */}
-      {cartHook.cart.length > 0 && (
-        <button
-          onClick={() => checkoutHook.setMobileCartOpen(true)}
-          className="md:hidden fixed bottom-4 right-4 z-40 flex items-center gap-2 h-12 pl-4 pr-5 theme-gradient rounded-2xl shadow-lg theme-shadow active:scale-[0.97] transition-transform"
-        >
-          <ShoppingCart className="h-5 w-5 text-white" strokeWidth={1.5} />
-          <span className="text-sm font-bold text-white">{cartHook.cart.length} item</span>
-          <span className="text-sm font-bold text-white/90 tabular-nums">{formatCurrency(cartHook.total)}</span>
-          <span className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-[10px] font-bold text-white">
-            {cartHook.cart.reduce((s, i) => s + i.qty, 0)}
-          </span>
-        </button>
-      )}
-
-      {/* ══════ DIALOGS ══════ */}
-
-      {/* Variant Picker Dialog */}
-      <ResponsiveDialog open={productsHook.variantPicker.open} onOpenChange={(open) => { if (!open) productsHook.setVariantPicker({ product: null as unknown as Product, open: false, variants: [], loading: false }) }}>
-        <ResponsiveDialogContent desktopClassName="max-w-sm rounded-2xl">
-          <ResponsiveDialogHeader>
-            <ResponsiveDialogTitle className="text-sm font-bold text-white flex items-center gap-2">
-              <Layers className="h-4 w-4 text-violet-400" strokeWidth={1.5} />
-              Pilih Varian — {productsHook.variantPicker.product?.name}
-            </ResponsiveDialogTitle>
-            <ResponsiveDialogDescription className="text-[11px] text-slate-400">
-              Pilih varian yang diinginkan
-            </ResponsiveDialogDescription>
-          </ResponsiveDialogHeader>
-          <div className="py-2 space-y-1.5 max-h-[40vh] overflow-y-auto">
-            {productsHook.variantPicker.loading ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-5 w-5 text-slate-500 animate-spin" />
-              </div>
-            ) : productsHook.variantPicker.variants.length === 0 ? (
-              <div className="text-center py-8">
-                <Package className="h-8 w-8 text-slate-600 mx-auto mb-2" strokeWidth={1.5} />
-                <p className="text-xs text-slate-500">Tidak ada varian tersedia</p>
-              </div>
-            ) : (
-              productsHook.variantPicker.variants.map((variant) => (
-                <button
-                  key={variant.id}
-                  onClick={() => productsHook.handleVariantSelect(variant)}
-                  disabled={variant.stock <= 0}
-                  className={cn(
-                    'w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border transition-all text-left',
-                    variant.stock <= 0
-                      ? 'bg-white/[0.02] border-white/[0.04] opacity-50 cursor-not-allowed'
-                      : 'aether-card hover:bg-white/[0.04] active:scale-[0.98]'
-                  )}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <span className="text-xs font-medium text-slate-200">{variant.name}</span>
-                    {variant.sku && (
-                      <span className="text-[10px] text-slate-500 font-mono">{variant.sku}</span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {variant.stock <= 0 ? (
-                      <span className="text-[10px] text-red-400 font-medium">Habis</span>
-                    ) : (
-                      <span className="text-[10px] text-slate-500">Stok: {variant.stock}</span>
-                    )}
-                    <span className="text-xs font-bold text-slate-300 tabular-nums">{formatCurrency(variant.price)}</span>
-                  </div>
-                </button>
-              ))
-            )}
-          </div>
-        </ResponsiveDialogContent>
-      </ResponsiveDialog>
-
-      {/* Payment Dialog */}
-      <PaymentDialog
-        open={checkoutHook.paymentDialogOpen}
-        onOpenChange={checkoutHook.setPaymentDialogOpen}
+      {/* ══════ DESKTOP LAYOUT (integrated component) ══════ */}
+      <POSDesktopLayout
+        // SEARCH
+        searchInputRef={searchInputRef}
+        productSearch={productsHook.productSearch}
+        onSearchChange={(v) => productsHook.handleSearchChange(v)}
+        onSearchKeyDown={productsHook.handleSearchKeyDown}
+        // PRODUCTS
+        products={productsHook.products}
+        productsLoading={productsHook.productsLoading}
+        selectedCategoryId={productsHook.selectedCategoryId}
+        categories={productsHook.categories}
+        cart={cartHook.cart}
+        productPage={productsHook.productPage}
+        totalProductPages={productsHook.totalProductPages}
+        productSearchActive={productsHook.productSearch}
+        onCategorySelect={(id) => productsHook.handleCategorySelect(id)}
+        onAddToCart={cartHook.addToCart}
+        onOpenVariantPicker={productsHook.openVariantPicker}
+        getItemPrice={cartHook.getItemPrice}
+        getCartKey={cartHook.getCartKey}
+        onProductPagePrev={() => productsHook.setProductPage(p => Math.max(1, p - 1))}
+        onProductPageNext={() => productsHook.setProductPage(p => Math.min(productsHook.totalProductPages, p + 1))}
+        // CART
         cartItems={cartHook.cart}
         subtotal={cartHook.subtotal}
         total={cartHook.total}
+        change={cartHook.change}
         manualDiscountTotal={cartHook.manualDiscountTotal}
         pointsDiscount={cartHook.pointsDiscount}
-        promoDiscount={promoDiscount}
         ppnAmount={cartHook.ppnAmount}
-        paymentMethod={checkoutHook.paymentMethod}
-        paidAmount={checkoutHook.paidAmount}
-        change={cartHook.change}
-        settings={settingsHook.settings}
-        selectedCustomer={customersHook.selectedCustomer}
-        maxPointsToUse={cartHook.maxPointsToUse}
-        pointsToUse={cartHook.pointsToUse}
-        onPaymentMethodChange={(method) => {
-          // Payment method is owned by checkoutHook
-          // This callback would need to go through the setter pattern
-        }}
-        onPaidAmountChange={checkoutHook.setPaidAmount}
-        onPointsChange={checkoutHook.handlePointsChange}
-        onCheckout={checkoutHook.handleCheckout}
-        checkingOut={checkoutHook.checkingOut}
-        checkoutResult={checkoutHook.checkoutResult}
-        availablePaymentMethods={settingsHook.availablePaymentMethods}
-        getItemPrice={cartHook.getItemPrice}
-        getEffectivePrice={cartHook.getEffectivePrice}
-        getItemDisplayName={cartHook.getItemDisplayName}
-        getQuickNominals={getQuickNominals}
         hasBelowHpp={cartHook.hasBelowHpp}
         belowHppItems={cartHook.belowHppItems}
-        belowHppTotalLoss={cartHook.belowHppTotalLoss}
+        maxPointsToUse={cartHook.maxPointsToUse}
+        pointsToUse={cartHook.pointsToUse}
         editingQtyId={cartHook.editingQtyId}
         editingQtyValue={cartHook.editingQtyValue}
-        startEditQty={cartHook.startEditQty}
-        confirmEditQty={cartHook.confirmEditQty}
-        cancelEditQty={cartHook.cancelEditQty}
+        editingPriceId={cartHook.editingPriceId}
+        editingPriceValue={cartHook.editingPriceValue}
+        priceInputRef={cartHook.priceInputRef}
         qtyInputRef={cartHook.qtyInputRef}
-        updateQty={cartHook.updateQty}
-        removeFromCart={cartHook.removeFromCart}
-        getItemStock={cartHook.getItemStock}
-        getCartKey={cartHook.getCartKey}
-        selectedPromo={selectedPromo}
-        availablePromos={settingsHook.availablePromos}
-        onPromoSelect={(promo) => {
-          // Promo selection is local state
-          if (promo) {
-            setSelectedPromo(promo as { id: string; name: string; type: string; discount: number; description: string })
-            setPromoDiscount((promo as { discount: number }).discount || 0)
-          } else {
-            setSelectedPromo(null)
-            setPromoDiscount(0)
-          }
-        }}
-        promoLoading={promoLoading}
-      />
-
-      {/* Receipt Dialog */}
-      <ReceiptDialog
-        open={checkoutHook.receiptDialogOpen}
-        onOpenChange={checkoutHook.setReceiptDialogOpen}
-        checkoutResult={checkoutHook.checkoutResult}
-        cartItems={cartHook.cart}
-        subtotal={cartHook.subtotal}
-        total={cartHook.total}
-        manualDiscountTotal={cartHook.manualDiscountTotal}
-        pointsDiscount={cartHook.pointsDiscount}
-        promoDiscount={promoDiscount}
-        ppnAmount={cartHook.ppnAmount}
-        paymentMethod={checkoutHook.paymentMethod}
-        paidAmount={checkoutHook.paidAmount}
-        change={cartHook.change}
-        settings={settingsHook.settings}
-        outletInfo={settingsHook.outletInfo}
+        onUpdateQty={cartHook.updateQty}
+        onRemoveFromCart={cartHook.removeFromCart}
+        onStartEditQty={cartHook.startEditQty}
+        onConfirmEditQty={cartHook.confirmEditQty}
+        onCancelEditQty={cartHook.cancelEditQty}
+        onStartEditPrice={cartHook.startEditPrice}
+        onConfirmEditPrice={cartHook.confirmEditPrice}
+        onCancelEditPrice={cartHook.cancelEditPrice}
+        // CUSTOMER (desktop inline version)
         selectedCustomer={customersHook.selectedCustomer}
-        onFinish={checkoutHook.handleReceiptFinish}
-        getItemPrice={cartHook.getItemPrice}
-        getEffectivePrice={cartHook.getEffectivePrice}
-        getItemDisplayName={cartHook.getItemDisplayName}
+        customerSearch={customersHook.customerSearch}
+        filteredCustomers={customersHook.filteredCustomers}
+        customerDropdownOpen={customersHook.customerDropdownOpen}
+        onCustomerSearchChange={(v) => customersHook.setCustomerSearch(v)}
+        onCustomerDropdownOpen={(open) => customersHook.setCustomerDropdownOpen(open)}
+        onSelectCustomer={(c) => customersHook.setSelectedCustomer(c)}
+        onClearCustomer={() => { customersHook.setSelectedCustomer(null); customersHook.setCustomerSearch(''); cartHook.setPointsToUse(0) }}
+        onAddCustomerOpen={() => customersHook.setAddCustomerOpen(true)}
+        onSetPointsToUse={cartHook.setPointsToUse}
+        // CHECKOUT/ACTIONS
+        paidAmount={checkoutHook.paidAmount}
+        isProcessing={checkoutHook.checkingOut}
+        promoDiscount={promoDiscount}
         selectedPromo={selectedPromo}
+        promoName={selectedPromo?.name}
+        onHoldTransaction={checkoutHook.handleHoldTransaction}
+        openPaymentDialog={checkoutHook.openPaymentDialog}
+        handlePointsChange={checkoutHook.handlePointsChange}
+        setPaidAmount={checkoutHook.setPaidAmount}
+        // SETTINGS
+        themeColors={themeColors}
+        formatCurrency={formatCurrency}
+        ppnEnabled={settingsHook.settings.ppnEnabled}
+        loyaltyEnabled={settingsHook.settings.loyaltyEnabled}
+        ppnRate={settingsHook.settings.ppnRate}
+        customerPoints={customersHook.selectedCustomer?.points}
+        loyaltyPointValue={settingsHook.settings.loyaltyPointValue}
+        manualDiscountEnabled={settingsHook.settings.manualDiscountEnabled}
+        batchInfo={batchInfo}
+        // SYNC STATUS
+        pendingCount={pendingCount}
+        onPendingListOpen={() => sync.setPendingListOpen(true)}
+        onClearCart={cartHook.clearCart}
       />
 
-      {/* Add Customer Dialog */}
-      <ResponsiveDialog open={customersHook.addCustomerOpen} onOpenChange={customersHook.setAddCustomerOpen}>
-        <ResponsiveDialogContent desktopClassName="max-w-sm rounded-2xl">
-          <ResponsiveDialogHeader>
-            <ResponsiveDialogTitle className="text-sm font-bold text-white flex items-center gap-2">
-              <UserPlus className="h-4 w-4 text-emerald-400" strokeWidth={1.5} />
-              Pelanggan Baru
-            </ResponsiveDialogTitle>
-            <ResponsiveDialogDescription className="text-[11px] text-slate-500">
-              Tambahkan pelanggan baru ke database
-            </ResponsiveDialogDescription>
-          </ResponsiveDialogHeader>
-          <div className="py-2 space-y-3">
-            <div className="space-y-1.5">
-              <Label className="text-[11px] text-slate-400 font-medium">Nama *</Label>
-              <Input
-                value={customersHook.newCustomer.name}
-                onChange={(e) => customersHook.setNewCustomer({ ...customersHook.newCustomer, name: e.target.value })}
-                placeholder="Nama pelanggan"
-                className="h-10 text-sm bg-white/[0.04] border-white/[0.08] text-white rounded-xl"
-                autoFocus
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-[11px] text-slate-400 font-medium">WhatsApp</Label>
-              <Input
-                value={customersHook.newCustomer.whatsapp}
-                onChange={(e) => customersHook.setNewCustomer({ ...customersHook.newCustomer, whatsapp: e.target.value })}
-                placeholder="08xxxxxxxxxx"
-                className="h-10 text-sm bg-white/[0.04] border-white/[0.08] text-white rounded-xl"
-              />
-            </div>
-          </div>
-          <ResponsiveDialogFooter className="gap-2">
-            <Button variant="ghost" onClick={() => customersHook.setAddCustomerOpen(false)}
-              className="bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.06] text-xs rounded-xl">
-              Batal
-            </Button>
-            <Button onClick={customersHook.handleAddCustomer} disabled={customersHook.addingCustomer}
-              className="theme-bg hover:theme-hover text-white text-xs rounded-xl font-medium">
-              {customersHook.addingCustomer ? <><Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> Menyimpan...</> : <><UserPlus className="mr-1.5 h-3 w-3" /> Simpan</>}
-            </Button>
-          </ResponsiveDialogFooter>
-        </ResponsiveDialogContent>
-      </ResponsiveDialog>
+      {/* ══════ MOBILE LAYOUT (integrated component) ══════ */}
+      <POSMobileLayout
+        // Search
+        searchInputRef={searchInputRef}
+        productSearch={productsHook.productSearch}
+        onSearchChange={(v) => productsHook.handleSearchChange(v)}
+        onSearchKeyDown={productsHook.handleSearchKeyDown}
+        // Products
+        products={productsHook.products}
+        productsLoading={productsHook.productsLoading}
+        selectedCategoryId={productsHook.selectedCategoryId}
+        categories={productsHook.categories}
+        cart={cartHook.cart}
+        productPage={productsHook.productPage}
+        totalProductPages={productsHook.totalProductPages}
+        productSearchActive={productsHook.productSearch}
+        onCategorySelect={(id) => productsHook.handleCategorySelect(id)}
+        onAddToCart={cartHook.addToCart}
+        onOpenVariantPicker={productsHook.openVariantPicker}
+        getItemPrice={cartHook.getItemPrice}
+        getCartKey={cartHook.getCartKey}
+        onProductPagePrev={() => productsHook.setProductPage(p => Math.max(1, p - 1))}
+        onProductPageNext={() => productsHook.setProductPage(p => Math.min(productsHook.totalProductPages, p + 1))}
+        // Cart (for floating button)
+        cartItems={cartHook.cart}
+        cartTotal={cartHook.total}
+        cartItemCount={cartHook.cart.length}
+        onMobileCartOpen={() => checkoutHook.setMobileCartOpen(true)}
+        // Display
+        themeColors={themeColors}
+        formatCurrency={formatCurrency}
+      />
 
-      {/* Pending Transactions Dialog */}
-      <ResponsiveDialog open={sync.pendingListOpen} onOpenChange={sync.setPendingListOpen}>
-        <ResponsiveDialogContent desktopClassName="max-w-md rounded-2xl">
-          <ResponsiveDialogHeader>
-            <ResponsiveDialogTitle className="text-sm font-bold text-white flex items-center gap-2">
-              <ClockArrowDown className="h-4 w-4 text-amber-400" strokeWidth={1.5} />
-              Transaksi Ditunda
-            </ResponsiveDialogTitle>
-            <ResponsiveDialogDescription className="text-[11px] text-slate-400 flex items-center gap-2 pt-1">
-              Keranjang yang ditunda bisa dilanjutkan kapan saja
-              {pendingCount > 0 && (
-                <Badge variant="secondary" className="bg-amber-500/15 text-amber-400 border-amber-500/20 text-[10px] px-2 py-0.5 h-5 font-semibold">{pendingCount}</Badge>
-              )}
-            </ResponsiveDialogDescription>
-          </ResponsiveDialogHeader>
-          <PendingListContent
-            onResume={checkoutHook.handleResumePending}
-            onDelete={checkoutHook.handleDeletePending}
-          />
-        </ResponsiveDialogContent>
-      </ResponsiveDialog>
+      {/* ══════ DIALOGS LAYER (integrated component) ══════ */}
+      <POSDialogsLayer
+        // === VARIANT PICKER ===
+        variantPicker={productsHook.variantPicker}
+        onVariantPickerChange={(open) => { if (!open) productsHook.setVariantPicker({ product: null as unknown as Product, open: false, variants: [], loading: false }) }}
+        onVariantPickerSet={(picker) => productsHook.setVariantPicker(picker)}
+        onVariantSelect={(variant) => productsHook.handleVariantSelect(variant)}
 
-      {/* Hold Note Dialog */}
-      <ResponsiveDialog open={checkoutHook.holdNoteOpen} onOpenChange={checkoutHook.setHoldNoteOpen}>
-        <ResponsiveDialogContent desktopClassName="max-w-sm rounded-2xl">
-          <ResponsiveDialogHeader>
-            <ResponsiveDialogTitle className="text-sm font-bold text-white flex items-center gap-2">
-              <MessageSquare className="h-4 w-4 text-amber-400" strokeWidth={1.5} /> Catatan Tunda
-            </ResponsiveDialogTitle>
-            <ResponsiveDialogDescription className="text-[11px] text-slate-500">
-              Tambahkan catatan opsional untuk transaksi ini
-            </ResponsiveDialogDescription>
-          </ResponsiveDialogHeader>
-          <div className="py-2">
-            <textarea
-              value={checkoutHook.holdNote}
-              onChange={(e) => checkoutHook.setHoldNote(e.target.value)}
-              placeholder="Contoh: customer minta ditunda, menunggu pembayaran..."
-              rows={3}
-              autoFocus
-              className="w-full bg-white/[0.04] border border-white/[0.08] text-white placeholder:text-slate-600 text-sm rounded-xl px-3.5 py-2.5 resize-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cyan-500/50 focus-visible:border-cyan-500/30 transition-all"
-            />
-          </div>
-          <ResponsiveDialogFooter className="gap-2">
-            <Button variant="ghost" onClick={() => { checkoutHook.setHoldNoteOpen(false); checkoutHook.setHoldNote('') }}
-              className="bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.06] text-xs rounded-xl">
-              Batal
-            </Button>
-            <Button onClick={checkoutHook.confirmHoldTransaction}
-              className="theme-bg hover:theme-hover text-white text-xs rounded-xl font-medium">
-              <ClockArrowDown className="mr-1.5 h-3 w-3" strokeWidth={1.5} />
-              Tunda Transaksi
-            </Button>
-          </ResponsiveDialogFooter>
-        </ResponsiveDialogContent>
-      </ResponsiveDialog>
+        // === PAYMENT DIALOG ===
+        paymentDialogOpen={checkoutHook.paymentDialogOpen}
+        onPaymentDialogOpen={checkoutHook.setPaymentDialogOpen}
+        paymentDialogProps={{
+          cartItems: cartHook.cart,
+          subtotal: cartHook.subtotal,
+          total: cartHook.total,
+          manualDiscountTotal: cartHook.manualDiscountTotal,
+          pointsDiscount: cartHook.pointsDiscount,
+          promoDiscount: promoDiscount,
+          ppnAmount: cartHook.ppnAmount,
+          paymentMethod: checkoutHook.paymentMethod,
+          paidAmount: checkoutHook.paidAmount,
+          change: cartHook.change,
+          settings: settingsHook.settings,
+          selectedCustomer: customersHook.selectedCustomer,
+          maxPointsToUse: cartHook.maxPointsToUse,
+          pointsToUse: cartHook.pointsToUse,
+          onPaymentMethodChange: (_method) => {
+            // Payment method is owned by checkoutHook
+          },
+          onPaidAmountChange: checkoutHook.setPaidAmount,
+          onPointsChange: checkoutHook.handlePointsChange,
+          onCheckout: checkoutHook.handleCheckout,
+          checkingOut: checkoutHook.checkingOut,
+          checkoutResult: checkoutHook.checkoutResult,
+          availablePaymentMethods: settingsHook.availablePaymentMethods,
+          getItemPrice: cartHook.getItemPrice,
+          getEffectivePrice: cartHook.getEffectivePrice,
+          getItemDisplayName: cartHook.getItemDisplayName,
+          getQuickNominals: getQuickNominals,
+          hasBelowHpp: cartHook.hasBelowHpp,
+          belowHppItems: cartHook.belowHppItems,
+          belowHppTotalLoss: cartHook.belowHppTotalLoss,
+          editingQtyId: cartHook.editingQtyId,
+          editingQtyValue: cartHook.editingQtyValue,
+          startEditQty: cartHook.startEditQty,
+          confirmEditQty: cartHook.confirmEditQty,
+          cancelEditQty: cartHook.cancelEditQty,
+          qtyInputRef: cartHook.qtyInputRef,
+          updateQty: cartHook.updateQty,
+          removeFromCart: cartHook.removeFromCart,
+          getItemStock: cartHook.getItemStock,
+          getCartKey: cartHook.getCartKey,
+          selectedPromo: selectedPromo,
+          availablePromos: settingsHook.availablePromos,
+          onPromoSelect: (promo) => {
+            if (promo) {
+              setSelectedPromo(promo as { id: string; name: string; type: string; discount: number; description: string })
+              setPromoDiscount((promo as { discount: number }).discount || 0)
+            } else {
+              setSelectedPromo(null)
+              setPromoDiscount(0)
+            }
+          },
+          promoLoading: promoLoading,
+        }}
 
-      {/* Mobile Cart Sheet */}
-      <Sheet open={checkoutHook.mobileCartOpen} onOpenChange={checkoutHook.setMobileCartOpen}>
-        <SheetContent side="bottom" className="flex flex-col h-[85vh] p-0 bg-deep-space rounded-t-2xl">
-          {/* Sheet Header */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06] shrink-0">
-            <div className="flex items-center gap-2">
-              <ShoppingCart className="h-4 w-4 theme-text" strokeWidth={1.5} />
-              <h2 className="text-sm font-bold text-white">Keranjang</h2>
-              <Badge variant="secondary" className="bg-white/[0.06] text-slate-400 border-white/[0.08] text-[10px] px-1.5 py-0 h-5">
-                {cartHook.cart.length} · {cartHook.cart.reduce((s, i) => s + i.qty, 0)} item
-              </Badge>
-            </div>
-            <button onClick={() => checkoutHook.setMobileCartOpen(false)} className="h-7 w-7 flex items-center justify-center rounded-lg text-slate-500 hover:text-white hover:bg-white/[0.06] transition-colors">
-              <X className="h-4 w-4" strokeWidth={1.5} />
-            </button>
-          </div>
+        // === RECEIPT DIALOG ===
+        receiptDialogOpen={checkoutHook.receiptDialogOpen}
+        onReceiptDialogOpen={checkoutHook.setReceiptDialogOpen}
+        receiptDialogProps={{
+          checkoutResult: checkoutHook.checkoutResult,
+          cartItems: cartHook.cart,
+          subtotal: cartHook.subtotal,
+          total: cartHook.total,
+          manualDiscountTotal: cartHook.manualDiscountTotal,
+          pointsDiscount: cartHook.pointsDiscount,
+          promoDiscount: promoDiscount,
+          ppnAmount: cartHook.ppnAmount,
+          paymentMethod: checkoutHook.paymentMethod,
+          paidAmount: checkoutHook.paidAmount,
+          change: cartHook.change,
+          settings: settingsHook.settings,
+          outletInfo: settingsHook.outletInfo,
+          selectedCustomer: customersHook.selectedCustomer,
+          onFinish: checkoutHook.handleReceiptFinish,
+          getItemPrice: cartHook.getItemPrice,
+          getEffectivePrice: cartHook.getEffectivePrice,
+          getItemDisplayName: cartHook.getItemDisplayName,
+          selectedPromo: selectedPromo,
+        }}
 
-          {/* Sheet Body — scrollable */}
-          <div className="flex-1 overflow-y-auto overscroll-contain">
-            <CustomerSelector
-              selectedCustomer={customersHook.selectedCustomer}
-              customerSearch={customersHook.customerSearch}
-              filteredCustomers={customersHook.filteredCustomers}
-              customerDropdownOpen={customersHook.customerDropdownOpen}
-              manualDiscountEnabled={settingsHook.settings.manualDiscountEnabled}
-              onCustomerSearchChange={(v) => { customersHook.setCustomerSearch(v); customersHook.setCustomerDropdownOpen(true) }}
-              onCustomerDropdownOpen={customersHook.setCustomerDropdownOpen}
-              onSelectCustomer={(c) => { customersHook.setSelectedCustomer(c); customersHook.setCustomerSearch(''); customersHook.setCustomerDropdownOpen(false); cartHook.setPointsToUse(0) }}
-              onClearCustomer={() => { customersHook.setSelectedCustomer(null); customersHook.setCustomerSearch(''); cartHook.setPointsToUse(0) }}
-              onAddNewCustomer={() => customersHook.setAddCustomerOpen(true)}
-              onSetPointsToUse={cartHook.setPointsToUse}
-              isMobileView={true}
-            />
-            <CartItemList
-              cart={cartHook.cart}
-              compact={false}
-              getCartKey={cartHook.getCartKey}
-              getItemPrice={cartHook.getItemPrice}
-              getEffectivePrice={cartHook.getEffectivePrice}
-              getItemStock={cartHook.getItemStock}
-              editingQtyId={cartHook.editingQtyId}
-              editingQtyValue={cartHook.editingQtyValue}
-              editingPriceId={cartHook.editingPriceId}
-              editingPriceValue={cartHook.editingPriceValue}
-              priceInputRef={cartHook.priceInputRef}
-              qtyInputRef={cartHook.qtyInputRef}
-              onUpdateQty={cartHook.updateQty}
-              onRemoveFromCart={cartHook.removeFromCart}
-              onStartEditQty={cartHook.startEditQty}
-              onConfirmEditQty={cartHook.confirmEditQty}
-              onCancelEditQty={cartHook.cancelEditQty}
-              onStartEditPrice={cartHook.startEditPrice}
-              onConfirmEditPrice={cartHook.confirmEditPrice}
-              onCancelEditPrice={cartHook.cancelEditPrice}
-              formatCurrency={formatCurrency}
-              batchInfo={batchInfo}
-              manualDiscountEnabled={settingsHook.settings.manualDiscountEnabled}
-            />
+        // === ADD CUSTOMER DIALOG ===
+        addCustomerOpen={customersHook.addCustomerOpen}
+        onAddCustomerOpen={customersHook.setAddCustomerOpen}
+        newCustomer={customersHook.newCustomer}
+        onNewCustomerChange={(c) => customersHook.setNewCustomer(c)}
+        onAddCustomer={customersHook.handleAddCustomer}
+        addingCustomer={customersHook.addingCustomer}
 
-            {/* Summary Section */}
-            {cartHook.cart.length > 0 && (
-              <div className="px-4 py-3 space-y-2 border-t border-white/[0.06] mt-2">
-                <CartSummary
-                  subtotal={cartHook.subtotal}
-                  manualDiscountTotal={cartHook.manualDiscountTotal}
-                  pointsDiscount={cartHook.pointsDiscount}
-                  promoDiscount={promoDiscount}
-                  ppnAmount={cartHook.ppnAmount}
-                  total={cartHook.total}
-                  paidAmount={checkoutHook.paidAmount}
-                  change={cartHook.change}
-                  hasBelowHpp={cartHook.hasBelowHpp}
-                  belowHppItems={cartHook.belowHppItems}
-                  maxPointsToUse={cartHook.maxPointsToUse}
-                  pointsToUse={cartHook.pointsToUse}
-                  ppnEnabled={settingsHook.settings.ppnEnabled}
-                  loyaltyEnabled={settingsHook.settings.loyaltyEnabled}
-                  ppnRate={settingsHook.settings.ppnRate}
-                  customerPoints={customersHook.selectedCustomer?.points}
-                  loyaltyPointValue={settingsHook.settings.loyaltyPointValue}
-                  promoName={selectedPromo?.name}
-                  onSetPointsToUse={(val) => checkoutHook.handlePointsChange(String(val))}
-                  onSetPaidAmount={checkoutHook.setPaidAmount}
-                  formatCurrency={formatCurrency}
-                />
-              </div>
-            )}
-          </div>
+        // === PENDING TRANSACTIONS DIALOG ===
+        pendingListOpen={sync.pendingListOpen}
+        onPendingListOpen={sync.setPendingListOpen}
+        onResumePending={checkoutHook.handleResumePending}
+        onDeletePending={checkoutHook.handleDeletePending}
+        pendingCount={pendingCount}
 
-          {/* Sheet Footer — sticky action buttons */}
-          {cartHook.cart.length > 0 && (
-            <div className="shrink-0 px-4 py-3 border-t border-white/[0.06] bg-nebula/95 backdrop-blur-xl space-y-2">
-              <div className="flex gap-2">
-                <Button onClick={checkoutHook.handleHoldTransaction} variant="outline"
-                  className="flex-1 h-11 font-semibold text-sm rounded-xl border-white/[0.08] text-slate-300">
-                  <ClockArrowDown className="mr-1 h-4 w-4" strokeWidth={1.5} />
-                  Tunda
-                </Button>
-                <Button onClick={checkoutHook.openPaymentDialog} disabled={cartHook.hasBelowHpp}
-                  className={`flex-1 h-11 font-bold text-sm rounded-xl transition-all ${
-                    !cartHook.hasBelowHpp
-                      ? 'theme-gradient hover:theme-hover text-white shadow-lg theme-shadow'
-                      : 'bg-white/[0.04] text-slate-500 cursor-not-allowed'
-                  }`}>
-                  <Check className="mr-1 h-4 w-4" strokeWidth={1.5} />
-                  Bayar {formatCurrency(cartHook.total)}
-                </Button>
-              </div>
-            </div>
-          )}
-        </SheetContent>
-      </Sheet>
+        // === HOLD NOTE DIALOG ===
+        holdNoteOpen={checkoutHook.holdNoteOpen}
+        onHoldNoteOpen={checkoutHook.setHoldNoteOpen}
+        holdNote={checkoutHook.holdNote}
+        onHoldNoteChange={(note) => checkoutHook.setHoldNote(note)}
+        onConfirmHold={checkoutHook.confirmHoldTransaction}
+        onCancelHold={() => { checkoutHook.setHoldNoteOpen(false); checkoutHook.setHoldNote('') }}
 
-      {/* Offline Sync List Dialog */}
-      <ResponsiveDialog open={sync.offlineListOpen} onOpenChange={sync.setOfflineListOpen}>
-        <ResponsiveDialogContent desktopClassName="max-w-lg rounded-2xl max-h-[85vh] flex flex-col">
-          <ResponsiveDialogHeader>
-            <ResponsiveDialogTitle className="text-sm font-bold text-white flex items-center gap-2">
-              <CloudOff className="h-4 w-4 text-amber-400" strokeWidth={1.5} />
-              Daftar Offline
-            </ResponsiveDialogTitle>
-            <ResponsiveDialogDescription className="text-[11px] text-slate-400">
-              Transaksi yang belum tersinkronisasi ke server
-            </ResponsiveDialogDescription>
-          </ResponsiveDialogHeader>
-          <PendingTransactionsList
-            isOnline={sync.isOnline}
-            onSynced={() => {
-              // Trigger refresh after sync
-              productsHook.fetchProducts(productsHook.productSearch, productsHook.productPage, productsHook.selectedCategoryId)
-              customersHook.loadCustomersFromCache()
-            }}
-          />
-        </ResponsiveDialogContent>
-      </ResponsiveDialog>
+        // === MOBILE CART SHEET ===
+        mobileCartOpen={checkoutHook.mobileCartOpen}
+        onMobileCartOpen={checkoutHook.setMobileCartOpen}
+        mobileCartCustomerProps={{
+          selectedCustomer: customersHook.selectedCustomer,
+          customerSearch: customersHook.customerSearch,
+          filteredCustomers: customersHook.filteredCustomers,
+          customerDropdownOpen: customersHook.customerDropdownOpen,
+          manualDiscountEnabled: settingsHook.settings.manualDiscountEnabled,
+          onCustomerSearchChange: (v) => { customersHook.setCustomerSearch(v); customersHook.setCustomerDropdownOpen(true) },
+          onCustomerDropdownOpen: customersHook.setCustomerDropdownOpen,
+          onSelectCustomer: (c) => { customersHook.setSelectedCustomer(c); customersHook.setCustomerSearch(''); customersHook.setCustomerDropdownOpen(false); cartHook.setPointsToUse(0) },
+          onClearCustomer: () => { customersHook.setSelectedCustomer(null); customersHook.setCustomerSearch(''); cartHook.setPointsToUse(0) },
+          onAddNewCustomer: () => customersHook.setAddCustomerOpen(true),
+          onSetPointsToUse: cartHook.setPointsToUse,
+        }}
+        mobileCartItemsProps={{
+          cart: cartHook.cart,
+          getCartKey: cartHook.getCartKey,
+          getItemPrice: cartHook.getItemPrice,
+          getEffectivePrice: cartHook.getEffectivePrice,
+          getItemStock: cartHook.getItemStock,
+          editingQtyId: cartHook.editingQtyId,
+          editingQtyValue: cartHook.editingQtyValue,
+          editingPriceId: cartHook.editingPriceId,
+          editingPriceValue: cartHook.editingPriceValue,
+          priceInputRef: cartHook.priceInputRef,
+          qtyInputRef: cartHook.qtyInputRef,
+          onUpdateQty: cartHook.updateQty,
+          onRemoveFromCart: cartHook.removeFromCart,
+          onStartEditQty: cartHook.startEditQty,
+          onConfirmEditQty: cartHook.confirmEditQty,
+          onCancelEditQty: cartHook.cancelEditQty,
+          onStartEditPrice: cartHook.startEditPrice,
+          onConfirmEditPrice: cartHook.confirmEditPrice,
+          onCancelEditPrice: cartHook.cancelEditPrice,
+          batchInfo: batchInfo,
+          manualDiscountEnabled: settingsHook.settings.manualDiscountEnabled,
+        }}
+        mobileCartSummaryProps={{
+          subtotal: cartHook.subtotal,
+          manualDiscountTotal: cartHook.manualDiscountTotal,
+          pointsDiscount: cartHook.pointsDiscount,
+          promoDiscount: promoDiscount,
+          ppnAmount: cartHook.ppnAmount,
+          total: cartHook.total,
+          paidAmount: checkoutHook.paidAmount,
+          change: cartHook.change,
+          hasBelowHpp: cartHook.hasBelowHpp,
+          belowHppItems: cartHook.belowHppItems,
+          maxPointsToUse: cartHook.maxPointsToUse,
+          pointsToUse: cartHook.pointsToUse,
+          ppnEnabled: settingsHook.settings.ppnEnabled,
+          loyaltyEnabled: settingsHook.settings.loyaltyEnabled,
+          ppnRate: settingsHook.settings.ppnRate,
+          customerPoints: customersHook.selectedCustomer?.points,
+          loyaltyPointValue: settingsHook.settings.loyaltyPointValue,
+          promoName: selectedPromo?.name,
+          onSetPointsToUse: (val) => checkoutHook.handlePointsChange(String(val)),
+          onSetPaidAmount: checkoutHook.setPaidAmount,
+        }}
+        mobileCartActionsProps={{
+          onHoldTransaction: checkoutHook.handleHoldTransaction,
+          openPaymentDialog: checkoutHook.openPaymentDialog,
+          hasBelowHpp: cartHook.hasBelowHpp,
+          cartTotal: cartHook.total,
+        }}
+        mobileCartItemCount={cartHook.cart.length}
+        mobileCartTotalQty={cartHook.cart.reduce((s, i) => s + i.qty, 0)}
+
+        // === OFFLINE SYNC LIST DIALOG ===
+        offlineListOpen={sync.offlineListOpen}
+        onOfflineListOpen={sync.setOfflineListOpen}
+        isOnline={sync.isOnline}
+        offlineList={[]}
+        onSynced={() => {
+          productsHook.fetchProducts(productsHook.productSearch, productsHook.productPage, productsHook.selectedCategoryId)
+          customersHook.loadCustomersFromCache()
+        }}
+      />
     </div>
   )
 }
