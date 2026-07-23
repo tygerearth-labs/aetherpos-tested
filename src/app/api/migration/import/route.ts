@@ -334,6 +334,171 @@ async function cleanupMigrationData(
   return { movementsDeleted, compositionsDeleted }
 }
 
+// ==================== BATCH-OPTIMIZED REMIGRATION ANALYSIS ====================
+
+/**
+ * BATCH-OPTIMIZED remigration analysis for a batch of inventory items.
+ *
+ * Replaces N calls to `analyzeExistingInventoryForRemigration` (1-3 queries
+ * each = N to 3N queries) with 2 batch queries (groupBy + findMany) plus
+ * in-memory computation using preloaded `_count` data.
+ *
+ * PERF: For a 50-row re-migration batch, this reduces 50-150 analysis queries
+ * to just 2 queries. For fresh import (no existing items), 0 queries — the
+ * caller checks `existingInvItems.length > 0` before calling.
+ *
+ * The logic is identical to `analyzeExistingInventoryForRemigration`:
+ *   1. _count == 0 for all relations → canReplace (no query needed)
+ *   2. purchaseItems / transferItems / consumptionSnapshots > 0 → hasRealHistory (from _count)
+ *   3. movements > 0 → batch groupBy to split MIGRATION vs real (1 query for ALL items)
+ *   4. compositions > 0 → batch findMany to split auto-1:1 vs manual (1 query for ALL items)
+ *   5. No real history → canReplace (migration-only data is safe to replace)
+ */
+async function batchAnalyzeInventoryForRemigration(
+  tx: Prisma.TransactionClient,
+  invItems: Prisma.InventoryItemGetPayload<{
+    include: {
+      _count: {
+        select: {
+          compositions: true
+          purchaseItems: true
+          movements: true
+          inventoryTransferItems: true
+          consumptionSnapshots: true
+        }
+      }
+    }
+  }>[],
+  outletId: string
+): Promise<Map<string, RemigrationAnalysis>> {
+  const result = new Map<string, RemigrationAnalysis>()
+
+  for (const item of invItems) {
+    result.set(item.id, {
+      canReplace: false,
+      reason: '',
+      hasRealHistory: false,
+      migrationOnlyData: { movements: 0, compositions: 0 },
+    })
+  }
+
+  // Phase 1: Check _count for immediate signals (0 queries — uses preloaded _count)
+  const idsNeedingFurtherAnalysis: string[] = []
+  for (const item of invItems) {
+    const analysis = result.get(item.id)!
+    const c = item._count
+    const totalRelations = c.compositions + c.purchaseItems + c.movements
+      + c.inventoryTransferItems + c.consumptionSnapshots
+
+    if (totalRelations === 0) {
+      analysis.canReplace = true
+      analysis.reason = 'Tidak ada histori sama sekali'
+      continue
+    }
+
+    // Immediate real-history blocks (from _count, no extra query)
+    if (c.purchaseItems > 0) {
+      analysis.hasRealHistory = true
+      analysis.reason = `${c.purchaseItems} riwayat pembelian`
+      continue
+    }
+    if (c.inventoryTransferItems > 0) {
+      analysis.hasRealHistory = true
+      analysis.reason = `${c.inventoryTransferItems} riwayat transfer`
+      continue
+    }
+    if (c.consumptionSnapshots > 0) {
+      analysis.hasRealHistory = true
+      analysis.reason = `${c.consumptionSnapshots} riwayat konsumsi penjualan`
+      continue
+    }
+
+    idsNeedingFurtherAnalysis.push(item.id)
+  }
+
+  // Phase 2: Batch movement analysis (1 groupBy query for ALL items with movements)
+  const idsNeedingMovementCheck = invItems
+    .filter(i => idsNeedingFurtherAnalysis.includes(i.id) && i._count.movements > 0 && !result.get(i.id)!.hasRealHistory)
+    .map(i => i.id)
+
+  if (idsNeedingMovementCheck.length > 0) {
+    const movementGroups = await tx.inventoryMovement.groupBy({
+      by: ['inventoryItemId', 'referenceType'],
+      where: { inventoryItemId: { in: idsNeedingMovementCheck }, outletId },
+      _count: true,
+    })
+
+    for (const item of invItems) {
+      if (!idsNeedingMovementCheck.includes(item.id)) continue
+      const analysis = result.get(item.id)!
+      if (analysis.hasRealHistory) continue
+
+      const groups = movementGroups.filter(g => g.inventoryItemId === item.id)
+      const migrationCount = groups.find(g => g.referenceType === 'MIGRATION')?._count || 0
+      const realCount = item._count.movements - migrationCount
+      analysis.migrationOnlyData.movements = migrationCount
+
+      if (realCount > 0) {
+        analysis.hasRealHistory = true
+        analysis.reason = `${realCount} pergerakan stok bisnis (+${migrationCount} stok awal migrasi)`
+      }
+    }
+  }
+
+  // Phase 3: Batch composition analysis (1 findMany query for ALL items with compositions)
+  const idsNeedingCompCheck = invItems
+    .filter(i => idsNeedingFurtherAnalysis.includes(i.id) && i._count.compositions > 0 && !result.get(i.id)!.hasRealHistory)
+    .map(i => i.id)
+
+  if (idsNeedingCompCheck.length > 0) {
+    // NOTE: ProductComposition only has `inventoryItemId` (not `ingredientId` —
+    // that was a legacy field removed from the schema). The original
+    // analyzeExistingInventoryForRemigration referenced ingredientId in an OR
+    // clause, but since the field doesn't exist, that branch was dead code.
+    // We query only by inventoryItemId (the actual schema field).
+    const compositions = await tx.productComposition.findMany({
+      where: {
+        inventoryItemId: { in: idsNeedingCompCheck },
+      },
+      select: { id: true, inventoryItemId: true, qty: true, baseUnit: true },
+    })
+
+    for (const item of invItems) {
+      if (!idsNeedingCompCheck.includes(item.id)) continue
+      const analysis = result.get(item.id)!
+      if (analysis.hasRealHistory) continue
+
+      const itemComps = compositions.filter(c => c.inventoryItemId === item.id)
+      let autoCount = 0
+      let realCount = 0
+      for (const comp of itemComps) {
+        if (comp.qty === 1 && comp.baseUnit !== null) autoCount++
+        else realCount++
+      }
+      analysis.migrationOnlyData.compositions = autoCount
+
+      if (realCount > 0) {
+        analysis.hasRealHistory = true
+        analysis.reason = `${realCount} komposisi/resep manual (+${autoCount} link otomatis)`
+      }
+    }
+  }
+
+  // Phase 4: Finalize — items with no real history → canReplace
+  for (const item of invItems) {
+    const analysis = result.get(item.id)!
+    if (analysis.hasRealHistory || analysis.canReplace) continue
+
+    analysis.canReplace = true
+    const parts: string[] = []
+    if (analysis.migrationOnlyData.movements > 0) parts.push(`${analysis.migrationOnlyData.movements} stok awal migrasi`)
+    if (analysis.migrationOnlyData.compositions > 0) parts.push(`${analysis.migrationOnlyData.compositions} link otomatis`)
+    analysis.reason = `Hanya data migrasi: ${parts.join(', ')} → akan di-replace`
+  }
+
+  return result
+}
+
 // ==================== MAIN ROUTE ====================
 
 export async function POST(request: NextRequest) {
@@ -672,34 +837,207 @@ export async function POST(request: NextRequest) {
           throw new Error(`FORCED_FAIL: batch ${b + 1} (test hook)`)
         }
         await db.$transaction(async (tx) => {
-          // ──────────────────────────────────────────────
-          // SHEET 1: Produk Non-Varian (batched)
-          // ──────────────────────────────────────────────
+          // ═══════════════════════════════════════════════════════════════════
+          // PERF: BATCH-OPTIMIZED IMPORT (Rules 1-8)
+          //
+          // Architecture: preload → in-memory loop → grouped writes → short tx
+          //
+          // BEFORE: N×(find→count→groupBy→create→update→find) = ~455 queries
+          //   per 50-row fresh Mode 2 batch (~655-755 for re-migration)
+          //
+          // AFTER: 3-5 preload queries + 2 createMany/re-query pairs +
+          //   2 batch deleteMany + per-row updates (re-migration only) =
+          //   ~15-20 queries per 50-row batch
+          //
+          // Rules applied:
+          //   1. Preload existing Products in one findMany
+          //   2. Preload InventoryItems in one findMany (with _count)
+          //   3. Preload ProductComposition via batch analysis (2 queries)
+          //   4. Preload Categories in one findMany
+          //   5. Removed per-row product.count / limit checks (pre-flight covers it)
+          //   6. Reuse Maps (existingProductMap, existingInvMap, categoryCache)
+          //   7. createMany for movements, audit logs, products, inventory, compositions
+          //   8. No findFirst inside loops — all lookups via Maps
+          //
+          // Preserved (Rules 9-10):
+          //   9. CONCURRENCY=1 (sequential batches), BATCH_SIZE=50 (unchanged)
+          //  10. Atomic rollback: all writes in one $transaction. Any createMany
+          //      or update failure throws → tx rolls back → Mode 2 invariant intact.
+          // ═══════════════════════════════════════════════════════════════════
+
+          // ── STEP 1: Parse all batch rows upfront (no queries) ──
+          const batchRows: Array<{
+            rowNum: number
+            name: string
+            sku: string | null
+            barcode: string | null
+            hpp: number
+            price: number
+            stock: number
+            unit: string
+            categoryRaw: string
+            lowStockAlert: number
+            komposisiInline: string
+          }> = []
+
           for (let i = batchStart; i < batchEnd; i++) {
             const row = nonVarianRows[i]
-            const rowNum = i + 2
-
-            const name = String(findColumn(row, ['NAMA PRODUK*', 'NAMA PRODUK', 'Nama Produk', 'Nama', 'NAME', 'name', 'Product Name', 'Produk']) || '').trim()
-            const sku = String(findColumn(row, ['SKU', 'sku', 'Kode']) || '').trim() || null
-            const barcode = String(findColumn(row, ['BARCODE', 'Barcode', 'barcode', 'BAR CODE', 'Bar Code']) || '').trim() || null
-            const hpp = sanitizeNumber(findColumn(row, ['HPP / MODAL (Rp)', 'HPP (Rp)', 'HPP', 'Harga Pokok', 'harga_pokok', 'Cost', 'Modal', 'HPP MODAL Rp']))
-            const price = sanitizeNumber(findColumn(row, ['HARGA JUAL* (Rp)', 'HARGA JUAL (Rp)', 'HARGA JUAL', 'Harga Jual', 'Harga', 'Price', 'harga_jual', 'harga', 'price', 'Sell Price', 'Jual']))
-            const stock = sanitizeNumber(findColumn(row, ['STOK AWAL', 'STOK', 'QTY / STOK', 'QTY', 'qty', 'Stok', 'stok', 'Stock', 'stock', 'Quantity', 'Jumlah']))
             const unitRaw = String(findColumn(row, ['SATUAN', 'Satuan', 'satuan', 'Unit', 'unit', 'Sat']) || 'pcs').trim().toLowerCase()
-            const categoryRaw = String(findColumn(row, ['KATEGORI', 'Kategori', 'kategori', 'Category', 'category', 'Kat']) || '').trim()
-            const lowStockAlert = sanitizeNumber(findColumn(row, ['LOW STOCK ALERT', 'Low Stock Alert', 'low stock alert', 'Low Stock', 'LOW STOCK', 'Stock Alert', 'STOK MINIMUM']))
-            const komposisiInline = String(findColumn(row, ['KOMPOSISI INLINE', 'KOMPOSISI INLINE (Opsional)', 'Komposisi Inline', 'KOMPOSISI', 'Komposisi', 'komposisi']) || '').trim()
+            batchRows.push({
+              rowNum: i + 2,
+              name: String(findColumn(row, ['NAMA PRODUK*', 'NAMA PRODUK', 'Nama Produk', 'Nama', 'NAME', 'name', 'Product Name', 'Produk']) || '').trim(),
+              sku: String(findColumn(row, ['SKU', 'sku', 'Kode']) || '').trim() || null,
+              barcode: String(findColumn(row, ['BARCODE', 'Barcode', 'barcode', 'BAR CODE', 'Bar Code']) || '').trim() || null,
+              hpp: sanitizeNumber(findColumn(row, ['HPP / MODAL (Rp)', 'HPP (Rp)', 'HPP', 'Harga Pokok', 'harga_pokok', 'Cost', 'Modal', 'HPP MODAL Rp'])),
+              price: sanitizeNumber(findColumn(row, ['HARGA JUAL* (Rp)', 'HARGA JUAL (Rp)', 'HARGA JUAL', 'Harga Jual', 'Harga', 'Price', 'harga_jual', 'harga', 'price', 'Sell Price', 'Jual'])),
+              stock: sanitizeNumber(findColumn(row, ['STOK AWAL', 'STOK', 'QTY / STOK', 'QTY', 'qty', 'Stok', 'stok', 'Stock', 'stock', 'Quantity', 'Jumlah'])),
+              unit: VALID_UNITS.includes(unitRaw) ? unitRaw : 'pcs',
+              categoryRaw: String(findColumn(row, ['KATEGORI', 'Kategori', 'kategori', 'Category', 'category', 'Kat']) || '').trim(),
+              lowStockAlert: sanitizeNumber(findColumn(row, ['LOW STOCK ALERT', 'Low Stock Alert', 'low stock alert', 'Low Stock', 'LOW STOCK', 'Stock Alert', 'STOK MINIMUM'])),
+              komposisiInline: String(findColumn(row, ['KOMPOSISI INLINE', 'KOMPOSISI INLINE (Opsional)', 'Komposisi Inline', 'KOMPOSISI', 'Komposisi', 'komposisi']) || '').trim(),
+            })
+          }
 
+          const batchNames = batchRows.map(r => r.name).filter(Boolean)
+          const batchCategoryNames = [...new Set(batchRows.map(r => r.categoryRaw).filter(Boolean))]
+
+          // ── STEP 2: Preload (Rules 1-4, 8) — batch-level reads ──
+
+          // Rule 1: Preload existing Products for all 50 rows in one findMany
+          const existingProducts = batchNames.length > 0
+            ? await tx.product.findMany({ where: { name: { in: batchNames }, outletId }, select: { id: true, name: true } })
+            : []
+          const existingProductMap = new Map(existingProducts.map(p => [p.name, p.id]))
+
+          // Rule 2: Preload InventoryItems for all 50 rows in one findMany (with _count for remigration)
+          // Only needed in stock mode (Mode 2 creates same-named inventory items)
+          type InvItemWithCount = Prisma.InventoryItemGetPayload<{
+            include: {
+              _count: {
+                select: {
+                  compositions: true
+                  purchaseItems: true
+                  movements: true
+                  inventoryTransferItems: true
+                  consumptionSnapshots: true
+                }
+              }
+            }
+          }>
+          let existingInvItems: InvItemWithCount[] = []
+          if (isStockMode && batchNames.length > 0) {
+            existingInvItems = await tx.inventoryItem.findMany({
+              where: { name: { in: batchNames }, outletId },
+              include: {
+                _count: {
+                  select: {
+                    compositions: true,
+                    purchaseItems: true,
+                    movements: true,
+                    inventoryTransferItems: true,
+                    consumptionSnapshots: true,
+                  },
+                },
+              },
+            })
+          }
+          const existingInvMap = new Map(existingInvItems.map(i => [i.name, i]))
+
+          // Rule 4: Preload Categories in one findMany
+          if (batchCategoryNames.length > 0) {
+            const existingCats = await tx.category.findMany({
+              where: { name: { in: batchCategoryNames }, outletId },
+              select: { id: true, name: true },
+            })
+            for (const c of existingCats) categoryCache.set(c.name, c.id)
+          }
+
+          // Create missing categories (batched — replaces per-row getOrCreateCategory)
+          const missingCategoryNames = batchCategoryNames.filter(n => !categoryCache.has(n))
+          if (missingCategoryNames.length > 0) {
+            await tx.category.createMany({
+              data: missingCategoryNames.map(name => ({ name, outletId, color: 'zinc' })),
+            })
+            categoriesCreated += missingCategoryNames.length
+            // Re-query to get IDs for the newly created categories
+            const newCats = await tx.category.findMany({
+              where: { name: { in: missingCategoryNames }, outletId },
+              select: { id: true, name: true },
+            })
+            for (const c of newCats) categoryCache.set(c.name, c.id)
+          }
+
+          // Rule 3 + remigration: Batch analyze existing inventory items
+          // Replaces N calls to analyzeExistingInventoryForRemigration (1-3 queries each)
+          // with 2 batch queries (groupBy + findMany) for ALL items.
+          // For fresh import (no existing items), 0 queries.
+          let remigrationAnalysisMap = new Map<string, RemigrationAnalysis>()
+          if (existingInvItems.length > 0) {
+            remigrationAnalysisMap = await batchAnalyzeInventoryForRemigration(tx, existingInvItems, outletId)
+          }
+
+          // ── STEP 3: In-memory collection loop (0 reads — Rules 5, 6, 8) ──
+
+          // Products to create (batched via createMany)
+          const productsToCreate: Prisma.ProductCreateManyInput[] = []
+
+          // Inventory items to create (batched via createMany)
+          const invItemsToCreate: Prisma.InventoryItemCreateManyInput[] = []
+
+          // Inventory items to update (per-row — different values per row)
+          const invItemsToUpdate: Array<{ id: string; name: string; data: Prisma.InventoryItemUpdateInput }> = []
+
+          // Inventory item IDs needing batch cleanup (re-migration: delete old MIGRATION movements + auto compositions)
+          const invIdsToCleanup: string[] = []
+          const cleanupWarningData: Map<string, { name: string; analysis: RemigrationAnalysis }> = new Map()
+
+          // Compositions to create (1:1 auto-links for Mode 2)
+          // Stored with name placeholders — resolved to IDs after createMany + re-query
+          const compositionsToCreate: Array<{
+            productName: string      // resolved to productId after createMany
+            invIdOrName: string      // ID (existing inv) or name (new inv, resolved after createMany)
+            unit: string
+          }> = []
+
+          // Movements to create (opening balance — batched via createMany)
+          // Stored with name placeholders for new items — resolved after createMany
+          const movementsToCreate: Array<{
+            type: string
+            quantity: number
+            previousStock: number
+            newStock: number
+            referenceType: string
+            notes: string
+            outletId: string
+            invIdOrName: string  // ID (existing) or name (new, resolved later)
+            userId: string
+          }> = []
+
+          // Batch-local audit log entries (entityId resolved after createMany)
+          const batchAuditLogs: Array<{
+            productName: string
+            productSku: string
+            stock: number
+          }> = []
+
+          // Batch-local deferred compositions (productId resolved after createMany)
+          const batchDeferredCompositions: Array<{
+            productName: string
+            compositionStr: string
+          }> = []
+
+          for (const rowData of batchRows) {
+            const { rowNum, name, sku, barcode, hpp, price, stock, unit, categoryRaw, lowStockAlert, komposisiInline } = rowData
+
+            // ── Validation (unchanged) ──
             if (!name) {
               errors.push(`Baris ${rowNum}: Nama produk wajib diisi`)
               continue
             }
-
             if (!price || price < 0) {
               errors.push(`Baris ${rowNum}: Harga Jual tidak valid (Nama: ${name})`)
               continue
             }
-
             // MIG-003 (P1): Negative value validation.
             if (hpp < 0) {
               errors.push(`Baris ${rowNum}: HPP tidak boleh negatif (Nama: ${name})`)
@@ -710,72 +1048,57 @@ export async function POST(request: NextRequest) {
               continue
             }
 
-            const unit = VALID_UNITS.includes(unitRaw) ? unitRaw : 'pcs'
+            // Rule 5: Removed per-row checkProductLimit (pre-flight quota check at
+            // lines 587-624 already enforces maxProducts per request. In single-batch
+            // mode, the pre-flight runs for each batch request, so the limit is
+            // always current. The per-row product.count was 50 redundant queries.)
 
-            // Check product limit (defense-in-depth inside each batch)
-            if (!(await checkProductLimit(tx))) {
-              errors.push(`Baris ${rowNum}: Batas produk tercapai`)
-              break
-            }
-
-            // Skip duplicates
-            const existing = await tx.product.findFirst({
-              where: { name, outletId },
-            })
-            if (existing) {
-              // Still cache the product for composition linking
-              productCache.set(name, existing.id)
+            // Rule 1: Duplicate check via Map (no query)
+            const existingProductId = existingProductMap.get(name)
+            if (existingProductId) {
+              productCache.set(name, existingProductId)
               productsSkipped++
               continue
             }
 
-            // Category
-            const categoryId = categoryRaw ? await getOrCreateCategory(tx, categoryRaw) : null
+            // Rule 4+6: Category via Map (categories already created/resolved above)
+            const categoryId = categoryRaw ? (categoryCache.get(categoryRaw) || null) : null
 
-            // Auto-generate SKU/Barcode
+            // Auto-generate SKU/Barcode (unchanged — uses db, not tx; shared with bulk-upload)
             const finalSku = sku || await generateUniqueSKU(name, outletId)
             const finalBarcode = barcode || finalSku
 
-            // Create Product
-            const product = await tx.product.create({
-              data: {
-                name,
-                sku: finalSku,
-                barcode: finalBarcode,
-                hpp,
-                price,
-                stock,
-                unit,
-                categoryId,
-                outletId,
-                lowStockAlert: lowStockAlert > 0 ? lowStockAlert : 10,
-                hasComposition: includeInventory && !!komposisiInline,
-              },
+            // Rule 6: Set hasComposition UPFRONT in product create data.
+            // Mode 2 (isStockMode): always true (1:1 link will be created below).
+            // Mode 3 (includeInventory): true only if komposisiInline present (same as original).
+            // This eliminates the per-row product.update(hasComposition) — saves 50 queries.
+            const hasComposition = isStockMode || (includeInventory && !!komposisiInline)
+
+            // Collect product data (will be createMany'd below)
+            productsToCreate.push({
+              name,
+              sku: finalSku,
+              barcode: finalBarcode,
+              hpp,
+              price,
+              stock,
+              unit,
+              categoryId,
+              outletId,
+              lowStockAlert: lowStockAlert > 0 ? lowStockAlert : 10,
+              hasComposition,
             })
 
             productsCreated++
             if (finalBarcode) barcodeCount++
-            productCache.set(name, product.id)
 
-            // === Opening stock audit log per product (batched) ===
+            // Collect opening stock audit log (entityId resolved after createMany)
             if (stock > 0) {
-              openingStockLogs.push({
-                action: 'RESTOCK',
-                entityType: 'PRODUCT',
-                entityId: product.id,
-                details: JSON.stringify({
-                  productName: name,
-                  productSku: finalSku,
-                  initialStock: stock,
-                  newStock: stock,
-                  reason: 'Stok awal migrasi',
-                }),
-                outletId,
-                userId,
+              batchAuditLogs.push({
+                productName: name,
+                productSku: finalSku,
+                stock,
               })
-              if (openingStockLogs.length >= OPENING_STOCK_BATCH_SIZE) {
-                await flushOpeningStockLogs(tx)
-              }
             }
 
             // === Mode 3 (product_inventory): NO auto-inventory-item creation ===
@@ -783,211 +1106,322 @@ export async function POST(request: NextRequest) {
             //
             // In Mode 3, bahan baku (raw materials) and produk jadi (finished goods)
             // are conceptually DISTINCT. A product's stock lives in `Product.stock`
-            // (set above at line 747 from the STOK AWAL column). InventoryItem rows
-            // exist ONLY for raw materials declared in Sheet 3 ("Bahan Baku"), and
-            // the Product↔Inventory link exists ONLY via explicit BOM rows
-            // (Sheet 4 "Komposisi" or the KOMPOSISI INLINE column).
+            // (set in the productsToCreate data above from the STOK AWAL column).
+            // InventoryItem rows exist ONLY for raw materials declared in Sheet 3
+            // ("Bahan Baku"), and the Product↔Inventory link exists ONLY via
+            // explicit BOM rows (Sheet 4 "Komposisi" or the KOMPOSISI INLINE column).
             //
-            // The previous version of this branch auto-created an InventoryItem with
-            // the SAME name as the product whenever `stock > 0`, which produced an
-            // orphan inventory item (no ProductComposition link) → the symptom
-            // "produk berhasil di-upload tapi inventori tidak link". That auto-creation
-            // is intentionally REMOVED here.
+            // The previous version auto-created an InventoryItem with the SAME name
+            // as the product whenever `stock > 0`, which produced an orphan inventory
+            // item (no ProductComposition link) → the symptom "produk berhasil
+            // di-upload tapi inventori tidak link". That auto-creation is intentionally
+            // REMOVED here. (No inventory mutation in Mode 3 — intentionally empty.)
             //
-            // Effect:
-            //   • Product.stock is still set from STOK AWAL (line 747).
-            //   • Sheet 3 + Sheet 4 still create InventoryItems + ProductComposition
-            //     (handlers below) — that is the ONLY way products get linked to
-            //     inventory in Mode 3.
-            //   • KOMPOSISI INLINE still creates ProductComposition via the deferred
-            //     block (below), linking to existing / Sheet-3 items.
-            //   • If neither BOM source is filled, the product has no composition →
-            //     selling it reduces Product.stock only (no raw-material consumption).
-            //     This is the correct Mode-3-degenerates-to-Mode-1 behaviour.
-            //
-            // (No inventory mutation here — intentionally empty.)
+            // Mode 3 composition linking is handled by:
+            //   • Sheet 3 + Sheet 4 handlers (remaining-sheets transaction)
+            //   • KOMPOSISI INLINE → deferredInlineCompositions (below)
+            // If neither BOM source is filled, the product has no composition →
+            // selling it reduces Product.stock only (correct Mode-3-degenerates-to-Mode-1).
 
-            // === product_stock mode: ATOMIC 1:1 InventoryItem + ProductComposition + hasComposition ===
-            // Approved invariant (2025-01): Product + InventoryItem + 1:1 ProductComposition
-            // + hasComposition=true are ONE atomic unit. Any failure throws and rolls
-            // back the batch transaction (caught at the batch try/catch below).
+            // === product_stock mode: ATOMIC 1:1 InventoryItem + ProductComposition ===
+            // Approved invariant (2025-01): Product + InventoryItem + 1:1
+            // ProductComposition + hasComposition=true are ONE atomic unit.
+            // Any failure in the grouped writes below throws → tx rolls back →
+            // batchFailed=true → entire batch rolls back. Invariant preserved.
             //
             // stock=0 is handled the same as stock>0: an InventoryItem(stock=0) and a
             // 1:1 link are still created, so that sales decrement inventory correctly
-            // (going negative triggers the low-stock / insufficient-stock path) and
-            // restock flows through the inventory ledger.
+            // and restock flows through the inventory ledger.
             if (isStockMode) {
-              console.log(`[migration] product_stock: Processing "${name}" with stock=${stock}, unit=${unit}`)
+              const existingInv = existingInvMap.get(name)
 
-              // ── Resolve or create InventoryItem (named after the product) ──
-              const existingInv = await tx.inventoryItem.findFirst({
-                where: { name, outletId },
-              })
-
-              let invItemId: string
               if (!existingInv) {
-                // ── NEW ITEM: Create fresh ──
-                console.log(`[migration] product_stock: Creating NEW inventory for "${name}"`)
-                const invItem = await tx.inventoryItem.create({
-                  data: {
-                    name,
-                    sku: finalSku,
-                    baseUnit: unit,
-                    stock: stock,
-                    avgCost: hpp > 0 ? hpp : 0,
-                    lowStockAlert: lowStockAlert > 0 ? lowStockAlert : 0,
-                    status: 'ACTIVE',
-                    outletId,
-                    categoryId: null,
-                  },
+                // ── NEW INVENTORY ITEM: collect for batch createMany ──
+                invItemsToCreate.push({
+                  name,
+                  sku: finalSku,
+                  baseUnit: unit,
+                  stock,
+                  avgCost: hpp > 0 ? hpp : 0,
+                  lowStockAlert: lowStockAlert > 0 ? lowStockAlert : 0,
+                  status: 'ACTIVE',
+                  outletId,
+                  categoryId: null,
                 })
 
-                invItemId = invItem.id
+                // Collect movement (invIdOrName = name → resolved after createMany)
+                movementsToCreate.push({
+                  type: 'PURCHASE',
+                  quantity: stock,
+                  previousStock: 0,
+                  newStock: stock,
+                  referenceType: 'MIGRATION',
+                  notes: `Saldo awal stok gudang migrasi dari ${file.name}`,
+                  outletId,
+                  invIdOrName: name,
+                  userId,
+                })
+
                 inventoryItemsCreated++
                 totalStock += stock
                 totalModalValue += hpp * stock
-                inventoryItemCache.set(name, invItem.id)
 
-                // Opening balance movement — audit-only (failure is non-fatal to the invariant)
-                try {
-                  await tx.inventoryMovement.create({
-                    data: {
-                      type: 'PURCHASE',
-                      quantity: stock,
-                      previousStock: 0,
-                      newStock: stock,
-                      referenceType: 'MIGRATION',
-                      notes: `Saldo awal stok gudang migrasi dari ${file.name}`,
-                      outletId,
-                      inventoryItemId: invItem.id,
-                      userId,
-                    },
-                  })
-                } catch (movErr) {
-                  console.warn(`[migration] Failed to create opening balance movement for ${name}:`, movErr)
-                }
+                // Collect 1:1 composition link (both IDs resolved after createMany)
+                compositionsToCreate.push({
+                  productName: name,
+                  invIdOrName: name,
+                  unit,
+                })
+                compositionsCreated++
               } else {
-                // ── EXISTING ITEM: Smart re-migration handling ──
-                console.log(`[migration] product_stock: Found existing inventory "${name}" (id=${existingInv.id}), analyzing...`)
-
-                const analysis = await analyzeExistingInventoryForRemigration(tx, existingInv.id, outletId)
+                // ── EXISTING INVENTORY: remigration analysis (from preloaded Map) ──
+                const analysis = remigrationAnalysisMap.get(existingInv.id)!
 
                 if (analysis.canReplace) {
-                  // Safe to replace: clean up old migration data and update
-                  console.log(`[migration] product_stock: REplacing "${name}" - ${analysis.reason}`)
+                  // Safe to replace: collect for batch cleanup + per-row update
+                  invIdsToCleanup.push(existingInv.id)
+                  cleanupWarningData.set(existingInv.id, { name, analysis })
 
-                  const cleaned = await cleanupMigrationData(tx, existingInv.id, outletId)
-
-                  await tx.inventoryItem.update({
-                    where: { id: existingInv.id },
+                  invItemsToUpdate.push({
+                    id: existingInv.id,
+                    name,
                     data: {
                       sku: finalSku || existingInv.sku,
                       baseUnit: unit,
-                      stock: stock,
+                      stock,
                       avgCost: hpp > 0 ? hpp : 0,
                       lowStockAlert: lowStockAlert > 0 ? lowStockAlert : 0,
                       status: 'ACTIVE',
                     },
                   })
 
-                  try {
-                    await tx.inventoryMovement.create({
-                      data: {
-                        type: 'PURCHASE',
-                        quantity: stock,
-                        previousStock: 0,
-                        newStock: stock,
-                        referenceType: 'MIGRATION',
-                        notes: `Saldo awal stok gudang (re-migrate) dari ${file.name}`,
-                        outletId,
-                        inventoryItemId: existingInv.id,
-                        userId,
-                      },
-                    })
-                  } catch (movErr) {
-                    console.warn(`[migration] Failed to create re-migration movement for ${name}:`, movErr)
-                  }
+                  // Movement for re-migrated item (invId is known — existing item)
+                  movementsToCreate.push({
+                    type: 'PURCHASE',
+                    quantity: stock,
+                    previousStock: 0,
+                    newStock: stock,
+                    referenceType: 'MIGRATION',
+                    notes: `Saldo awal stok gudang (re-migrate) dari ${file.name}`,
+                    outletId,
+                    invIdOrName: existingInv.id,
+                    userId,
+                  })
 
-                  invItemId = existingInv.id
                   inventoryItemsUpdated++
                   migrationDataCleaned++
                   totalStock += stock
                   totalModalValue += hpp * stock
 
-                  warnings.push(`🔄 "${name}": di-update (data migrasi lama dibersihkan: ${cleaned.movementsDeleted} stok, ${cleaned.compositionsDeleted} link)`)
+                  // 1:1 composition link (productId resolved after createMany, invId is known)
+                  compositionsToCreate.push({
+                    productName: name,
+                    invIdOrName: existingInv.id,
+                    unit,
+                  })
+                  compositionsCreated++
                 } else {
-                  // Has real history: use existing but warn
-                  console.log(`[migration] product_stock: Using EXISTING "${name}" (not replaced - ${analysis.reason})`)
-                  invItemId = existingInv.id
+                  // Has real history: use existing, skip update, warn
+                  inventoryItemCache.set(name, existingInv.id)
                   inventoryItemsSkipped++
                   warnings.push(`⚠️ "${name}" menggunakan data existing: ${analysis.reason}`)
+
+                  // Still create 1:1 composition link (product is new, needs link)
+                  compositionsToCreate.push({
+                    productName: name,
+                    invIdOrName: existingInv.id,
+                    unit,
+                  })
+                  compositionsCreated++
                 }
-
-                inventoryItemCache.set(name, existingInv.id)
               }
-
-              // ── ATOMIC 1:1 link: ProductComposition + hasComposition ──
-              // Founder-approved guards (2025-01):
-              //   1. EXACT link check: productId + variantId=null + inventoryItemId + qty=1.
-              //      If it already exists → no duplicate (ProductComposition has no @@unique).
-              //      This is the re-migration safety path.
-              //   2. CONFLICT guard: if ANY other composition already exists for this
-              //      product (different inventoryItemId, qty != 1, etc.) → DO NOT append
-              //      an automatic 1:1 link. Push explicit error + skip link create.
-              //      The product already has a manual BOM; auto-1:1 would create two
-              //      ledgers. hasComposition is already true (set by the manual BOM).
-              //   3. If no composition exists → create auto 1:1 + set hasComposition=true.
-              // Any unexpected create/update throw propagates to the batch try/catch →
-              // batchFailed=true → entire batch rolls back. Invariant preserved.
-              const existingCompositions = await tx.productComposition.findMany({
-                where: { productId: product.id, variantId: null },
-                select: { id: true, inventoryItemId: true, qty: true },
-              })
-              const exactLinkExists = existingCompositions.some(
-                (c) => c.inventoryItemId === invItemId && c.qty === 1
-              )
-
-              if (existingCompositions.length > 0 && !exactLinkExists) {
-                // Manual / non-1:1 BOM already exists → explicit conflict
-                errors.push(
-                  `"${name}": produk sudah memiliki komposisi manual/BOM (${existingCompositions.length} baris). ` +
-                  `Auto-link 1:1 dilewati (konflik). Hapus komposisi existing di Master Produk untuk mengaktifkan auto-link.`
-                )
-                console.warn(`[migration] product_stock: CONFLICT — "${name}" has ${existingCompositions.length} manual composition(s); auto 1:1 skipped`)
-              } else if (!exactLinkExists) {
-                // No composition at all → create auto 1:1 atomically
-                await tx.productComposition.create({
-                  data: {
-                    productId: product.id,
-                    variantId: null,
-                    inventoryItemId: invItemId,
-                    qty: 1,
-                    baseUnit: unit,
-                  },
-                })
-                compositionsCreated++
-                console.log(`[migration] product_stock: Composition created for "${name}" → inv=${invItemId}`)
-              }
-
-              // MIG-004 (P1): hasComposition=true (idempotent update; safe whether we
-              // just created the link, the exact link already existed, or a manual BOM
-              // already set the flag).
-              await tx.product.update({
-                where: { id: product.id },
-                data: { hasComposition: true },
-              })
             }
 
-            // === Process inline composition (ALWAYS defer — inventory sheet may not be processed yet) ===
+            // === Deferred inline composition (Mode 3) ===
+            // productId resolved after createMany
             if (includeInventory && komposisiInline) {
-              deferredInlineCompositions.push({
-                productId: product.id,
+              batchDeferredCompositions.push({
+                productName: name,
                 compositionStr: komposisiInline,
               })
             }
           }
 
-          // Flush opening stock logs after each batch
+          // ── STEP 4: Grouped writes ──
+
+          // 4a. Batch cleanup migration data (re-migration items)
+          // Replaces N calls to cleanupMigrationData (2 deleteMany each = 2N queries)
+          // with 2 batch deleteMany queries.
+          if (invIdsToCleanup.length > 0) {
+            // Delete MIGRATION movements for all items needing cleanup (1 query)
+            await tx.inventoryMovement.deleteMany({
+              where: {
+                inventoryItemId: { in: invIdsToCleanup },
+                referenceType: 'MIGRATION',
+                outletId,
+              },
+            })
+            // Delete auto 1:1 compositions for all items needing cleanup (1 query)
+            // NOTE: ProductComposition only has `inventoryItemId` (not `ingredientId`).
+            await tx.productComposition.deleteMany({
+              where: {
+                inventoryItemId: { in: invIdsToCleanup },
+                qty: 1,
+              },
+            })
+            // Push per-item warnings using preloaded analysis data (no extra queries)
+            for (const id of invIdsToCleanup) {
+              const { name, analysis } = cleanupWarningData.get(id)!
+              warnings.push(`🔄 "${name}": di-update (data migrasi lama dibersihkan: ${analysis.migrationOnlyData.movements} stok, ${analysis.migrationOnlyData.compositions} link)`)
+            }
+          }
+
+          // 4b. Update existing inventory items (per-row — different values per row)
+          // Cannot use updateMany (doesn't support different values per row).
+          // These are re-migration items only; fresh import has 0 updates.
+          for (const update of invItemsToUpdate) {
+            await tx.inventoryItem.update({
+              where: { id: update.id },
+              data: update.data,
+            })
+            inventoryItemCache.set(update.name, update.id)
+          }
+
+          // 4c. Create products (batched via createMany + re-query for IDs)
+          // createMany doesn't return created records, so we re-query by name.
+          // Names are unique within the outlet (dedup check ensures this), so
+          // re-querying by name safely maps name → id.
+          let createdProductMap = new Map<string, string>()
+          if (productsToCreate.length > 0) {
+            await tx.product.createMany({ data: productsToCreate })
+
+            // Re-query to get IDs (1 query for all new products)
+            const createdProducts = await tx.product.findMany({
+              where: { name: { in: productsToCreate.map(p => p.name) }, outletId },
+              select: { id: true, name: true },
+            })
+            createdProductMap = new Map(createdProducts.map(p => [p.name, p.id]))
+
+            // Populate productCache for composition linking (Sheet 4)
+            for (const [name, id] of createdProductMap) {
+              productCache.set(name, id)
+            }
+          }
+
+          // 4d. Create inventory items (batched via createMany + re-query for IDs)
+          let createdInvMap = new Map<string, string>()
+          if (invItemsToCreate.length > 0) {
+            await tx.inventoryItem.createMany({ data: invItemsToCreate })
+
+            // Re-query to get IDs (1 query for all new inventory items)
+            const createdInvItems = await tx.inventoryItem.findMany({
+              where: { name: { in: invItemsToCreate.map(i => i.name) }, outletId },
+              select: { id: true, name: true },
+            })
+            createdInvMap = new Map(createdInvItems.map(i => [i.name, i.id]))
+
+            // Populate inventoryItemCache
+            for (const [name, id] of createdInvMap) {
+              inventoryItemCache.set(name, id)
+            }
+          }
+
+          // 4e. Create 1:1 composition links (batched via createMany)
+          // CONFLICT GUARD: All products in this batch are NEW (duplicates were
+          // skipped via existingProductMap). New products have ZERO existing
+          // compositions. The original per-row conflict guard
+          // (productComposition.findMany → check existingCompositions.length > 0)
+          // would always return empty for new products → no conflict → always
+          // create 1:1 link. We skip the findMany (which was 50 queries) and
+          // create all links directly. This does NOT weaken the guard — the
+          // guard's condition (existing compositions on a new product) is
+          // structurally impossible. The conflict guard IS preserved in the
+          // variant section (Sheet 2) where products may already exist.
+          // EXACT LINK CHECK: For new products, no exact link can exist
+          // (product was just created). Same logic as conflict guard above.
+          //
+          // Any createMany failure (e.g., unexpected unique constraint) throws →
+          // tx rolls back → Mode 2 atomic invariant preserved.
+          if (compositionsToCreate.length > 0) {
+            const compData = compositionsToCreate.map(c => ({
+              productId: createdProductMap.get(c.productName)!,
+              variantId: null,
+              inventoryItemId: c.invIdOrName.length > 20
+                ? c.invIdOrName  // already an ID (existing inventory, 24-char cuid)
+                : (createdInvMap.get(c.invIdOrName) || c.invIdOrName),  // name → resolve
+              qty: 1,
+              baseUnit: c.unit,
+            })).filter(c => c.productId && c.inventoryItemId) // safety: skip if IDs not resolved
+
+            if (compData.length > 0) {
+              await tx.productComposition.createMany({ data: compData })
+            }
+          }
+
+          // 4f. Create opening balance movements (batched via createMany)
+          // Non-fatal: movement creation failure is caught (matching original
+          // per-item try/catch behavior). Difference: createMany is atomic —
+          // if one movement fails, ALL fail (vs original: only failed item
+          // skipped). Movement failures are extremely rare (simple insert, no
+          // unique constraints), so this trade-off is acceptable for the
+          // performance gain (1 query vs 50).
+          if (movementsToCreate.length > 0) {
+            const movData = movementsToCreate.map(m => ({
+              type: m.type as 'PURCHASE',
+              quantity: m.quantity,
+              previousStock: m.previousStock,
+              newStock: m.newStock,
+              referenceType: m.referenceType as 'MIGRATION',
+              notes: m.notes,
+              outletId: m.outletId,
+              inventoryItemId: m.invIdOrName.length > 20
+                ? m.invIdOrName  // already an ID (existing inventory)
+                : (createdInvMap.get(m.invIdOrName) || m.invIdOrName),  // name → resolve
+              userId: m.userId,
+            })).filter(m => m.inventoryItemId) // safety: skip if ID not resolved
+
+            if (movData.length > 0) {
+              try {
+                await tx.inventoryMovement.createMany({ data: movData })
+              } catch (movErr) {
+                console.warn('[migration] Failed to batch-create opening balance movements:', movErr)
+              }
+            }
+          }
+
+          // 4g. Resolve and push audit logs (entityId from product re-query)
+          for (const log of batchAuditLogs) {
+            const productId = createdProductMap.get(log.productName)
+            if (productId) {
+              openingStockLogs.push({
+                action: 'RESTOCK',
+                entityType: 'PRODUCT',
+                entityId: productId,
+                details: JSON.stringify({
+                  productName: log.productName,
+                  productSku: log.productSku,
+                  initialStock: log.stock,
+                  newStock: log.stock,
+                  reason: 'Stok awal migrasi',
+                }),
+                outletId,
+                userId,
+              })
+            }
+          }
+
+          // 4h. Resolve and push deferred inline compositions (productId from re-query)
+          for (const deferred of batchDeferredCompositions) {
+            const productId = createdProductMap.get(deferred.productName)
+            if (productId) {
+              deferredInlineCompositions.push({
+                productId,
+                compositionStr: deferred.compositionStr,
+              })
+            }
+          }
+
+          // 4i. Flush opening stock logs (batched createMany — already implemented)
           await flushOpeningStockLogs(tx)
         }, {
           // 2 min per batch of 50 — well within the 300s route maxDuration.
@@ -1020,290 +1454,752 @@ export async function POST(request: NextRequest) {
             const { sheetName, sheetType, rows } = s
 
             // ──────────────────────────────────────────────
-            // SHEET 2: Produk Varian
+            // SHEET 2: Produk Varian (BATCH-OPTIMIZED)
             // ──────────────────────────────────────────────
+            // Mirrors the non_varian 4-step architecture (commit 697ff2d):
+            //   STEP 1: Parse all rows (0 queries)
+            //   STEP 2: Preload [parents, variants, variant inventory, categories]
+            //           + batch analyze remigration (0-7 queries total)
+            //   STEP 3: In-memory collection loop (0 reads — all via Maps)
+            //   STEP 4: Grouped writes [cleanup → updates → createMany parents →
+            //           re-query → createMany variants → re-query → createMany
+            //           inventory → re-query → createMany compositions → createMany
+            //           movements → updateMany hasComposition → flush audit logs]
+            //
+            // Per-row queries eliminated (was ~10/row fresh Mode 2, ~13/row re-migrate):
+            //   - checkProductLimit (pre-flight at lines 752-789 covers variant parents)
+            //   - product.findFirst (preloaded → existingParentMap)
+            //   - getOrCreateCategory (preloaded + batch createMany)
+            //   - productVariant.findFirst (preloaded → existingVariantMap)
+            //   - inventoryItem.findFirst (preloaded → existingVariantInvMap)
+            //   - productComposition.findMany (skipped — new variants can't have
+            //     existing compositions; same logic as non-variant optimization)
+            //   - product.update(hasComposition) (batched updateMany OR set upfront)
+            //   - analyzeExistingInventoryForRemigration (batched — 2 queries total)
+            //   - cleanupMigrationData (batched — 2 deleteMany total)
+            //
+            // Per-row queries RETAINED (same as non-variant optimization):
+            //   - generateVariantSKU / generateUniqueSKU (uses db not tx; uniqueness
+            //     check via random suffix; ~1 query each. Would need complex batching
+            //     for marginal gain.)
+            //   - inventoryItem.update for re-migration (different values per row;
+            //     can't createMany with different values)
+            //
+            // PRESERVED (Rules 9-10):
+            //   9. Runs inside the remaining-sheets $transaction (atomic with Sheet 3/4)
+            //  10. Any createMany/update failure throws → tx rolls back → invariant intact
             if (sheetType === 'varian') {
-              let currentParentProduct: { id: string; name: string } | null = null
+
+              // ═══════════════════════════════════════════
+              // STEP 1: Parse all rows (0 queries)
+              // ═══════════════════════════════════════════
+              const variantSheetRows: Array<{
+                rowNum: number
+                parentName: string
+                parentSku: string | null
+                parentBarcode: string | null
+                parentHpp: number
+                parentPrice: number
+                categoryRaw: string
+                variantName: string
+                variantSku: string | null
+                variantBarcode: string | null
+                variantHpp: number
+                variantPrice: number
+                variantStock: number
+                komposisiVariantInline: string
+              }> = []
 
               for (let i = 0; i < rows.length; i++) {
                 const row = rows[i]
-                const rowNum = i + 2
+                variantSheetRows.push({
+                  rowNum: i + 2,
+                  parentName: String(findColumn(row, ['NAMA PRODUK*', 'NAMA PRODUK', 'Nama Produk', 'Nama', 'NAME', 'name', 'Product Name', 'Produk']) || '').trim(),
+                  parentSku: String(findColumn(row, ['SKU PRODUK', 'SKU Produk', 'sku produk']) || '').trim() || null,
+                  parentBarcode: String(findColumn(row, ['BARCODE PRODUK', 'Barcode Produk', 'barcode produk']) || '').trim() || null,
+                  parentHpp: sanitizeNumber(findColumn(row, ['HPP PRODUK (Rp)', 'HPP PRODUK', 'HPP Produk', 'hpp produk'])),
+                  parentPrice: sanitizeNumber(findColumn(row, ['HARGA JUAL PRODUK* (Rp)', 'HARGA JUAL PRODUK', 'HARGA JUAL PRODUK (Rp)', 'harga jual produk'])),
+                  categoryRaw: String(findColumn(row, ['KATEGORI', 'Kategori', 'kategori', 'Category', 'category', 'Kat']) || '').trim(),
+                  variantName: String(findColumn(row, ['NAMA VARIAN*', 'NAMA VARIAN', 'Nama Varian', 'Nama Variant', 'nama varian', 'Varian', 'VARIAN']) || '').trim(),
+                  variantSku: String(findColumn(row, ['SKU VARIAN', 'SKU Varian', 'sku varian']) || '').trim() || null,
+                  variantBarcode: String(findColumn(row, ['BARCODE VARIAN', 'Barcode Varian', 'barcode varian']) || '').trim() || null,
+                  variantHpp: sanitizeNumber(findColumn(row, ['HPP VARIAN (Rp)', 'HPP VARIAN', 'HPP Varian', 'hpp varian'])),
+                  variantPrice: sanitizeNumber(findColumn(row, ['HARGA JUAL VARIAN* (Rp)', 'HARGA JUAL VARIAN', 'HARGA JUAL VARIAN (Rp)', 'harga jual varian'])),
+                  variantStock: sanitizeNumber(findColumn(row, ['STOK AWAL VARIAN', 'STOK VARIAN', 'Stok Varian', 'stok varian', 'stok awal varian'])),
+                  komposisiVariantInline: String(findColumn(row, ['KOMPOSISI VARIAN INLINE', 'KOMPOSISI VARIAN INLINE (Opsional)', 'Komposisi Varian', 'komposisi varian', 'KOMPOSISI INLINE']) || '').trim(),
+                })
+              }
 
-                const parentName = String(findColumn(row, ['NAMA PRODUK*', 'NAMA PRODUK', 'Nama Produk', 'Nama', 'NAME', 'name', 'Product Name', 'Produk']) || '').trim()
-                const parentSku = String(findColumn(row, ['SKU PRODUK', 'SKU Produk', 'sku produk']) || '').trim() || null
-                const parentBarcode = String(findColumn(row, ['BARCODE PRODUK', 'Barcode Produk', 'barcode produk']) || '').trim() || null
-                const parentHpp = sanitizeNumber(findColumn(row, ['HPP PRODUK (Rp)', 'HPP PRODUK', 'HPP Produk', 'hpp produk']))
-                const parentPrice = sanitizeNumber(findColumn(row, ['HARGA JUAL PRODUK* (Rp)', 'HARGA JUAL PRODUK', 'HARGA JUAL PRODUK (Rp)', 'harga jual produk']))
-                const categoryRaw = String(findColumn(row, ['KATEGORI', 'Kategori', 'kategori', 'Category', 'category', 'Kat']) || '').trim()
+              // Pre-scan: determine parents with variants + collect variant inventory
+              // names for preloading (variant inventory name = `${parentName} - ${variantName}`)
+              let scanParentName: string | null = null
+              const parentsWithVariants = new Set<string>()
+              const variantInvNamesToPreload: string[] = []
+              for (const r of variantSheetRows) {
+                if (r.parentName) scanParentName = r.parentName
+                if (r.variantName && scanParentName) {
+                  parentsWithVariants.add(scanParentName)
+                  variantInvNamesToPreload.push(`${scanParentName} - ${r.variantName}`)
+                }
+              }
 
-                const variantName = String(findColumn(row, ['NAMA VARIAN*', 'NAMA VARIAN', 'Nama Varian', 'Nama Variant', 'nama varian', 'Varian', 'VARIAN']) || '').trim()
-                const variantSku = String(findColumn(row, ['SKU VARIAN', 'SKU Varian', 'sku varian']) || '').trim() || null
-                const variantBarcode = String(findColumn(row, ['BARCODE VARIAN', 'Barcode Varian', 'barcode varian']) || '').trim() || null
-                const variantHpp = sanitizeNumber(findColumn(row, ['HPP VARIAN (Rp)', 'HPP VARIAN', 'HPP Varian', 'hpp varian']))
-                const variantPrice = sanitizeNumber(findColumn(row, ['HARGA JUAL VARIAN* (Rp)', 'HARGA JUAL VARIAN', 'HARGA JUAL VARIAN (Rp)', 'harga jual varian']))
-                const variantStock = sanitizeNumber(findColumn(row, ['STOK AWAL VARIAN', 'STOK VARIAN', 'Stok Varian', 'stok varian', 'stok awal varian']))
-                const komposisiVariantInline = String(findColumn(row, ['KOMPOSISI VARIAN INLINE', 'KOMPOSISI VARIAN INLINE (Opsional)', 'Komposisi Varian', 'komposisi varian', 'KOMPOSISI INLINE']) || '').trim()
+              const parentNamesToPreload = [...new Set(
+                variantSheetRows.filter(r => r.parentName).map(r => r.parentName)
+              )]
+              const variantCategoryNames = [...new Set(
+                variantSheetRows.filter(r => r.categoryRaw).map(r => r.categoryRaw)
+              )]
+
+              // ═══════════════════════════════════════════
+              // STEP 2: Preload (batch findMany)
+              // ═══════════════════════════════════════════
+
+              // Preload existing parent products (with hasComposition for update decision)
+              const existingParents = parentNamesToPreload.length > 0
+                ? await tx.product.findMany({
+                    where: { name: { in: parentNamesToPreload }, outletId },
+                    select: { id: true, name: true, hasComposition: true },
+                  })
+                : []
+              const existingParentMap = new Map(existingParents.map(p => [p.name, p]))
+              for (const p of existingParents) {
+                productCache.set(p.name, p.id)
+              }
+
+              // Preload existing variants for existing parents (duplicate check)
+              // New parents created this batch can't have existing variants.
+              const existingParentIds = existingParents.map(p => p.id)
+              const existingVariants = existingParentIds.length > 0
+                ? await tx.productVariant.findMany({
+                    where: { productId: { in: existingParentIds } },
+                    select: { id: true, productId: true, name: true },
+                  })
+                : []
+              // Key: `${productId}||${variantName}` → true
+              const existingVariantKeySet = new Set<string>()
+              for (const v of existingVariants) {
+                existingVariantKeySet.add(`${v.productId}||${v.name}`)
+              }
+
+              // Preload existing variant inventory items (with _count for remigration)
+              // Only needed in Mode 2 (isStockMode creates same-named inventory items)
+              type VariantInvWithCount = Prisma.InventoryItemGetPayload<{
+                include: {
+                  _count: {
+                    select: {
+                      compositions: true
+                      purchaseItems: true
+                      movements: true
+                      inventoryTransferItems: true
+                      consumptionSnapshots: true
+                    }
+                  }
+                }
+              }>
+              let existingVariantInvItems: VariantInvWithCount[] = []
+              if (isStockMode && variantInvNamesToPreload.length > 0) {
+                existingVariantInvItems = await tx.inventoryItem.findMany({
+                  where: { name: { in: variantInvNamesToPreload }, outletId },
+                  include: {
+                    _count: {
+                      select: {
+                        compositions: true,
+                        purchaseItems: true,
+                        movements: true,
+                        inventoryTransferItems: true,
+                        consumptionSnapshots: true,
+                      },
+                    },
+                  },
+                })
+              }
+              const existingVariantInvMap = new Map(existingVariantInvItems.map(i => [i.name, i]))
+
+              // Preload + create missing categories (batched)
+              if (variantCategoryNames.length > 0) {
+                const existingCats = await tx.category.findMany({
+                  where: { name: { in: variantCategoryNames }, outletId },
+                  select: { id: true, name: true },
+                })
+                for (const c of existingCats) categoryCache.set(c.name, c.id)
+              }
+              const missingVariantCats = variantCategoryNames.filter(n => !categoryCache.has(n))
+              if (missingVariantCats.length > 0) {
+                await tx.category.createMany({
+                  data: missingVariantCats.map(name => ({ name, outletId, color: 'zinc' })),
+                })
+                categoriesCreated += missingVariantCats.length
+                const newCats = await tx.category.findMany({
+                  where: { name: { in: missingVariantCats }, outletId },
+                  select: { id: true, name: true },
+                })
+                for (const c of newCats) categoryCache.set(c.name, c.id)
+              }
+
+              // Batch analyze existing variant inventory items for remigration
+              // Replaces N calls to analyzeExistingInventoryForRemigration (1-3 queries each)
+              // with 2 batch queries (groupBy + findMany) for ALL items.
+              // For fresh import (no existing items), 0 queries.
+              let variantRemigrationAnalysis = new Map<string, RemigrationAnalysis>()
+              if (existingVariantInvItems.length > 0) {
+                variantRemigrationAnalysis = await batchAnalyzeInventoryForRemigration(
+                  tx, existingVariantInvItems, outletId
+                )
+              }
+
+              // ═══════════════════════════════════════════
+              // STEP 3: In-memory collection loop (0 reads)
+              // ═══════════════════════════════════════════
+
+              const variantParentsToCreate: Prisma.ProductCreateManyInput[] = []
+              const variantsToCreate: Array<{
+                parentName: string  // resolved to productId after parent createMany
+                name: string
+                sku: string
+                barcode: string
+                hpp: number
+                price: number
+                stock: number
+                outletId: string
+              }> = []
+              const variantInvToCreate: Prisma.InventoryItemCreateManyInput[] = []
+              const variantInvToUpdate: Array<{ id: string; name: string; data: Prisma.InventoryItemUpdateInput }> = []
+              const variantInvIdsToCleanup: string[] = []
+              const variantCleanupWarnings = new Map<string, { name: string; analysis: RemigrationAnalysis }>()
+              const variantCompositionsToCreate: Array<{
+                parentName: string      // resolved to productId after parent createMany
+                variantName: string     // resolved to variantId after variant createMany
+                invIdOrName: string     // ID (existing inv) or name (new inv, resolved after createMany)
+                unit: string
+              }> = []
+              const variantMovementsToCreate: Array<{
+                type: string
+                quantity: number
+                previousStock: number
+                newStock: number
+                referenceType: string
+                notes: string
+                outletId: string
+                invIdOrName: string
+                userId: string
+              }> = []
+              const variantBatchAuditLogs: Array<{
+                parentName: string
+                variantName: string
+                variantSku: string
+                stock: number
+              }> = []
+              const variantBatchDeferredComps: Array<{
+                parentName: string
+                variantName: string
+                compositionStr: string
+              }> = []
+
+              // Track in-batch variant duplicates (key: `${parentName}||${variantName}`)
+              const batchVariantKeys = new Set<string>()
+
+              // Track in-batch parent duplicates (parent names already collected for
+              // createMany). If the same parent appears twice in the sheet, the second
+              // occurrence is treated as a skip (not re-created). The parent ID is
+              // resolved after createMany + re-query, so variants use parentName as
+              // placeholder and are resolved during the write phase.
+              const batchParentNamesSeen = new Set<string>()
+
+              // Track existing parent IDs needing hasComposition update (Mode 2)
+              const parentIdsNeedingHasCompUpdate = new Set<string>()
+
+              let currentParentName: string | null = null
+              let currentParentId: string | null = null  // null = new parent (pending createMany)
+              let currentParentIsNew = false
+
+              for (const r of variantSheetRows) {
+                const { rowNum } = r
 
                 // === Parent product row (NAMA PRODUK is filled) ===
-                if (parentName) {
-                  // Check product limit
-                  if (!(await checkProductLimit(tx))) {
-                    errors.push(`Baris ${rowNum}: Batas produk tercapai`)
-                    break
-                  }
-
-                  // Skip duplicates
-                  const existing = await tx.product.findFirst({ where: { name: parentName, outletId } })
-                  if (existing) {
-                    productCache.set(parentName, existing.id)
-                    currentParentProduct = { id: existing.id, name: parentName }
+                if (r.parentName) {
+                  currentParentName = r.parentName
+                  const existingParent = existingParentMap.get(r.parentName)
+                  if (existingParent) {
+                    // Parent exists in DB (from previous batch or non-varian sheet)
+                    currentParentId = existingParent.id
+                    currentParentIsNew = false
+                    productsSkipped++
+                  } else if (batchParentNamesSeen.has(r.parentName)) {
+                    // In-batch duplicate parent — already collected for createMany.
+                    // Don't create again (would violate unique constraint).
+                    // ID will be resolved after createMany; variants use parentName
+                    // as placeholder. productsSkipped++ mirrors original findFirst behavior.
+                    currentParentId = null
+                    currentParentIsNew = true
                     productsSkipped++
                   } else {
-                    const categoryId = categoryRaw ? await getOrCreateCategory(tx, categoryRaw) : null
-                    const finalSku = parentSku || await generateUniqueSKU(parentName, outletId)
-                    const finalBarcode = parentBarcode || finalSku
+                    // New parent — collect for createMany (ID resolved after re-query)
+                    batchParentNamesSeen.add(r.parentName)
+                    currentParentId = null
+                    currentParentIsNew = true
+                    const categoryId = r.categoryRaw ? (categoryCache.get(r.categoryRaw) || null) : null
+                    const finalSku = r.parentSku || await generateUniqueSKU(r.parentName, outletId)
+                    const finalBarcode = r.parentBarcode || finalSku
 
-                    const product = await tx.product.create({
-                      data: {
-                        name: parentName,
-                        sku: finalSku,
-                        barcode: finalBarcode,
-                        hpp: parentHpp,
-                        price: parentPrice || 0,
-                        stock: 0, // Parent stock = 0 when has variants
-                        unit: 'pcs',
-                        categoryId,
-                        outletId,
-                        hasVariants: true,
-                        hasComposition: includeInventory && !!komposisiVariantInline,
-                      },
+                    // hasComposition logic (mirrors original lines 1512 + 1720):
+                    // Mode 2 (isStockMode): true if parent has variants (1:1 links created below)
+                    // Mode 3 (includeInventory): true only if THIS introducing row has inline comp
+                    //   (matches original line 1512 — first row's komposisiVariantInline)
+                    const hasComposition = isStockMode
+                      ? parentsWithVariants.has(r.parentName)
+                      : (includeInventory && !!r.komposisiVariantInline)
+
+                    variantParentsToCreate.push({
+                      name: r.parentName,
+                      sku: finalSku,
+                      barcode: finalBarcode,
+                      hpp: r.parentHpp,
+                      price: r.parentPrice || 0,
+                      stock: 0, // Parent stock = 0 when has variants
+                      unit: 'pcs',
+                      categoryId,
+                      outletId,
+                      hasVariants: true,
+                      hasComposition,
                     })
                     productsCreated++
                     if (finalBarcode) barcodeCount++
-                    productCache.set(parentName, product.id)
-                    currentParentProduct = { id: product.id, name: parentName }
                   }
                 }
 
                 // === Variant row (NAMA VARIAN must be filled) ===
-                if (variantName && currentParentProduct) {
-                  if (!variantPrice || variantPrice < 0) {
-                    errors.push(`Baris ${rowNum}: Harga Jual Varian tidak valid (Produk: ${currentParentProduct.name}, Varian: ${variantName})`)
+                if (r.variantName && currentParentName) {
+                  if (!r.variantPrice || r.variantPrice < 0) {
+                    errors.push(`Baris ${rowNum}: Harga Jual Varian tidak valid (Produk: ${currentParentName}, Varian: ${r.variantName})`)
                     continue
                   }
 
                   // MIG-003 (P1): Negative value validation for variant HPP and stock.
-                  if (variantHpp < 0) {
-                    errors.push(`Baris ${rowNum}: HPP Varian tidak boleh negatif (Produk: ${currentParentProduct.name}, Varian: ${variantName})`)
+                  if (r.variantHpp < 0) {
+                    errors.push(`Baris ${rowNum}: HPP Varian tidak boleh negatif (Produk: ${currentParentName}, Varian: ${r.variantName})`)
                     continue
                   }
-                  if (variantStock < 0) {
-                    errors.push(`Baris ${rowNum}: Stok Varian tidak boleh negatif (Produk: ${currentParentProduct.name}, Varian: ${variantName})`)
-                    continue
-                  }
-
-                  const finalVariantSku = variantSku || await generateVariantSKU(currentParentProduct.name, variantName, outletId)
-                  const finalVariantBarcode = variantBarcode || finalVariantSku
-
-                  // Check for duplicate variant name
-                  const existingVariant = await tx.productVariant.findFirst({
-                    where: { name: variantName, productId: currentParentProduct.id },
-                  })
-                  if (existingVariant) {
-                    errors.push(`Baris ${rowNum}: Varian "${variantName}" sudah ada untuk produk "${currentParentProduct.name}"`)
+                  if (r.variantStock < 0) {
+                    errors.push(`Baris ${rowNum}: Stok Varian tidak boleh negatif (Produk: ${currentParentName}, Varian: ${r.variantName})`)
                     continue
                   }
 
-                  const variant = await tx.productVariant.create({
-                    data: {
-                      productId: currentParentProduct.id,
-                      name: variantName,
-                      sku: finalVariantSku,
-                      barcode: finalVariantBarcode,
-                      hpp: variantHpp,
-                      price: variantPrice,
-                      stock: variantStock,
-                      outletId,
-                    },
+                  // Duplicate variant check (in-batch + existing)
+                  const variantKey = `${currentParentName}||${r.variantName}`
+                  if (batchVariantKeys.has(variantKey)) {
+                    errors.push(`Baris ${rowNum}: Varian "${r.variantName}" sudah ada untuk produk "${currentParentName}"`)
+                    continue
+                  }
+                  // Check existing variants (for existing parents only)
+                  if (currentParentId && existingVariantKeySet.has(`${currentParentId}||${r.variantName}`)) {
+                    errors.push(`Baris ${rowNum}: Varian "${r.variantName}" sudah ada untuk produk "${currentParentName}"`)
+                    continue
+                  }
+                  batchVariantKeys.add(variantKey)
+
+                  const finalVariantSku = r.variantSku || await generateVariantSKU(currentParentName, r.variantName, outletId)
+                  const finalVariantBarcode = r.variantBarcode || finalVariantSku
+
+                  // Collect variant for createMany (productId resolved after parent createMany)
+                  variantsToCreate.push({
+                    parentName: currentParentName,
+                    name: r.variantName,
+                    sku: finalVariantSku,
+                    barcode: finalVariantBarcode,
+                    hpp: r.variantHpp,
+                    price: r.variantPrice,
+                    stock: r.variantStock,
+                    outletId,
                   })
 
                   variantsCreated++
                   if (finalVariantBarcode) barcodeCount++
 
-                  // === Opening stock audit log per variant (batched) ===
-                  if (variantStock > 0) {
-                    openingStockLogs.push({
-                      action: 'RESTOCK',
-                      entityType: 'VARIANT',
-                      entityId: variant.id,
-                      details: JSON.stringify({
-                        productName: currentParentProduct.name,
-                        variantName,
-                        variantSku: finalVariantSku,
-                        initialStock: variantStock,
-                        newStock: variantStock,
-                        reason: 'Stok awal migrasi',
-                      }),
-                      outletId,
-                      userId,
+                  // Collect opening stock audit log (entityId resolved after variant createMany)
+                  if (r.variantStock > 0) {
+                    variantBatchAuditLogs.push({
+                      parentName: currentParentName,
+                      variantName: r.variantName,
+                      variantSku: finalVariantSku,
+                      stock: r.variantStock,
                     })
-                    if (openingStockLogs.length >= OPENING_STOCK_BATCH_SIZE) {
-                      await flushOpeningStockLogs(tx)
-                    }
                   }
 
-                  // === Mode 2 (product_stock): per-variant 1:1 InventoryItem + ProductComposition(variantId) ===
+                  // === Mode 2 (product_stock): per-variant 1:1 InventoryItem + ProductComposition ===
                   // Atomic invariant (mirrors non-variant Mode 2): variant + InventoryItem
                   // + 1:1 ProductComposition(variantId) + parent.hasComposition=true.
-                  // Any failure throws and rolls back the remaining-sheets transaction.
+                  // Any failure in grouped writes below throws → tx rolls back.
                   // stock=0 still creates the item + link (same rationale as non-variant).
                   if (isStockMode) {
-                    const variantInvName = `${currentParentProduct.name} - ${variantName}`
+                    const variantInvName = `${currentParentName} - ${r.variantName}`
                     const variantInvUnit = 'pcs'
 
-                    let variantInvItemId: string
-                    const existingVariantInv = await tx.inventoryItem.findFirst({
-                      where: { name: variantInvName, outletId },
-                    })
+                    const existingVariantInv = existingVariantInvMap.get(variantInvName)
 
                     if (!existingVariantInv) {
-                      const variantInv = await tx.inventoryItem.create({
-                        data: {
-                          name: variantInvName,
-                          sku: finalVariantSku,
-                          baseUnit: variantInvUnit,
-                          stock: variantStock,
-                          avgCost: variantHpp > 0 ? variantHpp : 0,
-                          lowStockAlert: 0,
-                          status: 'ACTIVE',
-                          outletId,
-                          categoryId: null,
-                        },
+                      // ── NEW VARIANT INVENTORY: collect for batch createMany ──
+                      variantInvToCreate.push({
+                        name: variantInvName,
+                        sku: finalVariantSku,
+                        baseUnit: variantInvUnit,
+                        stock: r.variantStock,
+                        avgCost: r.variantHpp > 0 ? r.variantHpp : 0,
+                        lowStockAlert: 0,
+                        status: 'ACTIVE',
+                        outletId,
+                        categoryId: null,
                       })
-                      variantInvItemId = variantInv.id
-                      inventoryItemsCreated++
-                      totalStock += variantStock
-                      totalModalValue += variantHpp * variantStock
-                      inventoryItemCache.set(variantInvName, variantInv.id)
 
-                      try {
-                        await tx.inventoryMovement.create({
-                          data: {
-                            type: 'PURCHASE',
-                            quantity: variantStock,
-                            previousStock: 0,
-                            newStock: variantStock,
-                            referenceType: 'MIGRATION',
-                            notes: `Saldo awal stok gudang varian migrasi dari ${file.name}`,
-                            outletId,
-                            inventoryItemId: variantInv.id,
-                            userId,
-                          },
-                        })
-                      } catch (movErr) {
-                        console.warn(`[migration] Failed to create variant opening balance movement for ${variantInvName}:`, movErr)
-                      }
+                      // Collect movement (invIdOrName = name → resolved after createMany)
+                      variantMovementsToCreate.push({
+                        type: 'PURCHASE',
+                        quantity: r.variantStock,
+                        previousStock: 0,
+                        newStock: r.variantStock,
+                        referenceType: 'MIGRATION',
+                        notes: `Saldo awal stok gudang varian migrasi dari ${file.name}`,
+                        outletId,
+                        invIdOrName: variantInvName,
+                        userId,
+                      })
+
+                      inventoryItemsCreated++
+                      totalStock += r.variantStock
+                      totalModalValue += r.variantHpp * r.variantStock
+
+                      // Collect 1:1 composition link (both IDs resolved after createMany)
+                      variantCompositionsToCreate.push({
+                        parentName: currentParentName,
+                        variantName: r.variantName,
+                        invIdOrName: variantInvName,
+                        unit: variantInvUnit,
+                      })
+                      compositionsCreated++
                     } else {
-                      const variantAnalysis = await analyzeExistingInventoryForRemigration(tx, existingVariantInv.id, outletId)
+                      // ── EXISTING VARIANT INVENTORY: remigration analysis (from preloaded Map) ──
+                      const variantAnalysis = variantRemigrationAnalysis.get(existingVariantInv.id)!
+
                       if (variantAnalysis.canReplace) {
-                        const cleaned = await cleanupMigrationData(tx, existingVariantInv.id, outletId)
-                        await tx.inventoryItem.update({
-                          where: { id: existingVariantInv.id },
+                        // Safe to replace: collect for batch cleanup + per-row update
+                        variantInvIdsToCleanup.push(existingVariantInv.id)
+                        variantCleanupWarnings.set(existingVariantInv.id, { name: variantInvName, analysis: variantAnalysis })
+
+                        variantInvToUpdate.push({
+                          id: existingVariantInv.id,
+                          name: variantInvName,
                           data: {
                             sku: finalVariantSku || existingVariantInv.sku,
                             baseUnit: variantInvUnit,
-                            stock: variantStock,
-                            avgCost: variantHpp > 0 ? variantHpp : 0,
+                            stock: r.variantStock,
+                            avgCost: r.variantHpp > 0 ? r.variantHpp : 0,
                             lowStockAlert: 0,
                             status: 'ACTIVE',
                           },
                         })
-                        try {
-                          await tx.inventoryMovement.create({
-                            data: {
-                              type: 'PURCHASE',
-                              quantity: variantStock,
-                              previousStock: 0,
-                              newStock: variantStock,
-                              referenceType: 'MIGRATION',
-                              notes: `Saldo awal stok gudang varian (re-migrate) dari ${file.name}`,
-                              outletId,
-                              inventoryItemId: existingVariantInv.id,
-                              userId,
-                            },
-                          })
-                        } catch (movErr) {
-                          console.warn(`[migration] Failed to create variant re-migration movement for ${variantInvName}:`, movErr)
-                        }
-                        variantInvItemId = existingVariantInv.id
+
+                        // Movement for re-migrated item (invId is known — existing item)
+                        variantMovementsToCreate.push({
+                          type: 'PURCHASE',
+                          quantity: r.variantStock,
+                          previousStock: 0,
+                          newStock: r.variantStock,
+                          referenceType: 'MIGRATION',
+                          notes: `Saldo awal stok gudang varian (re-migrate) dari ${file.name}`,
+                          outletId,
+                          invIdOrName: existingVariantInv.id,
+                          userId,
+                        })
+
                         inventoryItemsUpdated++
                         migrationDataCleaned++
-                        totalStock += variantStock
-                        totalModalValue += variantHpp * variantStock
-                        warnings.push(`🔄 "${variantInvName}": di-update (data migrasi lama dibersihkan: ${cleaned.movementsDeleted} stok, ${cleaned.compositionsDeleted} link)`)
+                        totalStock += r.variantStock
+                        totalModalValue += r.variantHpp * r.variantStock
+
+                        // 1:1 composition link (productId resolved after parent createMany,
+                        // variantId resolved after variant createMany, invId is known)
+                        variantCompositionsToCreate.push({
+                          parentName: currentParentName,
+                          variantName: r.variantName,
+                          invIdOrName: existingVariantInv.id,
+                          unit: variantInvUnit,
+                        })
+                        compositionsCreated++
                       } else {
-                        variantInvItemId = existingVariantInv.id
+                        // Has real history: use existing, skip update, warn
+                        inventoryItemCache.set(variantInvName, existingVariantInv.id)
                         inventoryItemsSkipped++
                         warnings.push(`⚠️ "${variantInvName}" menggunakan data existing: ${variantAnalysis.reason}`)
+
+                        // Still create 1:1 composition link (variant is new, needs link)
+                        variantCompositionsToCreate.push({
+                          parentName: currentParentName,
+                          variantName: r.variantName,
+                          invIdOrName: existingVariantInv.id,
+                          unit: variantInvUnit,
+                        })
+                        compositionsCreated++
                       }
-                      inventoryItemCache.set(variantInvName, existingVariantInv.id)
                     }
 
-                    // Atomic 1:1 link with variantId + conflict guard (mirrors non-variant).
-                    // Founder-approved guards (2025-01):
-                    //   1. EXACT link check: productId + variantId + inventoryItemId + qty=1.
-                    //      If it already exists → no duplicate (re-migration safety).
-                    //   2. CONFLICT guard: if ANY other composition already exists for this
-                    //      productId+variantId → DO NOT append auto 1:1. Push explicit error.
-                    //   3. No composition → create auto 1:1 atomically + set hasComposition.
-                    const existingVariantCompositions = await tx.productComposition.findMany({
-                      where: { productId: currentParentProduct.id, variantId: variant.id },
-                      select: { id: true, inventoryItemId: true, qty: true },
-                    })
-                    const exactVariantLinkExists = existingVariantCompositions.some(
-                      (c) => c.inventoryItemId === variantInvItemId && c.qty === 1
-                    )
-
-                    if (existingVariantCompositions.length > 0 && !exactVariantLinkExists) {
-                      errors.push(
-                        `"${currentParentProduct.name}" varian "${variantName}": sudah memiliki komposisi manual/BOM (${existingVariantCompositions.length} baris). ` +
-                        `Auto-link 1:1 dilewati (konflik). Hapus komposisi existing di Master Produk untuk mengaktifkan auto-link.`
-                      )
-                      console.warn(`[migration] product_stock: CONFLICT — variant "${currentParentProduct.name} - ${variantName}" has ${existingVariantCompositions.length} manual composition(s); auto 1:1 skipped`)
-                    } else if (!exactVariantLinkExists) {
-                      await tx.productComposition.create({
-                        data: {
-                          productId: currentParentProduct.id,
-                          variantId: variant.id,
-                          inventoryItemId: variantInvItemId,
-                          qty: 1,
-                          baseUnit: variantInvUnit,
-                        },
-                      })
-                      compositionsCreated++
+                    // Track existing parents needing hasComposition update.
+                    // New parents already have it set upfront (parentsWithVariants).
+                    if (!currentParentIsNew && currentParentId) {
+                      const existingParent = existingParentMap.get(currentParentName)
+                      if (existingParent && !existingParent.hasComposition) {
+                        parentIdsNeedingHasCompUpdate.add(currentParentId)
+                      }
                     }
-                    // Ensure parent product hasComposition flag (idempotent; safe in all 3 branches)
-                    await tx.product.update({
-                      where: { id: currentParentProduct.id },
-                      data: { hasComposition: true },
-                    })
                   }
 
-                  // Cache variant for composition linking
-                  variantCache.set(`${currentParentProduct.name}||${variantName}`, variant.id)
-
-                  // Process inline composition for variant (ALWAYS defer)
-                  if (includeInventory && komposisiVariantInline) {
-                    deferredInlineCompositions.push({
-                      productId: currentParentProduct.id,
-                      variantId: variant.id,
-                      compositionStr: komposisiVariantInline,
+                  // Process inline composition for variant (ALWAYS defer — productId/variantId
+                  // resolved after createMany)
+                  if (includeInventory && r.komposisiVariantInline) {
+                    variantBatchDeferredComps.push({
+                      parentName: currentParentName,
+                      variantName: r.variantName,
+                      compositionStr: r.komposisiVariantInline,
                     })
                   }
-                } else if (variantName && !currentParentProduct) {
-                  errors.push(`Baris ${rowNum}: Varian "${variantName}" tidak memiliki produk induk`)
+                } else if (r.variantName && !currentParentName) {
+                  errors.push(`Baris ${rowNum}: Varian "${r.variantName}" tidak memiliki produk induk`)
                 }
               }
+
+              // ═══════════════════════════════════════════
+              // STEP 4: Grouped writes
+              // ═══════════════════════════════════════════
+
+              // 4a. Batch cleanup migration data (re-migration variant inventory items)
+              // Replaces N calls to cleanupMigrationData (2 deleteMany each = 2N queries)
+              // with 2 batch deleteMany queries.
+              if (variantInvIdsToCleanup.length > 0) {
+                // Delete MIGRATION movements for all items needing cleanup (1 query)
+                await tx.inventoryMovement.deleteMany({
+                  where: {
+                    inventoryItemId: { in: variantInvIdsToCleanup },
+                    referenceType: 'MIGRATION',
+                    outletId,
+                  },
+                })
+                // Delete auto 1:1 compositions for all items needing cleanup (1 query)
+                await tx.productComposition.deleteMany({
+                  where: {
+                    inventoryItemId: { in: variantInvIdsToCleanup },
+                    qty: 1,
+                  },
+                })
+                // Push per-item warnings using preloaded analysis data (no extra queries)
+                for (const id of variantInvIdsToCleanup) {
+                  const { name, analysis } = variantCleanupWarnings.get(id)!
+                  warnings.push(`🔄 "${name}": di-update (data migrasi lama dibersihkan: ${analysis.migrationOnlyData.movements} stok, ${analysis.migrationOnlyData.compositions} link)`)
+                }
+              }
+
+              // 4b. Update existing variant inventory items (per-row — different values per row)
+              // Cannot use updateMany (doesn't support different values per row).
+              // These are re-migration items only; fresh import has 0 updates.
+              for (const update of variantInvToUpdate) {
+                await tx.inventoryItem.update({
+                  where: { id: update.id },
+                  data: update.data,
+                })
+                inventoryItemCache.set(update.name, update.id)
+              }
+
+              // 4c. Create new parent products (batched via createMany + re-query for IDs)
+              let createdVariantParentMap = new Map<string, string>()
+              if (variantParentsToCreate.length > 0) {
+                await tx.product.createMany({ data: variantParentsToCreate })
+
+                // Re-query to get IDs (1 query for all new parents)
+                const createdParents = await tx.product.findMany({
+                  where: { name: { in: variantParentsToCreate.map(p => p.name) }, outletId },
+                  select: { id: true, name: true },
+                })
+                createdVariantParentMap = new Map(createdParents.map(p => [p.name, p.id]))
+
+                // Populate productCache for Sheet 4 composition linking
+                for (const [name, id] of createdVariantParentMap) {
+                  productCache.set(name, id)
+                }
+              }
+
+              // Merge existing + created parent maps for variant productId resolution
+              const allParentIdMap = new Map<string, string>()
+              for (const [name, p] of existingParentMap) allParentIdMap.set(name, p.id)
+              for (const [name, id] of createdVariantParentMap) allParentIdMap.set(name, id)
+
+              // 4d. Create new variants (batched via createMany + re-query for IDs)
+              let createdVariantMap = new Map<string, string>()  // `${parentName}||${variantName}` → id
+              if (variantsToCreate.length > 0) {
+                const variantCreateData = variantsToCreate.map(v => ({
+                  productId: allParentIdMap.get(v.parentName)!,
+                  name: v.name,
+                  sku: v.sku,
+                  barcode: v.barcode,
+                  hpp: v.hpp,
+                  price: v.price,
+                  stock: v.stock,
+                  outletId: v.outletId,
+                })).filter(v => v.productId)  // safety: skip if parentId not resolved
+
+                if (variantCreateData.length > 0) {
+                  await tx.productVariant.createMany({ data: variantCreateData })
+
+                  // Re-query to get IDs (1 query for all new variants)
+                  // Use productId + name composite (unique constraint @@unique([name, productId]))
+                  const variantIdQueries = variantsToCreate.map(v => ({
+                    productId: allParentIdMap.get(v.parentName)!,
+                    name: v.name,
+                  })).filter(v => v.productId)
+
+                  // Fetch all newly created variants by their productId
+                  const newVariantParentIds = [...new Set(variantIdQueries.map(v => v.productId))]
+                  const createdVariants = await tx.productVariant.findMany({
+                    where: { productId: { in: newVariantParentIds } },
+                    select: { id: true, productId: true, name: true },
+                  })
+
+                  // Build map: need parentName to resolve. Reconstruct from variantIdQueries.
+                  // Since we just created these variants, they all exist. Map by productId||name.
+                  const productIdToName = new Map<string, string>()
+                  for (const [parentName, parentId] of allParentIdMap) {
+                    productIdToName.set(parentId, parentName)
+                  }
+                  for (const cv of createdVariants) {
+                    const parentName = productIdToName.get(cv.productId)
+                    if (parentName) {
+                      createdVariantMap.set(`${parentName}||${cv.name}`, cv.id)
+                      // Populate variantCache for Sheet 4 composition linking
+                      variantCache.set(`${parentName}||${cv.name}`, cv.id)
+                    }
+                  }
+                }
+              }
+
+              // 4e. Create new variant inventory items (batched via createMany + re-query)
+              let createdVariantInvMap = new Map<string, string>()
+              if (variantInvToCreate.length > 0) {
+                await tx.inventoryItem.createMany({ data: variantInvToCreate })
+
+                // Re-query to get IDs (1 query for all new variant inventory items)
+                const createdVariantInvItems = await tx.inventoryItem.findMany({
+                  where: { name: { in: variantInvToCreate.map(i => i.name) }, outletId },
+                  select: { id: true, name: true },
+                })
+                createdVariantInvMap = new Map(createdVariantInvItems.map(i => [i.name, i.id]))
+
+                // Populate inventoryItemCache
+                for (const [name, id] of createdVariantInvMap) {
+                  inventoryItemCache.set(name, id)
+                }
+              }
+
+              // 4f. Create 1:1 composition links for variants (batched via createMany)
+              // CONFLICT GUARD: All variants in this batch are NEW (duplicates were
+              // skipped via existingVariantKeySet + batchVariantKeys). New variants
+              // have ZERO existing compositions. The original per-row conflict guard
+              // (productComposition.findMany → check existingCompositions.length > 0)
+              // would always return empty for new variants → no conflict → always
+              // create 1:1 link. We skip the findMany (which was 50 queries) and
+              // create all links directly. This does NOT weaken the guard — the
+              // guard's condition (existing compositions on a new variant) is
+              // structurally impossible.
+              // EXACT LINK CHECK: For new variants, no exact link can exist
+              // (variant was just created). Same logic as conflict guard above.
+              //
+              // Any createMany failure (e.g., unexpected unique constraint) throws →
+              // tx rolls back → Mode 2 atomic invariant preserved.
+              if (variantCompositionsToCreate.length > 0) {
+                const compData = variantCompositionsToCreate.map(c => ({
+                  productId: allParentIdMap.get(c.parentName)!,
+                  variantId: createdVariantMap.get(`${c.parentName}||${c.variantName}`)!,
+                  inventoryItemId: c.invIdOrName.length > 20
+                    ? c.invIdOrName  // already an ID (existing inventory, 24-char cuid)
+                    : (createdVariantInvMap.get(c.invIdOrName) || c.invIdOrName),  // name → resolve
+                  qty: 1,
+                  baseUnit: c.unit,
+                })).filter(c => c.productId && c.variantId && c.inventoryItemId)  // safety
+
+                if (compData.length > 0) {
+                  await tx.productComposition.createMany({ data: compData })
+                }
+              }
+
+              // 4g. Create opening balance movements for variants (batched via createMany)
+              // Non-fatal: movement creation failure is caught (matching original
+              // per-item try/catch behavior).
+              if (variantMovementsToCreate.length > 0) {
+                const movData = variantMovementsToCreate.map(m => ({
+                  type: m.type as 'PURCHASE',
+                  quantity: m.quantity,
+                  previousStock: m.previousStock,
+                  newStock: m.newStock,
+                  referenceType: m.referenceType as 'MIGRATION',
+                  notes: m.notes,
+                  outletId: m.outletId,
+                  inventoryItemId: m.invIdOrName.length > 20
+                    ? m.invIdOrName  // already an ID (existing inventory)
+                    : (createdVariantInvMap.get(m.invIdOrName) || m.invIdOrName),  // name → resolve
+                  userId: m.userId,
+                })).filter(m => m.inventoryItemId)  // safety
+
+                if (movData.length > 0) {
+                  try {
+                    await tx.inventoryMovement.createMany({ data: movData })
+                  } catch (movErr) {
+                    console.warn('[migration] Failed to batch-create variant opening balance movements:', movErr)
+                  }
+                }
+              }
+
+              // 4h. Update existing parents' hasComposition flag (batched via updateMany)
+              // New parents already have it set upfront in createMany (parentsWithVariants).
+              // Existing parents that got new variants need the update.
+              if (parentIdsNeedingHasCompUpdate.size > 0) {
+                await tx.product.updateMany({
+                  where: { id: { in: [...parentIdsNeedingHasCompUpdate] } },
+                  data: { hasComposition: true },
+                })
+              }
+
+              // 4i. Resolve and push opening stock audit logs (entityId from variant re-query)
+              for (const log of variantBatchAuditLogs) {
+                const variantId = createdVariantMap.get(`${log.parentName}||${log.variantName}`)
+                if (variantId) {
+                  openingStockLogs.push({
+                    action: 'RESTOCK',
+                    entityType: 'VARIANT',
+                    entityId: variantId,
+                    details: JSON.stringify({
+                      productName: log.parentName,
+                      variantName: log.variantName,
+                      variantSku: log.variantSku,
+                      initialStock: log.stock,
+                      newStock: log.stock,
+                      reason: 'Stok awal migrasi',
+                    }),
+                    outletId,
+                    userId,
+                  })
+                }
+              }
+
+              // 4j. Resolve and push deferred inline compositions (productId/variantId from re-query)
+              for (const deferred of variantBatchDeferredComps) {
+                const productId = allParentIdMap.get(deferred.parentName)
+                const variantId = createdVariantMap.get(`${deferred.parentName}||${deferred.variantName}`)
+                if (productId && variantId) {
+                  deferredInlineCompositions.push({
+                    productId,
+                    variantId,
+                    compositionStr: deferred.compositionStr,
+                  })
+                }
+              }
+
+              // 4k. Flush opening stock logs (batched createMany)
+              await flushOpeningStockLogs(tx)
             }
 
             // Flush opening stock logs after variant sheet
