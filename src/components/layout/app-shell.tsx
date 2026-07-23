@@ -13,6 +13,9 @@ import AuthView from '@/components/auth/auth-view'
 import LandingPage from '@/components/landing/landing-page'
 import { Loader2, WifiOff, ShieldCheck } from 'lucide-react'
 import { ErrorBoundary } from '@/components/shared/error-boundary'
+import { MigrationProcessorProvider } from '@/components/migration/migration-processor-provider'
+import { MigrationWizard } from '@/components/migration/migration-wizard'
+import { MigrationFloatingWidget } from '@/components/migration/migration-floating-widget'
 
 // ── Lazy-loaded pages (code splitting for faster initial load) ──
 const DashboardPage = lazy(() => import('@/components/pages/dashboard-page'))
@@ -180,36 +183,42 @@ function AppContent() {
 
   return (
     <PlanProvider>
-      <AppReadyGate>
-        <div className={`bg-deep-space ${currentPage === 'pos' ? 'md:h-screen md:overflow-y-hidden' : 'min-h-screen'}`} data-offline-block>
-          {/* Offline Banner */}
-          {!isOnline && (
-            <div className="fixed top-0 left-0 right-0 z-[100] bg-red-600/95 backdrop-blur-sm border-b border-red-500/50">
-              <div className="flex items-center justify-center gap-2 py-1.5 px-4">
-                <WifiOff className="h-3.5 w-3.5 text-white shrink-0" />
-                <span className="text-[11px] text-white font-medium">Mode Offline — Data terakhir yang dimuat masih bisa dilihat. Refresh dinonaktifkan.</span>
+      <MigrationProcessorProvider>
+        <AppReadyGate>
+          <div className={`bg-deep-space ${currentPage === 'pos' ? 'md:h-screen md:overflow-y-hidden' : 'min-h-screen'}`} data-offline-block>
+            {/* Offline Banner */}
+            {!isOnline && (
+              <div className="fixed top-0 left-0 right-0 z-[100] bg-red-600/95 backdrop-blur-sm border-b border-red-500/50">
+                <div className="flex items-center justify-center gap-2 py-1.5 px-4">
+                  <WifiOff className="h-3.5 w-3.5 text-white shrink-0" />
+                  <span className="text-[11px] text-white font-medium">Mode Offline — Data terakhir yang dimuat masih bisa dilihat. Refresh dinonaktifkan.</span>
+                </div>
               </div>
-            </div>
-          )}
-          <Sidebar />
-          <MobileBottomNav />
-          <main
-            className={`transition-all duration-300 ease-out ${
-              collapsed ? 'md:ml-[68px]' : 'md:ml-[260px]'
-            } ${
-              currentPage === 'pos' ? 'md:h-full' : 'min-h-screen'
-            }`}
-          >
-            <div className={`max-w-full ${
-              currentPage === 'pos'
-                ? 'pb-20 px-3 pt-3 sm:px-4 md:h-full md:pb-0 md:px-3 md:py-2 md:overflow-y-hidden'
-                : 'pb-20 md:pb-0 px-3 sm:px-4 md:py-4 lg:px-5 lg:py-4'
-            }`}>
-              {renderPage()}
-            </div>
-          </main>
-        </div>
-      </AppReadyGate>
+            )}
+            <Sidebar />
+            <MobileBottomNav />
+            <main
+              className={`transition-all duration-300 ease-out ${
+                collapsed ? 'md:ml-[68px]' : 'md:ml-[260px]'
+              } ${
+                currentPage === 'pos' ? 'md:h-full' : 'min-h-screen'
+              }`}
+            >
+              <div className={`max-w-full ${
+                currentPage === 'pos'
+                  ? 'pb-20 px-3 pt-3 sm:px-4 md:h-full md:pb-0 md:px-3 md:py-2 md:overflow-y-hidden'
+                  : 'pb-20 md:pb-0 px-3 sm:px-4 md:py-4 lg:px-5 lg:py-4'
+              }`}>
+                {renderPage()}
+              </div>
+            </main>
+          </div>
+        </AppReadyGate>
+        {/* MIG-BATCH-V3: migration dialog + floating widget live in the
+            authenticated shell so the batch loop survives page navigation. */}
+        <MigrationWizard />
+        <MigrationFloatingWidget />
+      </MigrationProcessorProvider>
     </PlanProvider>
   )
 }

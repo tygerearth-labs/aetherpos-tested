@@ -457,3 +457,234 @@ It does NOT touch:
 - Void contract ❌
 
 **Compliant.** ✅
+
+---
+
+# MIG-BATCH-V3 — Dexie queue + per-batch HTTP + background worker
+
+**Date:** 2025-07-23
+**Commit:** (this commit)
+**Task ID:** MIG-BATCH-V3
+
+## Problem
+
+MIG-BATCH-V2 moved to one-request-per-batch, but the batch loop lived inside
+the wizard component. Closing the modal or navigating the app aborted the
+migration. There was no resume across browser reload. Two tabs could process
+the same job. And 499-SKU uploads had no real-time progress feedback.
+
+## Solution
+
+Transform the Migration Wizard into a **Dexie-backed client-side queue** with
+the batch loop owned by a **provider mounted in the authenticated app shell**
+(not in the wizard component).
+
+### Architecture
+
+```
+┌─ AppContent (authenticated shell) ─────────────────────────────┐
+│  └─ MigrationProcessorProvider  ← owns the batch loop          │
+│      ├─ useLiveQuery(jobs)        ← reads Dexie                 │
+│      ├─ useEffect(arm loop)       ← re-arms on any PROCESSING   │
+│      ├─ processJobLoop(jobId)     ← Web Locks + sequential POST │
+│      └─ children                                                  │
+│          ├─ <main>page content</main>  ← changes on navigation  │
+│          ├─ <MigrationWizard/>         ← detail modal (ctx)     │
+│          └─ <MigrationFloatingWidget/> ← compact progress pill  │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+- **Dexie (IndexedDB)** stores `jobs`, `batches`, and the uploaded `files` Blob.
+  Dexie is ONLY the queue/checkpoint/resume store — the server remains the
+  source of truth for all product/inventory writes.
+- **`batchNumber=N`** server parameter triggers single-batch mode (one HTTP
+  POST processes exactly 1 batch of ≤50 products, returns per-batch stats).
+- **Web Locks API** (`navigator.locks.request('aetherpos-migration-<jobId>')`)
+  prevents two tabs from processing the same job concurrently.
+- **`useLiveQuery`** from `dexie-react-hooks` re-surfaces PROCESSING jobs on
+  reload — the effect re-arms the loop and resumes from the first
+  PENDING/PROCESSING batch (COMPLETED batches are never re-sent).
+- **fileHash** = SHA-256(file bytes + ':' + mode + ':' + outletId) — used for
+  duplicate-upload detection. Re-uploading a file with an existing
+  PROCESSING/PARTIAL/FAILED job offers "Lanjutkan" instead of creating a duplicate.
+
+### Files
+
+**New:**
+- `src/lib/migration/dexie-db.ts` — Dexie schema (jobs/batches/files tables),
+  CRUD helpers, `getNextBatchToProcess`, `reconcileBatches`, `resetFailedBatches`.
+- `src/lib/migration/file-hash.ts` — SHA-256 fileHash for duplicate detection.
+- `src/lib/migration/sheet-count.ts` — client-side xlsx parse to count products
+  in the non_varian sheet (so the wizard can show "Batch X / Y" before any
+  server request).
+- `src/components/migration/migration-context.ts` — React context +
+  `useMigrationProcessor` hook (extracted to avoid circular imports).
+- `src/components/migration/migration-processor-provider.tsx` — the worker.
+  Owns modal state, live Dexie reads, the sequential batch loop, Web Locks,
+  non-JSON response safety, dashboard query invalidation, and all public
+  actions (`startJob`, `retryJob`, `dismissJob`, `removeJob`, `checkDuplicate`).
+- `src/components/migration/migration-floating-widget.tsx` — compact progress
+  pill in the app shell. Shows during processing + for 60s after completion.
+
+**Modified:**
+- `src/components/layout/app-shell.tsx` — wraps authenticated content in
+  `<MigrationProcessorProvider>` and mounts `<MigrationWizard/>` +
+  `<MigrationFloatingWidget/>` in the shell (survives page navigation).
+- `src/components/migration/migration-banner.tsx` — banner is now a pure CTA
+  card; clicking "Import Sekarang" calls `ctx.openWizard()`.
+- `src/components/migration/migration-wizard.tsx` — context-driven (no local
+  batch loop). Reads live job/batch data from `useMigrationProcessor()`.
+  Modal is minimizable. Renders real-time progress (%, batch X/Y, elapsed,
+  ETA, per-batch status list) and the PARTIAL/FAILED/COMPLETED result screens.
+- `src/app/api/migration/import/route.ts` — removed `maxBulkUploadRows`
+  enforcement per founder rule ("Jangan gunakan maxBulkUploadRows"). Quota now
+  uses ONLY `features.maxProducts`. (The `batchNumber` single-batch mode was
+  already added in MIG-BATCH-V2.)
+
+### UX (exactly 2 surfaces, no new History page)
+
+1. **Migration Wizard detail modal** (minimizable) — mode selection → upload
+   (with duplicate detection) → processing (real-time progress) → result.
+2. **Global floating migration widget** in the app shell — compact pill that
+   shows during processing and for 60s after completion. Click reopens modal.
+
+### Failure handling
+
+- Completed batches stay saved in Dexie (never re-sent).
+- Failed batch marked `FAILED`; job status → `PARTIAL` (or `FAILED` if the
+  very first batch failed with nothing created).
+- Subsequent batches NOT processed (loop breaks on failure).
+- `retryJob()` resets FAILED batches → PENDING, sets job status → PROCESSING,
+  re-arms the loop. Retry starts from the failed batch.
+- Server's name-based dedup makes re-sending a stale PROCESSING batch safe.
+
+### Non-JSON response safety
+
+The provider checks `content-type` before parsing. Non-JSON responses (e.g.
+HTML error pages, timeouts) are wrapped into an error object and surfaced as
+a batch failure — no frontend crash.
+
+## Verification (all 5 tests PASS)
+
+### Test 1: 499 products → 10 batch requests (9×50 + 1×49)
+
+- File: `/tmp/test-499.xlsx` (499 rows, mode `product_only`)
+- Logged in as `hc@test.com` (Enterprise outlet, maxProducts=-1)
+- Sequential POSTs `batchNumber=0..9`
+- Results:
+  - Batch 0: HTTP 200, `totalBatches=10`, `totalProducts=499`, `batchCreated=50`,
+    `isLastBatch=false`, `status=BATCH_OK` ✅
+  - Batches 1-8: HTTP 200, `batchCreated=50` each, `status=BATCH_OK` ✅
+  - Batch 9: HTTP 200, `batchCreated=49`, `status=BATCH_LAST_OK`,
+    `isLastBatch=true` ✅
+- Total requests: **10** ✅
+- Accumulated created: **499** ✅
+- DB products: **499** ✅
+- **PASS** ✅
+
+### Test 2: Force batch 4 fail → 150 saved, retry from batch 4
+
+- Server env `MIG_FORCE_FAIL_BATCH=3` (0-indexed → batch 4)
+- Part 1: POST batches 0,1,2 (succeed, 150 created) → batch 3 (FAILS)
+  - Batch 3: `status=BATCH_FAILED`, `batchError="FORCED_FAIL: batch 4 (test hook)"` ✅
+  - DB after Part 1: **150 products** ✅
+  - Loop breaks (batches 4-9 NOT processed) ✅
+- Restart server WITHOUT env var
+- Part 2 (retry): POST batches 3..9 (COMPLETED batches 0,1,2 NOT re-sent)
+  - Batches 3-8: `BATCH_OK`, 50 created each ✅
+  - Batch 9: `BATCH_LAST_OK`, 49 created ✅
+  - DB after retry: **499 products** ✅ (150 + 349)
+  - Retry created: **349 new**, **0 skipped** ✅ (no duplicates)
+- **PASS** ✅
+
+### Test 3: Reload after 3 batches → job resumes from Dexie (browser-verified)
+
+- File: `/tmp/test-3000.xlsx` (3000 rows, 60 batches, ~12s total)
+- Browser flow: Dashboard → Import Sekarang → Produk Saja → upload → Mulai Import
+- At Batch 6/60 (8%, 00:03 elapsed): `agent-browser reload`
+- After reload (4s later):
+  - Floating widget re-appeared: "Migrasi berjalan · test-3000.xlsx · Batch 24/60 · 38% · 00:15" ✅
+  - Migration RESUMED from Dexie (provider's `useLiveQuery` re-surfaced the
+    PROCESSING job; `useEffect` re-armed the loop) ✅
+  - COMPLETED batches 0-5 NOT re-sent ✅
+  - PROCESSING batch 6 (stale from killed tab) safely re-sent — server dedup
+    skipped the 50 already-created products ✅
+  - Remaining batches 7-59 processed normally ✅
+- Final: **2950 dibuat + 50 dilewati = 3000 total** ✅
+- DB: **3000 products, 3000 distinct SKUs, 0 duplicates** ✅
+- **PASS** ✅
+
+### Test 4: User navigates pages while progress continues (browser-verified)
+
+- Same migration as Test 3 (3000 products, 60 batches)
+- At Batch 24/60 (38%): clicked "Minimalkan" on modal
+- Navigated: Dashboard → Produk → Pelanggan
+- Floating widget persisted across ALL navigation:
+  - On Produk page: "Batch 45/60 · 73%" (migration continued) ✅
+  - Produk page showed "SKU 2.050" (products being created live) ✅
+  - On Pelanggan page: "Migrasi selesai · 3000 dibuat · 0 dilewati" ✅
+- Migration completed successfully during navigation ✅
+- **PASS** ✅
+
+### Test 5: Lint/typecheck PASS
+
+- `bun run lint` → **0 errors, 0 warnings** ✅
+- (Temporary test scripts `scripts-test-v3.ts` and `scripts-test-v3-retry.ts`
+  were cleaned up after verification.)
+- **PASS** ✅
+
+### Bonus: PARTIAL → retry → COMPLETED (browser-verified)
+
+- Server env `MIG_FORCE_FAIL_BATCH=3`, file `/tmp/test-499.xlsx`
+- After batch 3 failed: modal showed "Migrasi Sebagian Berhasil" with:
+  - "3 dari 10 batch selesai" badge ✅
+  - Progress Batch: 150 Dibuat, 0 Dilewati, 0 Gagal ✅
+  - "Batch Gagal" warning: "FORCED_FAIL: batch 4 (test hook)" ✅
+  - "Lanjutkan Migrasi (dari batch 3)" button ✅
+- Restarted server clean, clicked "Lanjutkan Migrasi (dari batch 3)"
+- Provider reset FAILED batch 3 → PENDING, re-armed loop
+- Processed batches 3-9 (349 new products)
+- Final: "Import Berhasil · 499 item berhasil diimport · Batch 10 / 10 selesai" ✅
+- DB: 499 products, 499 distinct SKUs, 0 duplicates ✅
+- **PASS** ✅
+
+## PM2 logs (verification)
+
+60+ `POST /api/migration/import 200 in ~300-400ms` entries across the browser
+tests. No runtime errors. Only expected `FORCED_FAIL` errors from Test 2's
+intentional test hook.
+
+## Architecture Lock Compliance
+
+Per `docs/ARCHITECTURE-LOCK.md`, the Migration Wizard is explicitly **out of scope**
+for the core inventory contract lock.
+
+This rewrite touches ONLY:
+- Client-side queue (Dexie/IndexedDB)
+- Background worker (provider in app shell)
+- Floating widget
+- Wizard modal UX (context-driven, minimizable)
+- Backend `maxBulkUploadRows` removal (founder rule)
+
+It does NOT touch:
+- `InventoryConsumptionService` ❌
+- `FEFOEngine` ❌
+- `Product.stock` / `Product.hpp` semantics ❌
+- Void contract ❌
+- `plan-config.ts` ❌ (founder constraint)
+- Prisma schema ❌
+- Product bulk upload / bulk update / Purchase / FEFO / HPP ❌
+
+**Compliant.** ✅
+
+## Post-test cleanup
+
+- All 499/1500/3000 test products deleted from DB.
+- IndexedDB `aetherpos-migration` database deleted.
+- All temporary test scripts removed (`scripts-test-v3.ts`,
+  `scripts-test-v3-retry.ts`, `scripts-build-test-xlsx.ts`,
+  `scripts-query-state.ts`, `scripts-cleanup.ts`, `scripts-debug-login.ts`).
+- Temporary xlsx files removed.
+- PM2 restarted clean (no `MIG_FORCE_FAIL_BATCH` env var).
+- DB state: 0 products (clean slate), outlet=enterprise, plans intact.
+- Lint: 0 errors, 0 warnings.

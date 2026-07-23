@@ -415,11 +415,10 @@ export async function POST(request: NextRequest) {
       return safeJsonError('File Excel kosong', 400)
     }
 
-    // MIG-005 (P1) + MIG-ENTERPRISE-UNLIMITED: Enforce effective plan
-    // maxBulkUploadRows limit using DB-aware feature resolution.
-    //   -1            → unlimited (Enterprise via webmaster DB) — no cap, no truncation
-    //   0             → blocked (Free: bulkUpload gate above already rejects)
-    //   positive (N)  → reject before processing if totalSheetRows > N (Pro = 200)
+    // MIG-BATCH-V3: Quota uses ONLY DB-aware features.maxProducts (enforced
+    // below). maxBulkUploadRows is intentionally NOT enforced here per founder
+    // rule ("Jangan gunakan maxBulkUploadRows"). The bulkUpload boolean gate
+    // above still rejects Free plan; Pro/Enterprise are gated by maxProducts.
     let totalSheetRows = 0
     for (const sheetName of workbook.SheetNames) {
       const sheetType = detectSheetType(sheetName)
@@ -430,9 +429,6 @@ export async function POST(request: NextRequest) {
       totalSheetRows += rowsToCount.length
     }
     const planMaxRows = outletPlan.features.maxBulkUploadRows
-    if (!isUnlimited(planMaxRows) && planMaxRows >= 0 && totalSheetRows > planMaxRows) {
-      return safeJsonError(`Migrasi melebihi batas baris paket Anda (${planMaxRows} baris). Silakan upgrade paket.`, 403)
-    }
 
     const includeInventory = mode === 'product_inventory'
     const isStockMode = mode === 'product_stock'
