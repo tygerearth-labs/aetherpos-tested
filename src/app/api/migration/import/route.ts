@@ -336,135 +336,19 @@ async function cleanupMigrationData(
 
 // ==================== MAIN ROUTE ====================
 
-const PRODUCT_BATCH_SIZE = 50
-const LOOKUP_BATCH_SIZE = 500
-
-type ParsedSheet = {
-  name: string
-  type: SheetType
-  rows: Record<string, unknown>[]
-}
-
-type ProductGroup =
-  | { kind: 'non_varian'; productName: string; rows: Array<{ row: Record<string, unknown>; rowNum: number }> }
-  | { kind: 'varian'; productName: string; rows: Array<{ row: Record<string, unknown>; rowNum: number }> }
-
-type ImportCounters = {
-  productsCreated: number
-  variantsCreated: number
-  productsSkipped: number
-  categoriesCreated: number
-  barcodeCount: number
-  inventoryItemsCreated: number
-  inventoryItemsSkipped: number
-  inventoryItemsUpdated: number
-  migrationDataCleaned: number
-  compositionsCreated: number
-  totalStock: number
-  totalModalValue: number
-}
-
-function emptyCounters(): ImportCounters {
-  return {
-    productsCreated: 0,
-    variantsCreated: 0,
-    productsSkipped: 0,
-    categoriesCreated: 0,
-    barcodeCount: 0,
-    inventoryItemsCreated: 0,
-    inventoryItemsSkipped: 0,
-    inventoryItemsUpdated: 0,
-    migrationDataCleaned: 0,
-    compositionsCreated: 0,
-    totalStock: 0,
-    totalModalValue: 0,
-  }
-}
-
-function addCounters(target: ImportCounters, source: ImportCounters) {
-  for (const key of Object.keys(target) as Array<keyof ImportCounters>) {
-    target[key] += source[key]
-  }
-}
-
-function chunk<T>(items: T[], size: number): T[][] {
-  const result: T[][] = []
-  for (let i = 0; i < items.length; i += size) result.push(items.slice(i, i + size))
-  return result
-}
-
-function normalizeName(value: unknown): string {
-  return String(value || '').trim()
-}
-
-function extractProductName(row: Record<string, unknown>): string {
-  return normalizeName(findColumn(row, [
-    'NAMA PRODUK*', 'NAMA PRODUK', 'Nama Produk', 'Nama', 'NAME', 'name',
-    'Product Name', 'Produk',
-  ]))
-}
-
-async function loadExistingProductNames(outletId: string, names: string[]): Promise<Set<string>> {
-  const result = new Set<string>()
-  for (const nameBatch of chunk([...new Set(names)], LOOKUP_BATCH_SIZE)) {
-    const rows = await db.product.findMany({
-      where: { outletId, name: { in: nameBatch } },
-      select: { name: true },
-    })
-    rows.forEach(row => result.add(row.name))
-  }
-  return result
-}
-
-function buildProductGroups(sheets: ParsedSheet[]): ProductGroup[] {
-  const groups: ProductGroup[] = []
-
-  for (const sheet of sheets) {
-    if (sheet.type === 'non_varian') {
-      for (let index = 0; index < sheet.rows.length; index++) {
-        const row = sheet.rows[index]
-        const productName = extractProductName(row)
-        if (!productName) continue
-        groups.push({
-          kind: 'non_varian',
-          productName,
-          rows: [{ row, rowNum: index + 2 }],
-        })
-      }
-    }
-
-    if (sheet.type === 'varian') {
-      let current: ProductGroup | null = null
-      for (let index = 0; index < sheet.rows.length; index++) {
-        const row = sheet.rows[index]
-        const productName = extractProductName(row)
-        if (productName) {
-          current = {
-            kind: 'varian',
-            productName,
-            rows: [{ row, rowNum: index + 2 }],
-          }
-          groups.push(current)
-        } else if (current) {
-          current.rows.push({ row, rowNum: index + 2 })
-        }
-      }
-    }
-  }
-
-  // One finished Product record per unique product name. Keep the first group;
-  // duplicate names are handled as skips during processing/retry.
-  const unique = new Map<string, ProductGroup>()
-  for (const group of groups) {
-    if (!unique.has(group.productName)) unique.set(group.productName, group)
-  }
-  return [...unique.values()]
-}
-
 export async function POST(request: NextRequest) {
   try {
     const user = await getAuthUser(request)
-    if (!user) return unauthorized()
+    if (!user) {
+      return unauthorized()
+    }
+
+    // MIG-002 (P1) / CREW-004: OWNER-only role check.
+    // Front-end UI restricts the migration banner to OWNER with 0 products
+    // (dashboard-page.tsx:86 `isOwner && totalProducts === 0`), but the API
+    // endpoint must enforce this independently to prevent Cashier/Crew from
+    // bypassing the UI restriction via direct curl/fetch.
+    // Mirrors products/bulk-update/route.ts:12-14 and products/bulk-delete/route.ts:17-19.
     if (user.role !== 'OWNER') {
       return safeJsonError('Hanya OWNER yang dapat melakukan migrasi data', 403)
     }
@@ -472,137 +356,332 @@ export async function POST(request: NextRequest) {
     const outletId = user.outletId
     const userId = user.id
 
-    // Webmaster Plan.features JSON is authoritative. Static plan-config values
-    // are only fallback values inside getFeaturesForOutlet.
+    // Check plan — DB-aware resolution (Webmaster Plan DB is authoritative).
+    // getFeaturesForOutlet merges Plan table features over static PLANS defaults,
+    // so webmaster-configured maxBulkUploadRows (-1 = unlimited) is honored.
     const outletPlan = await getFeaturesForOutlet(db, outletId)
-    if (!outletPlan) return safeJsonError('Outlet tidak ditemukan', 404)
+    if (!outletPlan) {
+      return safeJsonError('Outlet not found', 404)
+    }
+
+    // Plan gate: bulkUpload required for migration import (Pro & Enterprise only)
     if (!outletPlan.features.bulkUpload) {
       return safeJsonError('Fitur import migrasi hanya tersedia untuk akun Pro ke atas. Upgrade sekarang!', 403)
     }
 
+    // Parse form data
     const formData = await request.formData()
     const file = formData.get('file') as File | null
-    const mode = String(formData.get('mode') || 'product_only')
-    if (!file) return safeJsonError('File tidak ditemukan', 400)
+    const mode = String(formData.get('mode') || 'product_only') // 'product_only' | 'product_stock' | 'product_inventory'
+
+    if (!file) {
+      return safeJsonError('File tidak ditemukan', 400)
+    }
 
     const ext = file.name.split('.').pop()?.toLowerCase()
     if (!['xlsx', 'xls', 'csv'].includes(ext || '')) {
       return safeJsonError('Format file tidak didukung. Gunakan .xlsx, .xls, atau .csv', 400)
     }
+
+    // MIG-006 (P1): Align back-end file size limit to 5MB.
+    // Front-end migration-wizard.tsx:80 caps at 5MB; previously the back-end
+    // accepted 10MB, allowing direct API callers to bypass the front-end cap.
+    // Mirrors bulk-upload, bulk-update-excel, inventory/items/bulk-update-excel,
+    // purchases/import-excel (all 5MB both sides).
     if (file.size > 5 * 1024 * 1024) {
       return safeJsonError('Ukuran file maksimal 5MB', 400)
     }
 
+    const arrayBuffer = await file.arrayBuffer()
+    const buffer = Buffer.from(arrayBuffer)
+
     let workbook: XLSX.WorkBook
     try {
-      const buffer = Buffer.from(await file.arrayBuffer())
       workbook = XLSX.read(buffer, { type: 'buffer' })
     } catch {
-      return safeJsonError('File tidak dapat dibaca. Pastikan file Excel valid.', 400)
+      return safeJsonError('File tidak dapat dibaca. Pastikan file adalah format Excel yang valid.', 400)
     }
-    if (workbook.SheetNames.length === 0) return safeJsonError('File Excel kosong', 400)
 
-    const sheets: ParsedSheet[] = workbook.SheetNames.map(name => {
-      const type = detectSheetType(name)
-      const sheet = workbook.Sheets[name]
-      const rows = sheet && type !== 'unknown' && type !== 'guide'
-        ? XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' })
-        : []
-      return { name, type, rows }
-    }).filter(sheet => sheet.type !== 'unknown' && sheet.type !== 'guide')
+    if (workbook.SheetNames.length === 0) {
+      return safeJsonError('File Excel kosong', 400)
+    }
 
-    const totalInputRows = sheets.reduce((sum, sheet) => sum + sheet.rows.length, 0)
-    const productGroups = buildProductGroups(sheets)
-    const incomingNames = productGroups.map(group => group.productName)
-    const existingProductNames = await loadExistingProductNames(outletId, incomingNames)
-    const incomingNewProductNames = incomingNames.filter(name => !existingProductNames.has(name))
-
-    const currentProductCount = await db.product.count({ where: { outletId } })
-    const maxProducts = outletPlan.features.maxProducts
-    const projectedProductCount = currentProductCount + incomingNewProductNames.length
-
-    // maxProducts is the only Migration Wizard quota. Batch size is a technical
-    // Neon safety boundary and is intentionally independent from plan quota.
-    if (!isUnlimited(maxProducts) && projectedProductCount > maxProducts) {
-      return safeJsonError(
-        `Batas produk paket terlampaui. Produk saat ini: ${currentProductCount}, produk baru: ${incomingNewProductNames.length}, batas paket: ${maxProducts}, sisa kapasitas: ${Math.max(0, maxProducts - currentProductCount)}.`,
-        403,
-      )
+    // MIG-005 (P1) + MIG-ENTERPRISE-UNLIMITED: Enforce effective plan
+    // maxBulkUploadRows limit using DB-aware feature resolution.
+    //   -1            → unlimited (Enterprise via webmaster DB) — no cap, no truncation
+    //   0             → blocked (Free: bulkUpload gate at line ~368 already rejects)
+    //   positive (N)  → reject before processing if totalSheetRows > N (Pro = 200)
+    // Previously this route used static-only getOutletPlan() which ignored the
+    // webmaster Plan DB overrides, AND independently truncated each sheet at
+    // MAX_ROWS=5000 — silently splicing Enterprise migration rows. Both bugs
+    // are fixed: DB is authoritative, no silent truncation for unlimited plans.
+    let totalSheetRows = 0
+    for (const sheetName of workbook.SheetNames) {
+      const sheetType = detectSheetType(sheetName)
+      if (sheetType === 'unknown' || sheetType === 'guide') continue
+      const sheetToCount = workbook.Sheets[sheetName]
+      if (!sheetToCount) continue
+      const rowsToCount = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheetToCount, { defval: '' })
+      totalSheetRows += rowsToCount.length
+    }
+    const planMaxRows = outletPlan.features.maxBulkUploadRows
+    if (!isUnlimited(planMaxRows) && planMaxRows >= 0 && totalSheetRows > planMaxRows) {
+      return safeJsonError(`Migrasi melebihi batas baris paket Anda (${planMaxRows} baris). Silakan upgrade paket.`, 403)
     }
 
     const includeInventory = mode === 'product_inventory'
     const isStockMode = mode === 'product_stock'
     const hasInventory = includeInventory || isStockMode
+
+    // ==================== STATS ====================
+    let productsCreated = 0
+    let variantsCreated = 0
+    let productsSkipped = 0
+    let categoriesCreated = 0
+    let barcodeCount = 0
+    let inventoryItemsCreated = 0
+    let inventoryItemsSkipped = 0
+    let inventoryItemsUpdated = 0       // Re-migration: items replaced with new data
+    let migrationDataCleaned = 0        // Count of items where old migration data was cleaned
+    let compositionsCreated = 0
+    let totalStock = 0
+    let totalModalValue = 0
     const errors: string[] = []
-    const warnings: string[] = []
-    const totals = emptyCounters()
-    const productBatches = chunk(productGroups, PRODUCT_BATCH_SIZE)
+    const warnings: string[] = []        // Warnings for re-migration events
 
-    let completedBatches = 0
-    let failedBatch: number | null = null
-    let technicalError: string | null = null
+    // ============================================================
+    // MIG-001 + MIG-007 (P1): Wrap entire import logic in a single
+    // db.$transaction so partial failures roll back atomically.
+    // Previously every db.product.create / db.inventoryItem.create /
+    // db.inventoryMovement.create / db.productComposition.create was a
+    // separate non-atomic query — if the route failed midway (network
+    // error, Prisma error on row N, timeout), orphan records remained
+    // (products without inventory items, inventory items without movements,
+    // products without composition links). Re-importing the same file would
+    // skip the orphan Product (by name dedup) and never create the missing
+    // InventoryItem. The single-transaction wrapper resolves both MIG-001
+    // (atomicity) and MIG-007 (per-row non-atomicity) simultaneously.
+    // Mirrors products/bulk-upload/route.ts:872 chunked transaction pattern
+    // (single tx here since plan limits cap rows at 200/500 per upload).
+    // ============================================================
+    await db.$transaction(async (tx) => {
+      // ==================== CACHES ====================
+      const categoryCache = new Map<string, string | null>()
+      const inventoryCategoryCache = new Map<string, string | null>()
+      // Cache inventory items by name for composition linking
+      const inventoryItemCache = new Map<string, string>() // name → id
+      // Cache products by name for composition linking
+      const productCache = new Map<string, string>() // name → id
+      // Cache product variants by (productName, variantName) for composition linking
+      const variantCache = new Map<string, string>() // "productName||variantName" → id
+      // Store inline compositions for deferred processing (after all items exist)
+      const deferredInlineCompositions: {
+        productId: string
+        variantId?: string
+        compositionStr: string
+      }[] = []
 
-    // Phase 1: product groups. One transaction per maximum 50 finished products.
-    for (let batchIndex = 0; batchIndex < productBatches.length; batchIndex++) {
-      const currentBatch = productBatches[batchIndex]
-      try {
-        const batchResult = await db.$transaction(async tx => {
-          const counters = emptyCounters()
-          const categoryCache = new Map<string, string | null>()
+      // Batch audit logs for opening stock (flushed after each sheet to avoid N+1)
+      const openingStockLogs: Array<{
+        action: string
+        entityType: string
+        entityId: string
+        details: string
+        outletId: string
+        userId: string
+      }> = []
+      const OPENING_STOCK_BATCH_SIZE = 200
 
-          async function getOrCreateCategory(name: string): Promise<string | null> {
-            if (!name) return null
-            if (categoryCache.has(name)) return categoryCache.get(name)!
-            const existing = await tx.category.findFirst({ where: { name, outletId } })
-            if (existing) {
-              categoryCache.set(name, existing.id)
-              return existing.id
-            }
-            const created = await tx.category.create({ data: { name, outletId, color: 'zinc' } })
-            counters.categoriesCreated++
-            categoryCache.set(name, created.id)
-            return created.id
+      async function flushOpeningStockLogs() {
+        if (openingStockLogs.length === 0) return
+        try {
+          await tx.auditLog.createMany({ data: openingStockLogs })
+        } catch (e) {
+          console.warn('[migration] Failed to batch-create opening stock audit logs:', e)
+        }
+        openingStockLogs.length = 0
+      }
+
+      // ==================== HELPER: GET OR CREATE CATEGORY ====================
+      async function getOrCreateCategory(name: string): Promise<string | null> {
+        if (categoryCache.has(name)) {
+          return categoryCache.get(name)!
+        }
+        const existing = await tx.category.findFirst({ where: { name, outletId } })
+        if (existing) {
+          categoryCache.set(name, existing.id)
+          return existing.id
+        }
+        const created = await tx.category.create({
+          data: { name, outletId, color: 'zinc' },
+        })
+        categoriesCreated++
+        categoryCache.set(name, created.id)
+        return created.id
+      }
+
+      // ==================== HELPER: GET OR CREATE INVENTORY CATEGORY ====================
+      async function getOrCreateInventoryCategory(name: string): Promise<string | null> {
+        if (inventoryCategoryCache.has(name)) {
+          return inventoryCategoryCache.get(name)!
+        }
+        const existing = await tx.inventoryCategory.findFirst({ where: { name, outletId } })
+        if (existing) {
+          inventoryCategoryCache.set(name, existing.id)
+          return existing.id
+        }
+        const created = await tx.inventoryCategory.create({
+          data: { name, outletId, color: 'zinc' },
+        })
+        categoriesCreated++
+        inventoryCategoryCache.set(name, created.id)
+        return created.id
+      }
+
+      // ==================== HELPER: CHECK PRODUCT LIMIT ====================
+      async function checkProductLimit(): Promise<boolean> {
+        if (isUnlimited(outletPlan.features.maxProducts)) return true
+        const currentCount = await tx.product.count({ where: { outletId } })
+        return currentCount < outletPlan.features.maxProducts
+      }
+
+      // ==================== HELPER: FIND INVENTORY ITEM BY NAME (with fuzzy) ====================
+      async function findInventoryItemByName(name: string): Promise<string | null> {
+        // Check cache first
+        if (inventoryItemCache.has(name)) return inventoryItemCache.get(name)!
+        // Check DB
+        const item = await tx.inventoryItem.findFirst({ where: { name, outletId }, select: { id: true } })
+        if (item) {
+          inventoryItemCache.set(name, item.id)
+          return item.id
+        }
+        return null
+      }
+
+      // ==================== HELPER: PROCESS INLINE COMPOSITION ====================
+      async function processInlineComposition(
+        productId: string,
+        variantId: string | undefined,
+        compositionStr: string
+      ): Promise<number> {
+        const parsed = parseInlineComposition(compositionStr)
+        if (parsed.length === 0) return 0
+
+        let created = 0
+        for (const comp of parsed) {
+          const invItemId = await findInventoryItemByName(comp.name)
+          if (!invItemId) {
+            errors.push(`Komposisi inline: bahan "${comp.name}" tidak ditemukan di inventory`)
+            continue
           }
+          try {
+            await tx.productComposition.create({
+              data: {
+                productId,
+                variantId: variantId || null,
+                inventoryItemId: invItemId,
+                qty: comp.qty,
+                yieldPerBatch: 1,
+                baseUnit: comp.unit || 'pcs',
+              },
+            })
+            created++
+          } catch {
+            // Duplicate composition — skip silently
+          }
+        }
+        return created
+      }
 
-          for (const group of currentBatch) {
-            const first = group.rows[0]
-            const row = first.row
-            const rowNum = first.rowNum
-            const name = group.productName
+      // ==================== PROCESS SHEETS ====================
 
-            const existingProduct = await tx.product.findFirst({ where: { name, outletId } })
-            if (existingProduct) {
-              counters.productsSkipped++
-              continue
-            }
+      for (const sheetName of workbook.SheetNames) {
+        const sheetType = detectSheetType(sheetName)
 
-            const sku = normalizeName(findColumn(row, ['SKU', 'SKU PRODUK', 'sku', 'Kode'])) || null
-            const barcode = normalizeName(findColumn(row, ['BARCODE', 'BARCODE PRODUK', 'Barcode', 'barcode'])) || null
-            const hpp = sanitizeNumber(findColumn(row, ['HPP / MODAL (Rp)', 'HPP PRODUK (Rp)', 'HPP', 'Harga Pokok', 'Modal']))
-            const price = sanitizeNumber(findColumn(row, ['HARGA JUAL* (Rp)', 'HARGA JUAL PRODUK* (Rp)', 'HARGA JUAL', 'Harga Jual', 'Harga', 'Price']))
-            const stock = sanitizeNumber(findColumn(row, ['STOK AWAL', 'STOK', 'QTY / STOK', 'QTY', 'Stok', 'Stock']))
-            const unitRaw = normalizeName(findColumn(row, ['SATUAN', 'Satuan', 'Unit']))?.toLowerCase() || 'pcs'
-            const categoryRaw = normalizeName(findColumn(row, ['KATEGORI', 'Kategori', 'Category']))
-            const lowStockAlert = sanitizeNumber(findColumn(row, ['LOW STOCK ALERT', 'Low Stock Alert', 'STOK MINIMUM']))
-            const inlineComposition = normalizeName(findColumn(row, ['KOMPOSISI INLINE', 'Komposisi Inline', 'KOMPOSISI']))
+        // Skip unknown / guide sheets
+        if (sheetType === 'unknown' || sheetType === 'guide') continue
+
+        const sheet = workbook.Sheets[sheetName]
+        if (!sheet) continue
+
+        const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' })
+
+        if (rows.length === 0) continue
+        // MIG-ENTERPRISE-UNLIMITED: No per-sheet truncation. The effective
+        // plan limit (DB-aware, -1 = unlimited) is enforced ABOVE before the
+        // transaction starts. Unlimited Enterprise plans must never be
+        // silently spliced — all rows are processed as-is.
+
+        // ──────────────────────────────────────────────
+        // SHEET 1: Produk Non-Varian
+        // ──────────────────────────────────────────────
+        if (sheetType === 'non_varian') {
+          for (let i = 0; i < rows.length; i++) {
+            const row = rows[i]
+            const rowNum = i + 2
+
+            const name = String(findColumn(row, ['NAMA PRODUK*', 'NAMA PRODUK', 'Nama Produk', 'Nama', 'NAME', 'name', 'Product Name', 'Produk']) || '').trim()
+            const sku = String(findColumn(row, ['SKU', 'sku', 'Kode']) || '').trim() || null
+            const barcode = String(findColumn(row, ['BARCODE', 'Barcode', 'barcode', 'BAR CODE', 'Bar Code']) || '').trim() || null
+            const hpp = sanitizeNumber(findColumn(row, ['HPP / MODAL (Rp)', 'HPP (Rp)', 'HPP', 'Harga Pokok', 'harga_pokok', 'Cost', 'Modal', 'HPP MODAL Rp']))
+            const price = sanitizeNumber(findColumn(row, ['HARGA JUAL* (Rp)', 'HARGA JUAL (Rp)', 'HARGA JUAL', 'Harga Jual', 'Harga', 'Price', 'harga_jual', 'harga', 'price', 'Sell Price', 'Jual']))
+            const stock = sanitizeNumber(findColumn(row, ['STOK AWAL', 'STOK', 'QTY / STOK', 'QTY', 'qty', 'Stok', 'stok', 'Stock', 'stock', 'Quantity', 'Jumlah']))
+            const unitRaw = String(findColumn(row, ['SATUAN', 'Satuan', 'satuan', 'Unit', 'unit', 'Sat']) || 'pcs').trim().toLowerCase()
+            const categoryRaw = String(findColumn(row, ['KATEGORI', 'Kategori', 'kategori', 'Category', 'category', 'Kat']) || '').trim()
+            const lowStockAlert = sanitizeNumber(findColumn(row, ['LOW STOCK ALERT', 'Low Stock Alert', 'low stock alert', 'Low Stock', 'LOW STOCK', 'Stock Alert', 'STOK MINIMUM']))
+            const komposisiInline = String(findColumn(row, ['KOMPOSISI INLINE', 'KOMPOSISI INLINE (Opsional)', 'Komposisi Inline', 'KOMPOSISI', 'Komposisi', 'komposisi']) || '').trim()
 
             if (!name) {
               errors.push(`Baris ${rowNum}: Nama produk wajib diisi`)
               continue
             }
-            if (price < 0) {
-              errors.push(`Baris ${rowNum}: Harga jual tidak boleh negatif (${name})`)
+
+            if (!price || price < 0) {
+              errors.push(`Baris ${rowNum}: Harga Jual tidak valid (Nama: ${name})`)
               continue
             }
-            if (hpp < 0 || stock < 0) {
-              errors.push(`Baris ${rowNum}: HPP dan stok tidak boleh negatif (${name})`)
+
+            // MIG-003 (P1): Negative value validation.
+            // Mirrors products/bulk-upload/route.ts:174-186. Previously only `price < 0`
+            // was checked, allowing HPP=-5000 (inflates reported profit by 5000/unit)
+            // and STOK AWAL=-50 (violates non-negative stock invariant, triggers
+            // INV-HC-05 self-heal incorrectly on next sale).
+            if (hpp < 0) {
+              errors.push(`Baris ${rowNum}: HPP tidak boleh negatif (Nama: ${name})`)
+              continue
+            }
+            if (stock < 0) {
+              errors.push(`Baris ${rowNum}: Stok tidak boleh negatif (Nama: ${name})`)
               continue
             }
 
             const unit = VALID_UNITS.includes(unitRaw) ? unitRaw : 'pcs'
-            const categoryId = await getOrCreateCategory(categoryRaw)
+
+            // Check product limit
+            if (!(await checkProductLimit())) {
+              errors.push(`Baris ${rowNum}: Batas produk tercapai`)
+              break
+            }
+
+            // Skip duplicates
+            const existing = await tx.product.findFirst({
+              where: { name, outletId },
+            })
+            if (existing) {
+              // Still cache the product for composition linking
+              productCache.set(name, existing.id)
+              productsSkipped++
+              continue
+            }
+
+            // Category
+            const categoryId = categoryRaw ? await getOrCreateCategory(categoryRaw) : null
+
+            // Auto-generate SKU/Barcode
             const finalSku = sku || await generateUniqueSKU(name, outletId)
             const finalBarcode = barcode || finalSku
+
+            // Create Product
             const product = await tx.product.create({
               data: {
                 name,
@@ -610,242 +689,842 @@ export async function POST(request: NextRequest) {
                 barcode: finalBarcode,
                 hpp,
                 price,
-                stock: group.kind === 'varian' ? 0 : stock,
+                stock,
                 unit,
                 categoryId,
                 outletId,
                 lowStockAlert: lowStockAlert > 0 ? lowStockAlert : 10,
-                hasVariants: group.kind === 'varian',
-                hasComposition: (includeInventory && !!inlineComposition) || isStockMode,
+                hasComposition: includeInventory && !!komposisiInline,
               },
             })
-            counters.productsCreated++
-            if (finalBarcode) counters.barcodeCount++
 
-            if (group.kind === 'varian') {
-              for (const entry of group.rows) {
-                const variantName = normalizeName(findColumn(entry.row, ['NAMA VARIAN*', 'NAMA VARIAN', 'Nama Varian', 'Varian']))
-                if (!variantName) continue
-                const existingVariant = await tx.productVariant.findFirst({ where: { productId: product.id, name: variantName } })
-                if (existingVariant) continue
-                const variantHpp = sanitizeNumber(findColumn(entry.row, ['HPP VARIAN (Rp)', 'HPP VARIAN', 'HPP Varian']))
-                const variantPrice = sanitizeNumber(findColumn(entry.row, ['HARGA JUAL VARIAN* (Rp)', 'HARGA JUAL VARIAN', 'Harga Jual Varian']))
-                const variantStock = sanitizeNumber(findColumn(entry.row, ['STOK AWAL VARIAN', 'STOK VARIAN', 'Stok Varian']))
-                if (variantHpp < 0 || variantPrice < 0 || variantStock < 0) {
-                  errors.push(`Baris ${entry.rowNum}: Nilai varian tidak valid (${name} / ${variantName})`)
-                  continue
-                }
-                const variantSku = normalizeName(findColumn(entry.row, ['SKU VARIAN', 'SKU Varian'])) || await generateVariantSKU(name, variantName, outletId)
-                const variantBarcode = normalizeName(findColumn(entry.row, ['BARCODE VARIAN', 'Barcode Varian'])) || variantSku
-                const variant = await tx.productVariant.create({
-                  data: { productId: product.id, name: variantName, sku: variantSku, barcode: variantBarcode, hpp: variantHpp, price: variantPrice, stock: variantStock, outletId },
+            productsCreated++
+            if (finalBarcode) barcodeCount++
+            productCache.set(name, product.id)
+
+            // === Opening stock audit log per product (batched) ===
+            if (stock > 0) {
+              openingStockLogs.push({
+                action: 'RESTOCK',
+                entityType: 'PRODUCT',
+                entityId: product.id,
+                details: JSON.stringify({
+                  productName: name,
+                  productSku: finalSku,
+                  initialStock: stock,
+                  newStock: stock,
+                  reason: 'Stok awal migrasi',
+                }),
+                outletId,
+                userId,
+              })
+              if (openingStockLogs.length >= OPENING_STOCK_BATCH_SIZE) {
+                await flushOpeningStockLogs()
+              }
+            }
+
+            // === If inventory/bahan mode + stock > 0: create InventoryItem + Opening Balance ===
+            if (includeInventory && stock > 0) {
+              try {
+                const existingInv = await tx.inventoryItem.findFirst({
+                  where: { name, outletId },
                 })
-                counters.variantsCreated++
-                if (variantBarcode) counters.barcodeCount++
-                if (variantStock > 0) {
-                  await tx.auditLog.create({
+
+                if (!existingInv) {
+                  // ── NEW ITEM: Create fresh ──
+                  const invItem = await tx.inventoryItem.create({
                     data: {
-                      action: 'RESTOCK', entityType: 'VARIANT', entityId: variant.id, outletId, userId,
-                      details: JSON.stringify({ productName: name, variantName, initialStock: variantStock, newStock: variantStock, reason: 'Stok awal migrasi' }),
+                      name,
+                      sku: finalSku,
+                      baseUnit: unit,
+                      stock: stock,
+                      avgCost: hpp > 0 ? hpp : 0,
+                      lowStockAlert: lowStockAlert > 0 ? lowStockAlert : 0,
+                      status: 'ACTIVE',
+                      outletId,
+                      categoryId: null,
                     },
                   })
+
+                  inventoryItemsCreated++
+                  totalStock += stock
+                  totalModalValue += hpp * stock
+                  inventoryItemCache.set(name, invItem.id)
+
+                  // Create opening balance movement
+                  try {
+                    await tx.inventoryMovement.create({
+                      data: {
+                        type: 'PURCHASE',
+                        quantity: stock,
+                        previousStock: 0,
+                        newStock: stock,
+                        referenceType: 'MIGRATION',
+                        notes: `Saldo awal migrasi dari ${file.name}`,
+                        outletId,
+                        inventoryItemId: invItem.id,
+                        userId,
+                      },
+                    })
+                  } catch (movErr) {
+                    console.warn(`[migration] Failed to create opening balance movement for ${name}:`, movErr)
+                    errors.push(`Warning: Gagal catat pergerakan stok untuk "${name}"`)
+                  }
+                } else {
+                  // ── EXISTING ITEM: Smart re-migration handling ──
+                  console.log(`[migration] includeInventory: Found existing item "${name}" (id=${existingInv.id}), analyzing...`)
+
+                  const analysis = await analyzeExistingInventoryForRemigration(tx, existingInv.id, outletId)
+
+                  if (analysis.canReplace) {
+                    // Safe to replace: clean up old migration data and update
+                    console.log(`[migration] includeInventory: REplacing "${name}" - ${analysis.reason}`)
+
+                    const cleaned = await cleanupMigrationData(tx, existingInv.id, outletId)
+
+                    // Update the inventory item with new values
+                    await tx.inventoryItem.update({
+                      where: { id: existingInv.id },
+                      data: {
+                        sku: finalSku || existingInv.sku,
+                        baseUnit: unit,
+                        stock: stock,
+                        avgCost: hpp > 0 ? hpp : 0,
+                        lowStockAlert: lowStockAlert > 0 ? lowStockAlert : 0,
+                        status: 'ACTIVE',
+                      },
+                    })
+
+                    // Create new opening balance movement
+                    try {
+                      await tx.inventoryMovement.create({
+                        data: {
+                          type: 'PURCHASE',
+                          quantity: stock,
+                          previousStock: 0,
+                          newStock: stock,
+                          referenceType: 'MIGRATION',
+                          notes: `Saldo awal migrasi (re-migrate) dari ${file.name}`,
+                          outletId,
+                          inventoryItemId: existingInv.id,
+                          userId,
+                        },
+                      })
+                    } catch (movErr) {
+                      console.warn(`[migration] Failed to create re-migration movement for ${name}:`, movErr)
+                    }
+
+                    inventoryItemsUpdated++
+                    migrationDataCleaned++
+                    totalStock += stock
+                    totalModalValue += hpp * stock
+
+                    warnings.push(`🔄 "${name}": di-update (data migrasi lama dibersihkan: ${cleaned.movementsDeleted} stok, ${cleaned.compositionsDeleted} link)`)
+                  } else {
+                    // Has real history: skip with warning
+                    console.log(`[migration] includeInventory: SKIP "${name}" - ${analysis.reason}`)
+                    inventoryItemsSkipped++
+                    warnings.push(`⚠️ "${name}" dilewati: ${analysis.reason}`)
+                  }
+
+                  inventoryItemCache.set(name, existingInv.id)
+                }
+              } catch (invErr) {
+                console.error(`[migration] CRITICAL: Failed to create inventory item for ${name}:`, invErr)
+                const errMsg = invErr instanceof Error ? invErr.message : String(invErr)
+                errors.push(`Gagal buat inventory "${name}": ${errMsg}`)
+              }
+            }
+
+            // === product_stock mode: create 1:1 InventoryItem + Composition (product↔stock) ===
+            if (isStockMode && stock > 0) {
+              console.log(`[migration] product_stock: Processing "${name}" with stock=${stock}, unit=${unit}`)
+              try {
+                const existingInv = await tx.inventoryItem.findFirst({
+                  where: { name, outletId },
+                })
+
+                let invItemId: string
+                if (!existingInv) {
+                  // ── NEW ITEM: Create fresh ──
+                  console.log(`[migration] product_stock: Creating NEW inventory for "${name}"`)
+                  // Create InventoryItem with proper error handling
+                  const invItem = await tx.inventoryItem.create({
+                    data: {
+                      name,
+                      sku: finalSku,
+                      baseUnit: unit,
+                      stock: stock,
+                      avgCost: hpp > 0 ? hpp : 0,
+                      lowStockAlert: lowStockAlert > 0 ? lowStockAlert : 0,
+                      status: 'ACTIVE',
+                      outletId,
+                      categoryId: null,
+                    },
+                  })
+
+                  invItemId = invItem.id
+                  inventoryItemsCreated++
+                  totalStock += stock
+                  totalModalValue += hpp * stock
+                  inventoryItemCache.set(name, invItem.id)
+
+                  // Create opening balance movement
+                  try {
+                    await tx.inventoryMovement.create({
+                      data: {
+                        type: 'PURCHASE',
+                        quantity: stock,
+                        previousStock: 0,
+                        newStock: stock,
+                        referenceType: 'MIGRATION',
+                        notes: `Saldo awal stok gudang migrasi dari ${file.name}`,
+                        outletId,
+                        inventoryItemId: invItem.id,
+                        userId,
+                      },
+                    })
+                  } catch (movErr) {
+                    console.warn(`[migration] Failed to create opening balance movement for ${name}:`, movErr)
+                    errors.push(`Warning: Gagal catat pergerakan stok untuk "${name}" (stok tetap tersimpan)`)
+                  }
+                } else {
+                  // ── EXISTING ITEM: Smart re-migration handling ──
+                  console.log(`[migration] product_stock: Found existing inventory "${name}" (id=${existingInv.id}), analyzing...`)
+
+                  const analysis = await analyzeExistingInventoryForRemigration(tx, existingInv.id, outletId)
+
+                  if (analysis.canReplace) {
+                    // Safe to replace: clean up old migration data and update
+                    console.log(`[migration] product_stock: REplacing "${name}" - ${analysis.reason}`)
+
+                    const cleaned = await cleanupMigrationData(tx, existingInv.id, outletId)
+
+                    // Update the inventory item with new values
+                    await tx.inventoryItem.update({
+                      where: { id: existingInv.id },
+                      data: {
+                        sku: finalSku || existingInv.sku,
+                        baseUnit: unit,
+                        stock: stock,
+                        avgCost: hpp > 0 ? hpp : 0,
+                        lowStockAlert: lowStockAlert > 0 ? lowStockAlert : 0,
+                        status: 'ACTIVE',
+                      },
+                    })
+
+                    // Create new opening balance movement
+                    try {
+                      await tx.inventoryMovement.create({
+                        data: {
+                          type: 'PURCHASE',
+                          quantity: stock,
+                          previousStock: 0,
+                          newStock: stock,
+                          referenceType: 'MIGRATION',
+                          notes: `Saldo awal stok gudang (re-migrate) dari ${file.name}`,
+                          outletId,
+                          inventoryItemId: existingInv.id,
+                          userId,
+                        },
+                      })
+                    } catch (movErr) {
+                      console.warn(`[migration] Failed to create re-migration movement for ${name}:`, movErr)
+                    }
+
+                    invItemId = existingInv.id
+                    inventoryItemsUpdated++
+                    migrationDataCleaned++
+                    totalStock += stock
+                    totalModalValue += hpp * stock
+
+                    warnings.push(`🔄 "${name}": di-update (data migrasi lama dibersihkan: ${cleaned.movementsDeleted} stok, ${cleaned.compositionsDeleted} link)`)
+                  } else {
+                    // Has real history: use existing but warn
+                    console.log(`[migration] product_stock: Using EXISTING "${name}" (not replaced - ${analysis.reason})`)
+                    invItemId = existingInv.id
+                    inventoryItemsSkipped++
+                    warnings.push(`⚠️ "${name}" menggunakan data existing: ${analysis.reason}`)
+                  }
+
+                  inventoryItemCache.set(name, existingInv.id)
+                }
+
+                // Create 1:1 composition: 1 unit of product uses 1 unit of inventory
+                try {
+                  await tx.productComposition.create({
+                    data: {
+                      productId: product.id,
+                      inventoryItemId: invItemId,
+                      qty: 1,
+                      baseUnit: unit,
+                    },
+                  })
+                  compositionsCreated++
+                  console.log(`[migration] product_stock: Composition created for "${name}" → inv=${invItemId}`)
+
+                  // MIG-004 (P1): Update parent Product.hasComposition = true.
+                  // Mirrors products/bulk-upload/route.ts:1091-1098 (FIX-P0-2 / AUDIT-1).
+                  // Without this flag, downstream validation in
+                  // bulk-update-excel/route.ts:192 (`existing.hasComposition`)
+                  // is silently skipped, allowing users to set Product.stock higher
+                  // than ingredient availability → next sale triggers INV-HC-05
+                  // self-heal (RECONCILE/INVENTORY_ANOMALY audit log).
+                  // The LOCKED invariant self-heals, but the missing flag causes
+                  // misleading UI state and bypassed capacity validation.
+                  // Note: Sheet 4 Komposisi handler already updates this flag correctly.
+                  await tx.product.update({
+                    where: { id: product.id },
+                    data: { hasComposition: true },
+                  })
+                } catch (compErr) {
+                  console.warn(`[migration] Failed to create 1:1 composition for ${name}:`, compErr)
+                  errors.push(`Gagal hubungkan produk↔stok untuk "${name}" (inventory tetap dibuat)`)
+                }
+              } catch (invErr) {
+                console.error(`[migration] CRITICAL: Failed to create inventory item for ${name}:`, invErr)
+                const errMsg = invErr instanceof Error ? invErr.message : String(invErr)
+                errors.push(`Gagal buat inventory "${name}": ${errMsg}`)
+              }
+            } else if (isStockMode && stock <= 0) {
+              console.log(`[migration] product_stock: SKIPPED "${name}" - stock=${stock} (must be > 0)`)
+            }
+
+            // === Process inline composition (ALWAYS defer — inventory sheet may not be processed yet) ===
+            if (includeInventory && komposisiInline) {
+              deferredInlineCompositions.push({
+                productId: product.id,
+                compositionStr: komposisiInline,
+              })
+            }
+          }
+        }
+
+        // Flush opening stock logs after non-variant sheet
+        await flushOpeningStockLogs()
+
+        // ──────────────────────────────────────────────
+        // SHEET 2: Produk Varian
+        // ──────────────────────────────────────────────
+        if (sheetType === 'varian') {
+          let currentParentProduct: { id: string; name: string } | null = null
+
+          for (let i = 0; i < rows.length; i++) {
+            const row = rows[i]
+            const rowNum = i + 2
+
+            const parentName = String(findColumn(row, ['NAMA PRODUK*', 'NAMA PRODUK', 'Nama Produk', 'Nama', 'NAME', 'name', 'Product Name', 'Produk']) || '').trim()
+            const parentSku = String(findColumn(row, ['SKU PRODUK', 'SKU Produk', 'sku produk']) || '').trim() || null
+            const parentBarcode = String(findColumn(row, ['BARCODE PRODUK', 'Barcode Produk', 'barcode produk']) || '').trim() || null
+            const parentHpp = sanitizeNumber(findColumn(row, ['HPP PRODUK (Rp)', 'HPP PRODUK', 'HPP Produk', 'hpp produk']))
+            const parentPrice = sanitizeNumber(findColumn(row, ['HARGA JUAL PRODUK* (Rp)', 'HARGA JUAL PRODUK', 'HARGA JUAL PRODUK (Rp)', 'harga jual produk']))
+            const categoryRaw = String(findColumn(row, ['KATEGORI', 'Kategori', 'kategori', 'Category', 'category', 'Kat']) || '').trim()
+
+            const variantName = String(findColumn(row, ['NAMA VARIAN*', 'NAMA VARIAN', 'Nama Varian', 'Nama Variant', 'nama varian', 'Varian', 'VARIAN']) || '').trim()
+            const variantSku = String(findColumn(row, ['SKU VARIAN', 'SKU Varian', 'sku varian']) || '').trim() || null
+            const variantBarcode = String(findColumn(row, ['BARCODE VARIAN', 'Barcode Varian', 'barcode varian']) || '').trim() || null
+            const variantHpp = sanitizeNumber(findColumn(row, ['HPP VARIAN (Rp)', 'HPP VARIAN', 'HPP Varian', 'hpp varian']))
+            const variantPrice = sanitizeNumber(findColumn(row, ['HARGA JUAL VARIAN* (Rp)', 'HARGA JUAL VARIAN', 'HARGA JUAL VARIAN (Rp)', 'harga jual varian']))
+            const variantStock = sanitizeNumber(findColumn(row, ['STOK AWAL VARIAN', 'STOK VARIAN', 'Stok Varian', 'stok varian', 'stok awal varian']))
+            const komposisiVariantInline = String(findColumn(row, ['KOMPOSISI VARIAN INLINE', 'KOMPOSISI VARIAN INLINE (Opsional)', 'Komposisi Varian', 'komposisi varian', 'KOMPOSISI INLINE']) || '').trim()
+
+            // === Parent product row (NAMA PRODUK is filled) ===
+            if (parentName) {
+              // Check product limit
+              if (!(await checkProductLimit())) {
+                errors.push(`Baris ${rowNum}: Batas produk tercapai`)
+                break
+              }
+
+              // Skip duplicates
+              const existing = await tx.product.findFirst({ where: { name: parentName, outletId } })
+              if (existing) {
+                productCache.set(parentName, existing.id)
+                currentParentProduct = { id: existing.id, name: parentName }
+                productsSkipped++
+              } else {
+                const categoryId = categoryRaw ? await getOrCreateCategory(categoryRaw) : null
+                const finalSku = parentSku || await generateUniqueSKU(parentName, outletId)
+                const finalBarcode = parentBarcode || finalSku
+
+                const product = await tx.product.create({
+                  data: {
+                    name: parentName,
+                    sku: finalSku,
+                    barcode: finalBarcode,
+                    hpp: parentHpp,
+                    price: parentPrice || 0,
+                    stock: 0, // Parent stock = 0 when has variants
+                    unit: 'pcs',
+                    categoryId,
+                    outletId,
+                    hasVariants: true,
+                    hasComposition: includeInventory && !!komposisiVariantInline,
+                  },
+                })
+                productsCreated++
+                if (finalBarcode) barcodeCount++
+                productCache.set(parentName, product.id)
+                currentParentProduct = { id: product.id, name: parentName }
+              }
+            }
+
+            // === Variant row (NAMA VARIAN must be filled) ===
+            if (variantName && currentParentProduct) {
+              if (!variantPrice || variantPrice < 0) {
+                errors.push(`Baris ${rowNum}: Harga Jual Varian tidak valid (Produk: ${currentParentProduct.name}, Varian: ${variantName})`)
+                continue
+              }
+
+              // MIG-003 (P1): Negative value validation for variant HPP and stock.
+              if (variantHpp < 0) {
+                errors.push(`Baris ${rowNum}: HPP Varian tidak boleh negatif (Produk: ${currentParentProduct.name}, Varian: ${variantName})`)
+                continue
+              }
+              if (variantStock < 0) {
+                errors.push(`Baris ${rowNum}: Stok Varian tidak boleh negatif (Produk: ${currentParentProduct.name}, Varian: ${variantName})`)
+                continue
+              }
+
+              const finalVariantSku = variantSku || await generateVariantSKU(currentParentProduct.name, variantName, outletId)
+              const finalVariantBarcode = variantBarcode || finalVariantSku
+
+              // Check for duplicate variant name
+              const existingVariant = await tx.productVariant.findFirst({
+                where: { name: variantName, productId: currentParentProduct.id },
+              })
+              if (existingVariant) {
+                errors.push(`Baris ${rowNum}: Varian "${variantName}" sudah ada untuk produk "${currentParentProduct.name}"`)
+                continue
+              }
+
+              const variant = await tx.productVariant.create({
+                data: {
+                  productId: currentParentProduct.id,
+                  name: variantName,
+                  sku: finalVariantSku,
+                  barcode: finalVariantBarcode,
+                  hpp: variantHpp,
+                  price: variantPrice,
+                  stock: variantStock,
+                  outletId,
+                },
+              })
+
+              variantsCreated++
+              if (finalVariantBarcode) barcodeCount++
+
+              // === Opening stock audit log per variant (batched) ===
+              if (variantStock > 0) {
+                openingStockLogs.push({
+                  action: 'RESTOCK',
+                  entityType: 'VARIANT',
+                  entityId: variant.id,
+                  details: JSON.stringify({
+                    productName: currentParentProduct.name,
+                    variantName,
+                    variantSku: finalVariantSku,
+                    initialStock: variantStock,
+                    newStock: variantStock,
+                    reason: 'Stok awal migrasi',
+                  }),
+                  outletId,
+                  userId,
+                })
+                if (openingStockLogs.length >= OPENING_STOCK_BATCH_SIZE) {
+                  await flushOpeningStockLogs()
                 }
               }
-            } else if (stock > 0) {
-              await tx.auditLog.create({
+
+              // Cache variant for composition linking
+              variantCache.set(`${currentParentProduct.name}||${variantName}`, variant.id)
+
+              // Process inline composition for variant (ALWAYS defer)
+              if (includeInventory && komposisiVariantInline) {
+                deferredInlineCompositions.push({
+                  productId: currentParentProduct.id,
+                  variantId: variant.id,
+                  compositionStr: komposisiVariantInline,
+                })
+              }
+            } else if (variantName && !currentParentProduct) {
+              errors.push(`Baris ${rowNum}: Varian "${variantName}" tidak memiliki produk induk`)
+            }
+          }
+        }
+
+        // Flush opening stock logs after variant sheet
+        await flushOpeningStockLogs()
+
+        // ──────────────────────────────────────────────
+        // SHEET 3: Inventory (Bahan Baku)
+        // ──────────────────────────────────────────────
+        if (sheetType === 'inventory') {
+          if (!includeInventory) {
+            // Skip inventory sheet in product_only mode
+            continue
+          }
+
+          for (let i = 0; i < rows.length; i++) {
+            const row = rows[i]
+            const rowNum = i + 2
+
+            const name = String(findColumn(row, ['NAMA ITEM*', 'NAMA ITEM', 'NAMA BAHAN*', 'NAMA BAHAN', 'Nama Bahan', 'nama bahan', 'Bahan', 'BAHAN', 'name', 'Nama']) || '').trim()
+            const sku = String(findColumn(row, ['SKU', 'sku', 'Kode']) || '').trim() || null
+            const baseUnitRaw = String(findColumn(row, ['SATUAN DASAR*', 'SATUAN DASAR', 'Satuan Dasar', 'satuan dasar', 'Satuan', 'satuan', 'Unit', 'unit']) || 'pcs').trim().toLowerCase()
+            const stock = sanitizeNumber(findColumn(row, ['STOK AWAL', 'STOK', 'QTY', 'qty', 'Stok', 'stok', 'Stock', 'stock', 'Jumlah']))
+            const avgCost = sanitizeNumber(findColumn(row, ['HPP RATA-RATA (Rp)', 'HPP RATA-RATA', 'HPP', 'hpp', 'Harga Pokok', 'Avg Cost', 'avg cost']))
+            const categoryRaw = String(findColumn(row, ['KATEGORI INVENTORY', 'KATEGORI', 'Kategori Inventory', 'kategori inventory', 'Kategori', 'kategori']) || '').trim()
+            const lowStockAlert = sanitizeNumber(findColumn(row, ['LOW STOCK ALERT', 'Low Stock Alert', 'low stock alert', 'Low Stock', 'LOW STOCK', 'Stock Alert', 'STOK MINIMUM']))
+
+            if (!name) {
+              errors.push(`Baris ${rowNum}: Nama item stok wajib diisi`)
+              continue
+            }
+
+            // MIG-003 (P1): Negative value validation for inventory stock and avgCost.
+            if (stock < 0) {
+              errors.push(`Baris ${rowNum}: Stok tidak boleh negatif (Nama: ${name})`)
+              continue
+            }
+            if (avgCost < 0) {
+              errors.push(`Baris ${rowNum}: HPP Rata-rata tidak boleh negatif (Nama: ${name})`)
+              continue
+            }
+
+            const baseUnit = VALID_UNITS.includes(baseUnitRaw) ? baseUnitRaw : 'pcs'
+
+            // Smart handling for existing inventory items (re-migration support)
+            const existing = await tx.inventoryItem.findFirst({
+              where: { name, outletId },
+            })
+
+            if (existing) {
+              // ── EXISTING ITEM: Smart re-migration handling ──
+              console.log(`[migration] sheet3_inventory: Found existing item "${name}" (id=${existing.id}), analyzing...`)
+
+              const analysis = await analyzeExistingInventoryForRemigration(tx, existing.id, outletId)
+
+              if (analysis.canReplace) {
+                // Safe to replace: clean up old migration data and update
+                console.log(`[migration] sheet3_inventory: REplacing "${name}" - ${analysis.reason}`)
+
+                const cleaned = await cleanupMigrationData(tx, existing.id, outletId)
+
+                // Inventory category
+                const invCategoryId = categoryRaw ? await getOrCreateInventoryCategory(categoryRaw) : null
+
+                // Update the inventory item with new values
+                await tx.inventoryItem.update({
+                  where: { id: existing.id },
+                  data: {
+                    sku: sku || existing.sku,
+                    baseUnit,
+                    stock,
+                    avgCost,
+                    lowStockAlert,
+                    status: 'ACTIVE',
+                    categoryId: invCategoryId,
+                  },
+                })
+
+                // Create new opening balance movement if stock > 0
+                if (stock > 0) {
+                  try {
+                    await tx.inventoryMovement.create({
+                      data: {
+                        type: 'PURCHASE',
+                        quantity: stock,
+                        previousStock: 0,
+                        newStock: stock,
+                        referenceType: 'MIGRATION',
+                        notes: `Saldo awal migrasi (re-migrate) dari ${file.name}`,
+                        outletId,
+                        inventoryItemId: existing.id,
+                        userId,
+                      },
+                    })
+                  } catch (movErr) {
+                    console.warn(`[migration] Failed to create re-migration movement for ${name}:`, movErr)
+                  }
+                }
+
+                inventoryItemsUpdated++
+                migrationDataCleaned++
+                totalStock += stock
+                totalModalValue += avgCost * stock
+
+                warnings.push(`🔄 "${name}": di-update (data migrasi lama dibersihkan: ${cleaned.movementsDeleted} stok, ${cleaned.compositionsDeleted} link)`)
+              } else {
+                // Has real history: skip with warning
+                console.log(`[migration] sheet3_inventory: SKIP "${name}" - ${analysis.reason}`)
+                inventoryItemsSkipped++
+                warnings.push(`⚠️ "${name}" dilewati: ${analysis.reason}`)
+              }
+
+              inventoryItemCache.set(name, existing.id)
+              continue
+            }
+
+            // Inventory category
+            const invCategoryId = categoryRaw ? await getOrCreateInventoryCategory(categoryRaw) : null
+
+            // Create InventoryItem (new item)
+            const invItem = await tx.inventoryItem.create({
+              data: {
+                name,
+                sku: sku || await generateUniqueSKU(name, outletId),
+                baseUnit,
+                stock,
+                avgCost,
+                lowStockAlert,
+                status: 'ACTIVE',
+                outletId,
+                categoryId: invCategoryId,
+              },
+            })
+
+            inventoryItemsCreated++
+            totalStock += stock
+            totalModalValue += avgCost * stock
+            inventoryItemCache.set(name, invItem.id)
+
+            // Create opening balance movement if stock > 0
+            if (stock > 0) {
+              await tx.inventoryMovement.create({
                 data: {
-                  action: 'RESTOCK', entityType: 'PRODUCT', entityId: product.id, outletId, userId,
-                  details: JSON.stringify({ productName: name, productSku: finalSku, initialStock: stock, newStock: stock, reason: 'Stok awal migrasi' }),
+                  type: 'PURCHASE',
+                  quantity: stock,
+                  previousStock: 0,
+                  newStock: stock,
+                  referenceType: 'MIGRATION',
+                  notes: `Saldo awal migrasi dari ${file.name}`,
+                  outletId,
+                  inventoryItemId: invItem.id,
+                  userId,
                 },
               })
             }
+          }
+        }
 
-            // product_stock / product_inventory: keep Product + InventoryItem +
-            // opening movement + 1:1 link in the SAME 50-product transaction.
-            if (hasInventory && stock > 0 && group.kind === 'non_varian') {
-              let inventoryItem = await tx.inventoryItem.findFirst({ where: { name, outletId } })
-              if (!inventoryItem) {
-                inventoryItem = await tx.inventoryItem.create({
-                  data: {
-                    name, sku: finalSku, baseUnit: unit, stock, avgCost: hpp > 0 ? hpp : 0,
-                    lowStockAlert: lowStockAlert > 0 ? lowStockAlert : 0,
-                    status: 'ACTIVE', outletId, categoryId: null,
-                  },
-                })
-                counters.inventoryItemsCreated++
-                counters.totalStock += stock
-                counters.totalModalValue += hpp * stock
-                await tx.inventoryMovement.create({
-                  data: {
-                    type: 'PURCHASE', quantity: stock, previousStock: 0, newStock: stock,
-                    referenceType: 'MIGRATION', notes: `Saldo awal migrasi dari ${file.name}`,
-                    outletId, inventoryItemId: inventoryItem.id, userId,
-                  },
-                })
-              } else {
-                counters.inventoryItemsSkipped++
+        // ──────────────────────────────────────────────
+        // SHEET 4: Komposisi (Resep/BOM)
+        // ──────────────────────────────────────────────
+        if (sheetType === 'komposisi') {
+          if (!includeInventory) {
+            // Skip composition sheet in product_only mode
+            continue
+          }
+
+          for (let i = 0; i < rows.length; i++) {
+            const row = rows[i]
+            const rowNum = i + 2
+
+            const productName = String(findColumn(row, ['NAMA PRODUK*', 'NAMA PRODUK', 'Nama Produk', 'Nama', 'name', 'Produk', 'Product']) || '').trim()
+            const variantName = String(findColumn(row, ['NAMA VARIAN', 'Nama Varian', 'nama varian', 'Varian', 'Variant', 'VARIAN', 'Nama Variant']) || '').trim()
+            const bahanName = String(findColumn(row, ['NAMA BAHAN*', 'NAMA BAHAN', 'Nama Bahan', 'nama bahan', 'Bahan', 'BAHAN', 'Material']) || '').trim()
+            const bahanSku = String(findColumn(row, ['SKU BAHAN', 'SKU Bahan', 'sku bahan']) || '').trim() || null
+            const qty = sanitizeNumber(findColumn(row, ['QTY PER BATCH*', 'QTY PER BATCH', 'QTY', 'qty', 'Qty', 'Quantity', 'Jumlah']))
+            const satuanBahan = String(findColumn(row, ['SATUAN BAHAN', 'Satuan Bahan', 'satuan bahan', 'Satuan', 'satuan', 'Unit']) || '').trim().toLowerCase()
+            const yieldPerBatch = sanitizeNumber(findColumn(row, ['YIELD PER BATCH', 'YIELD', 'Yield', 'yield', 'Yield Per Batch', 'Hasil per Batch', 'yield per batch'])) || 1
+            const catatan = String(findColumn(row, ['CATATAN', 'Catatan', 'catatan', 'Note', 'note', 'Notes', 'Notes']) || '').trim()
+
+            if (!productName) {
+              errors.push(`Baris ${rowNum}: Nama produk wajib diisi`)
+              continue
+            }
+
+            if (!bahanName) {
+              errors.push(`Baris ${rowNum}: Nama bahan wajib diisi (Produk: ${productName})`)
+              continue
+            }
+
+            if (!qty || qty <= 0) {
+              errors.push(`Baris ${rowNum}: QTY per batch harus > 0 (Produk: ${productName}, Bahan: ${bahanName})`)
+              continue
+            }
+
+            // Find product
+            let productId = productCache.get(productName)
+            if (!productId) {
+              const product = await tx.product.findFirst({ where: { name: productName, outletId }, select: { id: true } })
+              if (!product) {
+                errors.push(`Baris ${rowNum}: Produk "${productName}" tidak ditemukan`)
+                continue
               }
+              productId = product.id
+              productCache.set(productName, productId)
+            }
 
-              if (isStockMode) {
-                const exists = await tx.productComposition.findFirst({
-                  where: { productId: product.id, inventoryItemId: inventoryItem.id, variantId: null },
+            // Find variant (if specified)
+            let variantId: string | undefined
+            if (variantName) {
+              variantId = variantCache.get(`${productName}||${variantName}`)
+              if (!variantId) {
+                const variant = await tx.productVariant.findFirst({
+                  where: { name: variantName, productId },
+                  select: { id: true },
                 })
-                if (!exists) {
-                  await tx.productComposition.create({
-                    data: { productId: product.id, inventoryItemId: inventoryItem.id, qty: 1, yieldPerBatch: 1, baseUnit: unit },
-                  })
-                  counters.compositionsCreated++
+                if (variant) {
+                  variantId = variant.id
+                  variantCache.set(`${productName}||${variantName}`, variantId)
+                } else {
+                  errors.push(`Baris ${rowNum}: Varian "${variantName}" tidak ditemukan untuk produk "${productName}"`)
+                  continue
                 }
               }
             }
-          }
-          return counters
-        }, { timeout: 60000 })
 
-        addCounters(totals, batchResult)
-        completedBatches++
-      } catch (error) {
-        failedBatch = batchIndex + 1
-        technicalError = error instanceof Error ? error.message : String(error)
-        break
-      }
-    }
-
-    // Do not process dependent inventory/composition sheets after a technical
-    // product-batch failure. Already committed product batches remain safe.
-    if (failedBatch === null && includeInventory) {
-      const inventoryRows = sheets.filter(s => s.type === 'inventory').flatMap(s => s.rows.map((row, index) => ({ row, rowNum: index + 2 })))
-      for (const inventoryBatch of chunk(inventoryRows, PRODUCT_BATCH_SIZE)) {
-        try {
-          const batchResult = await db.$transaction(async tx => {
-            const counters = emptyCounters()
-            for (const entry of inventoryBatch) {
-              const name = normalizeName(findColumn(entry.row, ['NAMA ITEM*', 'NAMA ITEM', 'NAMA BAHAN*', 'NAMA BAHAN', 'Nama Bahan', 'Bahan', 'Nama']))
-              if (!name) { errors.push(`Baris ${entry.rowNum}: Nama item stok wajib diisi`); continue }
-              const sku = normalizeName(findColumn(entry.row, ['SKU', 'Kode'])) || null
-              const unitRaw = normalizeName(findColumn(entry.row, ['SATUAN DASAR*', 'SATUAN DASAR', 'Satuan Dasar', 'Satuan', 'Unit'])).toLowerCase() || 'pcs'
-              const stock = sanitizeNumber(findColumn(entry.row, ['STOK AWAL', 'STOK', 'QTY', 'Stok', 'Stock']))
-              const avgCost = sanitizeNumber(findColumn(entry.row, ['HPP RATA-RATA (Rp)', 'HPP RATA-RATA', 'HPP', 'Harga Pokok']))
-              const lowStockAlert = sanitizeNumber(findColumn(entry.row, ['LOW STOCK ALERT', 'Low Stock Alert', 'STOK MINIMUM']))
-              if (stock < 0 || avgCost < 0) { errors.push(`Baris ${entry.rowNum}: Stok/HPP tidak boleh negatif (${name})`); continue }
-              const baseUnit = VALID_UNITS.includes(unitRaw) ? unitRaw : 'pcs'
-              const existing = await tx.inventoryItem.findFirst({ where: { name, outletId } })
-              if (existing) { counters.inventoryItemsSkipped++; continue }
-              const item = await tx.inventoryItem.create({
-                data: { name, sku: sku || await generateUniqueSKU(name, outletId), baseUnit, stock, avgCost, lowStockAlert, status: 'ACTIVE', outletId, categoryId: null },
+            // Find inventory item
+            let inventoryItemId = inventoryItemCache.get(bahanName)
+            if (!inventoryItemId) {
+              const item = await tx.inventoryItem.findFirst({
+                where: { name: bahanName, outletId },
+                select: { id: true },
               })
-              counters.inventoryItemsCreated++
-              counters.totalStock += stock
-              counters.totalModalValue += avgCost * stock
-              if (stock > 0) {
-                await tx.inventoryMovement.create({
-                  data: { type: 'PURCHASE', quantity: stock, previousStock: 0, newStock: stock, referenceType: 'MIGRATION', notes: `Saldo awal migrasi dari ${file.name}`, outletId, inventoryItemId: item.id, userId },
-                })
+              if (!item) {
+                errors.push(`Baris ${rowNum}: Bahan "${bahanName}" tidak ditemukan di inventory`)
+                continue
+              }
+              inventoryItemId = item.id
+              inventoryItemCache.set(bahanName, inventoryItemId)
+            }
+
+            // Optional: verify SKU match
+            if (bahanSku) {
+              const itemCheck = await tx.inventoryItem.findFirst({
+                where: { id: inventoryItemId, sku: bahanSku },
+                select: { id: true },
+              })
+              if (!itemCheck) {
+                errors.push(`Baris ${rowNum}: SKU bahan "${bahanSku}" tidak cocok dengan "${bahanName}"`)
               }
             }
-            return counters
-          }, { timeout: 60000 })
-          addCounters(totals, batchResult)
-        } catch (error) {
-          failedBatch = completedBatches + 1
-          technicalError = error instanceof Error ? error.message : String(error)
-          break
-        }
-      }
-    }
 
-    if (failedBatch === null && includeInventory) {
-      const compositionRows = sheets.filter(s => s.type === 'komposisi').flatMap(s => s.rows.map((row, index) => ({ row, rowNum: index + 2 })))
-      for (const compositionBatch of chunk(compositionRows, PRODUCT_BATCH_SIZE)) {
-        try {
-          const created = await db.$transaction(async tx => {
-            let count = 0
-            for (const entry of compositionBatch) {
-              const productName = normalizeName(findColumn(entry.row, ['NAMA PRODUK*', 'NAMA PRODUK', 'Nama Produk', 'Produk']))
-              const variantName = normalizeName(findColumn(entry.row, ['NAMA VARIAN', 'Nama Varian', 'Varian']))
-              const bahanName = normalizeName(findColumn(entry.row, ['NAMA BAHAN*', 'NAMA BAHAN', 'Nama Bahan', 'Bahan']))
-              const qty = sanitizeNumber(findColumn(entry.row, ['QTY PER BATCH*', 'QTY PER BATCH', 'QTY', 'Jumlah']))
-              const unitRaw = normalizeName(findColumn(entry.row, ['SATUAN BAHAN', 'Satuan Bahan', 'Satuan', 'Unit'])).toLowerCase()
-              const yieldPerBatch = sanitizeNumber(findColumn(entry.row, ['YIELD PER BATCH', 'YIELD', 'Hasil per Batch'])) || 1
-              if (!productName || !bahanName || qty <= 0) { errors.push(`Baris ${entry.rowNum}: Data komposisi tidak lengkap`); continue }
-              const product = await tx.product.findFirst({ where: { name: productName, outletId }, select: { id: true } })
-              const item = await tx.inventoryItem.findFirst({ where: { name: bahanName, outletId }, select: { id: true } })
-              if (!product || !item) { errors.push(`Baris ${entry.rowNum}: Produk/bahan komposisi tidak ditemukan`); continue }
-              const variant = variantName ? await tx.productVariant.findFirst({ where: { productId: product.id, name: variantName }, select: { id: true } }) : null
-              const duplicate = await tx.productComposition.findFirst({ where: { productId: product.id, variantId: variant?.id || null, inventoryItemId: item.id } })
-              if (duplicate) continue
+            // Create composition link
+            const unit = VALID_UNITS.includes(satuanBahan) ? satuanBahan : 'pcs'
+            const effectiveYield = yieldPerBatch > 0 ? yieldPerBatch : 1
+
+            try {
               await tx.productComposition.create({
-                data: { productId: product.id, variantId: variant?.id || null, inventoryItemId: item.id, qty, yieldPerBatch: yieldPerBatch > 0 ? yieldPerBatch : 1, baseUnit: VALID_UNITS.includes(unitRaw) ? unitRaw : 'pcs' },
+                data: {
+                  productId,
+                  variantId: variantId || null,
+                  inventoryItemId,
+                  qty,
+                  yieldPerBatch: effectiveYield,
+                  baseUnit: unit,
+                },
               })
-              await tx.product.update({ where: { id: product.id }, data: { hasComposition: true } })
-              count++
+              compositionsCreated++
+
+              // Update product hasComposition flag
+              await tx.product.update({
+                where: { id: productId },
+                data: { hasComposition: true },
+              })
+            } catch {
+              // Duplicate — skip silently
             }
-            return count
-          }, { timeout: 60000 })
-          totals.compositionsCreated += created
-        } catch (error) {
-          failedBatch = completedBatches + 1
-          technicalError = error instanceof Error ? error.message : String(error)
-          break
+          }
         }
       }
-    }
 
-    const status = failedBatch !== null
-      ? (completedBatches > 0 ? 'PARTIAL' : 'FAILED')
-      : (errors.length > 0 ? 'COMPLETED_WITH_ERRORS' : 'COMPLETED')
+      // ==================== PROCESS DEFERRED INLINE COMPOSITIONS ====================
+      if (includeInventory && deferredInlineCompositions.length > 0) {
+        // Ensure inventory items are cached
+        const allInventoryItems = await tx.inventoryItem.findMany({
+          where: { outletId },
+          select: { id: true, name: true },
+        })
+        for (const item of allInventoryItems) {
+          inventoryItemCache.set(item.name, item.id)
+        }
 
-    const remainingProducts = failedBatch === null
-      ? 0
-      : productBatches.slice(failedBatch - 1).reduce((sum, batch) => sum + batch.length, 0)
+        for (const deferred of deferredInlineCompositions) {
+          try {
+            const compCount = await processInlineComposition(
+              deferred.productId,
+              deferred.variantId,
+              deferred.compositionStr
+            )
+            compositionsCreated += compCount
+          } catch (compErr) {
+            console.error(`[migration] Failed to process deferred composition for product ${deferred.productId}:`, compErr)
+            const errMsg = compErr instanceof Error ? compErr.message : String(compErr)
+            errors.push(`Gagal proses komposisi inline: ${errMsg}`)
+          }
+        }
+      }
 
-    await safeAuditLog({
-      action: 'CREATE',
-      entityType: 'PRODUCT',
-      outletId,
-      userId,
-      details: JSON.stringify({
-        migration: true,
-        fileName: file.name,
-        mode,
-        status,
-        maxProducts,
-        currentProductCount,
-        incomingNewProducts: incomingNewProductNames.length,
-        productBatchSize: PRODUCT_BATCH_SIZE,
-        totalBatches: productBatches.length,
-        completedBatches,
-        failedBatch,
-        technicalError,
-        ...totals,
-        errors: errors.length,
-        warnings: warnings.length,
-      }),
+      // ==================== FLUSH REMAINING OPENING STOCK LOGS ====================
+      await flushOpeningStockLogs()
+    }, {
+      // MIG-011 mitigation: extended timeout for large imports.
+      // Enterprise (webmaster DB maxBulkUploadRows = -1) is unlimited, so
+      // imports can exceed the old 500-row cap. Default Prisma transaction
+      // timeout is 5s; we extend to 270s (just under the route maxDuration
+      // of 300s) to accommodate 10000+ row Enterprise migrations within a
+      // single atomic transaction.
+      timeout: 270000, // 4.5 minutes
     })
 
+    // ==================== AUDIT LOG (outside tx — safeAuditLog uses db) ====================
+    // Only log if at least one record was created. Audit log is non-critical
+    // (safeAuditLog wraps in try/catch) and uses `db` directly, so it must
+    // run AFTER the transaction commits to record the final state.
+    if (productsCreated > 0 || inventoryItemsCreated > 0 || compositionsCreated > 0) {
+      await safeAuditLog({
+        action: 'CREATE',
+        entityType: 'PRODUCT',
+        details: JSON.stringify({
+          migration: true,
+          mode,
+          productsCreated,
+          variantsCreated,
+          productsSkipped,
+          categoriesCreated,
+          barcodeCount,
+          inventoryItemsCreated: hasInventory ? inventoryItemsCreated : 0,
+          inventoryItemsSkipped: hasInventory ? inventoryItemsSkipped : 0,
+          inventoryItemsUpdated: hasInventory ? inventoryItemsUpdated : 0,
+          migrationDataCleaned: hasInventory ? migrationDataCleaned : 0,
+          compositionsCreated: includeInventory ? compositionsCreated : 0,
+          totalStock: hasInventory ? totalStock : 0,
+          totalModalValue: hasInventory ? totalModalValue : 0,
+          errors: errors.length,
+          warnings: warnings.length,
+          fileName: file.name,
+        }),
+        outletId,
+        userId,
+      })
+    }
+
     return safeJson({
-      status,
-      mode,
-      totalInputRows,
-      maxProducts,
-      currentProductCount,
-      incomingUniqueProducts: incomingNames.length,
-      incomingNewProducts: incomingNewProductNames.length,
-      projectedProductCount,
-      productBatchSize: PRODUCT_BATCH_SIZE,
-      totalBatches: productBatches.length,
-      completedBatches,
-      failedBatch,
-      remainingProducts,
-      technicalError,
-      ...totals,
+      productsCreated,
+      variantsCreated,
+      productsSkipped,
+      categoriesCreated,
+      barcodeCount,
+      inventoryItemsCreated,
+      inventoryItemsSkipped,
+      inventoryItemsUpdated,
+      migrationDataCleaned,
+      compositionsCreated,
+      totalStock,
+      totalModalValue,
       errors,
       warnings,
+      mode,
+      totalInputRows: totalSheetRows,
+      effectiveMaxBulkUploadRows: planMaxRows,
       totalCategories: await db.category.count({ where: { outletId } }),
     })
   } catch (error) {
     console.error('Migration import error:', error)
     const message = error instanceof Error ? error.message : 'Unknown error'
-    return safeJson({ status: 'FAILED', error: 'Gagal memproses import', details: message }, 500)
+    return safeJson({ error: 'Gagal memproses import', details: message }, 500)
   }
 }
