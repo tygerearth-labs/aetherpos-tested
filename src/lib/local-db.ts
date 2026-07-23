@@ -166,44 +166,18 @@ function createNoopTable<T extends { id?: number | string }>(): NoopTable<T> {
       }
       return false
     },
-    // ── PERF (Fix #3): Added toCollection() + bulkDelete() for non-destructive
-    //    sync. Previously sync used clear() + bulkPut() which blanked the cache
-    //    during fetch. Now sync uses bulkPut() + bulkDelete(stale IDs) so the
-    //    UI can render from cache while sync runs. ──
-    toCollection: () => ({
-      primaryKeys: async () => rows.map((r) => r.id as string | number),
-      toArray: async () => [...rows],
-      // Other Collection methods used by callers (count, each, etc.)
-      count: async () => rows.length,
-      each: async (cb: (item: T, ctx: { primaryKey: unknown }) => void) => {
-        for (const r of rows) cb(r, { primaryKey: r.id })
-      },
-    }),
-    bulkDelete: async (keys: (number | string)[]) => {
-      const keySet = new Set(keys.map(String))
-      for (let i = rows.length - 1; i >= 0; i--) {
-        if (keySet.has(String(rows[i].id))) rows.splice(i, 1)
-      }
-    },
   }
 }
 
 interface NoopTable<T extends { id?: number | string }> {
   clear(): Promise<void>
   bulkPut(items: T[]): Promise<void>
-  bulkDelete(keys: (number | string)[]): Promise<void>
   count(): Promise<number>
   get(key: number | string): Promise<T | undefined>
   put(item: T): Promise<void>
   add(item: T): Promise<number>
   delete(key: number | string): Promise<void>
   toArray(): Promise<T[]>
-  toCollection(): {
-    primaryKeys(): Promise<(number | string)[]>
-    toArray(): Promise<T[]>
-    count(): Promise<number>
-    each(cb: (item: T, ctx: { primaryKey: unknown }) => void): Promise<void>
-  }
   orderBy(field: string): {
     reverse(): { toArray(): Promise<T[]> }
     toArray(): Promise<T[]>
