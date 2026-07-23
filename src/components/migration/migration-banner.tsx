@@ -13,6 +13,8 @@ import { MigrationWizard } from './migration-wizard'
 export type ImportMode = 'product_only' | 'product_stock' | 'product_inventory'
 export type WizardState = 'idle' | 'choosing_mode' | 'uploading' | 'processing' | 'success'
 
+export type MigrationStatus = 'COMPLETED' | 'COMPLETED_WITH_ERRORS' | 'PARTIAL' | 'FAILED'
+
 export interface ImportResult {
   productsCreated: number
   variantsCreated: number
@@ -29,6 +31,17 @@ export interface ImportResult {
   compositionsCreated?: number
   totalStock?: number
   totalModalValue?: number
+  // MIG-BATCH: batch processing + progress fields
+  status?: MigrationStatus
+  totalProducts?: number
+  totalBatches?: number
+  completedBatches?: number
+  currentBatch?: number
+  failedRows?: number
+  remainingProducts?: number
+  effectiveMaxProducts?: number
+  startBatch?: number
+  batchError?: string | null
 }
 
 // Animation variants

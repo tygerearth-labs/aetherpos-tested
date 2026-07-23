@@ -9,23 +9,16 @@ import {
   FileSearch, ClipboardCheck, ArrowRightLeft, Cpu, Database,
   CircleCheck, CircleAlert, Copy, GitBranch, Tags, ScanBarcode,
   FlaskConical, TrendingUp, Link2, AlertTriangle,
-  RefreshCw, Info,
+  RefreshCw, Info, Layers, RotateCcw,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { cn } from '@/lib/utils'
 import { formatCurrency, formatNumber } from '@/lib/format'
-import type { ImportMode, ImportResult } from './migration-banner'
+import type { ImportMode, ImportResult, MigrationStatus } from './migration-banner'
 
 type WizardStep = 'upload' | 'processing' | 'success'
-
-interface ProcessingStep {
-  id: string
-  label: string
-  icon: React.ElementType
-  status: 'pending' | 'active' | 'done'
-}
 
 interface MigrationWizardProps {
   mode: ImportMode
@@ -49,27 +42,13 @@ export function MigrationWizard({
   const [isDragging, setIsDragging] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [processingSteps, setProcessingSteps] = useState<ProcessingStep[]>([])
-  const [progress, setProgress] = useState(0)
   const [result, setResult] = useState<ImportResult | null>(null)
-  // Mutable ref so the setTimeout chain can accumulate "done" steps
-  // without reverting to the original "pending" array on each tick.
-  const stepsRef = useRef<ProcessingStep[]>([])
+  // MIG-BATCH: resume support — startBatch for "Lanjutkan Migrasi"
+  const [startBatch, setStartBatch] = useState(0)
 
   const isInventory = mode === 'product_inventory'
   const isStockMode = mode === 'product_stock'
   const hasInventory = isInventory || isStockMode
-
-  const baseSteps: ProcessingStep[] = [
-    { id: 'reading', label: 'Membaca file', icon: FileSearch, status: 'pending' },
-    { id: 'validating', label: 'Validasi data', icon: ClipboardCheck, status: 'pending' },
-    { id: 'mapping', label: 'Mapping kolom', icon: ArrowRightLeft, status: 'pending' },
-    { id: 'creating_product', label: 'Membuat Product', icon: Cpu, status: 'pending' },
-  ]
-
-  if (hasInventory) {
-    baseSteps.push({ id: 'creating_inventory', label: isStockMode ? 'Membuat Stok Gudang' : 'Membuat Inventory', icon: Database, status: 'pending' })
-  }
 
   const handleFileSelect = useCallback((file: File) => {
     const ext = file.name.split('.').pop()?.toLowerCase()
@@ -101,53 +80,23 @@ export function MigrationWizard({
     setIsDragging(false)
   }, [])
 
-  const simulateProcessing = useCallback((steps: ProcessingStep[]) => {
-    const durations = [600, 800, 600, 1200, ...(hasInventory ? [1000] : [])]
-    let stepIndex = 0
-
-    // Store a mutable copy in the ref so each tick builds on the previous state
-    const mutableSteps = steps.map(s => ({ ...s }))
-    stepsRef.current = mutableSteps
-    setProcessingSteps([...mutableSteps])
-    onStateChange('processing')
-
-    const runStep = () => {
-      if (stepIndex >= mutableSteps.length) return
-
-      // Mark current as active (previous steps retain their 'done' status)
-      mutableSteps[stepIndex] = { ...mutableSteps[stepIndex], status: 'active' }
-      setProcessingSteps([...mutableSteps])
-      setProgress(((stepIndex + 0.5) / mutableSteps.length) * 100)
-
-      setTimeout(() => {
-        mutableSteps[stepIndex] = { ...mutableSteps[stepIndex], status: 'done' }
-        setProcessingSteps([...mutableSteps])
-        setProgress(((stepIndex + 1) / mutableSteps.length) * 100)
-        stepIndex++
-        if (stepIndex < mutableSteps.length) {
-          runStep()
-        }
-      }, durations[stepIndex])
-    }
-
-    // Small delay before starting
-    setTimeout(runStep, 300)
-  }, [hasInventory, onStateChange])
-
-  const handleUpload = useCallback(async () => {
+  // MIG-BATCH: Real upload — no fake setTimeout progress.
+  // The processing screen shows an indeterminate spinner while the server
+  // processes batches sequentially. The real batch breakdown is shown on
+  // completion (success screen). This removes the fake progress theater.
+  const handleUpload = useCallback(async (resumeFromBatch?: number) => {
     if (!selectedFile) return
     setIsUploading(true)
     setError(null)
+    onStateChange('processing')
 
     try {
-      // Start processing animation
-      const steps = baseSteps.map(s => ({ ...s, status: 'pending' as const }))
-      simulateProcessing(steps)
-
-      // Actually upload the file
       const formData = new FormData()
       formData.append('file', selectedFile)
       formData.append('mode', mode)
+      if (resumeFromBatch && resumeFromBatch > 0) {
+        formData.append('startBatch', String(resumeFromBatch))
+      }
 
       const res = await fetch('/api/migration/import', {
         method: 'POST',
@@ -163,37 +112,71 @@ export function MigrationWizard({
         return
       }
 
-      // Wait for processing animation to finish before showing success
-      const totalAnimTime = baseSteps.length * 800 + 500
-      setTimeout(() => {
-        const importResult: ImportResult = {
-          productsCreated: data.productsCreated,
-          variantsCreated: data.variantsCreated,
-          productsSkipped: data.productsSkipped,
-          totalCategories: data.totalCategories,
-          barcodeCount: data.barcodeCount,
-          mode,
-          errors: data.errors || [],
-          warnings: data.warnings || [],
-          inventoryItemsCreated: data.inventoryItemsCreated,
-          inventoryItemsSkipped: data.inventoryItemsSkipped,
-          inventoryItemsUpdated: data.inventoryItemsUpdated,
-          migrationDataCleaned: data.migrationDataCleaned,
-          compositionsCreated: data.compositionsCreated,
-          totalStock: data.totalStock,
-          totalModalValue: data.totalModalValue,
-        }
-        setResult(importResult)
-        onStateChange('success')
-        setIsUploading(false)
-        onSuccess(importResult)
-      }, totalAnimTime)
+      const importResult: ImportResult = {
+        productsCreated: data.productsCreated,
+        variantsCreated: data.variantsCreated,
+        productsSkipped: data.productsSkipped,
+        totalCategories: data.totalCategories,
+        barcodeCount: data.barcodeCount,
+        mode,
+        errors: data.errors || [],
+        warnings: data.warnings || [],
+        inventoryItemsCreated: data.inventoryItemsCreated,
+        inventoryItemsSkipped: data.inventoryItemsSkipped,
+        inventoryItemsUpdated: data.inventoryItemsUpdated,
+        migrationDataCleaned: data.migrationDataCleaned,
+        compositionsCreated: data.compositionsCreated,
+        totalStock: data.totalStock,
+        totalModalValue: data.totalModalValue,
+        // MIG-BATCH fields
+        status: data.status,
+        totalProducts: data.totalProducts,
+        totalBatches: data.totalBatches,
+        completedBatches: data.completedBatches,
+        currentBatch: data.currentBatch,
+        failedRows: data.failedRows,
+        remainingProducts: data.remainingProducts,
+        effectiveMaxProducts: data.effectiveMaxProducts,
+        startBatch: data.startBatch,
+        batchError: data.batchError,
+      }
+      setResult(importResult)
+      onStateChange('success')
+      setIsUploading(false)
+      onSuccess(importResult)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal memproses file')
       onStateChange('uploading')
       setIsUploading(false)
     }
-  }, [selectedFile, mode, baseSteps, simulateProcessing, onStateChange, onSuccess])
+  }, [selectedFile, mode, onStateChange, onSuccess])
+
+  // MIG-BATCH: Resume handler — re-upload same file with startBatch=completedBatches.
+  // Dedup is name-based on the server, so already-created products are skipped
+  // automatically (no duplicate products). This is NOT a fake resume.
+  const handleResume = useCallback(() => {
+    if (!result) return
+    const resumeFrom = result.completedBatches || 0
+    setStartBatch(resumeFrom)
+    handleUpload(resumeFrom)
+  }, [result, handleUpload])
+
+  // MIG-BATCH: Download errors as .txt file
+  const handleDownloadErrors = useCallback(() => {
+    if (!result || result.errors.length === 0) return
+    const lines = result.errors.map((e, i) => `${i + 1}. ${e}`).join('\n')
+    const header = `Daftar Error Migrasi\n${'='.repeat(50)}\nMode: ${mode}\nTotal error: ${result.errors.length}\n${'='.repeat(50)}\n\n`
+    const blob = new Blob([header + lines], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `error-migrasi-${new Date().toISOString().slice(0, 10)}.txt`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+    toast.success('Daftar error berhasil diunduh')
+  }, [result, mode])
 
   // Determine current wizard step
   let wizardStep: WizardStep = 'upload'
@@ -206,6 +189,13 @@ export function MigrationWizard({
   const hasSkipped = result && result.productsSkipped > 0
   const hasWarnings = result && result.warnings && result.warnings.length > 0
   const hasRemigration = result && ((result.inventoryItemsUpdated ?? 0) > 0 || (result.migrationDataCleaned ?? 0) > 0)
+
+  // MIG-BATCH: status-aware UI
+  const migrationStatus = result?.status || 'COMPLETED'
+  const isPartial = migrationStatus === 'PARTIAL'
+  const isFailed = migrationStatus === 'FAILED'
+  const isCompletedWithErrors = migrationStatus === 'COMPLETED_WITH_ERRORS'
+  const showSuccessHeader = !isPartial && !isFailed
 
   return (
     <div className="relative flex flex-col max-h-[80vh]">
@@ -220,7 +210,7 @@ export function MigrationWizard({
 
             return (
               <div key={label} className="flex items-center gap-2 flex-1">
-                <div className={`flex items-center gap-2 ${isCurrent ? '' : ''}`}>
+                <div className="flex items-center gap-2">
                   <div className={`flex items-center justify-center h-6 w-6 rounded-full text-[10px] font-bold transition-all duration-300 ${
                     isActive
                       ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
@@ -244,9 +234,9 @@ export function MigrationWizard({
           })}
         </div>
 
-        {/* Progress bar */}
+        {/* Progress bar — indeterminate during processing (real progress shown on success) */}
         {wizardStep === 'processing' && (
-          <Progress value={progress} className="h-1 bg-white/[0.06] [&>div]:bg-emerald-500" />
+          <Progress value={isUploading ? undefined : 0} className="h-1 bg-white/[0.06] [&>div]:bg-emerald-500" />
         )}
       </div>
 
@@ -282,7 +272,6 @@ export function MigrationWizard({
                   try {
                     const res = await fetch(`/api/migration/template?mode=${mode}`)
                     if (!res.ok) {
-                      // Try to parse error message from server
                       const errData = await res.json().catch(() => null)
                       throw new Error(errData?.error || `Server error (${res.status})`)
                     }
@@ -386,6 +375,16 @@ export function MigrationWizard({
                 </span>
               </div>
 
+              {/* Resume badge */}
+              {startBatch > 0 && (
+                <div className="flex items-center justify-center gap-2 p-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                  <RotateCcw className="h-3.5 w-3.5 text-amber-400" />
+                  <span className="text-[11px] text-amber-300">
+                    Melanjutkan dari batch {startBatch} (dedup aman — produk yang sudah dibuat akan dilewati)
+                  </span>
+                </div>
+              )}
+
               {/* Error */}
               {error && (
                 <motion.div
@@ -409,7 +408,7 @@ export function MigrationWizard({
                   Kembali
                 </Button>
                 <Button
-                  onClick={handleUpload}
+                  onClick={() => handleUpload(startBatch)}
                   disabled={!selectedFile || isUploading}
                   className="flex-[2] bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold h-9 gap-2 disabled:opacity-40"
                 >
@@ -418,13 +417,13 @@ export function MigrationWizard({
                   ) : (
                     <ArrowRight className="h-3.5 w-3.5" />
                   )}
-                  Mulai Import
+                  {startBatch > 0 ? `Lanjutkan dari batch ${startBatch}` : 'Mulai Import'}
                 </Button>
               </div>
             </motion.div>
           )}
 
-          {/* ═══════ STEP 2: PROCESSING ═══════ */}
+          {/* ═══════ STEP 2: PROCESSING (real — no fake progress) ═══════ */}
           {wizardStep === 'processing' && (
             <motion.div
               key="processing"
@@ -432,60 +431,35 @@ export function MigrationWizard({
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
               transition={{ duration: 0.25 }}
-              className="py-4 space-y-3"
+              className="py-8 space-y-4"
             >
-              <div className="text-center space-y-1 mb-5">
-                <div className="inline-flex items-center justify-center h-12 w-12 rounded-xl bg-emerald-500/15 border border-emerald-500/20 mb-2">
-                  <Loader2 className="h-6 w-6 text-emerald-400 animate-spin" />
+              <div className="text-center space-y-3">
+                <div className="inline-flex items-center justify-center h-14 w-14 rounded-xl bg-emerald-500/15 border border-emerald-500/20">
+                  <Loader2 className="h-7 w-7 text-emerald-400 animate-spin" />
                 </div>
-                <h3 className="text-sm font-bold text-white">Memproses Import...</h3>
-                <p className="text-xs text-slate-400">Mohon tunggu, jangan tutup halaman ini</p>
+                <div>
+                  <h3 className="text-sm font-bold text-white">Memproses Migrasi...</h3>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Server memproses produk secara berurutan dalam batch 50.
+                    {startBatch > 0 && ` Melanjutkan dari batch ${startBatch}.`}
+                  </p>
+                </div>
               </div>
 
-              {/* Step list */}
-              <div className="space-y-2">
-                {processingSteps.map((step, i) => {
-                  const Icon = step.icon
-                  return (
-                    <motion.div
-                      key={step.id}
-                      initial={{ opacity: 0, x: -10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: i * 0.05 }}
-                      className="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors"
-                    >
-                      <div className={`flex items-center justify-center h-7 w-7 rounded-lg shrink-0 transition-all duration-300 ${
-                        step.status === 'done'
-                          ? 'bg-emerald-500/20 border border-emerald-500/30'
-                          : step.status === 'active'
-                            ? 'bg-emerald-500/10 border border-emerald-500/20 animate-pulse'
-                            : 'bg-white/[0.04] border border-white/[0.06]'
-                      }`}>
-                        {step.status === 'done' ? (
-                          <Check className="h-3.5 w-3.5 text-emerald-400" />
-                        ) : step.status === 'active' ? (
-                          <Loader2 className="h-3.5 w-3.5 text-emerald-400 animate-spin" />
-                        ) : (
-                          <Icon className="h-3.5 w-3.5 text-slate-600" />
-                        )}
-                      </div>
-                      <span className={`text-xs font-medium transition-colors ${
-                        step.status === 'done'
-                          ? 'text-emerald-400'
-                          : step.status === 'active'
-                            ? 'text-white'
-                            : 'text-slate-600'
-                      }`}>
-                        {step.label}
-                      </span>
-                    </motion.div>
-                  )
-                })}
+              {/* Real server work indicator */}
+              <div className="rounded-lg bg-white/[0.03] border border-white/[0.06] p-3 space-y-2">
+                <div className="flex items-center gap-2 text-xs text-slate-300">
+                  <Database className="h-3.5 w-3.5 text-emerald-400" />
+                  <span>Menulis ke database (batch aman, tidak bisa dibatalkan)</span>
+                </div>
+                <p className="text-[10px] text-slate-500 pl-5">
+                  Jangan tutup halaman ini. Batch yang sudah selesai tetap tersimpan walau terjadi error.
+                </p>
               </div>
             </motion.div>
           )}
 
-          {/* ═══════ STEP 3: SUCCESS ═══════ */}
+          {/* ═══════ STEP 3: RESULT (success / partial / failed) ═══════ */}
           {wizardStep === 'success' && result && (
             <motion.div
               key="success"
@@ -494,15 +468,28 @@ export function MigrationWizard({
               transition={{ duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] }}
               className="py-2 space-y-4"
             >
-              {/* Success header */}
+              {/* Status header — adapts to COMPLETED / COMPLETED_WITH_ERRORS / PARTIAL / FAILED */}
               <div className="text-center space-y-2.5 pt-1">
                 <motion.div
                   initial={{ scale: 0 }}
                   animate={{ scale: 1 }}
                   transition={{ type: 'spring', stiffness: 500, damping: 25, delay: 0.1 }}
-                  className="inline-flex items-center justify-center h-16 w-16 rounded-2xl bg-emerald-500/15 border border-emerald-500/25"
+                  className={cn(
+                    'inline-flex items-center justify-center h-16 w-16 rounded-2xl border',
+                    isPartial
+                      ? 'bg-amber-500/15 border-amber-500/25'
+                      : isFailed
+                        ? 'bg-red-500/15 border-red-500/25'
+                        : 'bg-emerald-500/15 border-emerald-500/25'
+                  )}
                 >
-                  <PartyPopper className="h-8 w-8 text-emerald-400" />
+                  {isPartial ? (
+                    <AlertTriangle className="h-8 w-8 text-amber-400" />
+                  ) : isFailed ? (
+                    <X className="h-8 w-8 text-red-400" />
+                  ) : (
+                    <PartyPopper className="h-8 w-8 text-emerald-400" />
+                  )}
                 </motion.div>
                 <motion.h3
                   initial={{ opacity: 0, y: 8 }}
@@ -510,80 +497,159 @@ export function MigrationWizard({
                   transition={{ delay: 0.2 }}
                   className="text-xl font-bold text-white"
                 >
-                  Import Berhasil
+                  {isPartial
+                    ? 'Migrasi Sebagian Berhasil'
+                    : isFailed
+                      ? 'Migrasi Gagal'
+                      : isCompletedWithErrors
+                        ? 'Import Berhasil (dengan error)'
+                        : 'Import Berhasil'}
                 </motion.h3>
 
-                {/* Confirmation badge */}
+                {/* Status badge */}
                 <motion.div
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.3 }}
                 >
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/25 text-emerald-300 text-xs font-semibold">
-                    <CircleCheck className="h-3.5 w-3.5" />
-                    Semua {formatNumber(totalItems)} item berhasil diimport
+                  <span className={cn(
+                    'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border',
+                    isPartial
+                      ? 'bg-amber-500/15 border-amber-500/25 text-amber-300'
+                      : isFailed
+                        ? 'bg-red-500/15 border-red-500/25 text-red-300'
+                        : 'bg-emerald-500/15 border-emerald-500/25 text-emerald-300'
+                  )}>
+                    {isPartial ? <AlertTriangle className="h-3.5 w-3.5" /> : isFailed ? <X className="h-3.5 w-3.5" /> : <CircleCheck className="h-3.5 w-3.5" />}
+                    {isPartial
+                      ? `${formatNumber(result.completedBatches || 0)} dari ${formatNumber(result.totalBatches || 0)} batch selesai`
+                      : isFailed
+                        ? 'Tidak ada batch yang berhasil'
+                        : `${formatNumber(totalItems)} item berhasil diimport`
+                    }
                   </span>
                 </motion.div>
               </div>
 
-              {/* Stats grid — Products */}
-              <motion.div
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.4 }}
-                className="space-y-2"
-              >
-                <div className="grid grid-cols-3 gap-2">
-                  <div className="text-center p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
-                    <div className="flex items-center justify-center mb-1.5">
-                      <Package className="h-3.5 w-3.5 text-emerald-400" />
-                    </div>
-                    <p className="text-lg font-bold text-white">{formatNumber(result.productsCreated)}</p>
-                    <p className="text-[10px] text-slate-500 mt-0.5">Produk</p>
+              {/* MIG-BATCH: Real batch progress breakdown */}
+              {(result.totalBatches !== undefined && result.totalBatches > 0) && (
+                <motion.div
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.35 }}
+                  className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4 space-y-3"
+                >
+                  <div className="flex items-center gap-2">
+                    <Layers className="h-3.5 w-3.5 text-emerald-400" />
+                    <span className="text-xs font-semibold text-slate-300">Progress Batch</span>
                   </div>
-                  <div className="text-center p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
-                    <div className="flex items-center justify-center mb-1.5">
-                      <GitBranch className="h-3.5 w-3.5 text-amber-400" />
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="text-center p-2.5 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+                      <p className="text-base font-bold text-white">{formatNumber(result.productsCreated || 0)}</p>
+                      <p className="text-[10px] text-slate-500">Dibuat</p>
                     </div>
-                    <p className="text-lg font-bold text-white">{formatNumber(result.variantsCreated)}</p>
-                    <p className="text-[10px] text-slate-500 mt-0.5">Varian</p>
-                  </div>
-                  <div className="text-center p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
-                    <div className="flex items-center justify-center mb-1.5">
-                      <Tags className="h-3.5 w-3.5 text-cyan-400" />
+                    <div className="text-center p-2.5 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+                      <p className="text-base font-bold text-white">{formatNumber(result.productsSkipped || 0)}</p>
+                      <p className="text-[10px] text-slate-500">Dilewati (duplikat)</p>
                     </div>
-                    <p className="text-lg font-bold text-white">{formatNumber(result.totalCategories)}</p>
-                    <p className="text-[10px] text-slate-500 mt-0.5">Kategori</p>
+                    <div className="text-center p-2.5 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+                      <p className="text-base font-bold text-amber-300">{formatNumber(result.failedRows || 0)}</p>
+                      <p className="text-[10px] text-slate-500">Gagal</p>
+                    </div>
+                    <div className="text-center p-2.5 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+                      <p className="text-base font-bold text-slate-300">{formatNumber(result.remainingProducts || 0)}</p>
+                      <p className="text-[10px] text-slate-500">Sisa</p>
+                    </div>
                   </div>
-                </div>
+                  <div className="text-[11px] text-slate-400 text-center">
+                    Batch {result.completedBatches || 0} / {result.totalBatches || 0} selesai
+                    {result.totalProducts !== undefined && ` · ${formatNumber(result.totalProducts)} total produk`}
+                  </div>
+                </motion.div>
+              )}
 
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="text-center p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06]">
-                    <div className="flex items-center justify-center mb-1">
-                      <ScanBarcode className="h-3.5 w-3.5 text-violet-400" />
-                    </div>
-                    <p className="text-base font-bold text-white">{formatNumber(result.barcodeCount)}</p>
-                    <p className="text-[10px] text-slate-500 mt-0.5">Barcode</p>
+              {/* PARTIAL: batch failure details */}
+              {isPartial && result.batchError && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.4 }}
+                  className="rounded-xl bg-amber-500/[0.06] border border-amber-500/15 p-3 space-y-2"
+                >
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />
+                    <span className="text-xs font-semibold text-amber-300">Batch Gagal</span>
                   </div>
-                  {hasSkipped ? (
-                    <div className="text-center p-2.5 rounded-xl bg-amber-500/[0.04] border border-amber-500/10">
-                      <div className="flex items-center justify-center mb-1">
-                        <Copy className="h-3.5 w-3.5 text-amber-400" />
+                  <p className="text-[11px] text-slate-300 leading-relaxed break-all">
+                    {result.batchError}
+                  </p>
+                  <div className="flex items-center gap-4 pt-1 text-[10px] text-slate-400">
+                    <span>Batch dibuat: <strong className="text-emerald-300">{formatNumber(result.productsCreated || 0)}</strong></span>
+                    <span>Sisa: <strong className="text-amber-300">{formatNumber(result.remainingProducts || 0)}</strong></span>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* Stats grid — Products */}
+              {showSuccessHeader && (
+                <motion.div
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.4 }}
+                  className="space-y-2"
+                >
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="text-center p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+                      <div className="flex items-center justify-center mb-1.5">
+                        <Package className="h-3.5 w-3.5 text-emerald-400" />
                       </div>
-                      <p className="text-base font-bold text-amber-300">{formatNumber(result.productsSkipped)}</p>
-                      <p className="text-[10px] text-slate-500 mt-0.5">Duplikat Dilewati</p>
+                      <p className="text-lg font-bold text-white">{formatNumber(result.productsCreated)}</p>
+                      <p className="text-[10px] text-slate-500 mt-0.5">Produk</p>
                     </div>
-                  ) : (
+                    <div className="text-center p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+                      <div className="flex items-center justify-center mb-1.5">
+                        <GitBranch className="h-3.5 w-3.5 text-amber-400" />
+                      </div>
+                      <p className="text-lg font-bold text-white">{formatNumber(result.variantsCreated)}</p>
+                      <p className="text-[10px] text-slate-500 mt-0.5">Varian</p>
+                    </div>
+                    <div className="text-center p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+                      <div className="flex items-center justify-center mb-1.5">
+                        <Tags className="h-3.5 w-3.5 text-cyan-400" />
+                      </div>
+                      <p className="text-lg font-bold text-white">{formatNumber(result.totalCategories)}</p>
+                      <p className="text-[10px] text-slate-500 mt-0.5">Kategori</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
                     <div className="text-center p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06]">
                       <div className="flex items-center justify-center mb-1">
-                        <Copy className="h-3.5 w-3.5 text-slate-500" />
+                        <ScanBarcode className="h-3.5 w-3.5 text-violet-400" />
                       </div>
-                      <p className="text-base font-bold text-slate-500">0</p>
-                      <p className="text-[10px] text-slate-500 mt-0.5">Duplikat Dilewati</p>
+                      <p className="text-base font-bold text-white">{formatNumber(result.barcodeCount)}</p>
+                      <p className="text-[10px] text-slate-500 mt-0.5">Barcode</p>
                     </div>
-                  )}
-                </div>
-              </motion.div>
+                    {hasSkipped ? (
+                      <div className="text-center p-2.5 rounded-xl bg-amber-500/[0.04] border border-amber-500/10">
+                        <div className="flex items-center justify-center mb-1">
+                          <Copy className="h-3.5 w-3.5 text-amber-400" />
+                        </div>
+                        <p className="text-base font-bold text-amber-300">{formatNumber(result.productsSkipped)}</p>
+                        <p className="text-[10px] text-slate-500 mt-0.5">Duplikat Dilewati</p>
+                      </div>
+                    ) : (
+                      <div className="text-center p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+                        <div className="flex items-center justify-center mb-1">
+                          <Copy className="h-3.5 w-3.5 text-slate-500" />
+                        </div>
+                        <p className="text-base font-bold text-slate-500">0</p>
+                        <p className="text-[10px] text-slate-500 mt-0.5">Duplikat Dilewati</p>
+                      </div>
+                    )}
+                  </div>
+                </motion.div>
+              )}
 
               {/* Inventory stats (product_stock and product_inventory modes) */}
               {hasInventory && (result.inventoryItemsCreated !== undefined || result.compositionsCreated !== undefined) && (
@@ -614,7 +680,7 @@ export function MigrationWizard({
                       <p className="text-[10px] text-slate-500">Total Stok</p>
                     </div>
                     <div className="text-center">
-                      <p className="text-base font-bold text-white">{formatCurrency(result.totalModalValue)}</p>
+                      <p className="text-base font-bold text-white">{formatCurrency(result.totalModalValue ?? 0)}</p>
                       <p className="text-[10px] text-slate-500">Nilai Modal</p>
                     </div>
                   </div>
@@ -636,7 +702,7 @@ export function MigrationWizard({
                 </motion.div>
               )}
 
-              {/* Re-Migration Info: Items updated/cleaned during re-migration */}
+              {/* Re-Migration Info */}
               {hasRemigration && (
                 <motion.div
                   initial={{ opacity: 0, y: 8 }}
@@ -664,13 +730,10 @@ export function MigrationWizard({
                       </div>
                     )}
                   </div>
-                  <p className="text-[10px] text-slate-500 leading-relaxed">
-                    Item yang hanya memiliki data migrasi (stok awal testing) telah di-replace dengan data baru.
-                  </p>
                 </motion.div>
               )}
 
-              {/* Warnings from re-migration (skipped items with real history) */}
+              {/* Warnings from re-migration */}
               {hasWarnings && (
                 <motion.div
                   initial={{ opacity: 0, y: 8 }}
@@ -694,7 +757,7 @@ export function MigrationWizard({
                 </motion.div>
               )}
 
-              {/* Errors/Warnings section */}
+              {/* MIG-BATCH: Per-row validation errors (scrollable, with row numbers) */}
               {hasErrors && (
                 <motion.div
                   initial={{ opacity: 0, y: 8 }}
@@ -702,13 +765,22 @@ export function MigrationWizard({
                   transition={{ delay: 0.65 }}
                   className="rounded-xl bg-amber-500/[0.06] border border-amber-500/15 p-3 space-y-2.5"
                 >
-                  <div className="flex items-center gap-2">
-                    <CircleAlert className="h-3.5 w-3.5 text-amber-400" />
-                    <span className="text-xs font-semibold text-amber-300">
-                      {result.errors.length} peringatan
-                    </span>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <CircleAlert className="h-3.5 w-3.5 text-amber-400" />
+                      <span className="text-xs font-semibold text-amber-300">
+                        {result.errors.length} baris bermasalah
+                      </span>
+                    </div>
+                    <button
+                      onClick={handleDownloadErrors}
+                      className="text-[10px] text-amber-300 hover:text-amber-200 transition-colors flex items-center gap-1"
+                    >
+                      <Download className="h-3 w-3" />
+                      Unduh
+                    </button>
                   </div>
-                  <div className="max-h-28 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
+                  <div className="max-h-32 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
                     {result.errors.map((err, i) => (
                       <p key={i} className="text-[11px] text-slate-400 leading-relaxed pl-5.5 relative before:content-['·'] before:absolute before:left-1.5 before:text-amber-500/60 before:font-bold">
                         {err}
@@ -741,7 +813,7 @@ export function MigrationWizard({
                 </motion.div>
               )}
 
-              {hasInventory && result.productsCreated > 0 && result.inventoryItemsCreated > 0 && result.inventoryItemsCreated < result.productsCreated && (
+              {hasInventory && result.productsCreated > 0 && result.inventoryItemsCreated! > 0 && result.inventoryItemsCreated < result.productsCreated && (
                 <motion.div
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -755,39 +827,81 @@ export function MigrationWizard({
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-400 leading-relaxed">
-                    {formatNumber(result.productsCreated - result.inventoryItemsCreated)} produk tidak memiliki inventory/stok. Pastikan kolom STOK AWAL terisi.
+                    {formatNumber(result.productsCreated - (result.inventoryItemsCreated ?? 0))} produk tidak memiliki inventory/stok. Pastikan kolom STOK AWAL terisi.
                   </p>
                 </motion.div>
               )}
 
-              {/* Next steps hint */}
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.75 }}
-                className="flex items-start gap-2.5 p-3 rounded-lg bg-emerald-500/[0.06] border border-emerald-500/15"
-              >
-                <TrendingUp className="h-4 w-4 text-emerald-400 mt-0.5 shrink-0" />
-                <p className="text-xs text-slate-300 leading-relaxed">
-                  {isInventory
-                    ? <>Stok awal migrasi sudah tercatat. Untuk restock, gunakan menu <span className="font-semibold text-white">Pembelian</span></>
-                    : <>Stok awal migrasi sudah tercatat di audit log. Buka <span className="font-semibold text-white">POS</span> untuk mulai transaksi</>
-                  }
-                </p>
-              </motion.div>
-
-              {/* Close button */}
+              {/* MIG-BATCH: Action buttons — 3 required for PARTIAL/FAILED, single for COMPLETED */}
               <motion.div
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.85 }}
+                transition={{ delay: 0.75 }}
+                className="space-y-2"
               >
+                {/* PARTIAL / FAILED: resume + download errors + close */}
+                {(isPartial || isFailed) && (
+                  <>
+                    <Button
+                      onClick={handleResume}
+                      disabled={isUploading}
+                      className="w-full bg-amber-600 hover:bg-amber-500 text-white text-sm font-semibold h-10 gap-2"
+                    >
+                      {isUploading ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <RotateCcw className="h-4 w-4" />
+                      )}
+                      Lanjutkan Migrasi (dari batch {result.completedBatches || 0})
+                    </Button>
+                    {hasErrors && (
+                      <Button
+                        onClick={handleDownloadErrors}
+                        variant="outline"
+                        className="w-full text-xs font-semibold h-9 gap-2 border-white/[0.1] text-slate-300 hover:text-white hover:bg-white/[0.04]"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        Unduh Daftar Error
+                      </Button>
+                    )}
+                  </>
+                )}
+
+                {/* COMPLETED / COMPLETED_WITH_ERRORS: download errors (if any) + close */}
+                {!isPartial && !isFailed && hasErrors && (
+                  <Button
+                    onClick={handleDownloadErrors}
+                    variant="outline"
+                    className="w-full text-xs font-semibold h-9 gap-2 border-white/[0.1] text-slate-300 hover:text-white hover:bg-white/[0.04]"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    Unduh Daftar Error
+                  </Button>
+                )}
+
+                {/* Next steps hint (only for fully completed) */}
+                {showSuccessHeader && (
+                  <div className="flex items-start gap-2.5 p-3 rounded-lg bg-emerald-500/[0.06] border border-emerald-500/15">
+                    <TrendingUp className="h-4 w-4 text-emerald-400 mt-0.5 shrink-0" />
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      {isInventory
+                        ? <>Stok awal migrasi sudah tercatat. Untuk restock, gunakan menu <span className="font-semibold text-white">Pembelian</span></>
+                        : <>Stok awal migrasi sudah tercatat di audit log. Buka <span className="font-semibold text-white">POS</span> untuk mulai transaksi</>
+                      }
+                    </p>
+                  </div>
+                )}
+
                 <Button
                   onClick={onClose}
-                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold h-10 gap-2"
+                  variant={isPartial || isFailed ? 'ghost' : 'default'}
+                  className={cn(
+                    'w-full text-sm font-semibold h-10 gap-2',
+                    !isPartial && !isFailed && 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                  )}
                 >
-                  Mulai Berjualan
-                  <ArrowRight className="h-4 w-4" />
+                  {isPartial || isFailed ? 'Tutup' : 'Mulai Berjualan'}
+                  {!isPartial && !isFailed && <ArrowRight className="h-4 w-4" />}
                 </Button>
               </motion.div>
             </motion.div>
