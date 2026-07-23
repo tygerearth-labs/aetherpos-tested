@@ -2,13 +2,15 @@ import { NextRequest } from 'next/server'
 import { PrismaClient } from '@prisma/client'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
-import { getFeaturesForOutlet, isUnlimited } from '@/lib/config/plan-config'
+import { getOutletPlan, isUnlimited } from '@/lib/config/plan-config'
 import * as XLSX from 'xlsx'
 import { safeAuditLog } from '@/lib/safe-audit'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 import { generateUniqueSKU, generateVariantSKU } from '@/lib/sku-generator'
 
 export const maxDuration = 300
+
+const MAX_ROWS = 5000
 
 const VALID_UNITS = ['pcs', 'ml', 'lt', 'gr', 'kg', 'box', 'pack', 'botol', 'gelas', 'mangkuk', 'porsi', 'bungkus', 'sachet', 'dus', 'rim', 'lembar', 'meter', 'cm', 'ons', 'roll', 'strip', 'ekor']
 
@@ -356,10 +358,8 @@ export async function POST(request: NextRequest) {
     const outletId = user.outletId
     const userId = user.id
 
-    // Check plan — DB-aware resolution (Webmaster Plan DB is authoritative).
-    // getFeaturesForOutlet merges Plan table features over static PLANS defaults,
-    // so webmaster-configured maxBulkUploadRows (-1 = unlimited) is honored.
-    const outletPlan = await getFeaturesForOutlet(db, outletId)
+    // Check plan
+    const outletPlan = await getOutletPlan(outletId, db)
     if (!outletPlan) {
       return safeJsonError('Outlet not found', 404)
     }
@@ -406,15 +406,11 @@ export async function POST(request: NextRequest) {
       return safeJsonError('File Excel kosong', 400)
     }
 
-    // MIG-005 (P1) + MIG-ENTERPRISE-UNLIMITED: Enforce effective plan
-    // maxBulkUploadRows limit using DB-aware feature resolution.
-    //   -1            → unlimited (Enterprise via webmaster DB) — no cap, no truncation
-    //   0             → blocked (Free: bulkUpload gate at line ~368 already rejects)
-    //   positive (N)  → reject before processing if totalSheetRows > N (Pro = 200)
-    // Previously this route used static-only getOutletPlan() which ignored the
-    // webmaster Plan DB overrides, AND independently truncated each sheet at
-    // MAX_ROWS=5000 — silently splicing Enterprise migration rows. Both bugs
-    // are fixed: DB is authoritative, no silent truncation for unlimited plans.
+    // MIG-005 (P1): Enforce plan maxBulkUploadRows limit.
+    // Mirrors inventory/items/bulk-update-excel/route.ts:100-103.
+    // Pro plan = 200 rows, Enterprise = 500 rows. Previously migration import
+    // allowed MAX_ROWS=5000 per sheet regardless of plan, bypassing the
+    // bulk-upload row limit enforced elsewhere.
     let totalSheetRows = 0
     for (const sheetName of workbook.SheetNames) {
       const sheetType = detectSheetType(sheetName)
@@ -425,7 +421,7 @@ export async function POST(request: NextRequest) {
       totalSheetRows += rowsToCount.length
     }
     const planMaxRows = outletPlan.features.maxBulkUploadRows
-    if (!isUnlimited(planMaxRows) && planMaxRows >= 0 && totalSheetRows > planMaxRows) {
+    if (!isUnlimited(planMaxRows) && planMaxRows > 0 && totalSheetRows > planMaxRows) {
       return safeJsonError(`Migrasi melebihi batas baris paket Anda (${planMaxRows} baris). Silakan upgrade paket.`, 403)
     }
 
@@ -607,10 +603,10 @@ export async function POST(request: NextRequest) {
         const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' })
 
         if (rows.length === 0) continue
-        // MIG-ENTERPRISE-UNLIMITED: No per-sheet truncation. The effective
-        // plan limit (DB-aware, -1 = unlimited) is enforced ABOVE before the
-        // transaction starts. Unlimited Enterprise plans must never be
-        // silently spliced — all rows are processed as-is.
+        if (rows.length > MAX_ROWS) {
+          errors.push(`Sheet "${sheetName}": Melebihi ${MAX_ROWS} baris (${rows.length}), dipotong.`)
+          rows.splice(MAX_ROWS)
+        }
 
         // ──────────────────────────────────────────────
         // SHEET 1: Produk Non-Varian
@@ -1461,13 +1457,11 @@ export async function POST(request: NextRequest) {
       // ==================== FLUSH REMAINING OPENING STOCK LOGS ====================
       await flushOpeningStockLogs()
     }, {
-      // MIG-011 mitigation: extended timeout for large imports.
-      // Enterprise (webmaster DB maxBulkUploadRows = -1) is unlimited, so
-      // imports can exceed the old 500-row cap. Default Prisma transaction
-      // timeout is 5s; we extend to 270s (just under the route maxDuration
-      // of 300s) to accommodate 10000+ row Enterprise migrations within a
-      // single atomic transaction.
-      timeout: 270000, // 4.5 minutes
+      // MIG-011 mitigation: extended timeout for large plan-limited imports
+      // (max 500 rows × 4 sheets = 2000 rows under Enterprise plan).
+      // Default Prisma transaction timeout is 5s; we extend to 120s to
+      // accommodate the entire import batch within a single transaction.
+      timeout: 120000, // 2 minutes
     })
 
     // ==================== AUDIT LOG (outside tx — safeAuditLog uses db) ====================
@@ -1518,8 +1512,6 @@ export async function POST(request: NextRequest) {
       errors,
       warnings,
       mode,
-      totalInputRows: totalSheetRows,
-      effectiveMaxBulkUploadRows: planMaxRows,
       totalCategories: await db.category.count({ where: { outletId } }),
     })
   } catch (error) {
