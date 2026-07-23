@@ -55,7 +55,7 @@ import {
 } from '@/components/ui/select'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { localDB, type PendingTransaction, type OfflineTransaction } from '@/lib/local-db'
-import { syncAllData, getAllSyncTimes, syncSettingsFromServer, getCachedSettings } from '@/lib/sync-service'
+import { syncAllData, syncCategoriesFromServer, syncCustomersFromServer, syncPromosFromServer, getAllSyncTimes, syncSettingsFromServer, getCachedSettings } from '@/lib/sync-service'
 import { cn } from '@/lib/utils'
 import { useSession } from 'next-auth/react'
 import { usePageStore } from '@/hooks/use-page-store'
@@ -174,12 +174,34 @@ const CATEGORY_COLORS: Record<string, { bg: string; text: string; border: string
 
 const QUICK_NOMINALS = [5000, 10000, 20000, 50000, 100000, 200000, 500000]
 
+// PR 1: The legacy module-level `_posFullSyncDoneThisSession` flag was removed.
+// It guarded against re-running syncAllData() on PosPage remounts. With PR 1,
+// the POS no longer calls syncAllData() on mount at all — it fetches a 24-item
+// featured working set from /api/pos/products/featured (cheap, idempotent), so
+// the guard is no longer needed. Remounts just re-fetch the featured set.
+
 // ==================== MAIN COMPONENT ====================
 
 export default function PosPage() {
   const { data: session } = useSession()
   const isMobile = useIsMobile()
   const { currentPage } = usePageStore()
+
+  // ── PERF (Fix #5): Detect desktop (lg+) to render only ONE layout.
+  //    Previously all 3 layouts (mobile/tablet/desktop) were always in the DOM,
+  //    each calling renderProductGrid() → 3× the product card components.
+  //    With 24 products per page, that's 72 cards in the DOM (only 24 visible).
+  //    Now only the active layout is mounted. ──
+  const [isDesktop, setIsDesktop] = useState(false)
+  const [layoutReady, setLayoutReady] = useState(false)
+  useEffect(() => {
+    const mql = window.matchMedia('(min-width: 1024px)')
+    const onChange = () => setIsDesktop(mql.matches)
+    mql.addEventListener('change', onChange)
+    onChange()
+    setLayoutReady(true)
+    return () => mql.removeEventListener('change', onChange)
+  }, [])
 
   // Refs
   const searchInputRef = useRef<HTMLInputElement>(null)
@@ -422,6 +444,9 @@ export default function PosPage() {
   // Batch info for cart items (FEFO preview)
   const [batchInfo, setBatchInfo] = useState<Record<string, { batchNumber: string | null; expiredDate: string | null; daysUntilExpiry: number | null }>>({})
   const batchFetchedRef = useRef<Set<string>>(new Set())
+  // ── PERF (Fix #6): Track pending batch fetches to prevent duplicate requests
+  //    when cart changes rapidly (e.g., scanning 5 barcodes in 2 seconds). ──
+  const pendingBatchRef = useRef<Set<string>>(new Set())
 
   // Variant picker
   const [variantPicker, setVariantPicker] = useState<VariantPickerState>({
@@ -509,52 +534,68 @@ export default function PosPage() {
     return () => clearTimeout(timer)
   }, [cart])
 
-  // Fetch batch info for new cart items
+  // ── PERF (Fix #6): Fetch batch info for new cart items — debounced + deduped.
+  //    Previously: every cart mutation fired individual fetch() per new item
+  //    with no debounce. Scanning 5 barcodes in 2s → 5 sequential effect runs
+  //    → 5 individual fetch waves.
+  //    Now: 200ms debounce batches rapid additions into a single wave of
+  //    parallel fetches. pendingBatchRef prevents duplicate requests for the
+  //    same item while the debounce timer is pending. ──
   useEffect(() => {
     if (cart.length === 0) {
       setBatchInfo({})
       batchFetchedRef.current.clear()
+      pendingBatchRef.current.clear()
       return
     }
     const toFetch: string[] = []
     for (const item of cart) {
       const key = `${item.product.id}::${item.variant?.id || 'base'}`
-      if (!batchFetchedRef.current.has(key)) {
+      if (!batchFetchedRef.current.has(key) && !pendingBatchRef.current.has(key)) {
         toFetch.push(key)
-        batchFetchedRef.current.add(key)
+        pendingBatchRef.current.add(key)
       }
     }
     if (toFetch.length === 0) return
-    try {
-    toFetch.forEach(key => {
-      const [pid, vid] = key.split('::')
-      const variantId = vid === 'base' ? undefined : vid
-      const params = new URLSearchParams({ productId: pid })
-      if (variantId) params.set('variantId', variantId)
-      fetch(`/api/inventory/batches/pos-preview?${params}`)
-        .then(r => r.ok ? r.json() : null)
-        .then(data => {
-          if (!data || !data.hasBatches || data.items.length === 0) return
-          // Show the most urgent batch (smallest daysUntilExpiry, or first item)
-          const sorted = [...data.items].sort((a, b) => {
-            if (a.daysUntilExpiry == null && b.daysUntilExpiry == null) return 0
-            if (a.daysUntilExpiry == null) return 1
-            if (b.daysUntilExpiry == null) return -1
-            return a.daysUntilExpiry - b.daysUntilExpiry
-          })
-          const mostUrgent = sorted[0]
-          setBatchInfo(prev => ({
-            ...prev,
-            [key]: {
-              batchNumber: mostUrgent.batchNumber,
-              expiredDate: mostUrgent.expiredDate,
-              daysUntilExpiry: mostUrgent.daysUntilExpiry,
-            },
-          }))
+
+    const timer = setTimeout(() => {
+      // Move from pending → fetched
+      for (const key of toFetch) {
+        batchFetchedRef.current.add(key)
+        pendingBatchRef.current.delete(key)
+      }
+      try {
+        toFetch.forEach(key => {
+          const [pid, vid] = key.split('::')
+          const variantId = vid === 'base' ? undefined : vid
+          const params = new URLSearchParams({ productId: pid })
+          if (variantId) params.set('variantId', variantId)
+          fetch(`/api/inventory/batches/pos-preview?${params}`)
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+              if (!data || !data.hasBatches || data.items.length === 0) return
+              // Show the most urgent batch (smallest daysUntilExpiry, or first item)
+              const sorted = [...data.items].sort((a, b) => {
+                if (a.daysUntilExpiry == null && b.daysUntilExpiry == null) return 0
+                if (a.daysUntilExpiry == null) return 1
+                if (b.daysUntilExpiry == null) return -1
+                return a.daysUntilExpiry - b.daysUntilExpiry
+              })
+              const mostUrgent = sorted[0]
+              setBatchInfo(prev => ({
+                ...prev,
+                [key]: {
+                  batchNumber: mostUrgent.batchNumber,
+                  expiredDate: mostUrgent.expiredDate,
+                  daysUntilExpiry: mostUrgent.daysUntilExpiry,
+                },
+              }))
+            })
+            .catch(() => { /* silent */ })
         })
-        .catch(() => { /* silent */ })
-    })
-    } catch { /* guard against unexpected errors in batch fetch setup */ }
+      } catch { /* guard against unexpected errors in batch fetch setup */ }
+    }, 200)
+    return () => clearTimeout(timer)
   }, [cart])
 
   // Checkout / Dialog state — NEW FLOW
@@ -696,7 +737,14 @@ export default function PosPage() {
           }
 
           setDataSyncing(true)
-          const result = await syncAllData()
+          // PR 1: meta sync only (categories + customers + promos) — NOT the
+          // 2,739-SKU product catalog. Products refresh via fetchProducts()
+          // which hits /api/pos/products/featured (24 best-sellers).
+          await Promise.all([
+            syncCategoriesFromServer(),
+            syncCustomersFromServer(),
+            syncPromosFromServer(),
+          ])
           syncSettingsFromServer() // cache settings for offline (fire-and-forget)
           fetchProducts(productSearch, productPage, selectedCategoryId)
            
@@ -716,33 +764,41 @@ export default function PosPage() {
     }
   }, [isOnline])
 
-  // Initial sync on mount
+  // PR 1: POS mount — featured working set + lightweight meta sync ONLY.
+  // NO full catalog download. Products come from /api/pos/products/featured
+  // (24 best-sellers, ~1 query). Categories/customers/promos sync in the
+  // background (small datasets — keeps the category filter + customer selector
+  // fresh without downloading 2,739 SKUs). The manual "Refresh" button still
+  // calls syncAllData() as a full-sync fallback.
   useEffect(() => {
     if (isOnline && !initialSyncDone.current) {
       initialSyncDone.current = true
-      const doInitialSync = async () => {
-        setDataSyncing(true)
+
+      // Render featured set immediately (backend fetch — replaces syncAllData)
+      fetchProducts(productSearch, productPage, selectedCategoryId)
+      loadCategoriesFromCache()
+      loadCustomersFromCache()
+      getAllSyncTimes().then(setLastSyncTimes)
+
+      // Background meta sync: categories + customers + promos (NOT products).
+      // These are small datasets; syncing them keeps the cache fresh for the
+      // category filter + customer selector without the 2,739-SKU download.
+      const metaSync = async () => {
         try {
-          const result = await syncAllData()
-          syncSettingsFromServer() // cache settings for offline (fire-and-forget)
-          fetchProducts(productSearch, productPage, selectedCategoryId)
+          await Promise.all([
+            syncCategoriesFromServer(),
+            syncCustomersFromServer(),
+            syncPromosFromServer(),
+          ])
+          syncSettingsFromServer()
           loadCategoriesFromCache()
           loadCustomersFromCache()
           const times = await getAllSyncTimes()
           setLastSyncTimes(times)
           setSyncAgeSec(0)
-          if (result.products.count > 0 || result.customers.count > 0) {
-            toast.success(`Data synced: ${result.products.count} produk, ${result.categories.count} kategori, ${result.customers.count} customer`)
-          }
-        } catch {
-          fetchProducts(productSearch, productPage, selectedCategoryId)
-          loadCategoriesFromCache()
-          loadCustomersFromCache()
-        } finally {
-          setDataSyncing(false)
-        }
+        } catch { /* silent — featured set is already rendered */ }
       }
-      doInitialSync()
+      metaSync()
     } else if (!isOnline && !initialSyncDone.current) {
       initialSyncDone.current = true
       fetchProducts(productSearch, productPage, selectedCategoryId)
@@ -772,6 +828,45 @@ export default function PosPage() {
    
   const fetchProducts = useCallback(async (search: string, page: number, categoryId: string | null) => {
     setProductsLoading(true)
+    const q = search.trim()
+
+    // ── PR 1: backend working-set / search (online path) ──────────────────
+    // No full catalog load. Featured set (24 best-sellers) when no search;
+    // backend debounced search when q or categoryId is set. Max 30 results
+    // per request (governance: MAX_POS_LIMIT). Falls through to legacy cache
+    // filter on offline / backend error — does NOT download the full catalog.
+    if (typeof window !== 'undefined' && navigator.onLine) {
+      try {
+        let url: string
+        if (q || categoryId) {
+          const params = new URLSearchParams()
+          if (q) params.set('q', q)
+          if (categoryId) params.set('categoryId', categoryId)
+          params.set('limit', String(PRODUCTS_PER_PAGE))
+          params.set('page', String(page))
+          url = `/api/pos/products/search?${params.toString()}`
+        } else {
+          // Featured working set — top best-sellers, 1 page.
+          url = `/api/pos/products/featured?limit=${PRODUCTS_PER_PAGE}`
+        }
+        const res = await fetch(url)
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const data = await res.json()
+        const list = (data.products || []) as Product[]
+        setProducts(list)
+        // Search returns total/totalPages for pagination; featured is a fixed 1-page set.
+        const totalPages = (q || categoryId) ? Math.max(1, data.totalPages || 1) : 1
+        setTotalProductPages(totalPages)
+        return
+      } catch {
+        // fall through to legacy cache fallback (offline / backend error)
+      }
+    }
+
+    // ── Legacy fallback: in-memory filter over localDB cache ──────────────
+    // Reads ONLY what's already cached (from a prior manual "Refresh" sync).
+    // Does NOT download anything. PR 4 will replace this with a proper Dexie
+    // working-set cache (featured + recent search + cart items).
     try {
       const allProducts = await localDB.products.toArray()
 
@@ -783,39 +878,40 @@ export default function PosPage() {
       }
 
       // Search filter — also match variant SKUs, barcodes, unit, and category name
-      if (search.trim()) {
-        const q = search.trim().toLowerCase()
+      if (q) {
+        const ql = q.toLowerCase()
         filtered = filtered.filter(
           (p) =>
-            p.name.toLowerCase().includes(q) ||
-            (p.sku && p.sku.toLowerCase().includes(q)) ||
-            (p.barcode && p.barcode.toLowerCase().includes(q)) ||
-            (p.unit && p.unit.toLowerCase().includes(q)) ||
-            (p.categoryName && p.categoryName.toLowerCase().includes(q)) ||
-            // Match variant SKU, barcode, or name
-            (p.hasVariants && p.variants && p.variants.some((v: any) =>
-              (v.sku && v.sku.toLowerCase().includes(q)) ||
-              (v.barcode && v.barcode.toLowerCase().includes(q)) ||
-              v.name.toLowerCase().includes(q)
+            p.name.toLowerCase().includes(ql) ||
+            (p.sku && p.sku.toLowerCase().includes(ql)) ||
+            (p.barcode && p.barcode.toLowerCase().includes(ql)) ||
+            (p.unit && p.unit.toLowerCase().includes(ql)) ||
+            ((p as any).categoryName && (p as any).categoryName.toLowerCase().includes(ql)) ||
+            (p.hasVariants && (p as any).variants && (p as any).variants.some((v: any) =>
+              (v.sku && v.sku.toLowerCase().includes(ql)) ||
+              (v.barcode && v.barcode.toLowerCase().includes(ql)) ||
+              v.name.toLowerCase().includes(ql)
             ))
         )
       }
 
-      // Helper: get aggregated stock (variant-aware)
-      const getAggStock = (p: typeof filtered[number]) => {
-        if (p.hasVariants && p.variants && p.variants.length > 0) {
-          return p.variants.reduce((s: number, v: any) => s + (v.stock || 0), 0)
+      // Pre-compute aggregated stock into a Map (Fix #4 perf)
+      const aggStockMap = new Map<string, number>()
+      for (const p of filtered) {
+        if (p.hasVariants && (p as any).variants && (p as any).variants.length > 0) {
+          aggStockMap.set(p.id, (p as any).variants.reduce((s: number, v: any) => s + (v.stock || 0), 0))
+        } else {
+          aggStockMap.set(p.id, p.stock || 0)
         }
-        return p.stock || 0
       }
+
       // Sort: in-stock first (highest stock on top), out-of-stock at the bottom
       filtered.sort((a, b) => {
-        const aStock = getAggStock(a)
-        const bStock = getAggStock(b)
+        const aStock = aggStockMap.get(a.id) ?? 0
+        const bStock = aggStockMap.get(b.id) ?? 0
         const aInStock = aStock > 0
         const bInStock = bStock > 0
         if (aInStock !== bInStock) return aInStock ? -1 : 1
-        // Within same stock status: highest stock first, then alphabetical
         const stockDiff = bStock - aStock
         if (stockDiff !== 0) return stockDiff
         return a.name.localeCompare(b.name)
@@ -825,21 +921,25 @@ export default function PosPage() {
       const skip = (page - 1) * PRODUCTS_PER_PAGE
       const paged = filtered.slice(skip, skip + PRODUCTS_PER_PAGE)
 
-      setProducts(paged)
+      setProducts(paged as unknown as Product[])
       setTotalProductPages(totalPages)
     } catch {
+      setProducts([])
+      setTotalProductPages(1)
       toast.error('Failed to load products')
     } finally {
       setProductsLoading(false)
     }
   }, [])
 
-  // Debounced fetch
+  // PR 1: Debounced fetch — 300ms for search (backend on-demand), 0ms for
+  // featured/category (immediate). Barcode/SKU exact lookup bypasses this
+  // debounce entirely via handleSearchKeyDown (Enter key).
   useEffect(() => {
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
     const timer = setTimeout(() => {
       fetchProducts(productSearch, productPage, selectedCategoryId)
-    }, productSearch ? 200 : 0)
+    }, productSearch ? 300 : 0)
     debounceTimerRef.current = timer
     return () => { if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current) }
   }, [productSearch, productPage, selectedCategoryId, fetchProducts])
@@ -939,10 +1039,51 @@ export default function PosPage() {
     if (e.key === 'Enter' && productSearch.trim()) {
       const search = productSearch.trim()
 
-      // Try direct barcode/SKU lookup from IndexedDB first (fast, no debounce)
+      // PR 1: exact barcode/SKU lookup via backend (no full-catalog scan).
+      // The /api/pos/products/lookup endpoint matches product-level barcode/sku
+      // OR variant-level barcode/sku, returning the parent + matchedVariantId.
+      // No debounce — Enter is an explicit user action.
+      if (typeof window !== 'undefined' && navigator.onLine) {
+        try {
+          const lookupRes = await fetch(`/api/pos/products/lookup?code=${encodeURIComponent(search)}`)
+          if (lookupRes.ok) {
+            const lookupData = await lookupRes.json()
+            const matched = lookupData.product as Product | null
+            if (matched) {
+              if (matched.hasVariants) {
+                // If lookup matched a specific variant (by variant sku/barcode),
+                // auto-add that variant directly; otherwise open the picker.
+                const matchedVariantId = lookupData.matchedVariantId as string | null
+                if (matchedVariantId) {
+                  const variant = matched.variants?.find((v: any) => v.id === matchedVariantId)
+                  if (variant) {
+                    addToCart(matched, 1, variant as ProductVariant)
+                    setProductSearch('')
+                    toast.success(`${matched.name} - ${variant.name} ditambahkan`)
+                    return
+                  }
+                }
+                openVariantPicker(matched)
+                setProductSearch('')
+                return
+              }
+              if (matched.stock > 0) {
+                addToCart(matched)
+                setProductSearch('')
+                toast.success(`${matched.name} ditambahkan`)
+                return
+              }
+              toast.error('Stok produk habis')
+              setProductSearch('')
+              return
+            }
+          }
+        } catch { /* fall through to legacy cache + UI-list fallback */ }
+      }
+
+      // Legacy offline fallback: exact match in localDB cache
       try {
         const allProducts = await localDB.products.toArray()
-        // Check exact barcode match on product level
         const exactMatch = allProducts.find((p: any) =>
           p.barcode === search || p.sku === search ||
           (p.hasVariants && p.variants && p.variants.some((v: any) => v.sku === search))
@@ -2358,7 +2499,8 @@ export default function PosPage() {
         </div>
       </div>
 
-      {/* Desktop Layout */}
+      {/* Desktop Layout — PERF (Fix #5): only render when active */}
+      {(!layoutReady || isDesktop) && (
       <div className="hidden lg:grid lg:grid-cols-5 gap-3 flex-1 min-h-0">
         {/* Products - Left (3/5) */}
         <div className="lg:col-span-3 flex flex-col min-h-0">
@@ -2515,8 +2657,10 @@ export default function PosPage() {
           )}
         </div>
       </div>
+      )}
 
-      {/* Mobile Layout — Product view + floating cart */}
+      {/* Mobile Layout — Product view + floating cart — PERF (Fix #5) */}
+      {(!layoutReady || isMobile) && (
       <div className="md:hidden shrink-0">
         <div className="relative mb-3">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" strokeWidth={1.5} />
@@ -2533,8 +2677,10 @@ export default function PosPage() {
         <div className="grid grid-cols-2 gap-2.5 pt-2 pb-2">{renderProductGrid()}</div>
         <div className="pb-8">{renderPagination()}</div>
       </div>
+      )}
 
-      {/* Tablet Layout — Product grid + Sticky Cart Bar (md to < lg) */}
+      {/* Tablet Layout — Product grid + Sticky Cart Bar (md to < lg) — PERF (Fix #5) */}
+      {(!layoutReady || (!isMobile && !isDesktop)) && (
       <div className="hidden md:flex lg:hidden flex-col flex-1 min-h-0 overflow-hidden">
         {/* Search */}
         <div className="relative mb-3 shrink-0">
@@ -2599,6 +2745,7 @@ export default function PosPage() {
           </div>
         ) : null}
       </div>
+      )}
 
       {/* Floating Pending Button — Mobile only */}
       {pendingCount > 0 && cart.length === 0 && (
