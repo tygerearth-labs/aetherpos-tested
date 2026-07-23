@@ -1026,6 +1026,26 @@ export async function POST(request: NextRequest) {
             compositionStr: string
           }> = []
 
+          // ── In-batch duplicate-name guard (MODE 3 NON-VARIANT FIX) ──
+          // Mirrors the variant path's `batchParentNamesSeen` (see ~line 1706).
+          //
+          // ROOT CAUSE this prevents: `existingProductMap` (below, ~line 1057)
+          // only filters names already in the DB. It does NOT catch two NEW
+          // rows in the SAME batch that share a name. Without this guard both
+          // rows are pushed to `productsToCreate`, and `tx.product.createMany`
+          // (~line 1296) violates `@@unique([name, outletId])` (schema line 129)
+          // → the entire batch `$transaction` rolls back atomically → 0 products
+          // persisted even though the in-memory `productsCreated` counter was
+          // incremented (it lives outside the rolled-back tx).
+          //
+          // Strategy: first occurrence wins; subsequent duplicates are skipped
+          // with a warning. Key is normalized (trim + lowerCase) so case-variant
+          // duplicates ("Kopi Susu" vs "kopi susu") are also collapsed — stricter
+          // than the DB's case-sensitive unique index, intentional for hygiene.
+          // NOT using `skipDuplicates: true` on createMany: that would silently
+          // drop rows and break the name→id re-query mapping below.
+          const batchProductNamesSeen = new Set<string>()
+
           for (const rowData of batchRows) {
             const { rowNum, name, sku, barcode, hpp, price, stock, unit, categoryRaw, lowStockAlert, komposisiInline } = rowData
 
@@ -1053,13 +1073,30 @@ export async function POST(request: NextRequest) {
             // mode, the pre-flight runs for each batch request, so the limit is
             // always current. The per-row product.count was 50 redundant queries.)
 
-            // Rule 1: Duplicate check via Map (no query)
+            // Rule 1: Duplicate check via Map (no query) — DB-existing names only.
             const existingProductId = existingProductMap.get(name)
             if (existingProductId) {
               productCache.set(name, existingProductId)
               productsSkipped++
               continue
             }
+
+            // Rule 1b: In-batch duplicate-name guard (MODE 3 NON-VARIANT FIX).
+            // See `batchProductNamesSeen` declaration above for full rationale.
+            // Skips the 2nd+ occurrence of the same (normalized) name within
+            // this batch so createMany never receives a duplicate (name,
+            // outletId) pair. First occurrence wins; duplicates are warned +
+            // counted as skipped (NOT failed — the row data is valid, just
+            // redundant). This preserves Mode 3 Option B (no auto InventoryItem,
+            // no auto 1:1 composition) because we `continue` before any of the
+            // Mode 2 / composition collection blocks below.
+            const nameKey = name.trim().toLowerCase()
+            if (batchProductNamesSeen.has(nameKey)) {
+              warnings.push(`\u2139\ufe0f Baris ${rowNum}: Produk "${name}" muncul lebih dari sekali di batch ini \u2014 duplikat dilewati (baris pertama yang diproses).`)
+              productsSkipped++
+              continue
+            }
+            batchProductNamesSeen.add(nameKey)
 
             // Rule 4+6: Category via Map (categories already created/resolved above)
             const categoryId = categoryRaw ? (categoryCache.get(categoryRaw) || null) : null
@@ -1289,7 +1326,9 @@ export async function POST(request: NextRequest) {
 
           // 4c. Create products (batched via createMany + re-query for IDs)
           // createMany doesn't return created records, so we re-query by name.
-          // Names are unique within the outlet (dedup check ensures this), so
+          // In-batch uniqueness is enforced by `batchProductNamesSeen` (see guard
+          // in the row loop above) + `existingProductMap` (DB preload). Together
+          // they guarantee no duplicate (name, outletId) reaches createMany, so
           // re-querying by name safely maps name → id.
           let createdProductMap = new Map<string, string>()
           if (productsToCreate.length > 0) {
