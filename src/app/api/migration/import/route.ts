@@ -778,153 +778,118 @@ export async function POST(request: NextRequest) {
               }
             }
 
-            // === If inventory/bahan mode + stock > 0: create InventoryItem + Opening Balance ===
-            if (includeInventory && stock > 0) {
-              try {
-                const existingInv = await tx.inventoryItem.findFirst({
-                  where: { name, outletId },
-                })
+            // === Mode 3 (product_inventory): NO auto-inventory-item creation ===
+            // (Opsi B — per investigasi "produk & inventori tidak link")
+            //
+            // In Mode 3, bahan baku (raw materials) and produk jadi (finished goods)
+            // are conceptually DISTINCT. A product's stock lives in `Product.stock`
+            // (set above at line 747 from the STOK AWAL column). InventoryItem rows
+            // exist ONLY for raw materials declared in Sheet 3 ("Bahan Baku"), and
+            // the Product↔Inventory link exists ONLY via explicit BOM rows
+            // (Sheet 4 "Komposisi" or the KOMPOSISI INLINE column).
+            //
+            // The previous version of this branch auto-created an InventoryItem with
+            // the SAME name as the product whenever `stock > 0`, which produced an
+            // orphan inventory item (no ProductComposition link) → the symptom
+            // "produk berhasil di-upload tapi inventori tidak link". That auto-creation
+            // is intentionally REMOVED here.
+            //
+            // Effect:
+            //   • Product.stock is still set from STOK AWAL (line 747).
+            //   • Sheet 3 + Sheet 4 still create InventoryItems + ProductComposition
+            //     (handlers below) — that is the ONLY way products get linked to
+            //     inventory in Mode 3.
+            //   • KOMPOSISI INLINE still creates ProductComposition via the deferred
+            //     block (below), linking to existing / Sheet-3 items.
+            //   • If neither BOM source is filled, the product has no composition →
+            //     selling it reduces Product.stock only (no raw-material consumption).
+            //     This is the correct Mode-3-degenerates-to-Mode-1 behaviour.
+            //
+            // (No inventory mutation here — intentionally empty.)
 
-                if (!existingInv) {
-                  // ── NEW ITEM: Create fresh ──
-                  const invItem = await tx.inventoryItem.create({
-                    data: {
-                      name,
-                      sku: finalSku,
-                      baseUnit: unit,
-                      stock: stock,
-                      avgCost: hpp > 0 ? hpp : 0,
-                      lowStockAlert: lowStockAlert > 0 ? lowStockAlert : 0,
-                      status: 'ACTIVE',
-                      outletId,
-                      categoryId: null,
-                    },
-                  })
-
-                  inventoryItemsCreated++
-                  totalStock += stock
-                  totalModalValue += hpp * stock
-                  inventoryItemCache.set(name, invItem.id)
-
-                  // Create opening balance movement
-                  try {
-                    await tx.inventoryMovement.create({
-                      data: {
-                        type: 'PURCHASE',
-                        quantity: stock,
-                        previousStock: 0,
-                        newStock: stock,
-                        referenceType: 'MIGRATION',
-                        notes: `Saldo awal migrasi dari ${file.name}`,
-                        outletId,
-                        inventoryItemId: invItem.id,
-                        userId,
-                      },
-                    })
-                  } catch (movErr) {
-                    console.warn(`[migration] Failed to create opening balance movement for ${name}:`, movErr)
-                    errors.push(`Warning: Gagal catat pergerakan stok untuk "${name}"`)
-                  }
-                } else {
-                  // ── EXISTING ITEM: Smart re-migration handling ──
-                  console.log(`[migration] includeInventory: Found existing item "${name}" (id=${existingInv.id}), analyzing...`)
-
-                  const analysis = await analyzeExistingInventoryForRemigration(tx, existingInv.id, outletId)
-
-                  if (analysis.canReplace) {
-                    // Safe to replace: clean up old migration data and update
-                    console.log(`[migration] includeInventory: REplacing "${name}" - ${analysis.reason}`)
-
-                    const cleaned = await cleanupMigrationData(tx, existingInv.id, outletId)
-
-                    // Update the inventory item with new values
-                    await tx.inventoryItem.update({
-                      where: { id: existingInv.id },
-                      data: {
-                        sku: finalSku || existingInv.sku,
-                        baseUnit: unit,
-                        stock: stock,
-                        avgCost: hpp > 0 ? hpp : 0,
-                        lowStockAlert: lowStockAlert > 0 ? lowStockAlert : 0,
-                        status: 'ACTIVE',
-                      },
-                    })
-
-                    // Create new opening balance movement
-                    try {
-                      await tx.inventoryMovement.create({
-                        data: {
-                          type: 'PURCHASE',
-                          quantity: stock,
-                          previousStock: 0,
-                          newStock: stock,
-                          referenceType: 'MIGRATION',
-                          notes: `Saldo awal migrasi (re-migrate) dari ${file.name}`,
-                          outletId,
-                          inventoryItemId: existingInv.id,
-                          userId,
-                        },
-                      })
-                    } catch (movErr) {
-                      console.warn(`[migration] Failed to create re-migration movement for ${name}:`, movErr)
-                    }
-
-                    inventoryItemsUpdated++
-                    migrationDataCleaned++
-                    totalStock += stock
-                    totalModalValue += hpp * stock
-
-                    warnings.push(`🔄 "${name}": di-update (data migrasi lama dibersihkan: ${cleaned.movementsDeleted} stok, ${cleaned.compositionsDeleted} link)`)
-                  } else {
-                    // Has real history: skip with warning
-                    console.log(`[migration] includeInventory: SKIP "${name}" - ${analysis.reason}`)
-                    inventoryItemsSkipped++
-                    warnings.push(`⚠️ "${name}" dilewati: ${analysis.reason}`)
-                  }
-
-                  inventoryItemCache.set(name, existingInv.id)
-                }
-              } catch (invErr) {
-                console.error(`[migration] CRITICAL: Failed to create inventory item for ${name}:`, invErr)
-                const errMsg = invErr instanceof Error ? invErr.message : String(invErr)
-                errors.push(`Gagal buat inventory "${name}": ${errMsg}`)
-              }
-            }
-
-            // === product_stock mode: create 1:1 InventoryItem + Composition (product↔stock) ===
-            if (isStockMode && stock > 0) {
+            // === product_stock mode: ATOMIC 1:1 InventoryItem + ProductComposition + hasComposition ===
+            // Approved invariant (2025-01): Product + InventoryItem + 1:1 ProductComposition
+            // + hasComposition=true are ONE atomic unit. Any failure throws and rolls
+            // back the batch transaction (caught at the batch try/catch below).
+            //
+            // stock=0 is handled the same as stock>0: an InventoryItem(stock=0) and a
+            // 1:1 link are still created, so that sales decrement inventory correctly
+            // (going negative triggers the low-stock / insufficient-stock path) and
+            // restock flows through the inventory ledger.
+            if (isStockMode) {
               console.log(`[migration] product_stock: Processing "${name}" with stock=${stock}, unit=${unit}`)
-              try {
-                const existingInv = await tx.inventoryItem.findFirst({
-                  where: { name, outletId },
+
+              // ── Resolve or create InventoryItem (named after the product) ──
+              const existingInv = await tx.inventoryItem.findFirst({
+                where: { name, outletId },
+              })
+
+              let invItemId: string
+              if (!existingInv) {
+                // ── NEW ITEM: Create fresh ──
+                console.log(`[migration] product_stock: Creating NEW inventory for "${name}"`)
+                const invItem = await tx.inventoryItem.create({
+                  data: {
+                    name,
+                    sku: finalSku,
+                    baseUnit: unit,
+                    stock: stock,
+                    avgCost: hpp > 0 ? hpp : 0,
+                    lowStockAlert: lowStockAlert > 0 ? lowStockAlert : 0,
+                    status: 'ACTIVE',
+                    outletId,
+                    categoryId: null,
+                  },
                 })
 
-                let invItemId: string
-                if (!existingInv) {
-                  // ── NEW ITEM: Create fresh ──
-                  console.log(`[migration] product_stock: Creating NEW inventory for "${name}"`)
-                  // Create InventoryItem with proper error handling
-                  const invItem = await tx.inventoryItem.create({
+                invItemId = invItem.id
+                inventoryItemsCreated++
+                totalStock += stock
+                totalModalValue += hpp * stock
+                inventoryItemCache.set(name, invItem.id)
+
+                // Opening balance movement — audit-only (failure is non-fatal to the invariant)
+                try {
+                  await tx.inventoryMovement.create({
                     data: {
-                      name,
-                      sku: finalSku,
+                      type: 'PURCHASE',
+                      quantity: stock,
+                      previousStock: 0,
+                      newStock: stock,
+                      referenceType: 'MIGRATION',
+                      notes: `Saldo awal stok gudang migrasi dari ${file.name}`,
+                      outletId,
+                      inventoryItemId: invItem.id,
+                      userId,
+                    },
+                  })
+                } catch (movErr) {
+                  console.warn(`[migration] Failed to create opening balance movement for ${name}:`, movErr)
+                }
+              } else {
+                // ── EXISTING ITEM: Smart re-migration handling ──
+                console.log(`[migration] product_stock: Found existing inventory "${name}" (id=${existingInv.id}), analyzing...`)
+
+                const analysis = await analyzeExistingInventoryForRemigration(tx, existingInv.id, outletId)
+
+                if (analysis.canReplace) {
+                  // Safe to replace: clean up old migration data and update
+                  console.log(`[migration] product_stock: REplacing "${name}" - ${analysis.reason}`)
+
+                  const cleaned = await cleanupMigrationData(tx, existingInv.id, outletId)
+
+                  await tx.inventoryItem.update({
+                    where: { id: existingInv.id },
+                    data: {
+                      sku: finalSku || existingInv.sku,
                       baseUnit: unit,
                       stock: stock,
                       avgCost: hpp > 0 ? hpp : 0,
                       lowStockAlert: lowStockAlert > 0 ? lowStockAlert : 0,
                       status: 'ACTIVE',
-                      outletId,
-                      categoryId: null,
                     },
                   })
 
-                  invItemId = invItem.id
-                  inventoryItemsCreated++
-                  totalStock += stock
-                  totalModalValue += hpp * stock
-                  inventoryItemCache.set(name, invItem.id)
-
-                  // Create opening balance movement
                   try {
                     await tx.inventoryMovement.create({
                       data: {
@@ -933,107 +898,84 @@ export async function POST(request: NextRequest) {
                         previousStock: 0,
                         newStock: stock,
                         referenceType: 'MIGRATION',
-                        notes: `Saldo awal stok gudang migrasi dari ${file.name}`,
+                        notes: `Saldo awal stok gudang (re-migrate) dari ${file.name}`,
                         outletId,
-                        inventoryItemId: invItem.id,
+                        inventoryItemId: existingInv.id,
                         userId,
                       },
                     })
                   } catch (movErr) {
-                    console.warn(`[migration] Failed to create opening balance movement for ${name}:`, movErr)
-                    errors.push(`Warning: Gagal catat pergerakan stok untuk "${name}" (stok tetap tersimpan)`)
+                    console.warn(`[migration] Failed to create re-migration movement for ${name}:`, movErr)
                   }
+
+                  invItemId = existingInv.id
+                  inventoryItemsUpdated++
+                  migrationDataCleaned++
+                  totalStock += stock
+                  totalModalValue += hpp * stock
+
+                  warnings.push(`🔄 "${name}": di-update (data migrasi lama dibersihkan: ${cleaned.movementsDeleted} stok, ${cleaned.compositionsDeleted} link)`)
                 } else {
-                  // ── EXISTING ITEM: Smart re-migration handling ──
-                  console.log(`[migration] product_stock: Found existing inventory "${name}" (id=${existingInv.id}), analyzing...`)
-
-                  const analysis = await analyzeExistingInventoryForRemigration(tx, existingInv.id, outletId)
-
-                  if (analysis.canReplace) {
-                    // Safe to replace: clean up old migration data and update
-                    console.log(`[migration] product_stock: REplacing "${name}" - ${analysis.reason}`)
-
-                    const cleaned = await cleanupMigrationData(tx, existingInv.id, outletId)
-
-                    // Update the inventory item with new values
-                    await tx.inventoryItem.update({
-                      where: { id: existingInv.id },
-                      data: {
-                        sku: finalSku || existingInv.sku,
-                        baseUnit: unit,
-                        stock: stock,
-                        avgCost: hpp > 0 ? hpp : 0,
-                        lowStockAlert: lowStockAlert > 0 ? lowStockAlert : 0,
-                        status: 'ACTIVE',
-                      },
-                    })
-
-                    // Create new opening balance movement
-                    try {
-                      await tx.inventoryMovement.create({
-                        data: {
-                          type: 'PURCHASE',
-                          quantity: stock,
-                          previousStock: 0,
-                          newStock: stock,
-                          referenceType: 'MIGRATION',
-                          notes: `Saldo awal stok gudang (re-migrate) dari ${file.name}`,
-                          outletId,
-                          inventoryItemId: existingInv.id,
-                          userId,
-                        },
-                      })
-                    } catch (movErr) {
-                      console.warn(`[migration] Failed to create re-migration movement for ${name}:`, movErr)
-                    }
-
-                    invItemId = existingInv.id
-                    inventoryItemsUpdated++
-                    migrationDataCleaned++
-                    totalStock += stock
-                    totalModalValue += hpp * stock
-
-                    warnings.push(`🔄 "${name}": di-update (data migrasi lama dibersihkan: ${cleaned.movementsDeleted} stok, ${cleaned.compositionsDeleted} link)`)
-                  } else {
-                    // Has real history: use existing but warn
-                    console.log(`[migration] product_stock: Using EXISTING "${name}" (not replaced - ${analysis.reason})`)
-                    invItemId = existingInv.id
-                    inventoryItemsSkipped++
-                    warnings.push(`⚠️ "${name}" menggunakan data existing: ${analysis.reason}`)
-                  }
-
-                  inventoryItemCache.set(name, existingInv.id)
+                  // Has real history: use existing but warn
+                  console.log(`[migration] product_stock: Using EXISTING "${name}" (not replaced - ${analysis.reason})`)
+                  invItemId = existingInv.id
+                  inventoryItemsSkipped++
+                  warnings.push(`⚠️ "${name}" menggunakan data existing: ${analysis.reason}`)
                 }
 
-                // Create 1:1 composition: 1 unit of product uses 1 unit of inventory
-                try {
-                  await tx.productComposition.create({
-                    data: {
-                      productId: product.id,
-                      inventoryItemId: invItemId,
-                      qty: 1,
-                      baseUnit: unit,
-                    },
-                  })
-                  compositionsCreated++
-                  console.log(`[migration] product_stock: Composition created for "${name}" → inv=${invItemId}`)
-
-                  // MIG-004 (P1): Update parent Product.hasComposition = true.
-                  await tx.product.update({
-                    where: { id: product.id },
-                    data: { hasComposition: true },
-                  })
-                } catch (compErr) {
-                  console.warn(`[migration] Failed to create 1:1 composition for ${name}:`, compErr)
-                  errors.push(`Gagal hubungkan produk↔stok untuk "${name}" (inventory tetap dibuat)`)
-                }
-              } catch (invErr) {
-                console.error(`[migration] CRITICAL: Failed to create inventory item for ${name}:`, invErr)
-                const errMsg = invErr instanceof Error ? invErr.message : String(invErr)
-                errors.push(`Gagal buat inventory "${name}": ${errMsg}`)
+                inventoryItemCache.set(name, existingInv.id)
               }
-            } else if (isStockMode && stock <= 0) {
-              console.log(`[migration] product_stock: SKIPPED "${name}" - stock=${stock} (must be > 0)`)
+
+              // ── ATOMIC 1:1 link: ProductComposition + hasComposition ──
+              // Founder-approved guards (2025-01):
+              //   1. EXACT link check: productId + variantId=null + inventoryItemId + qty=1.
+              //      If it already exists → no duplicate (ProductComposition has no @@unique).
+              //      This is the re-migration safety path.
+              //   2. CONFLICT guard: if ANY other composition already exists for this
+              //      product (different inventoryItemId, qty != 1, etc.) → DO NOT append
+              //      an automatic 1:1 link. Push explicit error + skip link create.
+              //      The product already has a manual BOM; auto-1:1 would create two
+              //      ledgers. hasComposition is already true (set by the manual BOM).
+              //   3. If no composition exists → create auto 1:1 + set hasComposition=true.
+              // Any unexpected create/update throw propagates to the batch try/catch →
+              // batchFailed=true → entire batch rolls back. Invariant preserved.
+              const existingCompositions = await tx.productComposition.findMany({
+                where: { productId: product.id, variantId: null },
+                select: { id: true, inventoryItemId: true, qty: true },
+              })
+              const exactLinkExists = existingCompositions.some(
+                (c) => c.inventoryItemId === invItemId && c.qty === 1
+              )
+
+              if (existingCompositions.length > 0 && !exactLinkExists) {
+                // Manual / non-1:1 BOM already exists → explicit conflict
+                errors.push(
+                  `"${name}": produk sudah memiliki komposisi manual/BOM (${existingCompositions.length} baris). ` +
+                  `Auto-link 1:1 dilewati (konflik). Hapus komposisi existing di Master Produk untuk mengaktifkan auto-link.`
+                )
+                console.warn(`[migration] product_stock: CONFLICT — "${name}" has ${existingCompositions.length} manual composition(s); auto 1:1 skipped`)
+              } else if (!exactLinkExists) {
+                // No composition at all → create auto 1:1 atomically
+                await tx.productComposition.create({
+                  data: {
+                    productId: product.id,
+                    variantId: null,
+                    inventoryItemId: invItemId,
+                    qty: 1,
+                    baseUnit: unit,
+                  },
+                })
+                compositionsCreated++
+                console.log(`[migration] product_stock: Composition created for "${name}" → inv=${invItemId}`)
+              }
+
+              // MIG-004 (P1): hasComposition=true (idempotent update; safe whether we
+              // just created the link, the exact link already existed, or a manual BOM
+              // already set the flag).
+              await tx.product.update({
+                where: { id: product.id },
+                data: { hasComposition: true },
+              })
             }
 
             // === Process inline composition (ALWAYS defer — inventory sheet may not be processed yet) ===
@@ -1208,6 +1150,143 @@ export async function POST(request: NextRequest) {
                     if (openingStockLogs.length >= OPENING_STOCK_BATCH_SIZE) {
                       await flushOpeningStockLogs(tx)
                     }
+                  }
+
+                  // === Mode 2 (product_stock): per-variant 1:1 InventoryItem + ProductComposition(variantId) ===
+                  // Atomic invariant (mirrors non-variant Mode 2): variant + InventoryItem
+                  // + 1:1 ProductComposition(variantId) + parent.hasComposition=true.
+                  // Any failure throws and rolls back the remaining-sheets transaction.
+                  // stock=0 still creates the item + link (same rationale as non-variant).
+                  if (isStockMode) {
+                    const variantInvName = `${currentParentProduct.name} - ${variantName}`
+                    const variantInvUnit = 'pcs'
+
+                    let variantInvItemId: string
+                    const existingVariantInv = await tx.inventoryItem.findFirst({
+                      where: { name: variantInvName, outletId },
+                    })
+
+                    if (!existingVariantInv) {
+                      const variantInv = await tx.inventoryItem.create({
+                        data: {
+                          name: variantInvName,
+                          sku: finalVariantSku,
+                          baseUnit: variantInvUnit,
+                          stock: variantStock,
+                          avgCost: variantHpp > 0 ? variantHpp : 0,
+                          lowStockAlert: 0,
+                          status: 'ACTIVE',
+                          outletId,
+                          categoryId: null,
+                        },
+                      })
+                      variantInvItemId = variantInv.id
+                      inventoryItemsCreated++
+                      totalStock += variantStock
+                      totalModalValue += variantHpp * variantStock
+                      inventoryItemCache.set(variantInvName, variantInv.id)
+
+                      try {
+                        await tx.inventoryMovement.create({
+                          data: {
+                            type: 'PURCHASE',
+                            quantity: variantStock,
+                            previousStock: 0,
+                            newStock: variantStock,
+                            referenceType: 'MIGRATION',
+                            notes: `Saldo awal stok gudang varian migrasi dari ${file.name}`,
+                            outletId,
+                            inventoryItemId: variantInv.id,
+                            userId,
+                          },
+                        })
+                      } catch (movErr) {
+                        console.warn(`[migration] Failed to create variant opening balance movement for ${variantInvName}:`, movErr)
+                      }
+                    } else {
+                      const variantAnalysis = await analyzeExistingInventoryForRemigration(tx, existingVariantInv.id, outletId)
+                      if (variantAnalysis.canReplace) {
+                        const cleaned = await cleanupMigrationData(tx, existingVariantInv.id, outletId)
+                        await tx.inventoryItem.update({
+                          where: { id: existingVariantInv.id },
+                          data: {
+                            sku: finalVariantSku || existingVariantInv.sku,
+                            baseUnit: variantInvUnit,
+                            stock: variantStock,
+                            avgCost: variantHpp > 0 ? variantHpp : 0,
+                            lowStockAlert: 0,
+                            status: 'ACTIVE',
+                          },
+                        })
+                        try {
+                          await tx.inventoryMovement.create({
+                            data: {
+                              type: 'PURCHASE',
+                              quantity: variantStock,
+                              previousStock: 0,
+                              newStock: variantStock,
+                              referenceType: 'MIGRATION',
+                              notes: `Saldo awal stok gudang varian (re-migrate) dari ${file.name}`,
+                              outletId,
+                              inventoryItemId: existingVariantInv.id,
+                              userId,
+                            },
+                          })
+                        } catch (movErr) {
+                          console.warn(`[migration] Failed to create variant re-migration movement for ${variantInvName}:`, movErr)
+                        }
+                        variantInvItemId = existingVariantInv.id
+                        inventoryItemsUpdated++
+                        migrationDataCleaned++
+                        totalStock += variantStock
+                        totalModalValue += variantHpp * variantStock
+                        warnings.push(`🔄 "${variantInvName}": di-update (data migrasi lama dibersihkan: ${cleaned.movementsDeleted} stok, ${cleaned.compositionsDeleted} link)`)
+                      } else {
+                        variantInvItemId = existingVariantInv.id
+                        inventoryItemsSkipped++
+                        warnings.push(`⚠️ "${variantInvName}" menggunakan data existing: ${variantAnalysis.reason}`)
+                      }
+                      inventoryItemCache.set(variantInvName, existingVariantInv.id)
+                    }
+
+                    // Atomic 1:1 link with variantId + conflict guard (mirrors non-variant).
+                    // Founder-approved guards (2025-01):
+                    //   1. EXACT link check: productId + variantId + inventoryItemId + qty=1.
+                    //      If it already exists → no duplicate (re-migration safety).
+                    //   2. CONFLICT guard: if ANY other composition already exists for this
+                    //      productId+variantId → DO NOT append auto 1:1. Push explicit error.
+                    //   3. No composition → create auto 1:1 atomically + set hasComposition.
+                    const existingVariantCompositions = await tx.productComposition.findMany({
+                      where: { productId: currentParentProduct.id, variantId: variant.id },
+                      select: { id: true, inventoryItemId: true, qty: true },
+                    })
+                    const exactVariantLinkExists = existingVariantCompositions.some(
+                      (c) => c.inventoryItemId === variantInvItemId && c.qty === 1
+                    )
+
+                    if (existingVariantCompositions.length > 0 && !exactVariantLinkExists) {
+                      errors.push(
+                        `"${currentParentProduct.name}" varian "${variantName}": sudah memiliki komposisi manual/BOM (${existingVariantCompositions.length} baris). ` +
+                        `Auto-link 1:1 dilewati (konflik). Hapus komposisi existing di Master Produk untuk mengaktifkan auto-link.`
+                      )
+                      console.warn(`[migration] product_stock: CONFLICT — variant "${currentParentProduct.name} - ${variantName}" has ${existingVariantCompositions.length} manual composition(s); auto 1:1 skipped`)
+                    } else if (!exactVariantLinkExists) {
+                      await tx.productComposition.create({
+                        data: {
+                          productId: currentParentProduct.id,
+                          variantId: variant.id,
+                          inventoryItemId: variantInvItemId,
+                          qty: 1,
+                          baseUnit: variantInvUnit,
+                        },
+                      })
+                      compositionsCreated++
+                    }
+                    // Ensure parent product hasComposition flag (idempotent; safe in all 3 branches)
+                    await tx.product.update({
+                      where: { id: currentParentProduct.id },
+                      data: { hasComposition: true },
+                    })
                   }
 
                   // Cache variant for composition linking
@@ -1530,6 +1609,89 @@ export async function POST(request: NextRequest) {
                 const errMsg = compErr instanceof Error ? compErr.message : String(compErr)
                 errors.push(`Gagal proses komposisi inline: ${errMsg}`)
               }
+            }
+          }
+
+          // ==================== MODE 3: BOM CAPACITY WARNING (informational) ====================
+          // After all sheets + deferred compositions are processed, for each product
+          // (or variant) that has a ProductComposition, estimate BOM capacity =
+          // min over composition rows of (InventoryItem.stock * yieldPerBatch / qty).
+          // If Product.stock (or Variant.stock) exceeds the estimate, emit a warning.
+          //
+          // This is INFORMATIONAL ONLY because:
+          //   1. Ingredients may be shared across multiple products (the estimate
+          //      assumes exclusive use → can overstate capacity).
+          //   2. Runtime validation in InventoryConsumptionService remains
+          //      authoritative — a sale that exceeds actual inventory will throw
+          //      "Stok item X tidak cukup" at checkout time.
+          //   3. Product.stock is NOT clamped (per approved decision: Mode 3 keeps
+          //      Option B, no auto-link, no clamp).
+          if (includeInventory) {
+            try {
+              const productsWithComp = await tx.product.findMany({
+                where: { outletId, hasComposition: true },
+                select: {
+                  id: true, name: true, stock: true,
+                  compositions: {
+                    select: {
+                      qty: true, yieldPerBatch: true,
+                      inventoryItem: { select: { stock: true } },
+                    },
+                  },
+                  variants: {
+                    select: {
+                      id: true, name: true, stock: true,
+                      compositions: {
+                        select: {
+                          qty: true, yieldPerBatch: true,
+                          inventoryItem: { select: { stock: true } },
+                        },
+                      },
+                    },
+                  },
+                },
+              })
+
+              for (const product of productsWithComp) {
+                // Product-level compositions (non-variant)
+                if (product.compositions.length > 0) {
+                  let capacity = Infinity
+                  for (const comp of product.compositions) {
+                    const qty = comp.qty > 0 ? comp.qty : 1
+                    const ypb = comp.yieldPerBatch > 0 ? comp.yieldPerBatch : 1
+                    const invStock = comp.inventoryItem?.stock ?? 0
+                    const rowCap = (invStock * ypb) / qty
+                    if (rowCap < capacity) capacity = rowCap
+                  }
+                  if (capacity !== Infinity && product.stock > capacity) {
+                    warnings.push(
+                      `ℹ️ "${product.name}": stok produk ${product.stock} melebihi estimasi kapasitas BOM ${Math.floor(capacity)} unit. ` +
+                      `Bahan mungkin dipakai bersama produk lain; validasi runtime saat penjualan bersifat otoritatif.`
+                    )
+                  }
+                }
+                // Variant-level compositions
+                for (const variant of product.variants) {
+                  if (variant.compositions.length === 0) continue
+                  let capacity = Infinity
+                  for (const comp of variant.compositions) {
+                    const qty = comp.qty > 0 ? comp.qty : 1
+                    const ypb = comp.yieldPerBatch > 0 ? comp.yieldPerBatch : 1
+                    const invStock = comp.inventoryItem?.stock ?? 0
+                    const rowCap = (invStock * ypb) / qty
+                    if (rowCap < capacity) capacity = rowCap
+                  }
+                  if (capacity !== Infinity && variant.stock > capacity) {
+                    warnings.push(
+                      `ℹ️ "${product.name}" varian "${variant.name}": stok varian ${variant.stock} melebihi estimasi kapasitas BOM ${Math.floor(capacity)} unit. ` +
+                      `Bahan mungkin dipakai bersama produk lain; validasi runtime saat penjualan bersifat otoritatif.`
+                    )
+                  }
+                }
+              }
+            } catch (capErr) {
+              console.warn('[migration] BOM capacity warning computation failed:', capErr)
+              // Non-fatal — warnings are informational only
             }
           }
 
