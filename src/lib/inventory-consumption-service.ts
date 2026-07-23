@@ -773,6 +773,21 @@ export class InventoryConsumptionService {
    * Build TransactionConsumption records from the deduction result.
    * Called by checkout/sync routes to snapshot consumption data.
    * Returns array of objects ready for `createMany`.
+   *
+   * SCHEMA ALIGNMENT (fix: schema mismatch on sync):
+   *   The TransactionConsumption Prisma model only has:
+   *     { transactionId, inventoryItemId, itemName, baseUnit, quantityUsed, sourceDetails, createdAt }
+   *   `materialCost` and `unitCostSnapshot` are NOT columns in the model and must
+   *   NOT be sent to `createMany` (Prisma rejects unknown arguments).
+   *
+   *   Cost traceability is PRESERVED via:
+   *     1. `auditLog.details` JSON — stores materialCost, unitCostSnapshot, costingMethod
+   *        (written in step 8 of consumeForTransaction, per-deduction).
+   *     2. `sourceDetails` (below) — preserves the per-product / per-batch source map
+   *        so void reversal restores exactly the consumed quantity.
+   *
+   *   Void logic (restoreFromSnapshots) only reads: inventoryItemId, quantityUsed,
+   *   itemName, baseUnit, sourceDetails — all still present below. ✅
    */
   static buildConsumptionSnapshots(
     deductions: InventoryDeduction[],
@@ -783,8 +798,6 @@ export class InventoryConsumptionService {
     itemName: string
     baseUnit: string
     quantityUsed: number
-    materialCost: number
-    unitCostSnapshot: string | null
     sourceDetails: string
   }> {
     return deductions.map(d => ({
@@ -793,8 +806,6 @@ export class InventoryConsumptionService {
       itemName: d.itemName,
       baseUnit: d.baseUnit,
       quantityUsed: d.totalDeducted,
-      materialCost: d.materialCost,                // Actual COGS (batch.unitCost-based or avgCost fallback)
-      unitCostSnapshot: d.unitCostSnapshot,        // Immutable per-batch cost traceability (null for non-batch)
       sourceDetails: JSON.stringify(d.sources),
     }))
   }
