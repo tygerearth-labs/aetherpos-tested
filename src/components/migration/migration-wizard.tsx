@@ -291,17 +291,6 @@ export function MigrationWizard() {
                 )
               })}
             </div>
-
-            {/* Minimise button — always available so the user can keep using the app */}
-            <button
-              type="button"
-              onClick={closeModal}
-              className="absolute top-4 right-4 inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-white transition-colors rounded-md px-2 py-1 border border-white/[0.08] bg-white/[0.02]"
-              title="Minimalkan — migrasi tetap berjalan"
-            >
-              <Minimize2 className="h-3 w-3" />
-              <span className="hidden sm:inline">Minimalkan</span>
-            </button>
           </div>
 
           <div className="px-6 pb-6 flex-1 overflow-y-auto custom-scrollbar">
