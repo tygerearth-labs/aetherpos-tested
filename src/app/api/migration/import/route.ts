@@ -8,7 +8,7 @@ import { safeAuditLog } from '@/lib/safe-audit'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 import { generateUniqueSKU, generateVariantSKU } from '@/lib/sku-generator'
 
-export const maxDuration = 1000
+export const maxDuration = 9000
 
 const VALID_UNITS = ['pcs', 'ml', 'lt', 'gr', 'kg', 'box', 'pack', 'botol', 'gelas', 'mangkuk', 'porsi', 'bungkus', 'sachet', 'dus', 'rim', 'lembar', 'meter', 'cm', 'ons', 'roll', 'strip', 'ekor']
 
