@@ -451,3 +451,4 @@ The Aether POS core inventory engine is **FROZEN** as the baseline architecture.
 **Regression**: `bun run test:invariant` → 61 PASS / 0 FAIL / 1 WARN (expected)
 **Next Review**: Triggered by any P0/P1 finding or major feature addition
 **Companion Document**: `docs/PLATFORM-ARCHITECTURE-REVIEW.md` (Platform layers — Migration / Crew / Customer / Settings / Plan & Pricing)
+**Related Lock**: `governance/AETHER-BULK-ENGINE-V1.md` — Bulk import engine pattern (locked 2026-07-23, post migration-wizard variant optimization commit `6996568`). All new bulk imports MUST use `BulkImportEngine` + adapter.
