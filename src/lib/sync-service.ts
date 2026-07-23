@@ -89,9 +89,36 @@ export async function syncProductsFromServer(): Promise<SyncResultBase & { count
       page++
     }
 
-    await localDB.products.clear()
+    // ── GUARD (Fix #3 hardening): Non-destructive upsert + stale deletion ──
+    // Previously this was `clear() + bulkPut` which (a) blanked the cache
+    // during fetch — UI showed empty grid mid-sync, (b) lost all data if
+    // fetch failed midway.
+    //
+    // Now: bulkPut (upsert) first, then delete stale IDs not in server response.
+    // The UI can render from cache instantly while sync runs in background.
+    //
+    // CRITICAL SAFETY GUARD:
+    //   `bulkDelete(stale)` runs ONLY when ALL of these hold:
+    //     1. The entire pagination loop above completed without throwing
+    //        (any HTTP/network/JSON error throws → caught by outer catch →
+    //        we never reach this point → cache preserved).
+    //     2. `allProducts.length > 0` — an empty server response from a store
+    //        that previously had products is almost certainly a transient
+    //        server error (not a legitimate "store is now empty"), and wiping
+    //        the local cache would force a full re-download + blank the POS
+    //        grid. If the store genuinely has 0 products, the user can clear
+    //        cache via the Settings → Clear Cache action.
+    //   Stale IDs are computed from the COMPLETE `allProducts` array
+    //   (accumulated across all pages), never from a single page.
     if (allProducts.length > 0) {
       await localDB.products.bulkPut(allProducts)
+      // Delete products that exist in cache but not on server (handled deletions)
+      const serverProductIds = new Set(allProducts.map(p => p.id))
+      const cachedProductIds = await localDB.products.toCollection().primaryKeys()
+      const staleProductIds = cachedProductIds.filter(id => !serverProductIds.has(id as string))
+      if (staleProductIds.length > 0) {
+        await localDB.products.bulkDelete(staleProductIds as string[])
+      }
     }
 
     await localDB.syncMeta.put({ key: 'lastProductSync', value: Date.now() })
@@ -123,9 +150,16 @@ export async function syncCategoriesFromServer(): Promise<SyncResultBase & { cou
       })
     )
 
-    await localDB.categories.clear()
+    // PERF: Non-destructive upsert (same rationale + GUARD as products).
+    // bulkDelete(stale) only runs after successful fetch AND non-empty result.
     if (categories.length > 0) {
       await localDB.categories.bulkPut(categories)
+      const serverCategoryIds = new Set(categories.map(c => c.id))
+      const cachedCategoryIds = await localDB.categories.toCollection().primaryKeys()
+      const staleCategoryIds = cachedCategoryIds.filter(id => !serverCategoryIds.has(id as string))
+      if (staleCategoryIds.length > 0) {
+        await localDB.categories.bulkDelete(staleCategoryIds as string[])
+      }
     }
 
     await localDB.syncMeta.put({ key: 'lastCategorySync', value: Date.now() })
@@ -172,9 +206,16 @@ export async function syncCustomersFromServer(): Promise<SyncResultBase & { coun
       page++
     }
 
-    await localDB.customers.clear()
+    // PERF: Non-destructive upsert (same rationale + GUARD as products).
+    // bulkDelete(stale) only runs after successful pagination AND non-empty result.
     if (allCustomers.length > 0) {
       await localDB.customers.bulkPut(allCustomers)
+      const serverCustomerIds = new Set(allCustomers.map(c => c.id))
+      const cachedCustomerIds = await localDB.customers.toCollection().primaryKeys()
+      const staleCustomerIds = cachedCustomerIds.filter(id => !serverCustomerIds.has(id as string))
+      if (staleCustomerIds.length > 0) {
+        await localDB.customers.bulkDelete(staleCustomerIds as string[])
+      }
     }
 
     await localDB.syncMeta.put({ key: 'lastCustomerSync', value: Date.now() })
@@ -210,9 +251,16 @@ export async function syncPromosFromServer(): Promise<SyncResultBase & { count: 
       })
     )
 
-    await localDB.promos.clear()
+    // PERF: Non-destructive upsert (same rationale + GUARD as products).
+    // bulkDelete(stale) only runs after successful fetch AND non-empty result.
     if (promos.length > 0) {
       await localDB.promos.bulkPut(promos)
+      const serverPromoIds = new Set(promos.map(p => p.id))
+      const cachedPromoIds = await localDB.promos.toCollection().primaryKeys()
+      const stalePromoIds = cachedPromoIds.filter(id => !serverPromoIds.has(id as string))
+      if (stalePromoIds.length > 0) {
+        await localDB.promos.bulkDelete(stalePromoIds as string[])
+      }
     }
 
     await localDB.syncMeta.put({ key: 'lastPromoSync', value: Date.now() })
