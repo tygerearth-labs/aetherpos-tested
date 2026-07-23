@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Upload, FileSpreadsheet, Check, Loader2,
@@ -10,6 +10,7 @@ import {
   CircleCheck, CircleAlert, Copy, GitBranch, Tags, ScanBarcode,
   FlaskConical, TrendingUp, Link2, AlertTriangle,
   RefreshCw, Info, Layers, RotateCcw,
+  Clock, Hourglass, ListChecks,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -17,6 +18,38 @@ import { Progress } from '@/components/ui/progress'
 import { cn } from '@/lib/utils'
 import { formatCurrency, formatNumber } from '@/lib/format'
 import type { ImportMode, ImportResult, MigrationStatus } from './migration-banner'
+
+// MIG-BATCH-V2: Per-batch progress tracking
+interface BatchProgress {
+  batchNumber: number
+  status: 'pending' | 'in_progress' | 'done' | 'failed'
+  created: number
+  skipped: number
+  failed: number
+  durationMs: number
+}
+
+interface ProcessingState {
+  totalProducts: number
+  totalBatches: number
+  currentBatch: number
+  batches: BatchProgress[]
+  totalCreated: number
+  totalSkipped: number
+  totalFailed: number
+  errors: string[]
+  startTime: number
+  batchError: string | null
+  isProcessing: boolean
+}
+
+// Format milliseconds as MM:SS
+function formatDuration(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000))
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
+}
 
 type WizardStep = 'upload' | 'processing' | 'success'
 
@@ -45,10 +78,22 @@ export function MigrationWizard({
   const [result, setResult] = useState<ImportResult | null>(null)
   // MIG-BATCH: resume support — startBatch for "Lanjutkan Migrasi"
   const [startBatch, setStartBatch] = useState(0)
+  // MIG-BATCH-V2: real-time per-batch progress state
+  const [processingState, setProcessingState] = useState<ProcessingState | null>(null)
+  const [elapsedMs, setElapsedMs] = useState(0)
 
   const isInventory = mode === 'product_inventory'
   const isStockMode = mode === 'product_stock'
   const hasInventory = isInventory || isStockMode
+
+  // MIG-BATCH-V2: Live elapsed-time ticker (updates every second while processing)
+  useEffect(() => {
+    if (!processingState?.isProcessing) return
+    const interval = setInterval(() => {
+      setElapsedMs(Date.now() - (processingState.startTime || Date.now()))
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [processingState?.isProcessing, processingState?.startTime])
 
   const handleFileSelect = useCallback((file: File) => {
     const ext = file.name.split('.').pop()?.toLowerCase()
@@ -80,74 +125,211 @@ export function MigrationWizard({
     setIsDragging(false)
   }, [])
 
-  // MIG-BATCH: Real upload — no fake setTimeout progress.
-  // The processing screen shows an indeterminate spinner while the server
-  // processes batches sequentially. The real batch breakdown is shown on
-  // completion (success screen). This removes the fake progress theater.
-  const handleUpload = useCallback(async (resumeFromBatch?: number) => {
+  // MIG-BATCH-V2: One-request-per-batch upload loop.
+  // Frontend sends batch 0, gets per-batch response, updates real-time progress,
+  // sends batch 1, etc. This gives true progress (no fake animation), accurate
+  // elapsed time, and precise ETA. Resume is dedup-safe (re-sending completed
+  // batches = 0 duplicates via server name-based dedup).
+  const handleUpload = useCallback(async (resumeFromBatch = 0) => {
     if (!selectedFile) return
     setIsUploading(true)
     setError(null)
+    setStartBatch(resumeFromBatch)
     onStateChange('processing')
 
-    try {
+    const startTime = Date.now()
+    let accCreated = 0
+    let accSkipped = 0
+    let accFailed = 0
+    let accBarcodeCount = 0
+    const allErrors: string[] = []
+    let totalBatches = 0
+    let totalProducts = 0
+    let currentBatch = resumeFromBatch
+
+    // Initialize processing state for UI
+    setProcessingState({
+      totalProducts: 0,
+      totalBatches: 0,
+      currentBatch,
+      batches: [],
+      totalCreated: 0,
+      totalSkipped: 0,
+      totalFailed: 0,
+      errors: [],
+      startTime,
+      batchError: null,
+      isProcessing: true,
+    })
+    setElapsedMs(0)
+
+    // Sequential batch loop
+    while (true) {
+      // Mark current batch as in_progress
+      setProcessingState(prev => prev ? {
+        ...prev,
+        currentBatch,
+        batches: [
+          ...prev.batches.filter(b => b.batchNumber !== currentBatch),
+          { batchNumber: currentBatch, status: 'in_progress', created: 0, skipped: 0, failed: 0, durationMs: 0 },
+        ],
+      } : null)
+
       const formData = new FormData()
       formData.append('file', selectedFile)
       formData.append('mode', mode)
-      if (resumeFromBatch && resumeFromBatch > 0) {
-        formData.append('startBatch', String(resumeFromBatch))
+      formData.append('batchNumber', String(currentBatch))
+
+      let data: any
+      try {
+        const res = await fetch('/api/migration/import', {
+          method: 'POST',
+          body: formData,
+        })
+
+        // MIG-BATCH-V2: Handle non-JSON responses (server 500 HTML error pages,
+        // gateway timeouts, etc.) — never crash on res.json() parse failure.
+        const contentType = res.headers.get('content-type') || ''
+        if (!contentType.includes('application/json')) {
+          const text = await res.text().catch(() => '')
+          data = {
+            error: `Server mengembalikan respons non-JSON (${res.status}): ${text.substring(0, 200) || 'Empty response'}`,
+          }
+        } else {
+          data = await res.json()
+        }
+      } catch (fetchErr) {
+        data = {
+          error: fetchErr instanceof Error ? fetchErr.message : 'Network error — gagal terhubung ke server',
+        }
       }
 
-      const res = await fetch('/api/migration/import', {
-        method: 'POST',
-        body: formData,
-      })
+      // Batch failed (server error, non-JSON, or BATCH_FAILED status)
+      if (!data || data.error || data.status === 'BATCH_FAILED') {
+        const errMsg = data?.error || data?.batchError || 'Batch gagal diproses'
+        const batchCreated = data?.batchCreated || 0
+        const batchSkipped = data?.batchSkipped || 0
+        const batchFailedRows = data?.batchFailed || 0
+        const batchDurationMs = data?.batchDurationMs || 0
+        const batchErrors: string[] = data?.errors || []
+        totalProducts = data?.totalProducts || totalProducts
+        totalBatches = data?.totalBatches || totalBatches
 
-      const data = await res.json()
+        allErrors.push(...batchErrors)
+        accCreated += batchCreated
+        accSkipped += batchSkipped
+        accFailed += batchFailedRows
 
-      if (!res.ok || data.error) {
-        setError(data.error || data.details || 'Gagal memproses file')
-        onStateChange('uploading')
+        setProcessingState(prev => prev ? {
+          ...prev,
+          totalProducts,
+          totalBatches,
+          totalCreated: accCreated,
+          totalSkipped: accSkipped,
+          totalFailed: accFailed,
+          errors: [...allErrors],
+          batchError: errMsg,
+          isProcessing: false,
+          batches: [
+            ...prev.batches.filter(b => b.batchNumber !== currentBatch),
+            { batchNumber: currentBatch, status: 'failed', created: batchCreated, skipped: batchSkipped, failed: batchFailedRows, durationMs: batchDurationMs },
+          ],
+        } : null)
+
+        // Build PARTIAL result for the success screen
+        const importResult: ImportResult = {
+          productsCreated: accCreated,
+          variantsCreated: 0,
+          productsSkipped: accSkipped,
+          totalCategories: 0,
+          barcodeCount: accBarcodeCount,
+          mode,
+          errors: allErrors,
+          warnings: [],
+          status: 'PARTIAL',
+          totalProducts,
+          totalBatches,
+          completedBatches: currentBatch,
+          currentBatch,
+          failedRows: accFailed,
+          remainingProducts: data?.remainingProducts ?? Math.max(0, totalProducts - (currentBatch * 50)),
+          startBatch: currentBatch,
+          batchError: errMsg,
+        }
+        setResult(importResult)
+        setStartBatch(currentBatch)
+        onStateChange('success')
         setIsUploading(false)
+        onSuccess(importResult)
         return
       }
 
-      const importResult: ImportResult = {
-        productsCreated: data.productsCreated,
-        variantsCreated: data.variantsCreated,
-        productsSkipped: data.productsSkipped,
-        totalCategories: data.totalCategories,
-        barcodeCount: data.barcodeCount,
-        mode,
-        errors: data.errors || [],
-        warnings: data.warnings || [],
-        inventoryItemsCreated: data.inventoryItemsCreated,
-        inventoryItemsSkipped: data.inventoryItemsSkipped,
-        inventoryItemsUpdated: data.inventoryItemsUpdated,
-        migrationDataCleaned: data.migrationDataCleaned,
-        compositionsCreated: data.compositionsCreated,
-        totalStock: data.totalStock,
-        totalModalValue: data.totalModalValue,
-        // MIG-BATCH fields
-        status: data.status,
-        totalProducts: data.totalProducts,
-        totalBatches: data.totalBatches,
-        completedBatches: data.completedBatches,
-        currentBatch: data.currentBatch,
-        failedRows: data.failedRows,
-        remainingProducts: data.remainingProducts,
-        effectiveMaxProducts: data.effectiveMaxProducts,
-        startBatch: data.startBatch,
-        batchError: data.batchError,
+      // Batch succeeded — accumulate stats
+      const batchCreated = data.batchCreated || 0
+      const batchSkipped = data.batchSkipped || 0
+      const batchFailedRows = data.batchFailed || 0
+      const batchDurationMs = data.batchDurationMs || 0
+      const batchErrors: string[] = data.errors || []
+      totalProducts = data.totalProducts || totalProducts
+      totalBatches = data.totalBatches || totalBatches
+      accCreated += batchCreated
+      accSkipped += batchSkipped
+      accFailed += batchFailedRows
+      accBarcodeCount += data.barcodeCount || 0
+      allErrors.push(...batchErrors)
+
+      setProcessingState(prev => prev ? {
+        ...prev,
+        totalProducts,
+        totalBatches,
+        totalCreated: accCreated,
+        totalSkipped: accSkipped,
+        totalFailed: accFailed,
+        errors: [...allErrors],
+        batches: [
+          ...prev.batches.filter(b => b.batchNumber !== currentBatch),
+          { batchNumber: currentBatch, status: 'done', created: batchCreated, skipped: batchSkipped, failed: batchFailedRows, durationMs: batchDurationMs },
+        ],
+      } : null)
+
+      // Last batch — build final COMPLETED result
+      if (data.isLastBatch) {
+        const importResult: ImportResult = {
+          productsCreated: accCreated,
+          variantsCreated: data.variantsCreated || 0,
+          productsSkipped: accSkipped,
+          totalCategories: data.totalCategories || 0,
+          barcodeCount: accBarcodeCount,
+          mode,
+          errors: allErrors,
+          warnings: data.warnings || [],
+          inventoryItemsCreated: data.inventoryItemsCreated,
+          inventoryItemsSkipped: data.inventoryItemsSkipped,
+          inventoryItemsUpdated: data.inventoryItemsUpdated,
+          migrationDataCleaned: data.migrationDataCleaned,
+          compositionsCreated: data.compositionsCreated,
+          totalStock: data.totalStock,
+          totalModalValue: data.totalModalValue,
+          status: allErrors.length > 0 ? 'COMPLETED_WITH_ERRORS' : 'COMPLETED',
+          totalProducts,
+          totalBatches,
+          completedBatches: totalBatches,
+          currentBatch,
+          failedRows: accFailed,
+          remainingProducts: 0,
+          startBatch: 0,
+          batchError: null,
+        }
+        setResult(importResult)
+        setProcessingState(prev => prev ? { ...prev, isProcessing: false } : null)
+        onStateChange('success')
+        setIsUploading(false)
+        onSuccess(importResult)
+        return
       }
-      setResult(importResult)
-      onStateChange('success')
-      setIsUploading(false)
-      onSuccess(importResult)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Gagal memproses file')
-      onStateChange('uploading')
-      setIsUploading(false)
+
+      // Next batch
+      currentBatch++
     }
   }, [selectedFile, mode, onStateChange, onSuccess])
 
@@ -423,41 +605,174 @@ export function MigrationWizard({
             </motion.div>
           )}
 
-          {/* ═══════ STEP 2: PROCESSING (real — no fake progress) ═══════ */}
-          {wizardStep === 'processing' && (
-            <motion.div
-              key="processing"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              transition={{ duration: 0.25 }}
-              className="py-8 space-y-4"
-            >
-              <div className="text-center space-y-3">
-                <div className="inline-flex items-center justify-center h-14 w-14 rounded-xl bg-emerald-500/15 border border-emerald-500/20">
-                  <Loader2 className="h-7 w-7 text-emerald-400 animate-spin" />
+          {/* ═══════ STEP 2: PROCESSING (real-time per-batch progress) ═══════ */}
+          {wizardStep === 'processing' && (processingState ? (() => {
+            const ps = processingState
+            const doneBatches = ps.batches.filter(b => b.status === 'done')
+            const completedCount = doneBatches.length
+            const totalDurationMs = doneBatches.reduce((sum, b) => sum + b.durationMs, 0)
+            const avgBatchMs = completedCount > 0 ? totalDurationMs / completedCount : 0
+            const remainingBatches = Math.max(0, ps.totalBatches - completedCount)
+            const etaMs = avgBatchMs * remainingBatches
+            const processedProducts = ps.totalCreated + ps.totalSkipped + ps.totalFailed
+            const progressPct = ps.totalProducts > 0 ? Math.min(100, Math.round((processedProducts / ps.totalProducts) * 100)) : 0
+            const currentBatchNum = ps.currentBatch
+
+            return (
+              <motion.div
+                key="processing"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                transition={{ duration: 0.25 }}
+                className="py-6 space-y-4"
+              >
+                {/* Header */}
+                <div className="text-center space-y-2">
+                  <div className="inline-flex items-center justify-center h-12 w-12 rounded-xl bg-emerald-500/15 border border-emerald-500/20">
+                    <Loader2 className="h-6 w-6 text-emerald-400 animate-spin" />
+                  </div>
+                  <h3 className="text-sm font-bold text-white">Migrasi Sedang Berjalan</h3>
+                  {startBatch > 0 && (
+                    <p className="text-[11px] text-amber-300">
+                      Melanjutkan dari batch {startBatch + 1} (dedup aman — produk yang sudah dibuat akan dilewati)
+                    </p>
+                  )}
                 </div>
-                <div>
-                  <h3 className="text-sm font-bold text-white">Memproses Migrasi...</h3>
-                  <p className="text-xs text-slate-400 mt-1">
-                    Server memproses produk secara berurutan dalam batch 50.
-                    {startBatch > 0 && ` Melanjutkan dari batch ${startBatch}.`}
+
+                {/* Progress bar — based on processedProducts / totalProducts (real, not animation) */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-slate-300 font-semibold">{progressPct}% selesai</span>
+                    <span className="text-slate-400 tabular-nums">
+                      {formatNumber(processedProducts)} dari {formatNumber(ps.totalProducts)} produk
+                    </span>
+                  </div>
+                  <div className="relative h-2.5 w-full overflow-hidden rounded-full bg-white/[0.06]">
+                    <div
+                      className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-500 ease-out"
+                      style={{ width: `${progressPct}%` }}
+                    />
+                  </div>
+                </div>
+
+                {/* Batch + time info */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded-lg bg-white/[0.03] border border-white/[0.06] p-2.5 text-center">
+                    <div className="flex items-center justify-center gap-1.5 mb-0.5">
+                      <Layers className="h-3 w-3 text-emerald-400" />
+                      <span className="text-[10px] text-slate-500 uppercase tracking-wide">Batch</span>
+                    </div>
+                    <p className="text-sm font-bold text-white tabular-nums">
+                      {currentBatchNum + 1} <span className="text-slate-500 text-xs">/</span> {ps.totalBatches || '?'}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-white/[0.03] border border-white/[0.06] p-2.5 text-center">
+                    <div className="flex items-center justify-center gap-1.5 mb-0.5">
+                      <Clock className="h-3 w-3 text-cyan-400" />
+                      <span className="text-[10px] text-slate-500 uppercase tracking-wide">Berjalan</span>
+                    </div>
+                    <p className="text-sm font-bold text-white tabular-nums">{formatDuration(elapsedMs)}</p>
+                  </div>
+                </div>
+
+                {/* ETA */}
+                {etaMs > 0 && completedCount > 0 && (
+                  <div className="flex items-center justify-center gap-1.5 text-[11px] text-slate-400">
+                    <Hourglass className="h-3 w-3 text-amber-400" />
+                    <span>Perkiraan selesai: <strong className="text-amber-300 tabular-nums">{formatDuration(etaMs)}</strong> lagi</span>
+                  </div>
+                )}
+
+                {/* Stats grid: Dibuat / Dilewati / Gagal / Sisa */}
+                <div className="grid grid-cols-4 gap-1.5">
+                  <div className="text-center p-2 rounded-lg bg-emerald-500/[0.06] border border-emerald-500/10">
+                    <p className="text-sm font-bold text-emerald-300 tabular-nums">{formatNumber(ps.totalCreated)}</p>
+                    <p className="text-[9px] text-slate-500 mt-0.5">Dibuat</p>
+                  </div>
+                  <div className="text-center p-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+                    <p className="text-sm font-bold text-slate-300 tabular-nums">{formatNumber(ps.totalSkipped)}</p>
+                    <p className="text-[9px] text-slate-500 mt-0.5">Dilewati</p>
+                  </div>
+                  <div className="text-center p-2 rounded-lg bg-amber-500/[0.06] border border-amber-500/10">
+                    <p className="text-sm font-bold text-amber-300 tabular-nums">{formatNumber(ps.totalFailed)}</p>
+                    <p className="text-[9px] text-slate-500 mt-0.5">Gagal</p>
+                  </div>
+                  <div className="text-center p-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+                    <p className="text-sm font-bold text-slate-300 tabular-nums">{formatNumber(Math.max(0, ps.totalProducts - processedProducts))}</p>
+                    <p className="text-[9px] text-slate-500 mt-0.5">Sisa</p>
+                  </div>
+                </div>
+
+                {/* Per-batch status list */}
+                {ps.totalBatches > 0 && ps.totalBatches <= 20 && (
+                  <div className="rounded-lg bg-white/[0.02] border border-white/[0.04] p-2.5 space-y-1.5">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <ListChecks className="h-3 w-3 text-slate-400" />
+                      <span className="text-[10px] text-slate-500 uppercase tracking-wide">Status Batch</span>
+                    </div>
+                    <div className="max-h-32 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
+                      {Array.from({ length: ps.totalBatches }, (_, i) => {
+                        const batch = ps.batches.find(b => b.batchNumber === i)
+                        const status = batch?.status || (i < ps.currentBatch ? 'done' : 'pending')
+                        return (
+                          <div key={i} className="flex items-center gap-2 text-[11px]">
+                            {status === 'done' ? (
+                              <CircleCheck className="h-3 w-3 text-emerald-400 shrink-0" />
+                            ) : status === 'in_progress' ? (
+                              <Loader2 className="h-3 w-3 text-cyan-400 animate-spin shrink-0" />
+                            ) : status === 'failed' ? (
+                              <CircleAlert className="h-3 w-3 text-red-400 shrink-0" />
+                            ) : (
+                              <div className="h-3 w-3 rounded-full border border-slate-600 shrink-0" />
+                            )}
+                            <span className={cn(
+                              'tabular-nums',
+                              status === 'done' ? 'text-slate-300' :
+                              status === 'in_progress' ? 'text-cyan-300 font-semibold' :
+                              status === 'failed' ? 'text-red-300' : 'text-slate-600'
+                            )}>
+                              Batch {i + 1}
+                            </span>
+                            {batch?.status === 'done' && (
+                              <span className="text-[9px] text-slate-500 ml-auto tabular-nums">
+                                {batch.created}d · {batch.skipped}s · {batch.failed}f · {formatDuration(batch.durationMs)}
+                              </span>
+                            )}
+                            {batch?.status === 'failed' && (
+                              <span className="text-[9px] text-red-400 ml-auto">gagal</span>
+                            )}
+                            {status === 'in_progress' && (
+                              <span className="text-[9px] text-cyan-400 ml-auto">memproses…</span>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Current batch database write indicator */}
+                <div className="rounded-lg bg-white/[0.03] border border-white/[0.06] p-3 space-y-1.5">
+                  <div className="flex items-center gap-2 text-xs text-slate-300">
+                    <Database className="h-3.5 w-3.5 text-emerald-400" />
+                    <span>
+                      Batch {currentBatchNum + 1} sedang disimpan ke database
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-slate-500 pl-5">
+                    Batch yang sudah selesai tetap tersimpan jika proses terhenti.
+                    Jangan tutup halaman ini.
                   </p>
                 </div>
-              </div>
-
-              {/* Real server work indicator */}
-              <div className="rounded-lg bg-white/[0.03] border border-white/[0.06] p-3 space-y-2">
-                <div className="flex items-center gap-2 text-xs text-slate-300">
-                  <Database className="h-3.5 w-3.5 text-emerald-400" />
-                  <span>Menulis ke database (batch aman, tidak bisa dibatalkan)</span>
-                </div>
-                <p className="text-[10px] text-slate-500 pl-5">
-                  Jangan tutup halaman ini. Batch yang sudah selesai tetap tersimpan walau terjadi error.
-                </p>
-              </div>
-            </motion.div>
-          )}
+              </motion.div>
+            )
+          })() : (
+            <div className="py-8 text-center">
+              <Loader2 className="h-8 w-8 text-emerald-400 animate-spin mx-auto" />
+              <p className="text-xs text-slate-400 mt-3">Memulai migrasi…</p>
+            </div>
+          ))}
 
           {/* ═══════ STEP 3: RESULT (success / partial / failed) ═══════ */}
           {wizardStep === 'success' && result && (

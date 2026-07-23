@@ -377,6 +377,11 @@ export async function POST(request: NextRequest) {
     // Dedup is name-based (tx.product.findFirst by name), so resuming is
     // inherently safe: already-created products become "skipped duplicates".
     const startBatchParam = Math.max(0, parseInt(String(formData.get('startBatch') || '0')) || 0)
+    // MIG-BATCH-V2: one-request-per-batch mode. When batchNumber is provided,
+    // the route processes ONLY that batch and returns per-batch stats. The
+    // frontend loops through batches 0..N-1 for real-time progress.
+    const batchNumberParamRaw = parseInt(String(formData.get('batchNumber') || ''))
+    const singleBatchMode = !isNaN(batchNumberParamRaw)
 
     if (!file) {
       return safeJsonError('File tidak ditemukan', 400)
@@ -632,15 +637,35 @@ export async function POST(request: NextRequest) {
     const nonVarianRows = nonVarianSheet?.rows || []
     const totalProducts = nonVarianRows.length
     const totalBatches = totalProducts > 0 ? Math.ceil(totalProducts / BATCH_SIZE) : 0
-    let completedBatches = startBatchParam
-    let currentBatch = startBatchParam
+
+    // MIG-BATCH-V2: validate batchNumber for single-batch mode
+    if (singleBatchMode) {
+      if (batchNumberParamRaw < 0 || batchNumberParamRaw >= totalBatches) {
+        return safeJsonError(
+          `Batch tidak valid: ${batchNumberParamRaw}. Total batch: ${totalBatches}${totalBatches === 0 ? ' (file kosong atau tidak ada sheet non-varian)' : ''}.`,
+          400
+        )
+      }
+    }
+
+    const targetBatch = singleBatchMode ? batchNumberParamRaw : startBatchParam
+    let completedBatches = targetBatch
+    let currentBatch = targetBatch
     let batchFailed = false
     let batchError: string | null = null
+    let batchDurationMs = 0
 
-    for (let b = startBatchParam; b < totalBatches; b++) {
+    // MIG-BATCH-V2: In single-batch mode, process only targetBatch. In old
+    // mode (backward compat), process all batches from startBatchParam to end.
+    const targetBatches = singleBatchMode
+      ? [targetBatch]
+      : Array.from({ length: totalBatches - startBatchParam }, (_, i) => i + startBatchParam)
+
+    for (const b of targetBatches) {
       currentBatch = b
       const batchStart = b * BATCH_SIZE
       const batchEnd = Math.min(batchStart + BATCH_SIZE, totalProducts)
+      const batchStartTime = Date.now()
 
       try {
         // MIG-BATCH-TEST: Forced failure hook for PARTIAL scenario verification.
@@ -1031,10 +1056,12 @@ export async function POST(request: NextRequest) {
           timeout: 120000,
         })
         completedBatches = b + 1
+        batchDurationMs = Date.now() - batchStartTime
       } catch (batchErr) {
         console.error(`[migration] Batch ${b + 1}/${totalBatches} failed:`, batchErr)
         batchFailed = true
         batchError = batchErr instanceof Error ? batchErr.message : String(batchErr)
+        batchDurationMs = Date.now() - batchStartTime
         // STOP — do not process later batches. Completed batches stay committed.
         break
       }
@@ -1044,7 +1071,11 @@ export async function POST(request: NextRequest) {
     // Only process if non_varian batches didn't fail. These sheets run in a
     // single transaction (they don't have the Neon Free giant-write risk
     // because varian/inventory/komposisi are typically small in migration).
-    if (!batchFailed) {
+    // MIG-BATCH-V2: In single-batch mode, only process remaining sheets on
+    // the LAST batch (so they run exactly once, after all products exist).
+    const isLastBatchTarget = singleBatchMode && targetBatch === totalBatches - 1
+    const shouldProcessRemainingSheets = !batchFailed && (!singleBatchMode || isLastBatchTarget)
+    if (shouldProcessRemainingSheets) {
       try {
         await db.$transaction(async (tx) => {
           for (const s of sheetsToProcess) {
@@ -1542,7 +1573,11 @@ export async function POST(request: NextRequest) {
     // Only log if at least one record was created. Audit log is non-critical
     // (safeAuditLog wraps in try/catch) and uses `db` directly, so it must
     // run AFTER the transaction commits to record the final state.
-    if (productsCreated > 0 || inventoryItemsCreated > 0 || compositionsCreated > 0) {
+    // MIG-BATCH-V2: In single-batch mode, only audit-log on the LAST batch
+    // or on failure (to avoid N audit entries for one migration).
+    const shouldAuditLog = (productsCreated > 0 || inventoryItemsCreated > 0 || compositionsCreated > 0)
+      && (!singleBatchMode || isLastBatchTarget || batchFailed)
+    if (shouldAuditLog) {
       await safeAuditLog({
         action: 'CREATE',
         entityType: 'PRODUCT',
@@ -1568,9 +1603,56 @@ export async function POST(request: NextRequest) {
           warnings: warnings.length,
           fileName: file.name,
           batchError,
+          ...(singleBatchMode ? { singleBatchMode, batchNumber: targetBatch } : {}),
         }),
         outletId,
         userId,
+      })
+    }
+
+    // MIG-BATCH-V2: Per-batch response (single-batch mode).
+    // Frontend loops through batches 0..N-1, accumulating stats locally.
+    // Each response returns THIS batch's stats + global context.
+    if (singleBatchMode) {
+      const failedRowsThisBatch = errors.filter(e => e.startsWith('Baris')).length
+      const batchProcessed = productsCreated + productsSkipped + failedRowsThisBatch
+      const remainingProductsAfter = Math.max(0, totalProducts - ((targetBatch + 1) * BATCH_SIZE))
+      const batchStatus = batchFailed
+        ? 'BATCH_FAILED'
+        : isLastBatchTarget
+          ? 'BATCH_LAST_OK'
+          : 'BATCH_OK'
+
+      return safeJson({
+        batchNumber: targetBatch,
+        totalBatches,
+        totalProducts,
+        batchCreated: productsCreated,
+        batchSkipped: productsSkipped,
+        batchFailed: failedRowsThisBatch,
+        batchProcessed,
+        batchDurationMs,
+        remainingProducts: remainingProductsAfter,
+        isLastBatch: isLastBatchTarget,
+        status: batchStatus,
+        batchError,
+        errors,
+        categoriesCreated,
+        barcodeCount,
+        // Include remaining-sheets stats only on last batch (when they were processed)
+        ...(isLastBatchTarget ? {
+          variantsCreated,
+          inventoryItemsCreated,
+          inventoryItemsSkipped,
+          inventoryItemsUpdated,
+          migrationDataCleaned,
+          compositionsCreated,
+          totalStock,
+          totalModalValue,
+          totalCategories: await db.category.count({ where: { outletId } }),
+          warnings,
+          mode,
+        } : {}),
       })
     }
 

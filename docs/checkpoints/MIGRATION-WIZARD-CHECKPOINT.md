@@ -1,7 +1,7 @@
-# Migration Wizard — Enterprise Upload Capacity Checkpoint
+# Migration Wizard — Enterprise Upload Capacity + Safe Batch Processing Checkpoint
 
-**Last Updated**: 2026-07-23
-**Status**: ✅ PASS — Enterprise unlimited upload capacity restored
+**Last Updated**: 2026-07-23 (Batch Rewrite update)
+**Status**: ✅ PASS — Enterprise unlimited upload capacity + safe 50-row sequential batch processing with PARTIAL failure UX
 
 ---
 
@@ -213,6 +213,242 @@ This fix touches ONLY:
 - Per-sheet truncation removal
 - Transaction timeout
 - Response shape
+
+It does NOT touch:
+- `InventoryConsumptionService` ❌
+- `FEFOEngine` ❌
+- `Product.stock` / `Product.hpp` semantics ❌
+- Void contract ❌
+
+**Compliant.** ✅
+
+---
+
+# MIG-BATCH-REWRITE — Plan Enforcement + Safe Batch Processing + Partial Failure UX
+
+**Date**: 2026-07-23
+**Status**: ✅ PASS — All 12 backend requirements + 6 frontend UX requirements implemented and verified
+
+---
+
+## Problem Statement
+
+The Migration Wizard's `POST /api/migration/import` route wrapped the entire
+import (potentially thousands of rows) in a single `db.$transaction` with a
+120s timeout. This caused:
+
+1. **No plan product-quota enforcement** — `maxProducts` (Free=50, Pro/Enterprise=-1)
+   was not checked before processing. A Free user could upload 5000 products,
+   blowing past their plan limit.
+2. **All-or-nothing atomicity** — one technical failure (DB timeout, unique
+   constraint, OOM) rolled back the entire import. A 10000-row upload that
+   failed at row 9999 lost all 9998 successfully-created products.
+3. **Fake client-side progress** — `migration-wizard.tsx` used `setTimeout`
+   theater to animate steps (Upload → Proses → Simpan → Selesai) that did
+   not reflect actual server state.
+4. **No resume capability** — after a failure, the only option was to re-upload
+   the entire file. The dedup-by-name check prevented duplicate products, but
+   the user had no UI signal that re-uploading was safe.
+5. **No per-row error visibility** — invalid rows were silently skipped
+   (`errors.push("Baris N: ...")`) but the user only saw a count, not which
+   rows failed or why.
+
+## Founder Requirements (12 backend + 6 frontend)
+
+### Backend (12)
+
+1. ✅ Read effective `maxProducts` from `Prisma.Plan.features` (DB-aware).
+2. ✅ Count currently-active products (`db.product.count`).
+3. ✅ Count only the **unique new product records** that will actually be created
+   (dedup by name → excludes already-existing products from the new count).
+4. ✅ Exclude duplicates that will be skipped from the projected total.
+5. ✅ Reject with 403 BEFORE any write if `currentCount + uniqueNew > maxProducts`.
+6. ✅ Split allowed products into sequential batches of `BATCH_SIZE = 50`.
+7. ✅ Each batch in its own `db.$transaction` (independent commit/rollback).
+8. ✅ Product, InventoryItem, composition, opening-stock all aligned to the
+   correct product batch (cross-batch state shared via closures outside tx).
+9. ✅ Never silently truncate rows (no `rows.splice(MAX_ROWS)`).
+10. ✅ Preserve existing dedup behavior (skip-if-name-exists).
+11. ✅ Retry does not create duplicate products (dedup is name-based, so
+    re-uploading completed batches is a no-op).
+12. ✅ Technical batch failure stops processing subsequent batches (sets
+    `batchFailed = true; break`).
+
+### Frontend (6)
+
+1. ✅ Removed fake `simulateProcessing()` setTimeout theater.
+2. ✅ Real progress shown via completed-batches breakdown
+   (`{completedBatches} / {totalBatches} batch selesai`).
+3. ✅ Per-row validation errors rendered with row number + reason in a
+   scrollable list (max-h-32).
+4. ✅ Technical batch failure: completed batches preserved, only the failing
+   batch rolled back, subsequent batches NOT processed.
+5. ✅ Three action buttons on PARTIAL/FAILED:
+   - **Lanjutkan Migrasi** — re-POSTs same file with `startBatch=completedBatches`
+   - **Unduh Daftar Error** — downloads `.txt` of all per-row errors
+   - **Tutup** — closes the wizard
+6. ✅ Resume is dedup-safe: `handleResume()` calls `handleUpload(completedBatches)`
+   which appends `startBatch` to the FormData. The server's existing name-based
+   dedup ensures already-created products are skipped (no duplicates).
+
+## Required Response Shape (now returned by route)
+
+```ts
+{
+  // Existing fields
+  productsCreated, productsSkipped, variantsCreated, totalCategories,
+  barcodeCount, errors, warnings, inventoryItemsCreated, ...
+  // MIG-BATCH fields
+  status: 'COMPLETED' | 'COMPLETED_WITH_ERRORS' | 'PARTIAL' | 'FAILED',
+  totalProducts: number,         // total rows that will be processed
+  totalBatches: number,          // ceil(totalProducts / 50)
+  completedBatches: number,      // batches that committed successfully
+  currentBatch: number,          // last batch attempted (failed or succeeded)
+  failedRows: number,            // per-row validation errors count
+  remainingProducts: number,     // totalProducts - (completedBatches * 50)
+  effectiveMaxProducts: number,  // from Plan.features (DB-aware, -1 = unlimited)
+  startBatch: number,            // echo of the request's startBatch param
+  batchError: string | null,     // error message from the failed batch (if any)
+}
+```
+
+## Status Determination Logic
+
+```ts
+type MigrationStatus = 'COMPLETED' | 'COMPLETED_WITH_ERRORS' | 'PARTIAL' | 'FAILED'
+
+if (batchFailed) {
+  status = (completedBatches > 0 || productsCreated > 0) ? 'PARTIAL' : 'FAILED'
+} else if (errors.length > 0) {
+  status = 'COMPLETED_WITH_ERRORS'
+} else {
+  status = 'COMPLETED'
+}
+```
+
+## Files Changed
+
+| File | Change |
+|------|--------|
+| `src/app/api/migration/import/route.ts` | Pre-flight maxProducts quota check + 50-row sequential batch processing in independent transactions + startBatch resume support + status determination + enriched response shape |
+| `src/components/migration/migration-wizard.tsx` | Removed `simulateProcessing()` fake progress + real batch progress breakdown + PARTIAL/FAILED status UX with 3 action buttons + per-row error list with download + resume handler |
+| `src/components/migration/migration-banner.tsx` | Added `MigrationStatus` type export + extended `ImportResult` interface with MIG-BATCH fields |
+
+**Not modified** (per founder constraint):
+- `src/lib/config/plan-config.ts` ❌
+- `prisma/schema.prisma` ❌
+- Inventory engine / FEFO / HPP / void contract ❌
+- `src/app/api/products/bulk-upload/route.ts` ❌
+- `src/app/api/products/bulk-update-excel/route.ts` ❌
+- Product page UX ❌
+
+## Verification Results (4 end-to-end tests + 2 browser-verified UI states)
+
+All 4 backend tests + 2 UI states PASSED.
+
+### Backend TEST 1: Smoke (120 rows / Enterprise)
+
+- File: `/tmp/test-batch-120.xlsx` (120 unique products, sheet "Produk Non-Varian")
+- Mode: `product_only`, Outlet: `enterprise`, DB `maxProducts = -1`
+- HTTP: 200 (447ms)
+- Response:
+  - `status: COMPLETED` ✅
+  - `totalProducts: 120`, `totalBatches: 3`, `completedBatches: 3` ✅
+  - `productsCreated: 120`, `productsSkipped: 0`, `failedRows: 0` ✅
+  - `remainingProducts: 0`, `batchError: null` ✅
+- DB diff: +120 (matches productsCreated) ✅
+- **PASS** ✅
+
+### Backend TEST 2: Dedup / resume safety (re-upload same 120-row file)
+
+- File: same `/tmp/test-batch-120.xlsx`, `startBatch=0`
+- HTTP: 200
+- Response:
+  - `status: COMPLETED` ✅
+  - `productsCreated: 0` ✅ (no duplicates created)
+  - `productsSkipped: 120` ✅ (all skipped as existing)
+- DB diff: 0 ✅ (DB unchanged)
+- **PASS** ✅ — proves resume is safe: re-sending completed batches = no duplicates
+
+### Backend TEST 3: Quota rejection (Free plan, maxProducts=50)
+
+- File: `/tmp/test-quota-48.xlsx` (48 new products)
+- Outlet: `free`, DB `maxProducts = 50`, `maxBulkUploadRows = 1000` (to isolate
+  the maxProducts check from the maxBulkUploadRows check)
+- Existing products: 123 (left over from TEST 1+2, prior to cleanup)
+- Projected total: 123 + 48 = 171 > 50 → must reject
+- HTTP: 403 ✅
+- Response: `{"error":"Batas produk tercapai. Produk saat ini: 123 + produk baru unik: 48 = 171, melebihi batas paket (50). Silakan upgrade paket."}` ✅
+- DB diff: 0 ✅ (rejected BEFORE any write)
+- **PASS** ✅ — pre-flight quota enforcement works
+
+### Backend TEST 4: Partial failure (force batch 2 fail)
+
+- File: `/tmp/test-batch-120.xlsx`, env `MIG_FORCE_FAIL_BATCH=1`
+- Expected: batch 1 (50 rows) commits, batch 2 throws → rolled back, batch 3 NOT run
+- HTTP: 200
+- Response:
+  - `status: PARTIAL` ✅
+  - `totalBatches: 3`, `completedBatches: 1` ✅
+  - `productsCreated: 50`, `remainingProducts: 70` ✅
+  - `batchError: "FORCED_FAIL: batch 2 (test hook)"` ✅
+- DB diff: +50 ✅ (batch 1 preserved, batch 2 rolled back, batch 3 not run)
+- **PASS** ✅
+
+### UI State 1: COMPLETED (browser-verified)
+
+- Wizard flow: Dashboard → "Import Sekarang" → "Produk Saja" → upload → "Mulai Import"
+- Result dialog rendered with:
+  - Title: "Import Berhasil"
+  - Status badge: "120 item berhasil diimport"
+  - **Progress Batch** section with 4 stats: Dibuat=120, Dilewati (duplikat)=0, Gagal=0, Sisa=(empty)
+  - Caption: "Batch 3 / 3 selesai · 120 total produk"
+  - Stats grid: 120 Produk, 0 Varian, 1 Kategori, 120 Barcode
+  - Primary CTA: "Mulai Berjualan"
+- Screenshot: `/tmp/mig-completed.png`
+- **PASS** ✅
+
+### UI State 2: PARTIAL (browser-verified)
+
+- Wizard flow: same as above, but with `MIG_FORCE_FAIL_BATCH=1` set on server
+- Result dialog rendered with:
+  - Title: "Migrasi Sebagian Berhasil" (amber)
+  - Status badge: "1 dari 3 batch selesai" (amber)
+  - **Progress Batch** section: Dibuat=50, Dilewati=0, Gagal=0, Sisa=70
+  - Caption: "Batch 1 / 3 selesai · 120 total produk"
+  - **Batch Gagal** warning card: "FORCED_FAIL: batch 2 (test hook)"
+  - Subtext: "Batch dibuat: 50, Sisa: 70"
+  - Action buttons: **Lanjutkan Migrasi (dari batch 1)** + **Tutup**
+  - (Unduh Daftar Error hidden because `hasErrors = false` — correct,
+    only per-row errors trigger the download button)
+- Screenshot: `/tmp/mig-partial.png`
+- **PASS** ✅
+
+### Post-test cleanup
+
+- 120 BT- test products deleted.
+- 3 original products restored from backup.
+- Outlet restored to `accountType = enterprise`.
+- Free plan `maxBulkUploadRows` restored to 0.
+- All temporary test scripts removed from repo.
+- DB state verified: 3 original products, outlet=enterprise, plans intact.
+
+## Lint
+
+`bun run lint` → 0 errors, 0 warnings on `src/` (only the now-deleted temporary
+test scripts had `no-require-imports` errors). ✅
+
+## Architecture Lock Compliance
+
+Per `docs/ARCHITECTURE-LOCK.md`, the Migration Wizard is explicitly **out of scope**
+for the core inventory contract lock.
+
+This rewrite touches ONLY:
+- Plan quota enforcement (pre-flight maxProducts check)
+- Batch transaction boundaries (50 rows per tx, sequential)
+- Resume support (startBatch param)
+- Response shape (status + batch progress fields)
+- Frontend UX (real progress, PARTIAL UX, 3 buttons, resume)
 
 It does NOT touch:
 - `InventoryConsumptionService` ❌
