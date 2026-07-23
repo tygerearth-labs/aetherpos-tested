@@ -959,112 +959,9 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                 )}
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label className="text-xs text-slate-400">Kategori</Label>
-                  <select
-                    value={form.categoryId}
-                    onChange={(e) => updateField('categoryId', e.target.value)}
-                    className="w-full h-10 text-sm bg-nebula border border-white/[0.06] text-white rounded-lg px-3 focus:outline-none focus:ring-1 focus:theme-ring focus:theme-border appearance-none cursor-pointer"
-                  >
-                    <option value="">Tanpa Kategori</option>
-                    {categories.map((cat) => (
-                      <option key={cat.id} value={cat.id}>
-                        {cat.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs text-slate-400">Satuan</Label>
-                  <select
-                    value={form.unit}
-                    onChange={(e) => updateField('unit', e.target.value)}
-                    className="w-full h-10 text-sm bg-nebula border border-white/[0.06] text-white rounded-lg px-3 focus:outline-none focus:ring-1 focus:theme-ring focus:theme-border appearance-none cursor-pointer"
-                  >
-                    {UNITS.map((u) => (
-                      <option key={u.value} value={u.value}>
-                        {u.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
 
-              {/* ── Advanced Options (SKU, Image) — collapsed by default ── */}
-              <details className="group">
-                <summary className="flex items-center gap-1.5 cursor-pointer text-[11px] text-slate-500 hover:text-slate-300 transition-colors list-none">
-                  <ChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" />
-                  <span>Opsi Lanjutan (SKU, Gambar)</span>
-                </summary>
-                <div className="mt-2 space-y-3">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs text-slate-400">SKU</Label>
-                    <Input
-                      value={form.sku}
-                      onChange={(e) => updateField('sku', e.target.value)}
-                      placeholder="Opsional — Auto-generate jika kosong"
-                      maxLength={22}
-                      className="bg-nebula border-white/[0.06] text-white placeholder:text-slate-600 h-10 text-sm rounded-lg focus-visible:theme-ring focus-visible:theme-border"
-                    />
-                    <p className="text-[10px] text-slate-600">Kosongkan untuk auto-generate (max 22 karakter). Barcode akan otomatis dibuat dari SKU.</p>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label className="text-xs text-slate-400">Gambar Produk (URL)</Label>
-                    <Input
-                      value={form.image}
-                      onChange={(e) => updateField('image', e.target.value)}
-                      placeholder="Opsional — https://..."
-                      className="bg-nebula border-white/[0.06] text-white placeholder:text-slate-600 h-10 text-sm rounded-lg focus-visible:theme-ring focus-visible:theme-border"
-                    />
-                    {form.image.trim() && (
-                      <div className="relative group/img rounded-xl overflow-hidden border border-white/[0.06] bg-nebula mt-2">
-                        <div
-                          className="relative w-full aspect-square max-w-[160px] bg-white/[0.02] flex items-center justify-center overflow-hidden"
-                        >
-                          <img
-                            src={form.image.trim()}
-                            alt="Preview"
-                            className="w-full h-full object-contain p-2"
-                            onError={(e) => {
-                              (e.target as HTMLImageElement).style.display = 'none'
-                              ;(e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden')
-                            }}
-                            onLoad={(e) => {
-                              (e.target as HTMLImageElement).style.display = 'block'
-                              ;(e.target as HTMLImageElement).nextElementSibling?.classList.add('hidden')
-                            }}
-                          />
-                          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 hidden">
-                            <Package className="h-6 w-6 text-slate-700" strokeWidth={1.5} />
-                            <span className="text-[10px] text-slate-600">Gagal memuat gambar</span>
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => updateField('image', '')}
-                          className="absolute top-1.5 right-1.5 h-5 w-5 rounded-full bg-black/50 backdrop-blur-sm text-white/70 hover:text-white flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity"
-                        >
-                          <X className="h-3 w-3" strokeWidth={2} />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </details>
-            </div>
-
-            <Separator className="bg-white/[0.04]" />
-
-            {/* ========== SECTION: Harga & Stok (non-variant mode) ========== */}
-            {!hasVariants && (
-              <div className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <div className="h-1 w-1 rounded-full theme-bg-light" />
-                  <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Harga & Stok</span>
-                </div>
-
+              {/* Harga Jual & Stok — non-variant mode, shown by default */}
+              {!hasVariants && (
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label className="text-xs text-slate-300 font-medium">
@@ -1098,71 +995,6 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                     </div>
                   </div>
 
-                  {isOwner && !hasComposition && (
-                    <div className="space-y-1.5">
-                      <Label className="text-xs text-slate-400">
-                        HPP <span className="text-slate-600">(Modal/Isi)</span>
-                      </Label>
-                      <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-500 font-medium">Rp</span>
-                        <Input
-                          type="number"
-                          min="0"
-                          step="any"
-                          value={form.hpp}
-                          onChange={(e) => updateField('hpp', e.target.value)}
-                          placeholder="0"
-                          className="bg-nebula border-white/[0.06] text-white placeholder:text-slate-600 h-10 text-sm rounded-lg pl-8 focus-visible:theme-ring focus-visible:theme-border"
-                        />
-                      </div>
-                      <p className="text-[10px] text-slate-600">Kosongkan jika belum tahu — akan diupdate otomatis saat catat pembelian</p>
-                    </div>
-                  )}
-                  {isOwner && hasComposition && (
-                    <div className="space-y-1.5">
-                      <Label className="text-xs text-slate-400">
-                        HPP <span className="text-slate-500 font-normal">(auto dari komposisi)</span>
-                      </Label>
-                      <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-500 font-medium">Rp</span>
-                        <Input
-                          type="number"
-                          min="0"
-                          step="any"
-                          value={autoHpp || ''}
-                          readOnly
-                          placeholder="Auto"
-                          className="bg-nebula/50 border-white/[0.06] text-slate-400 placeholder:text-slate-600 h-10 text-sm rounded-lg pl-8 cursor-not-allowed"
-                        />
-                      </div>
-                      <p className="text-[10px] text-slate-500">Dihitung otomatis dari harga bahan × jumlah per item</p>
-                    </div>
-                  )}
-                </div>
-
-                {/* Profit preview */}
-                {isOwner && form.price && Number(form.price) > 0 && (
-                  <div className="bg-nebula/80 border border-white/[0.06] rounded-lg p-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] text-slate-500">
-                        {hasComposition ? 'Estimasi Keuntungan (Auto HPP)' : 'Estimasi Keuntungan'}
-                      </span>
-                      <span className="text-sm font-semibold theme-text">
-                        {formatCurrency(Number(form.price) - (hasComposition ? autoHpp : Number(form.hpp) || 0))}
-                      </span>
-                    </div>
-                    {(hasComposition ? autoHpp > 0 : Number(form.hpp) > 0) && (
-                      <div className="flex items-center justify-between mt-1">
-                        <span className="text-[10px] text-slate-600">Margin</span>
-                        <span className="text-[11px] text-slate-400">
-                          {(((Number(form.price) - (hasComposition ? autoHpp : Number(form.hpp) || 0)) / Number(form.price)) * 100).toFixed(1)}%
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label className="text-xs text-slate-300 font-medium">
                       Stok Awal
@@ -1194,6 +1026,130 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                       </p>
                     )}
                   </div>
+                </div>
+              )}
+
+              {/* Kategori */}
+              <div className="space-y-1.5">
+                <Label className="text-xs text-slate-400">Kategori</Label>
+                <select
+                  value={form.categoryId}
+                  onChange={(e) => updateField('categoryId', e.target.value)}
+                  className="w-full h-10 text-sm bg-nebula border border-white/[0.06] text-white rounded-lg px-3 focus:outline-none focus:ring-1 focus:theme-ring focus:theme-border appearance-none cursor-pointer"
+                >
+                  <option value="">Tanpa Kategori</option>
+                  {categories.map((cat) => (
+                    <option key={cat.id} value={cat.id}>
+                      {cat.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Profit preview — non-variant, owner only */}
+              {isOwner && !hasVariants && form.price && Number(form.price) > 0 && (
+                <div className="bg-nebula/80 border border-white/[0.06] rounded-lg p-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] text-slate-500">
+                      {hasComposition ? 'Estimasi Keuntungan (Auto HPP)' : 'Estimasi Keuntungan'}
+                    </span>
+                    <span className="text-sm font-semibold theme-text">
+                      {formatCurrency(Number(form.price) - (hasComposition ? autoHpp : Number(form.hpp) || 0))}
+                    </span>
+                  </div>
+                  {(hasComposition ? autoHpp > 0 : Number(form.hpp) > 0) && (
+                    <div className="flex items-center justify-between mt-1">
+                      <span className="text-[10px] text-slate-600">Margin</span>
+                      <span className="text-[11px] text-slate-400">
+                        {(((Number(form.price) - (hasComposition ? autoHpp : Number(form.hpp) || 0)) / Number(form.price)) * 100).toFixed(1)}%
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* ========== Detail Tambahan — collapsed by default ========== */}
+            <details className="group">
+              <summary className="flex items-center gap-1.5 cursor-pointer text-[11px] text-slate-500 hover:text-slate-300 transition-colors list-none select-none">
+                <ChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" />
+                <span>Detail Tambahan (SKU, Satuan, HPP, dll)</span>
+              </summary>
+              <div className="mt-3 space-y-3">
+                {/* SKU */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-slate-400">SKU</Label>
+                  <Input
+                    value={form.sku}
+                    onChange={(e) => updateField('sku', e.target.value)}
+                    placeholder="Opsional — Auto-generate jika kosong"
+                    maxLength={22}
+                    className="bg-nebula border-white/[0.06] text-white placeholder:text-slate-600 h-10 text-sm rounded-lg focus-visible:theme-ring focus-visible:theme-border"
+                  />
+                  <p className="text-[10px] text-slate-600">Kosongkan untuk auto-generate (max 22 karakter). Barcode akan otomatis dibuat dari SKU.</p>
+                </div>
+
+                {/* Satuan */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-slate-400">Satuan</Label>
+                  <select
+                    value={form.unit}
+                    onChange={(e) => updateField('unit', e.target.value)}
+                    className="w-full h-10 text-sm bg-nebula border border-white/[0.06] text-white rounded-lg px-3 focus:outline-none focus:ring-1 focus:theme-ring focus:theme-border appearance-none cursor-pointer"
+                  >
+                    {UNITS.map((u) => (
+                      <option key={u.value} value={u.value}>
+                        {u.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* HPP — owner only, non-variant, non-composition */}
+                {isOwner && !hasVariants && !hasComposition && (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-slate-400">
+                      HPP <span className="text-slate-600">(Modal/Isi)</span>
+                    </Label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-500 font-medium">Rp</span>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={form.hpp}
+                        onChange={(e) => updateField('hpp', e.target.value)}
+                        placeholder="0"
+                        className="bg-nebula border-white/[0.06] text-white placeholder:text-slate-600 h-10 text-sm rounded-lg pl-8 focus-visible:theme-ring focus-visible:theme-border"
+                      />
+                    </div>
+                    <p className="text-[10px] text-slate-600">Kosongkan jika belum tahu — akan diupdate otomatis saat catat pembelian</p>
+                  </div>
+                )}
+                {/* HPP — owner only, non-variant, composition auto */}
+                {isOwner && !hasVariants && hasComposition && (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-slate-400">
+                      HPP <span className="text-slate-500 font-normal">(auto dari komposisi)</span>
+                    </Label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-500 font-medium">Rp</span>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={autoHpp || ''}
+                        readOnly
+                        placeholder="Auto"
+                        className="bg-nebula/50 border-white/[0.06] text-slate-400 placeholder:text-slate-600 h-10 text-sm rounded-lg pl-8 cursor-not-allowed"
+                      />
+                    </div>
+                    <p className="text-[10px] text-slate-500">Dihitung otomatis dari harga bahan × jumlah per item</p>
+                  </div>
+                )}
+
+                {/* Low Stock Alert — non-variant */}
+                {!hasVariants && (
                   <div className="space-y-1.5">
                     <Label className="text-xs text-slate-400">
                       Peringatan Stok Rendah
@@ -1207,9 +1163,54 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
                       className="bg-nebula border-white/[0.06] text-white placeholder:text-slate-600 h-10 text-sm rounded-lg focus-visible:theme-ring focus-visible:theme-border"
                     />
                   </div>
+                )}
+
+                {/* Gambar */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-slate-400">Gambar Produk (URL)</Label>
+                  <Input
+                    value={form.image}
+                    onChange={(e) => updateField('image', e.target.value)}
+                    placeholder="Opsional — https://..."
+                    className="bg-nebula border-white/[0.06] text-white placeholder:text-slate-600 h-10 text-sm rounded-lg focus-visible:theme-ring focus-visible:theme-border"
+                  />
+                  {form.image.trim() && (
+                    <div className="relative group/img rounded-xl overflow-hidden border border-white/[0.06] bg-nebula mt-2">
+                      <div
+                        className="relative w-full aspect-square max-w-[160px] bg-white/[0.02] flex items-center justify-center overflow-hidden"
+                      >
+                        <img
+                          src={form.image.trim()}
+                          alt="Preview"
+                          className="w-full h-full object-contain p-2"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).style.display = 'none'
+                            ;(e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden')
+                          }}
+                          onLoad={(e) => {
+                            (e.target as HTMLImageElement).style.display = 'block'
+                            ;(e.target as HTMLImageElement).nextElementSibling?.classList.add('hidden')
+                          }}
+                        />
+                        <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 hidden">
+                          <Package className="h-6 w-6 text-slate-700" strokeWidth={1.5} />
+                          <span className="text-[10px] text-slate-600">Gagal memuat gambar</span>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => updateField('image', '')}
+                        className="absolute top-1.5 right-1.5 h-5 w-5 rounded-full bg-black/50 backdrop-blur-sm text-white/70 hover:text-white flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity"
+                      >
+                        <X className="h-3 w-3" strokeWidth={2} />
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
-            )}
+            </details>
+
+            <Separator className="bg-white/[0.04]" />
 
             {/* ========== SECTION: Variant Toggle ========== */}
             <div className="space-y-3">

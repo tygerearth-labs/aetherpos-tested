@@ -665,10 +665,10 @@ export default function ProductsPage() {
           setStats(data.stats)
         }
       } else {
-        toast.error('Failed to load products')
+        toast.error('Gagal memuat produk')
       }
     } catch {
-      toast.error('Failed to load products')
+      toast.error('Gagal memuat produk')
     } finally {
       setLoading(false)
     }
@@ -709,10 +709,10 @@ export default function ProductsPage() {
           } : prev)
         }
       } else {
-        toast.error('Failed to load product details')
+        toast.error('Gagal memuat detail produk')
       }
     } catch {
-      toast.error('Failed to load product details')
+      toast.error('Gagal memuat detail produk')
     } finally {
       setDetailLoading(false)
     }
@@ -780,7 +780,7 @@ export default function ProductsPage() {
           body: JSON.stringify({ variants: variantData.map(v => ({ id: v.id, quantity: Number(v.quantity) })) }),
         })
         if (res.ok) {
-          toast.success(`Restocked ${restockProduct.name} (${variantData.length} varian)`)
+          toast.success(`Restok ${restockProduct.name} (${variantData.length} varian)`)
           fetchProducts(true) // FIX-102: bust cache after stock mutation
           if (detailOpen && detailProduct?.id === restockProduct.id) {
             fetchDetail(restockProduct, detailPage)
@@ -808,7 +808,7 @@ export default function ProductsPage() {
           body: JSON.stringify({ quantity: Number(restockQty) }),
         })
         if (res.ok) {
-          toast.success(`Restocked ${restockProduct.name} +${restockQty}`)
+          toast.success(`Restok ${restockProduct.name} +${restockQty}`)
           fetchProducts(true) // FIX-102: bust cache after stock mutation
           if (detailOpen && detailProduct?.id === restockProduct.id) {
             fetchDetail({ ...restockProduct, stock: restockProduct.stock + Number(restockQty) }, detailPage)
@@ -950,7 +950,7 @@ export default function ProductsPage() {
     try {
       const value = Number(bulkPriceValue)
       if (isNaN(value)) {
-        toast.error('Invalid value')
+        toast.error('Nilai tidak valid')
         return
       }
       const res = await fetch('/api/products/bulk-update', {
@@ -968,7 +968,7 @@ export default function ProductsPage() {
       })
       if (res.ok) {
         const data = await res.json()
-        toast.success(`Updated ${data.updated} product prices`)
+        toast.success(`Harga diperbarui untuk ${data.updated} produk`)
         setBulkPriceOpen(false)
         setBulkPriceValue('')
         setBulkPriceQuick('')
@@ -977,10 +977,10 @@ export default function ProductsPage() {
         setSelectAllMode(false)
         await forceRefresh()
       } else {
-        toast.error('Failed to update prices')
+        toast.error('Gagal memperbarui harga')
       }
     } catch {
-      toast.error('Failed to update prices')
+      toast.error('Gagal memperbarui harga')
     } finally {
       setBulkPriceSubmitting(false)
     }
@@ -992,7 +992,7 @@ export default function ProductsPage() {
     try {
       const value = Number(bulkStockValue)
       if (isNaN(value)) {
-        toast.error('Invalid value')
+        toast.error('Nilai tidak valid')
         return
       }
       const res = await fetch('/api/products/bulk-update', {
@@ -1010,7 +1010,7 @@ export default function ProductsPage() {
       })
       if (res.ok) {
         const data = await res.json()
-        toast.success(`Updated stock for ${data.updated} products`)
+        toast.success(`Stok diperbarui untuk ${data.updated} produk`)
         setBulkStockOpen(false)
         setBulkStockValue('')
         setSelectedIds(new Set())
@@ -1018,10 +1018,10 @@ export default function ProductsPage() {
         setSelectAllMode(false)
         await forceRefresh()
       } else {
-        toast.error('Failed to update stock')
+        toast.error('Gagal memperbarui stok')
       }
     } catch {
-      toast.error('Failed to update stock')
+      toast.error('Gagal memperbarui stok')
     } finally {
       setBulkStockSubmitting(false)
     }
