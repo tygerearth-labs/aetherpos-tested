@@ -5768,3 +5768,1132 @@ Stage Summary:
   2. Free → Starter rebrand — display label only, internal code `FREE` preserved everywhere (enum, accountType column, PLANS.free config, getPlanFeatures('free') calls, DB rows, migrations). Implementation path: one-line change in getPlanLabel() helper. Entitlements unchanged unless separately approved.
 - **No code touched** — this is a docs-only revision. The blueprint remains approval-gated; no POS redesign work begins until Founder/Product/Engineering sign off on v1.1.
 - **Stable baseline preserved** — commit 8763ac0 (Phase 0.5 complete) is the parent; this v1.1 commit is a clean docs-only child.
+
+---
+Task ID: BLUEPRINT-v1.2
+Agent: Main
+Task: Revise AETHER_UX_BLUEPRINT.md per founder v1.1 review — 4 critical corrections: (1) decouple FEFO from preset → expiry capability; (2) fix Transfer "rare" → optional/location-based; (3) replace hardcoded opname cadence with suggested cadence; (4) redesign Hybrid from "all modules" to adaptive. Plus 2 terminology fixes: drop "Tetap" and "Output". Introduce 3-layer model: Industry Preset / Operational Capabilities / Business Config.
+
+Work Log:
+- Read full §1.3 (v1.1 Material-Based mode table + 1.3.2/1.3.3) and swept all downstream references (onboarding §4.2, nav ordering §6.4 rule 5, glossary §10, open Qs §11, version §12). Found 15 sites needing update across 7 sections.
+- **Section 1.3 — FULL REPLACEMENT** (the core structural change):
+  - Replaced "Business modes (industry presets)" with "Business configuration (3-layer model)"
+  - §1.3.1 Three layers table: (1) Industry Preset = vocabulary, (2) Operational Capabilities = which modules active, (3) Business Configuration = runtime settings. Key principle: preset is cosmetic, capabilities are functional, config is operational. Preset does NOT lock capability set.
+  - §1.3.2 Layer 1 — 6 industry presets (F&B, Retail, Jasa, Produksi/Manufaktur, Percetakan, Hybrid default). Each has Product term / Stock term / Customer term. Presets can OVERLAP (coffee shop + packaged beans = F&B + Retail). "Pelanggan" is default customer term for all material/produksi/cetakan (B2C or B2B). "Output" dropped — replaced with sub-preset vocab (Menu / Produk Jadi / Pesanan).
+  - §1.3.3 Layer 2 — 7 operational capabilities as independent toggles: Sell (always on), Manage Stock, Use Material, Purchase, Multi-Location, Expiry-Sensitive, Insights/AI. Each maps to modules activated + onboarding trigger + plan gate. CRITICAL DECOUPLING notes: FEFO activates via Expiry-Sensitive capability regardless of preset (fixes v1.1 fallacy); Transfer activates via Multi-Location capability regardless of preset (fixes "rare" mistake). Concrete examples: minimarket makanan (Retail + Expiry-Sensitive) gets FEFO; print shop (Percetakan, no Expiry) doesn't; apotek (Retail + Expiry) gets FEFO; manufaktur logam (Produksi, no Expiry) doesn't.
+  - §1.3.4 Hybrid adaptive onboarding — default active core 4 (POS, Produk, Transaksi, Pelanggan). 5 onboarding questions each toggle a capability: Q1 manage stock, Q2 use material, Q3 purchase, Q4 multi-location, Q5 expiry. User answering "no" to all 5 gets clean cockpit (service business or simple reseller). Fixes v1.1 blind spot where Hybrid = all modules = overwhelming for least-decided user.
+  - §1.3.5 Suggested cadences table — NOT preset-locked. Retail small: weekly/monthly. Retail minimarket: weekly. F&B perishable: daily for sensitive bahan, weekly for dry. Produksi: cycle count weekly, full monthly. Percetakan: monthly. Jasa: N/A. All are user-editable defaults, never enforced.
+  - §1.3.6 Presets can overlap — 4 overlap pattern examples (coffee shop + beans, print shop + design, salon + retail products, manufaktur + retail outlet). Primary preset drives vocabulary, secondary drives hints. Capabilities always set independently via 5 questions. Preset overlap NEVER unlocks a capability.
+  - §1.3.7 Why the 3-layer model (critique of v1.1) — documents all 4 founder-flagged problems + 2 terminology fixes as numbered items with → resolution pointers.
+  - §1.3.8 Design implications — 3 new Outlet fields (industryPreset, materialSubtype, capabilities JSON). Capabilities are single source of truth for sidebar/dashboard visibility. Preset only changes labels/cadence-default/emphasis/empty-state. All 3 layers reversible (hidden modules preserve data). Out-of-scope for POS pilot.
+- **Section 1.4.4** — updated orthogonality statement: "A Starter (FREE) F&B-preset outlet with Expiry-Sensitive capability and a Pro Retail-preset outlet without it both exist; tier gates capacity, preset gates vocabulary, capability gates which modules are active."
+- **Section 4.2 onboarding step 1** — "4-mode picker (Material-Based / Retail / Jasa / Hybrid)" → "6-preset picker (F&B / Retail / Jasa / Produksi / Percetakan / Hybrid), 5 capability toggles (see §1.3.4)"
+- **Section 6.4 nav rule 5** — replaced "Mode-aware ordering" (hardcoded per-mode) with "Capability-aware ordering" (driven by active capabilities). If Purchase on → Pembelian visible; if Manage Stock on → Stock Opname visible; if Multi-Location on → Transfer visible; if Expiry-Sensitive on → Freshness tab visible. Order within section stable regardless of preset.
+- **Section 6.4 design implications** — `getNavFor({ role, mode, plan, ... })` → `getNavFor({ role, preset, capabilities, plan, grantedPages })` with explicit param responsibilities.
+- **Section 10 glossary** — removed "Tetap" and "Output" entries. Updated/added: Pelanggan (default, neutral B2C/B2B), Klien (Jasa), Member (relationship status, not entity), Produk, Menu, Produk Jadi, Pesanan, Layanan, Stok, Bahan, Material, Spare Part. Updated FEFO + Freshness entries to note "activates when Expiry-Sensitive capability on, NOT tied to preset". Added 2 new entries: Capability, Preset (3-layer model terms).
+- **Section 11 open questions** — Q1 "mode-switching" → "preset-switching" (with capability-reversibility note). Q4 "suggest a mode" → "suggest a preset" + added behavior-based capability suggestion concept. Q6 "Material-Based subtypes" → "Material sub-preset vocabulary". Added Q8 (capability toggle reversibility without data loss), Q9 (progressive vs all-5-questions onboarding), Q10 (preset overlap UI exposure).
+- **Section 12 approval gate** — updated checklist: Founder signs off on "3-layer business config model" (was "business mode taxonomy"); Product adds "capability-gated module visibility"; Engineering adds "verify Outlet schema additions (industryPreset, materialSubtype, capabilities) are additive-safe".
+- **Version bump** — v1.1 → v1.2 in §12 header + footer, with change note: "v1.1 + 3-layer model: Industry Preset / Operational Capabilities / Business Config; FEFO decoupled from preset; Transfer decoupled from preset; Hybrid made adaptive; Tetap/Output terminology dropped".
+- Cleanup pass: removed 2 duplicate glossary rows (Pelanggan, Stok) that were left by the v1.1→v1.2 transition.
+- Final verification sweep: grep for stale v1.1 references (Material-Based mode, industryMode, mode-aware, all modules, Tetap, Output, rare+Material) — 10 remaining matches, ALL intentional (§1.3.7 critique section explaining why v1.1 was wrong, §1.3.3 decoupling statements, §12 version note). No stale enum values or logic leaks.
+- Lint: clean (0 errors, 0 warnings).
+
+Stage Summary:
+- **Blueprint v1.2 committed**. Founder's 4 critical corrections + 2 terminology fixes applied as a structural 3-layer model:
+  1. **FEFO decoupled from preset** → now an Expiry-Sensitive capability, independent of industry. Minimarket makanan and apotek (Retail) can get FEFO; percetakan and manufaktur logam (material-based) don't if they have no expiry.
+  2. **Transfer decoupled from preset** → now a Multi-Location capability. Manufaktur with multi-gudang uses it heavily; single-outlet coffee shop doesn't see it.
+  3. **Opname cadence de-hardcoded** → suggested cadence table, user-editable, never enforced. Coffee shop can do daily, manufaktur cycle count weekly, retail kecil monthly.
+  4. **Hybrid redesigned from "all modules" to adaptive** → core 4 modules on by default + 5 onboarding capability questions. Least-decided user gets simplest cockpit, not the most complex.
+  5. **"Tetap" dropped** → Pelanggan is default customer term for all material/produksi/cetakan (B2C or B2B neutral). Jasa uses Klien.
+  6. **"Output" dropped** → sub-preset vocabulary: Menu (F&B), Produk Jadi (Produksi), Produk/Pesanan (Percetakan).
+- **3-layer principle established**: Industry Preset (vocabulary, cosmetic) / Operational Capabilities (modules, functional) / Business Configuration (settings, operational). Preset never locks capability set. All 3 layers reversible without data loss.
+- **No code touched** — docs-only revision. Stable baseline (commit 8763ac0) + v1.1 (commit 6571954) preserved. This v1.2 is a clean docs-only child.
+- **Blueprint remains approval-gated**. Updated §12 checklist requires Founder sign-off on the 3-layer model + Starter positioning, Product sign-off on capability-gated visibility, Engineering sign-off on schema additive-safety. No POS redesign until all 3 sign off on v1.2.
+
+---
+Task ID: BLUEPRINT-v1.3-LOCKED
+Agent: Main
+Task: Apply founder v1.2 review — 10 conceptual cleanup points. Lock blueprint as v1.3 final before POS pilot begins.
+
+Work Log:
+- Read all sections affected by the 10 founder corrections: title, reading order (§0), §1 header, §1.2 verbs, §1.3.1/1.3.2/1.3.3/1.3.4/1.3.5/1.3.6/1.3.7/1.3.8, §1.4.4, §4.3, §9.3/9.5/9.6, §10 glossary, §11 open questions, §12 approval gate, footer.
+- **Point 10 (version/title consistency)**: Title "v1.0" → "v1.3 (LOCKED)". Status "DRAFT" → "LOCKED". Reading order item 1 "Business Mode" → "Outlet Business Configuration". §1 header "Business Mode" → "Outlet Business Configuration". §1.4.4 header "Mode × Tier" → "Preset/Capability × Tier". Footer v1.2 → v1.3 LOCKED.
+- **Point 1 (capability ≠ authorization)**: §1.3.1 Layer 2 "API routes exposed" removed from "What it controls" column — now reads "Sidebar items visible, dashboard cards rendered" only. Added "Critical security note" paragraph after the key principle: capability OFF = module hidden from cockpit UI, NOT API forbidden, NOT data deleted, NOT access blocked. "UI hidden ≠ security. Capability OFF ≠ data deleted. Server authorization is the single source of truth for access control; capabilities only control cockpit presentation."
+- **Point 2 (capability dependencies)**: Added new paragraph + table after Transfer decoupling in §1.3.3. Table: Use Material requires Manage Stock; Expiry-Sensitive requires Manage Stock; Stock Transfer requires Manage Stock + Multi-Location; Purchase (inventory-receiving) requires Manage Stock. Added auto-enable behavior: turning on Use Material or Expiry-Sensitive auto-enables Manage Stock with explanation. Turning off Manage Stock while dependent is on → warning. Added "Purchase is inventory-oriented for now" note — do not promise expense procurement (feature doesn't exist).
+- **Point 3 (remove secondary preset)**: §1.3.6 fully rewritten — title "Presets can overlap" → "Preset overlap — handled by capabilities, not secondary presets". Table column "Secondary preset" removed, replaced with "How overlap is handled" column. Explicit statement: "v1 does NOT model a secondary preset. No `secondaryPreset` field in v1." Overlap is bridged by capabilities, not by a secondary preset data model.
+- **Point 4 (defer materialSubtype)**: §1.3.2 notes — third bullet changed from "materialSubtype field still exists" to "materialSubtype is deferred — not part of v1. Future vocabulary extension if real merchant validation proves preset-level terminology insufficient." §1.3.8 design implications — materialSubtype removed from field list, replaced with explicit "materialSubtype is NOT part of v1" statement. Glossary Spare Part entry updated: "Future vocabulary extension (deferred — not in v1)". Open question Q6 updated: "deferred to future".
+- **Point 5 (don't lock Prisma type)**: §1.3.8 design implications — first bullet rewritten from "Three new fields on Outlet" with specific Prisma types to "Outlet must persist industry preset and operational capabilities. Exact Prisma representation (JSON field, typed columns, or configuration relation table) will be decided in a separate Outlet Configuration Contract document — the blueprint does not prescribe Prisma types." Only behavior is specified, not storage type.
+- **Point 6 (rename layer 3)**: §1.3.1 Layer 3 "Business Configuration" → "Outlet Settings". Added tree diagram showing "Outlet Business Configuration" as the whole, with 3 sub-layers. §1.3 header updated to "Outlet Business Configuration". §1.3.8 references updated. §12 sign-off checklist updated.
+- **Point 7 (Beli verb clarification)**: §1.2 verb table — "Beli (Restock)" definition changed from "Acquire goods from a supplier, increasing inventory" to "Menerima barang, bahan, material, spare part, packaging, atau consumable ke inventory outlet". This covers the broader material vocabulary while staying inventory-oriented. Does not promise expense procurement.
+- **Point 8 (Crew Starter contradiction)**: §4.3 "What the first-time journey must NOT do" — crew bullet rewritten from "Crew is a Pro-tier concern for most users; raise it after their first 50 transactions" to "Crew setup is available in Starter within its current limit (2 crew), but should be suggested only after the owner has completed the first operational loop (first sale + first product added). Crew is NOT a Pro-tier-only concern — Starter users can add crew — but crew setup is premature during first-time onboarding."
+- **Point 9 (narrow POS pilot scope)**: §9.3 rewritten with explicit pilot scope — 7 items only: Layout, Visual hierarchy, Product discovery, Cart clarity, Payment clarity, System status visibility, Responsive behavior. Added closing statement: "The pilot does NOT add features." §9.5 anti-goals — added "Do NOT include platform-wide UX features in the pilot". New §9.6 "Future platform UX backlog — NOT part of POS pilot" with table of 6 deferred ideas: quick-add product from POS, lastIntent routing, auto-pin Pekerjaan Saya, Dashboard Lite for Crew, role-awareness check, OnboardingProgress tracker. Each with blueprint reference + why deferred. Old §9.6 renumbered to §9.7.
+- **Locked Decisions section**: Added §12.1 "Locked decisions (founder-confirmed, v1.3)" — 10 numbered decisions that cannot be re-opened without explicit founder approval: (1) one platform one core, (2) preset only vocabulary, (3) capabilities control cockpit, (4) presets not exclusive, (5) FEFO follows Expiry-Sensitive, (6) Transfer follows Multi-Location, (7) Hybrid guided setup, (8) Starter display label / FREE internal code, (9) data never deleted on capability off, (10) POS pilot doesn't touch core/sync/FEFO/HPP/consumption.
+- **§12 sign-off checklist**: Founder marked [x] APPROVED v1.3. Product + Engineering still pending. Updated to reference "Outlet Configuration Contract" (Engineering deliverable) instead of specific schema fields.
+- **Stale reference cleanup**: Fixed `pickedMode` → `pickedPreset` in §4.2 OnboardingProgress tracker. Fixed "mode-appropriate" → "preset-appropriate" in §7.3 empty-state template. Fixed §1.3.4 and §1.3.5 "v1.2 revision" → "v1.3 revision".
+- **Final sweep**: grep for stale v1.2/DRAFT/Business Configuration/mode/materialSubtype/secondaryPreset/API routes exposed — all remaining references are intentional (critique section §1.3.7 referencing v1.1, locked decisions, deferred-feature statements). No stale enum values, no stale version strings, no stale "mode" terminology.
+- Lint: clean (0 errors, 0 warnings).
+
+Stage Summary:
+- **Blueprint v1.3 LOCKED**. All 10 founder-directed conceptual cleanups applied:
+  1. ✅ Capability ≠ authorization (API routes exposed removed, security note added)
+  2. ✅ Capability dependencies added (Use Material/Expiry/Transfer require Manage Stock, auto-enable behavior)
+  3. ✅ Secondary preset removed (single primary preset + capabilities bridge overlap)
+  4. ✅ materialSubtype deferred (not in v1, future vocabulary extension)
+  5. ✅ Prisma storage type not prescribed (deferred to Outlet Configuration Contract)
+  6. ✅ Layer 3 renamed "Business Configuration" → "Outlet Settings" (whole = "Outlet Business Configuration")
+  7. ✅ Beli verb clarified (menerima barang/bahan/material/spare part/packaging/consumable ke inventory)
+  8. ✅ Crew/Starter contradiction fixed (not Pro-tier concern, but not prompted during onboarding)
+  9. ✅ POS pilot scope narrowed to 7 items (layout/hierarchy/discovery/cart/payment/status/responsive); 6 platform ideas moved to Future UX backlog §9.6
+  10. ✅ Version/title consistency restored (v1.0 title → v1.3 LOCKED, reading order "Business Mode" → "Outlet Business Configuration")
+- **10 Locked Decisions** enumerated in §12.1 — founder-confirmed, cannot re-open without explicit approval.
+- **Founder sign-off**: [x] APPROVED v1.3. Product + Engineering sign-off pending.
+- **No code touched** — docs-only revision. Stable baseline + v1.1 + v1.2 preserved. This v1.3 is a clean docs-only child of v1.2.
+- **Next action**: Product + Engineering sign-off on §12.2, then draft `docs/POS-REDESIGN-PILOT.md` scoped strictly to §9 (pilot scope: layout, visual hierarchy, product discovery, cart clarity, payment clarity, system status visibility, responsive behavior — NO new features, NO platform-wide UX changes).
+
+---
+Task ID: GITHUB-SYNC-1
+Agent: main (Z.ai Code)
+Task: Pull "file baru dari github" — sync new files from founder's GitHub repo (https://github.com/tygerearth-labs/aetherpos-tested) into local sandbox.
+
+Work Log:
+- Found GitHub repo reference in worklog history: https://github.com/tygerearth-labs/aetherpos-tested (cloned previously to /tmp/aetherpos-tested, but /tmp was wiped).
+- Re-cloned fresh to /tmp/aetherpos-gh (shallow clone, depth 1). Latest commit on GitHub main: `a734f9a "Update"` by blackbearlabs888 <tygerearth@gmail.com>, dated 2026-07-22 23:59 +0700.
+- Ran `diff -rq /tmp/aetherpos-gh .` (filtered out node_modules, .next, .git, db, dev.log, sandbox-only artifacts) to identify what is genuinely new/changed on GitHub side.
+- Diff results:
+  - **governance/** folder → ONLY IN GITHUB (truly new, not present locally at all). 8 files total: AI_RUNTIME_RULES.md, QA_CONTRACT.md, TEST_CATALOG.md, UX_STABILIZATION_RULES.md, + 4 PROMPTS/ templates (APPROVED_TARGETED_FIX, PHASE_0_5B_OPERATIONAL_VERIFICATION, RELEASE_CANDIDATE_VERIFICATION, TARGETED_ROOT_CAUSE_ANALYSIS).
+  - package.json → differs, but LOCAL is AHEAD (local has db:generate, db:reset, --accept-data-loss flag; GitHub version is older/simpler). Decision: do NOT overwrite local.
+  - prisma/schema.prisma → differs ONLY at provider line (GitHub=postgresql for production, local=sqlite for sandbox). Env-specific override; do NOT overwrite local.
+  - worklog.md → differs, LOCAL is AHEAD (555KB vs 538KB; local has v1.1/v1.2/v1.3 commit logs that GitHub doesn't). Do NOT overwrite local.
+  - docs/* → all 6 shared docs files (AETHER_UX_BLUEPRINT.md, ARCHITECTURE-LOCK.md, CHECKPOINT-PHASE-0.5.md, DEFERRED-ISSUES.md, PLATFORM-ARCHITECTURE-REVIEW.md, UX-DESIGN-CONTRACT.md) are byte-identical between GitHub and local. Only local has extra docs/POS-SCOPE-v1.0.md (local-only, not on GitHub).
+- Copied `governance/` folder from /tmp/aetherpos-gh/governance to /home/z/my-project/governance via `cp -r`. 8 files transferred.
+- Integrity verified: md5sum of all 8 files matches source on GitHub exactly (OK on every file).
+- gitignore check: `governance` not in .gitignore → will be tracked by git.
+- Lint: clean (0 errors, 0 warnings). Governance files are markdown only; no code touched.
+
+Stage Summary:
+- **governance/ folder synced from GitHub to local.** 8 new files now present locally:
+  - `governance/AI_RUNTIME_RULES.md` (5452 B) — v1.0, defines how every AI crew member must operate inside Aether. R1-Rn rules including "Read Required Contracts First", "Locked Means Locked", etc.
+  - `governance/QA_CONTRACT.md` (10195 B) — v1.0, mandatory standard for verifying Aether features work from user's perspective. Prevents route-availability / render-success / API-responsiveness from being misreported as proof of operational behavior.
+  - `governance/TEST_CATALOG.md` (13530 B) — v1.0 LIVING DOCUMENT, baseline test inventory (AUTH-001+, etc.). QA must compare with deployed UI before execution.
+  - `governance/UX_STABILIZATION_RULES.md` (1781 B) — defines allowed vs forbidden scope for UX work. Allowed: layout, dialog size, field grouping, button hierarchy, labels, validation presentation, states, responsive, reuse of components/tokens. Forbidden: Prisma schema, migrations, API contracts, core inventory engine, FEFO/HPP/consumption/sync/offline logic, domain models, permission/role model, plan entitlements, global navigation, new capabilities, new deps, broad refactor. This PERFECTLY aligns with the POS pilot scope constraint from AETHER_UX_BLUEPRINT v1.3 §9.
+  - `governance/PROMPTS/APPROVED_TARGETED_FIX.md` (1092 B)
+  - `governance/PROMPTS/PHASE_0_5B_OPERATIONAL_VERIFICATION.md` (2928 B)
+  - `governance/PROMPTS/RELEASE_CANDIDATE_VERIFICATION.md` (1039 B)
+  - `governance/PROMPTS/TARGETED_ROOT_CAUSE_ANALYSIS.md` (1183 B)
+- **Decision: did NOT overwrite** package.json, prisma/schema.prisma, or worklog.md — local versions are either ahead (worklog, package.json scripts) or env-specific (sqlite vs postgresql). These are NOT "file baru" — they are divergent versions where local is the source of truth.
+- **Relevance to next phase**: `governance/UX_STABILIZATION_RULES.md` codifies the exact same scope constraints founder gave for the upcoming POS pilot redesign (no schema/API/FEFO/HPP/sync/domain/permissions/plan/nav/capabilities). When POS-REDESIGN-PILOT.md is drafted, it MUST cite UX_STABILIZATION_RULES.md as its governing contract.
+- **No code touched.** Lint clean. Ready to commit.
+
+---
+Task ID: PROD-DISC-1
+Agent: Explore (products page discovery)
+Task: READ-ONLY UX discovery audit of Products page (products-page.tsx + product-form-dialog.tsx + product API routes)
+
+Work Log:
+- Read AI_RUNTIME_RULES.md (281 lines) and UX_STABILIZATION_RULES.md (77 lines) before any discovery.
+- Read tail of worklog.md (last ~200 lines) for prior context: BLUEPRINT v1.3 LOCKED, GITHUB-SYNC-1 governance folder sync. No prior Products-page-specific audit.
+- Read products-page.tsx in full (4150 lines, chunks of 400). Read product-form-dialog.tsx in full (1616 lines).
+- Read 17 API route files: products/route.ts (486L), [id]/route.ts (454L), bulk-upload/route.ts (1186L, partial — first 400L), bulk-update-excel/route.ts (529L, first 120L), bulk-delete/route.ts (146L, full), bulk-update/route.ts (303L, full), search/route.ts (166L, full), barcodes/route.ts (60L, full), export/route.ts (263L, full), bulk-upload/template/route.ts (217L, full), categories/route.ts (78L, full), categories/[id]/route.ts (98L, full), [id]/variants/route.ts (318L, full), [id]/composition/route.ts (368L, full), [id]/restock/route.ts (167L, full), [id]/adjust/route.ts (170L, full), [id]/movement/route.ts (294L, full).
+- Read shared components: responsive-dialog.tsx (110L), error-boundary.tsx (68L), confirm-dialog.tsx (first 100L of 334L), data-table.tsx (138L, full), pagination.tsx (84L, full), pro-gate.tsx (199L, full), locked-dropdown-item.tsx (80L, full), state-components.tsx (first 400L of 578L).
+- Read hooks: use-mobile.ts (19L, full), use-page-store.ts (12L, full), use-plan.ts (199L, full).
+- Read app-shell.tsx partially to confirm ErrorBoundary wrapping and usePageStore navigation.
+- Grep counts: products-page.tsx useState=52, useEffect=11, useMemo=3, useCallback=4, useRef=3. product-form-dialog.tsx useState=8 (5 from useState + 3 from other hooks? verified: 5 useState, plus 1 useRef + 2 useMemo + 2 useEffect).
+- Grep counts: products-page.tsx has 376 hardcoded color class occurrences (text-red-/bg-emerald-/etc.) and 77 theme-* token uses; product-form-dialog.tsx has 139 hardcoded color classes and 40 theme-* token uses.
+- Grep counts: 12 occurrences of md:/lg:/sm: breakpoints in products-page.tsx; 0 in product-form-dialog.tsx.
+- Grep counts: 0 React Query / useQuery / invalidateQueries in products-page.tsx — confirms manual fetch + useState cache.
+- Grep counts: 0 useIsMobile in products-page.tsx and product-form-dialog.tsx — responsive switch happens via Tailwind `hidden md:block` / `md:hidden` classes, NOT the hook.
+- Grep counts: 0 aria-* attributes in products-page.tsx; 0 aria-* / aria-label in product-form-dialog.tsx — accessibility gap.
+- Grep confirmed: VALID_UNITS in src/lib/excel-utils.ts has 28 entries; UNITS in product-form-dialog.tsx has 19 entries — desynchronized.
+- Grep confirmed: maxBulkUploadRows defined in plan-config (Pro=200, Enterprise=500, Free=0) but bulk-upload/route.ts hardcodes MAX_ROWS=500 — confirms DEFERRED-ISSUES PLAN-P2-001 still open.
+- Grep confirmed: 0 `ProGate` JSX usages in products-page.tsx (only imported at line 114, never rendered). LockedDropdownItem IS used (line 1496, 1506) for Excel Upload/Edit menu items.
+- Grep confirmed: ErrorBoundary wraps ProductsPage at app-shell.tsx:47 (via LazyPage), not inside the page itself.
+- Grep confirmed: 0 ConfirmDialog / DataTable / DateFilter usages in products-page.tsx — uses raw AlertDialog, raw Table, no DateFilter.
+- Grep confirmed: 0 useRef for unsaved-changes guard in product-form-dialog.tsx (only `initialHasComposition.current` ref, used for composition toggle state, NOT dirty form guard).
+- No code modified. All operations were Read/Grep/LS only.
+
+Stage Summary:
+
+## Task Header
+- Task: READ-ONLY UX discovery audit of Products page (PROD-DISC-1)
+- Role: Explore sub-agent
+- Environment: local sandbox (/home/z/my-project), dev DB sqlite
+- Scope: products-page.tsx + product-form-dialog.tsx + 17 product/category API routes + supporting shared components/hooks
+- Contracts Read: AI_RUNTIME_RULES.md v1.0, UX_STABILIZATION_RULES.md v1.0, worklog tail
+- Mode: READ-ONLY
+- Started From: founder-requested discovery audit
+
+---
+
+## A. Top-level layout & state surface of products-page.tsx
+
+### A1. Hooks count (file: products-page.tsx, function ProductsPage at line 465)
+- useState: 52 occurrences (target per UX contract rumor: <25; first-line numbers: 471, 472, 473, 474, 475, 476, 477, 478, 479, 480, 481, 482, 483, 484, 485, 488, 489, 490, 491, 492, 493, 496, 497, 498, 499, 500, 501, 504, 505, 506, 507, 508, 509, 510, 511, 513, 514, 515, 516, 519, 520, 521, 524, 525, 528, 537–549 (13 useState for upload state), 552, 557–571, 574–577, 608–617, 620–622, 625)
+- useEffect: 11 occurrences (lines 641, 677, 682, 729; + others inside useMemo useCallback)
+- useMemo: 3 occurrences (lines 531 selectedVariantCount, 1393 filteredMovements, 1424 stockAgingDays)
+- useCallback: 4 occurrences (lines 583–607 category drag handlers, 627 fetchCategories, 650 fetchProducts, 689 fetchDetail, 1068 forceRefresh, 1085 handleBulkUpload, 1182 handleBulkUpdateExcel — actual count 7; grep reported 4 but matches with the opening `useCallback(` token may be fewer — verified manually)
+- useRef: 3 occurrences (lines 571 editExcelProgressRef, 577 categoryScrollRef, 578 isDragging, 579 startX, 580 scrollLeft, 1083 uploadProgressRef — actual count 6; grep reported 3 which appears to undercount. Verified manually)
+
+### A2. List fetch strategy
+- **NO React Query**. Uses direct `fetch()` inside `useCallback` named `fetchProducts` (line 650–675).
+- Manual cache invalidation via `_t=${Date.now()}` query param ("bustCache=true") — `FIX-102 (P0)` per comment at line 646.
+- Query params: `page`, `limit=20`, `search`, `sort`, `categoryId`.
+- Endpoint: `GET /api/products?{params}` (line 659).
+- Server returns 5-second cache (CACHE.SHORT, route.ts line 271, comment at 256–260 explains the FIX-102 from 30s).
+- Re-fetch triggers: on mount (line 677–680 useEffect), on page/search/sort/category change (line 682–687), and manually via `forceRefresh` (line 1068) called after every mutation.
+- NO window focus refetch. NO stale-while-revalidate at client level. Server sets stale-while-revalidate via CACHE.SHORT (5s + 60s SWR per safe-response lib pattern).
+
+### A3. Navigation trigger
+- NOT via usePageStore inside products-page.tsx — the page itself doesn't read `currentPage`. 
+- Navigation handled by `src/components/layout/app-shell.tsx:123` which reads `usePageStore().currentPage` and switches via `case 'products': return <LazyPage><ProductsPage /></LazyPage>` (app-shell.tsx line 150–151).
+- usePageStore is a Zustand store at `src/hooks/use-page-store.ts` with 14 PageTypes.
+
+### A4. Mobile vs desktop layout
+- Breakpoint switch via Tailwind classes `hidden md:block` (desktop table, line 1952) and `md:hidden` (mobile cards, line 2195).
+- `useIsMobile` hook (`src/hooks/use-mobile.ts`, breakpoint 768px) is NOT used in products-page.tsx (0 grep hits).
+- Mobile card view exists at lines 2195–2504 (card with image, name, badges, price/stock row, action buttons h-9 w-9 each).
+- Desktop table view at lines 1952–2192.
+
+### A5. Top action bar (lines 1436–1522)
+- Header layout: `flex flex-col sm:flex-row sm:items-center justify-between gap-4` (line 1436).
+- Buttons row (line 1441, with `overflow-x-auto scrollbar-hide` for mobile):
+  1. **"Edit Massal"** toggle button (line 1442–1459, variant `outline`, only if `isPro && isOwner`; turns `bg-amber-500` when active) — `h-9 text-xs`
+  2. **"Cetak Barcode"** button (line 1460–1467, variant `outline`, opens `BatchBarcodeDialog`) — `h-9 text-xs`
+  3. **Excel dropdown** (line 1469–1516, `DropdownMenu`) — trigger button has `bg-emerald-500/[0.08] border-emerald-500/20 text-emerald-300` style, `h-9 text-xs`. Contains: "Export Excel" (line 1484, plain DropdownMenuItem), "Upload Excel" (line 1496–1504, LockedDropdownItem feature="bulkUpload"), "Edit Excel" (line 1506–1514, LockedDropdownItem feature="bulkUpload").
+  4. **"Tambah Produk"** primary button (line 1517–1520, NO `variant` prop = default primary; className `theme-bg theme-hover text-white h-9 text-xs font-medium shadow-lg theme-shadow`) — onClick={handleAdd}.
+- Search input (line 1917–1922, `max-w-sm h-9 text-xs bg-white/[0.04]`), with X clear button (line 1924–1930).
+- Sort Select (line 1932–1948, `w-full sm:w-[180px] h-9 text-xs`).
+- Filter chips: category chips at lines 1785–1855 (each chip is `px-3 py-1.5 rounded-full`).
+
+### A6. Table columns (desktop, lines 1966–2016)
+Order: [BulkMode checkbox] · Nama · Kategori · SKU · Satuan · [HPP if isOwner] · Harga · Stok · Aksi.
+- All headers: `text-slate-500 text-[11px] font-semibold uppercase tracking-wider` (lines 1970, 1978, 1984, 1985, 1986, 1988, 1990, 1996, 2006).
+- HPP column only visible if `isOwner` (line 1987, conditional render).
+- Sortable columns (onClick handlers): Nama (line 1980), Harga (line 1992), Stok (line 1998), Aksi (line 2008) — but the sort toggle logic is buggy (e.g., line 1980 `setSort(prev => prev === 'newest' ? 'newest' : 'newest')` always sets to 'newest', a no-op).
+
+### A7. Empty state (lines 1959–1963 desktop, 2265–2269 mobile)
+```tsx
+<div className="rounded-xl border border-white/[0.06] bg-nebula p-8 text-center">
+  <Package className="mx-auto h-8 w-8 text-slate-700 mb-2" />
+  <p className="text-sm text-slate-500">Tidak ada produk ditemukan</p>
+</div>
+```
+- Has icon (Package). 
+- **DOES NOT match contract pattern** (EmptyState from state-components.tsx expects: icon + title + description + primaryAction CTA). No "Tambah Produk" CTA, no description text — just one-liner. No use of `EmptyState` / `SearchEmptyState` / `FilterEmptyState` shared components (verified: 0 imports of state-components).
+
+### A8. Loading state (lines 1953–1958 desktop, 2247–2264 mobile)
+Desktop: 5× `<Skeleton className="h-12 bg-nebula rounded-lg" />` rows (skeleton bars matching table row height). 
+Mobile: 4× cards with skeleton image, name, category row, price/stock row (lines 2247–2264).
+- Skeleton = correct contract pattern.
+
+### A9. Error state
+- **No dedicated error UI**. `fetchProducts` catch (line 670–672) only fires `toast.error('Failed to load products')`. 
+- **No retry button**. User sees an empty list (after toast disappears) — which the empty state then renders as "Tidak ada produk ditemukan" even though the real cause was an error. CONTRACT DEVIATION.
+- App-level ErrorBoundary (app-shell.tsx:47) catches render-time crashes, NOT fetch errors.
+
+---
+
+## B. Add Product flow
+
+### B1. "Tambah Produk" onClick
+- products-page.tsx line 1517: `<Button onClick={handleAdd} ...>Tambah Produk</Button>`.
+- `handleAdd` defined at line 741–744:
+```ts
+const handleAdd = () => {
+  setEditProduct(null)
+  setFormOpen(true)
+}
+```
+- Does NOT check plan limit (maxProducts) client-side before opening the dialog. The plan-limit check only happens server-side at POST `/api/products` (route.ts line 309–314).
+
+### B2. What the handler does
+- Sets `editProduct` to `null` (so form knows it's an Add, not Edit).
+- Opens the dialog by setting `formOpen=true`.
+- No pre-fill, no permission check, no limit check.
+
+### B3. Dialog component opened
+- `ProductFormDialog` (imported at products-page.tsx line 117). Rendered at lines 2579–2591:
+```tsx
+<ProductFormDialog
+  open={formOpen}
+  onOpenChange={setFormOpen}
+  product={editProduct}
+  onSaved={() => {
+    fetchProducts(true) // FIX-102: bust cache after create/edit product
+    fetchCategories()
+    if (detailOpen && detailProduct) {
+      fetchDetail(detailProduct, detailPage)
+    }
+  }}
+/>
+```
+
+### B4. Form fields (product-form-dialog.tsx)
+Fields in Add mode (form state at lines 124–134):
+| Field | Label | Input type | Validation | Required? | File:line |
+|---|---|---|---|---|---|
+| name | "Nama Produk" | Input text | `if (!form.name.trim())` toast error (line 386–389); HTML `required` attr (line 732); no length cap | Required | 724–735 |
+| categoryId | "Kategori" | native `<select>` (line 740–751) | None client-side; API validates outlet ownership (route.ts 360–368) | Optional | 738–752 |
+| unit | "Satuan" | native `<select>` with 19 UNITS (line 79–99, lines 755–766) | Constrained to UNITS list; defaults to 'pcs' | Optional (defaults) | 753–767 |
+| sku | "SKU" (under "Opsi Lanjutan" `<details>` collapse, line 770) | Input text | `maxLength={22}` (line 782); API validates uniqueness per outlet (route.ts 332–347); auto-generates if empty | Optional | 776–786 |
+| image | "Gambar Produk (URL)" (under "Opsi Lanjutan") | Input text (URL) | None; API checks `features.productImage` plan gate (route.ts 316–319) | Optional | 788–829 |
+| price | "Harga Jual" (with Rp prefix, line 846–861) | Input number, `min="0" step="any"` | HTML `required` (line 857); `if (!form.price || Number(form.price) <= 0)` toast error (line 406–410) | Required (non-variant mode only) | 843–861 |
+| hpp | "HPP" (with Rp prefix, line 864–882) | Input number, `min="0" step="any"` | Only shown if `isOwner && !hasComposition`; `Kosongkan jika belum tahu` helper text; auto-set to `autoHpp` if composition active | Optional | 863–882 |
+| stock | "Stok Awal" (line 929–958) | Input number, `min="0"` | No client validation; API validates against composition capacity (route.ts 141–146) | Optional | 927–958 |
+| lowStockAlert | "Peringatan Stok Rendah" (line 960–971) | Input number, `min="0"` | Default '10' | Optional | 959–971 |
+
+NOT in Add form (only visible after toggles):
+- Variant fields (after `hasVariants` switch on, lines 1034–1411): name, sku, hpp, price, stock per variant.
+- Composition items (after `hasComposition` switch on, lines 1490–1588): inventory item select + qty.
+- Per-variant composition (lines 1334–1392): appears only when BOTH `hasComposition && hasVariants`.
+
+NOT IN FORM:
+- **barcode** — NOT a form field. Auto-derived: `finalBarcode = barcode?.trim() || finalSku` (route.ts line 388, 175–177). User cannot enter barcode manually in the form. CONFIRMED: barcode is not in the `form` state object (line 124–134).
+- **bruto / netto** — NOT in form. Displayed in detail sheet (line 3860–3870) but never set by user.
+
+### B5. Tabs in form
+- **NO tabs**. Form uses section dividers (Info Dasar, Harga & Stok, Varian Produk, Komposisi) separated by `<Separator className="bg-white/[0.04]" />` (line 833, 1423). Each section has a small uppercase label (`text-[11px] font-semibold text-slate-400 uppercase tracking-wider`) preceded by a 1×1 rounded dot.
+- `<Tabs>` component IS imported (line 14) but only used in the DETAIL SHEET (line 4063) for movement filter tabs (all/restock/sale/void/transfer/adjustment), NOT in the form.
+
+### B6. Validation timing
+- **onSubmit only**. Form tag at line 716 (`<form onSubmit={handleSubmit} className="space-y-5">`).
+- Validation sequence in `handleSubmit` (lines 384–460):
+  - Line 386: `if (!form.name.trim())` → toast.error('Nama produk wajib diisi')
+  - Line 390–404: variant validation (if hasVariants): each variant needs name + price > 0
+  - Line 406–410: non-variant price > 0
+  - Line 413–419: composition stock capacity check (non-variant)
+  - Line 422–433: non-variant composition items non-empty + qty > 0
+  - Line 436–459: per-variant composition items + qty + stock capacity
+- HTML `required` attribute also present on name (line 732) and price (line 857) — provides browser-native pre-validation but only triggers on form submit, not onChange/onBlur.
+- **No onChange validation, no onBlur validation, no inline field errors**. All errors surface as toast.error.
+
+### B7. Form submit handler
+- `handleSubmit` (line 384, type `(e: React.FormEvent) => Promise<void>`).
+- Calls fetch with method determined by `isEdit`: `POST /api/products` for Add (line 485–491), `PUT /api/products/${product.id}` for Edit.
+- Body constructed at line 463–483.
+
+### B8. After successful submit
+- product-form-dialog.tsx line 593: `toast.success(isEdit ? 'Produk berhasil diperbarui' : 'Produk berhasil ditambahkan')`
+- Line 594: `onOpenChange(false)` → closes dialog.
+- Line 595: `onSaved()` → in parent (products-page.tsx line 2583–2590), calls `fetchProducts(true)` (cache-bust), `fetchCategories()`, and refreshes detail sheet if open.
+- Form state is reset when dialog re-opens via the `useEffect [product, open]` at line 211–327 (resets to defaults for Add mode at lines 306–326).
+
+### B9. On error
+- HTTP non-OK: `const data = await res.json(); toast.error(data.error || 'Gagal menyimpan produk')` (line 596–599).
+- Network error / catch block: `toast.error('Gagal menyimpan produk')` (line 600–602).
+- Composition sync sub-error: `toast.error(compError instanceof Error ? compError.message : 'Gagal menyimpan komposisi')` (line 587) — but product was already saved, so this calls `onSaved()` + `onOpenChange(false)` and returns early (line 588–590). The user is told to retry composition separately.
+- **No inline field-level error display**. **No form-level error banner**. All errors are toasts.
+
+### B10. Submit button loading state
+- Line 1603–1611:
+```tsx
+<Button type="submit" onClick={handleSubmit} disabled={saving}
+  className="theme-bg hover:theme-hover text-white h-9 text-xs font-medium rounded-lg shadow-lg theme-shadow min-w-[100px]">
+  {saving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+  {isEdit ? 'Simpan' : 'Tambah Produk'}
+</Button>
+```
+- Spinner + disabled state. h-9 (36px) button — below 44px touch target.
+
+---
+
+## C. Edit Product flow
+
+### C1. Edit trigger
+- From desktop table: ghost icon button at line 2167–2174 (`<Button variant="ghost" size="icon" className="h-7 w-7 ..."><Edit/></Button>`), onClick `handleEdit(product)`.
+- From mobile card: ghost icon button at line 2479–2487 (`h-9 w-9`), onClick `handleEdit(product)`.
+- From detail sheet: NO edit button (the Sheet has Restock + Penyesuaian buttons at lines 3813–3844, but no Edit). User must close the sheet and click Edit icon in the row.
+- `handleEdit` (line 736–739): `setEditProduct(product); setFormOpen(true)`.
+
+### C2. Pre-fill & detail fetch
+- `editProduct` is the row Product object passed in. The form's `useEffect` at lines 211–327 reads `product` prop and pre-fills `form` state (lines 213–224: name, sku, hpp, price, stock, lowStockAlert, image, categoryId, unit).
+- Variants pre-fill at lines 226–241. If `product.hasVariants` but no variants array on the row, a separate `useEffect` (line 329–352) fetches `GET /api/products/${product.id}/variants` and fills in.
+- Composition pre-fill: `GET /api/products/${product.id}/composition` (line 251). Server-side `hasComposition` flag is trusted (line 254–257). Per-variant compositions loaded at lines 272–298 — case-insensitive name match (FIX-COMP-B at line 279–284).
+- The form does NOT fetch product detail separately — it relies on the list row data. If the row lacks variants (which is normal — list includes `variants: [...]` but only for the count), the fetch in the second useEffect gets them.
+
+### C3. Same questions as Add
+- Fields: same as B4 above.
+- Validation: same onSubmit-only (B6).
+- Submit: `PUT /api/products/${product.id}` (line 485–486).
+- Success/error: same as B8/B9.
+- Loading: same as B10.
+
+### C4. Read-only in Edit
+- **NO fields are read-only in Edit mode**. SKU remains editable (maxLength=22). Name editable. Even variants can be added/removed/renamed.
+- The PUT route uses "upsert-by-name" pattern (route.ts line 221–353): if a variant name matches an existing one (case-insensitive), UPDATE preserves the ID; otherwise CREATE/DELETE. Renaming a variant is treated as delete+create, losing the historical FK link (documented trade-off at route.ts line 230–232).
+- Composition, however, IS a hard replace: PUT `/api/products/${id}/composition` deletes ALL existing compositions then re-creates (composition route.ts line 222–227).
+
+### C5. Unsaved-changes guard
+- **NOT FOUND.** No dirty-state tracking, no `formState.isDirty`, no `useRef` for original values comparison. `initialHasComposition.current` (line 119) tracks ONLY the initial composition toggle state, NOT the full form values.
+- Closing the dialog via `onOpenChange(false)` (e.g., clicking outside or pressing ESC) silently discards all unsaved input.
+- CONTRACT DEVIATION — UX contract should require " Anda yakin ingin menutup? Perubahan akan hilang." confirmation.
+
+---
+
+## D. Delete Product flow
+
+### D1. Delete trigger
+- Desktop row: ghost icon button at line 2175–2182 (`<Trash2/>`), `onClick={() => setDeleteId(product.id)}`.
+- Mobile card: ghost icon button at line 2488–2496 (`h-9 w-9`), same onClick.
+- Sets `deleteId` state, which opens AlertDialog at line 2722.
+
+### D2. Confirmation dialog
+- AlertDialog (shadcn/ui) at lines 2722–2744. NOT ConfirmDialog shared component (verified: 0 ConfirmDialog imports).
+- Title: "Hapus Produk?" (line 2725).
+- Description (line 2726–2728): `Produk yang dihapus tidak dapat dikembalikan. Semua data produk (termasuk varian & stok) akan hilang.`
+- Cancel button: "Batal" (line 2731).
+- Confirm button: "Hapus" (line 2734–2741), `bg-red-500 hover:bg-red-600 text-white h-8 text-xs`, disabled while `deleting`.
+
+### D3. Consequence explanation (UX contract check)
+- Contract says: explain (a) stok hilang, (b) riwayat transaksi tetap ada, (c) data analytics terpengaruh.
+- **OBSERVED**: Only (a) stok hilang is mentioned (`Semua data produk (termasuk varian & stok) akan hilang`).
+- (b) **NOT mentioned** that transaction history (snapshot data in TransactionItem) is preserved.
+- (c) **NOT mentioned** that historical analytics/reports will be affected.
+- CONTRACT DEVIATION — message is incomplete.
+
+### D4. API call & error handling
+- `handleDelete` (line 746–764): `fetch(\`/api/products/${deleteId}\`, { method: 'DELETE' })`.
+- On `res.ok`: toast.success('Produk berhasil dihapus') + `fetchProducts(true)` (cache-bust).
+- On non-OK: `const data = await res.json().catch(() => ({})); toast.error(data.error || 'Gagal menghapus produk')`.
+- On network error: `toast.error('Gagal menghapus produk')`.
+- API server-side (route.ts DELETE line 393–454):
+  - 401 if not authenticated.
+  - 403 if not OWNER (`'Hanya pemilik yang dapat menghapus produk'`).
+  - 404 if product not found in this outlet.
+  - No 409 in-use check — TransactionItem.productId uses onDelete: SetNull (per bulk-delete comment line 60), so delete always succeeds and just nullifies FK on past transactions.
+- Crew users will see "Hanya pemilik yang dapat menghapus produk" toast.
+
+### D5. After delete success
+- `toast.success('Produk berhasil dihapus')` (line 752).
+- `fetchProducts(true)` cache-bust (line 753) — entire list refetches. The row just disappears on refetch.
+- NO optimistic update, NO row animate-out.
+- `setDeleteId(null)` closes the AlertDialog.
+- `setDeleting(false)` resets loading.
+
+### D6. Bulk delete
+- Triggered from the floating bulk edit bar (line 2541–2548), "Hapus" button `bg-red-500/10 border border-red-500/20 text-red-400` — onClick `setBulkDeleteOpen(true)`.
+- AlertDialog at line 2934–2959. Title: `Hapus {selectAllMode ? \`${stats.total}\` : selectedIds.size} Produk?` (line 2937). Description: `... akan dihapus secara permanen beserta semua variannya. Tindakan ini tidak bisa dibatalkan.` (line 2939–2943).
+- Confirm "Ya, Hapus" (line 2949–2956) calls `handleBulkDelete` (line 1247–1282).
+- API: `POST /api/products/bulk-delete` with body `{ productIds, selectAllMode, filter }`. Server (bulk-delete route.ts):
+  - OWNER-only (403 if not owner).
+  - Max 500 products per call (line 34–37).
+  - In transaction: delete compositions → fetch for audit → deleteMany products. TransactionItem.productId auto-nullified.
+- Same AlertDialog pattern but **without** the "varian & stok akan hilang" warning that single delete has — bulk delete message is more generic.
+- After success: `toast.success(\`${data.deletedCount} produk berhasil dihapus\`)`, clear selection, exit bulk mode, forceRefresh, fetchCategories.
+
+---
+
+## E. Validation details
+
+### E1. Field-level validations (client-side, product-form-dialog.tsx)
+| Field | Required | Min/Length | Format | Uniqueness |
+|---|---|---|---|---|
+| name | Yes | none | none | Yes server-side per outlet (route.ts 322–327, 92–99); message: "Product name already exists in this outlet" |
+| price | Yes (non-variant) | `> 0` | number | n/a |
+| sku | No | max 22 chars (line 782) | none | Yes server-side per outlet across products AND variants (route.ts 332–347, 101–116); message: \`SKU "${sku}" sudah digunakan oleh produk lain di outlet ini\` |
+| barcode | No form field | n/a | n/a | Validated server-side per outlet (route.ts 349–358, 118–127). User cannot enter barcode — auto-derived from SKU. |
+| stock | No | min=0 HTML attr | number | Cannot exceed composition capacity (client check at line 413–419, server check route.ts 141–146) |
+| unit | No (defaults 'pcs') | Constrained to UNITS list (19 options, line 79–99) | controlled | n/a |
+| category | No | n/a | n/a | Server validates outlet ownership (route.ts 360–368, 129–138) |
+| hpp | No (owner-only) | min=0 | number | n/a |
+| lowStockAlert | No (default 10) | min=0 | number | n/a |
+
+### E2. Cross-field validations
+- **price > hpp**: NOT enforced. The form shows a "Profit preview" (line 905–925) with the calculation `price - hpp` and margin %, but does NOT warn or block when profit is negative. Inference: a user can set price < hpp and save successfully.
+- **composition total cost**: Auto-calculated HPP from composition (`autoHpp` line 149–152), then auto-fills hpp field. No validation that autoHpp > 0.
+- **variant duplicate names**: Client check at line 376–383 (in API route.ts). Form doesn't pre-check before submit.
+
+### E3. VALID_UNITS source
+- **Two separate definitions, NOT synchronized**:
+  - `product-form-dialog.tsx` line 79–99: inline `UNITS` array, **19 entries** (pcs, ml, lt, gr, kg, box, pack, botol, gelas, mangkuk, porsi, bungkus, sachet, dus, rim, lembar, meter, cm, ons).
+  - `src/lib/excel-utils.ts` line 208–213: exported `VALID_UNITS` array, **28 entries** (adds: roll, strip, ekor, butir, karton, lusin, slop, unit, liter).
+- The Excel template dropdown (template/route.ts line 72) uses the 19-unit string identical to UI form's UNITS list.
+- A user bulk-uploading with unit "strip" or "ekor" succeeds (server accepts via validateUnit), but cannot later change that product's unit back to "strip" via the UI form — the dropdown doesn't offer it. Inference: schema drift potential.
+- CONTRACT DEVIATION — UI form should use the shared `VALID_UNITS` from `excel-utils.ts`.
+
+### E4. Error message language
+- **Bahasa Indonesia** for user-facing toasts: "Nama produk wajib diisi", "Harga jual wajib diisi", "Gagal menyimpan produk", "Gagal menghapus produk", "Minimal 1 varian diperlukan", etc.
+- **English** for some server messages: "Failed to load products" (products-page.tsx line 668, 671), "Failed to load product details" (line 712, 715), "Updated N product prices" (line 971), "Failed to update prices" (line 980), "Invalid value" (line 953).
+- Mixed language is inconsistent — CONTRACT DEVIATION (UX contract expects Bahasa Indonesia as primary).
+
+### E5. Required-field marking
+- Red asterisk `*` used:
+  - "Nama Produk" (line 726): `<span className="text-red-400">*</span>`
+  - "Harga Jual" (line 846): same pattern.
+  - "Nama Varian" (line 1236): same pattern.
+  - "Harga Jual" in variant (line 1285): same pattern.
+- HTML `required` attribute also set on name (line 732) and price (line 857).
+- **0 `aria-required`** attributes anywhere (verified grep).
+- CONTRACT DEVIATION — accessibility requires `aria-required="true"` for screen readers.
+
+---
+
+## F. Feedback patterns
+
+### F1. Toast library
+- **Sonner** (`import { toast } from 'sonner'` at line 5 of products-page.tsx and line 5 of product-form-dialog.tsx).
+- Custom `use-toast.ts` hook exists (193 lines) but NOT imported by either Products file (verified: 0 `use-toast` imports).
+- 30+ `toast.success` / `toast.error` calls in products-page.tsx alone.
+
+### F2. Toast duration
+- Default sonner duration (no explicit `duration` prop on any toast call). Default is 4 seconds.
+- No success/error/warning-specific durations.
+
+### F3. Actionable toasts
+- **NOT actionable.** No `toast.success(..., { action: { label: 'Undo', onClick: ... } })` patterns anywhere.
+- After delete: no Undo button. After bulk update: no Revert button.
+- CONTRACT DEVIATION — UX contract recommends Undo for destructive ops.
+
+### F4. Top-level error boundary
+- Yes — `ErrorBoundary` wraps every LazyPage in app-shell.tsx:47 (line 47–49 `<ErrorBoundary><Suspense fallback={<PageLoader/>}>{children}</Suspense></ErrorBoundary>`).
+- But ProductsPage itself does NOT use ErrorBoundary internally (verified: 0 imports of error-boundary).
+- ErrorBoundary only catches render-time crashes, NOT fetch failures. Fetch failures are silently downgraded to toast + empty list.
+
+### F5. HTTP status handling
+- **401 Unauthorized**: API route returns `unauthorized()` (e.g., route.ts line 24–25). The client-side `getAuthUser` is server-side; client sees a 401 response. NO explicit 401 handling in fetchProducts catch — falls into the generic `toast.error('Failed to load products')`. There is no automatic redirect to /login.
+- **403 Forbidden**: Same — caught as generic error toast. Server messages like "Hanya pemilik yang dapat menghapus produk" surface via `data.error || 'Gagal menghapus produk'` (line 756). Crew users see this toast.
+- **429 Rate Limit**: No handling. Would surface as generic error toast. No retry-after honoring.
+- **500 Server**: Same generic toast.
+- CONTRACT DEVIATION — no status-aware UX.
+
+### F6. Network error & form input preservation
+- On network error in handleSubmit catch (line 600–602), `setSaving(false)` is called in finally (line 603) but **the form state is preserved** (no `setForm({...empty})`). The dialog stays open. User can retry. GOOD.
+- However, if the user closes the dialog after a network error, all input is lost (no draft persistence).
+- On composition sync sub-error (line 587–590), the product was already saved server-side, so the dialog CLOSES (line 589) and `onSaved()` fires — but the composition is silently NOT saved. User is told via toast but has no way to recover their composition input without re-opening the form.
+
+---
+
+## G. List refresh / cache invalidation
+
+### G1. Cache library
+- **Manual fetch + useState**. No React Query, no SWR. Verified: 0 grep hits for useQuery/useMutation/QueryClient/react-query in products-page.tsx.
+- The only "cache" is the server-side HTTP cache (CACHE.SHORT = 5s + 60s stale-while-revalidate per route.ts line 256–271) and the browser's HTTP cache (bypassed via `_t=Date.now()` when `bustCache=true`).
+
+### G2. Query key
+- N/A — no React Query. Manual fetch constructs URLSearchParams at lines 653–658.
+
+### G3. After Add/Edit/Delete invalidation
+- All mutations call `fetchProducts(true)` (cache-bust). Specifically:
+  - Add/Edit (via ProductFormDialog onSaved): products-page.tsx line 2584.
+  - Single Delete: line 753.
+  - Restock: lines 784, 812.
+  - Adjust: lines 854, 888.
+  - Bulk delete: line 1271.
+  - Bulk update (price/stock/category): lines 978, 1019, 1055.
+  - Bulk upload: line 1135.
+  - Bulk update via Excel: line 1225.
+  - Category delete (changes filter): lines 1332, 1384.
+- Also `fetchCategories()` called after category-affecting ops.
+- `fetchDetail(detailProduct, detailPage)` called if detail sheet is open for the affected product.
+
+### G4. Manual refresh button
+- **NO standalone "Refresh" button**. There IS a `forceRefresh` function (line 1068) but it's only called internally after mutations, not exposed in UI.
+- The header has "Edit Massal", "Cetak Barcode", "Excel", "Tambah Produk" buttons — no Refresh icon.
+- **No "Last updated" timestamp** shown to user.
+- User can indirectly trigger a refresh by changing sort/filter/pagination.
+
+### G5. Stale-while-revalidate & auto-refresh
+- Server-side SWR via CACHE.SHORT (5s) + 60s stale-while-revalidate (per route.ts comment line 256–260).
+- No client-side SWR.
+- **No window focus refetch** on products list. (`usePlan` does refetch on focus, but that's plan data, not products.)
+- CONTRACT DEVIATION — common pattern is to refetch on focus for inventory pages.
+
+### G6. Pagination
+- **Page-based** (not cursor, not infinite scroll).
+- Page size: 20 (hardcoded in fetchProducts line 653: `params.set('limit', '20')`).
+- No page size selector.
+- Uses shared `Pagination` component (imported at line 60, used at line 2506 for list, line 4125 for movement history).
+- Pagination component at `src/components/shared/pagination.tsx` shows ellipsis when totalPages > 7.
+
+---
+
+## H. Responsive layout
+
+### H1. Tailwind breakpoint usage
+- products-page.tsx: **12 occurrences** of md:/lg:/sm: classes.
+- product-form-dialog.tsx: **0 occurrences** (form is purely responsive via ResponsiveDialog wrapper, which itself uses `w-[calc(100%-1rem)] sm:max-w-lg`).
+
+Representative examples from products-page.tsx:
+1. Line 1436: `flex flex-col sm:flex-row sm:items-center` (header stacks on mobile, row on sm+)
+2. Line 1441: `sm:overflow-visible sm:mx-0 sm:px-0 sm:flex-wrap` (action bar horizontally scrollable on mobile, wrap on sm+)
+3. Line 1526: `grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-4` (stats cards)
+4. Line 1889: `grid grid-cols-1 sm:grid-cols-2` (feature help grid)
+5. Line 1914: `flex flex-col sm:flex-row` (search + sort row)
+6. Line 1933: `w-full sm:w-[180px]` (sort select width)
+7. Line 1952: `hidden md:block` (desktop table only)
+8. Line 2195: `md:hidden` (mobile cards only)
+9. Line 2510: `fixed bottom-16 md:bottom-0 ... z-40 md:z-50` (floating bulk bar positioned above mobile bottom-nav, sticks to bottom on desktop)
+10. Line 3291/3555: `hidden sm:inline` (step labels in upload progress)
+11. Line 3763: `w-full sm:max-w-lg` (detail sheet width)
+
+### H2. Mobile card view
+- Yes — mobile cards at lines 2195–2504 (`<div className="md:hidden">`).
+- Card layout (per product):
+  - Left accent bar for selection/stock status (lines 2306–2308).
+  - Top row: image/checkbox + name + variant/composition badges + stock status badge.
+  - Bottom row: price/HPP + stock pill + 5 action buttons (Eye, RefreshCw, FilePenLine, Edit, Trash2) each `h-9 w-9` (line 2451, 2460, 2473, 2482, 2491).
+- NOT using `isMobile` hook — uses pure CSS breakpoint switch via `md:hidden` / `hidden md:block`.
+
+### H3. Mobile action buttons accessibility
+- Header action bar (line 1441): `flex items-center gap-2 overflow-x-auto scrollbar-hide -mx-1 px-1 sm:overflow-visible sm:mx-0 sm:px-0 sm:flex-wrap`.
+- Horizontal scroll on mobile (scrollbar-hide). Buttons ARE accessible but require horizontal swipe to reach "Tambah Produk" if "Edit Massal" + "Cetak Barcode" + "Excel" are visible.
+- NOT in a Sheet/Drawer.
+- CONTRACT DEVIATION — common pattern is overflow menu (Sheet/Drawer) for secondary actions on mobile.
+
+### H4. Mobile form dialog
+- The form uses `ResponsiveDialog` (imported at product-form-dialog.tsx line 12). Inspecting `responsive-dialog.tsx` (110 lines):
+  - Lines 6–13: imports only Dialog components (not Sheet).
+  - Line 20–34: `ResponsiveDialog` always wraps `<Dialog>`.
+  - Line 39–61: `ResponsiveDialogContent` always uses `<DialogContent>` with `w-[calc(100%-1rem)] sm:max-w-lg` — never uses Sheet.
+  - Comment at line 5: "Dialog components (always centered, both mobile and desktop)".
+- **Form dialog does NOT become a bottom sheet on mobile**. It stays a centered Dialog.
+- CONTRACT DEVIATION — UX contract specifies Sheet for mobile.
+
+### H5. Mobile search bar reachability
+- Search bar at lines 1914–1931, located in the main content flow ABOVE the table. 
+- On mobile, the page scrolls top-to-bottom: Header → Stats Cards (line 1524–1660) → Category Section (1662–1859) → Feature Help (1861–1911) → Search & Sort (1913–1949) → Table/Cards (1951/2195).
+- Search is in the **upper-middle** of the page, not in the thumb zone (bottom).
+- CONTRACT DEVIATION — search should be sticky or in a bottom-reachable position on mobile.
+
+### H6. Touch target size
+- 115 grep hits for `h-9|h-10|h-11|h-7|h-8|py-2|py-3|py-2.5` across products-page.tsx.
+- Primary "Tambah Produk" button: `h-9` (36px) — **below 44px iOS HIG minimum**.
+- Desktop row action icons: `h-7 w-7` (28px) — well below 44px.
+- Mobile card action icons: `h-9 w-9` (36px) — below 44px.
+- Mobile bulk mode checkbox area: `h-11 w-11` (44px) — meets minimum (line 2204).
+- CONTRACT DEVIATION — touch targets too small on mobile.
+
+### H7. Modal scrollability on mobile with keyboard
+- ResponsiveDialogContent (responsive-dialog.tsx line 51): `max-h-[85vh] overflow-y-auto overflow-x-hidden`.
+- ProductFormDialog overrides (line 694): `max-h-[92vh] overflow-hidden flex flex-col` (the OUTER container is overflow-hidden, the INNER form body at line 715 is `flex-1 overflow-y-auto`).
+- This means the dialog header and footer stay fixed, only the form body scrolls — GOOD for keyboard interaction on mobile.
+- However, when the keyboard opens on iOS, the 92vh calculation may overlap with the keyboard. No `viewport-percentage` adjustment.
+- Inference: partially works but not optimized.
+
+---
+
+## I. Theme consistency
+
+### I1. Hardcoded color usage
+- products-page.tsx: **376 occurrences** of hardcoded color classes (text-red-/text-emerald-/bg-amber-/etc.).
+- product-form-dialog.tsx: **139 occurrences**.
+- Total across the two files: 515.
+- Examples: `text-amber-400` (line 1452, 1602, 2121), `bg-emerald-500/10` (line 1534, 2381, 3963), `text-red-400` (line 2897, 2953), `bg-violet-500/10` (line 1575, 3931), `bg-sky-500/10` (line 2099), `bg-orange-500/10` (line 2931), `text-cyan-400` (line 304).
+
+### I2. Theme tokens
+- products-page.tsx: **77 occurrences** of `theme-*` tokens (`theme-bg`, `theme-text`, `theme-border`, `theme-hover`, `theme-gradient`, `theme-ring`, `theme-shadow`).
+- product-form-dialog.tsx: **40 occurrences**.
+- BUT: **0 occurrences** of standard shadcn semantic tokens (`bg-background`, `text-foreground`, `bg-card`, `border-border`).
+- Inference: the project uses a CUSTOM theme-token system (theme-* classes), not standard shadcn tokens. Both are present alongside heavy hardcoded usage.
+- CONTRACT DEVIATION — heavy hardcoded color usage makes dark/light theme flip impossible without code changes.
+
+### I3. Form dialog uses Dialog, not Sheet
+- Confirmed in H4: `ResponsiveDialog` always wraps `Dialog`, never `Sheet`. CONTRACT DEVIATION for mobile UX.
+
+### I4. Button hierarchy
+- "Tambah Produk" (primary add): `theme-bg theme-hover text-white` (line 1517) — emerald primary ✓
+- "Batal" (cancel): `variant="ghost"` + `bg-white/[0.04] border-white/[0.04] text-slate-300 hover:bg-white/[0.04]` (line 2638, 2731, 2807, 2912, etc.) — outline-ish secondary ✓
+- "Hapus" (delete): `bg-red-500 hover:bg-red-600 text-white` (line 2737, 2682, 2712, 2952) — destructive red ✓
+- "Restock": `theme-bg theme-hover text-white` (line 2817) — primary emerald ✓
+- "Sesuaikan": `bg-orange-500 hover:bg-orange-600 text-white` (line 2924) — orange (adjustment = warning/neutral) ✓
+- Hierarchy is correct.
+
+### I5. Typography scale
+- **No `.text-display`, `.text-title`, `.text-h1`-`h6`, `.text-body`, `.text-caption` typography classes** found.
+- All sizing is inline: `text-xl font-bold` (line 1438 page title), `text-2xl font-bold` (line 1541, 1579, 1609, 1641 stats numbers), `text-sm text-slate-500` (line 1439 subtitle), `text-xs text-slate-300` (line 1918 input), `text-[11px]` (various labels), `text-[10px]` (various badges).
+- CONTRACT DEVIATION — no typography system in use.
+
+### I6. Dark mode `bg-white` without `dark:` variant
+- products-page.tsx has 87 occurrences of `bg-white[^/]` or `text-white[^/]` (e.g., `bg-white rounded-lg p-3` at line 3886 inside barcode card, `bg-white rounded-lg p-3` at line 3910, `text-white` at line 1438).
+- Specifically problematic for dark mode: `bg-white rounded-lg p-3` (line 3886, 3910 — barcode cards with white background so the black barcode renders visibly). These are intentionally white backgrounds for barcode legibility (barcode-display.tsx renders black bars on white). Inference: intentional, not a bug.
+- `text-white` is used heavily for headings on dark background — this is intentional (the page is dark-themed).
+- However, if the app ever flips to a light theme, `text-white` headings become invisible. NO `dark:` variants anywhere.
+
+---
+
+## J. Composition × Variant interaction
+
+### J1. Can a product have BOTH variants AND composition?
+- **YES.** Confirmed via:
+  - product-form-dialog.tsx line 436: `if (hasComposition && hasVariants)` validation block.
+  - line 519: `if (shouldSync && hasComposition && hasVariants)` sync block — per-variant composition mode.
+  - line 1451: dynamic label `{hasVariants && hasComposition ? 'Komposisi per Varian — aktif' : 'Aktifkan Komposisi'}`.
+  - line 1479: `{hasComposition && hasVariants && (` info panel.
+  - composition route.ts line 238–285: server-side handles variant compositions separately.
+
+### J2. What happens to composition UI when a variant is added?
+- When `hasVariants` is toggled ON while `hasComposition` is already on:
+  - The product-level composition editor (lines 1490–1588) disappears (condition `hasComposition && !hasVariants`).
+  - The variant-mode info panel appears (lines 1478–1488): "Komposisi diatur per varian. Buka setiap varian untuk mengatur itemnya."
+  - The `variantCompositions` state (Record<number, CompositionItem[]>) is preserved (no auto-clear on variant toggle).
+  - Each variant's expanded view shows its own composition sub-editor (lines 1334–1392).
+- No warning shown to user about losing product-level composition (because product-level is just hidden, not deleted — but server-side PUT composition at line 222–227 wipes ALL existing compositions, so toggling variant mode + saving WILL silently delete the product-level composition).
+- CONTRACT DEVIATION — should warn user before this destructive transition.
+
+### J3. Composition added to variant product
+- Per-variant HPP auto-calculated (line 171–174): `getVariantAutoHpp = sum(qty * avgCost)`.
+- Per-variant max stock calculated (line 177–190): `getVariantMaxStock = min(inventoryStock / compQty)`.
+- Stock capacity validated at line 449–457.
+- The HPP display per variant at line 1274–1282 shows "HPP (Auto) dari komposisi".
+- DOES make sense: each variant has its own recipe, its own HPP. This is well-designed.
+
+### J4. Console warnings / known bugs
+- 0 `TODO|FIXME|HACK|BUG|XXX` in products-page.tsx.
+- 0 `TODO|FIXME|HACK|BUG|XXX` in product-form-dialog.tsx.
+- BUT, product-form-dialog.tsx has **7 inline `FIX-COMP-A` through `FIX-COMP-G` comments** (lines 244, 279, 334, 498, 502, 522, 554, 572) documenting prior composition bugs that were fixed:
+  - FIX-COMP-A: variant products return different shape from /composition endpoint.
+  - FIX-COMP-B: case-insensitive trimmed name match (was exact match).
+  - FIX-COMP-C: GET /variants returns bare array, not {variants: [...]}.
+  - FIX-COMP-D: shouldSync must fire when composition state changes (was losing data).
+  - FIX-COMP-E: helper to call composition PUT and check response (was silently swallowed).
+  - FIX-COMP-F: GET /variants returns bare array (same as COMP-C, on save path).
+  - FIX-COMP-G: preserve user's toggle state.
+- These suggest the composition × variant interaction has been historically buggy. The fixes appear sound but the density of FIX-COMP-* comments indicates fragility.
+
+---
+
+## K. Bulk operations UX
+
+### K1. Multi-row selection
+- **Checkbox column** in desktop table (line 1969–1977, only shown when `bulkMode=true`). Each row has a Checkbox (line 2036–2042) with `onCheckedChange={() => toggleSelect(product.id)}`.
+- **Select-all** checkbox in header (line 1971–1975) calls `toggleSelectAll` (line 939–945): toggles between all-current-page-selected and none.
+- **Cross-page selection**: "Pilih Semua" button (line 2531–2540 mobile bulk bar, line 2225–2234 mobile sticky header) sets `selectAllMode=true` and shows `Semua ${stats.total} produk` selected.
+- **NO shift+click range selection.**
+
+### K2. Bulk action bar location
+- **Floating bottom bar** (line 2508–2576): `fixed bottom-16 md:bottom-0 left-0 right-0 z-40 md:z-50`.
+- On mobile (`bottom-16`): sits above the bottom navigation (64px / 16rem above viewport bottom).
+- On desktop (`bottom-0`): full-width bar at viewport bottom.
+- Sticky mobile header for selection summary also at lines 2196–2246 (only when bulkMode + products exist + mobile).
+- Bar contains: selection count, Batal button, Pilih Semua (if applicable), Hapus, Harga, Stok, Kategori buttons.
+
+### K3. Bulk delete
+- Same AlertDialog pattern as single delete (D6 above). Title shows count: `Hapus {selectAllMode ? \`${stats.total}\` : selectedIds.size} Produk?`.
+- Description: `... akan dihapus secara permanen beserta semua variannya. Tindakan ini tidak bisa dibatalkan.`
+- API: `POST /api/products/bulk-delete` with `{ productIds, selectAllMode, filter }`.
+- Max 500 per call (server-side, bulk-delete route.ts line 34).
+- **Partial failure handling**: server-side is all-or-nothing (transaction-wrapped). If the transaction succeeds, all selected are deleted. If the transaction fails, none are deleted and a generic error toast fires. NO partial-failure UI.
+- After success: `toast.success(\`${data.deletedCount} produk berhasil dihapus\`)`, clear selection, exit bulk mode, forceRefresh, fetchCategories.
+
+### K4. Bulk update via Excel
+- Flow (Edit Excel dialog at lines 3479–3757):
+  1. **Step 1: Download Template Edit** button (line 3586–3595) — calls `handleExportExcel` (line 1156). The "template edit" is actually the regular export with all current data (export route returns a workbook with 4 sheets: Produk, Varian Produk, Komposisi, Panduan).
+  2. **Step 2: Drag-and-drop file** (lines 3597–3660) or click "Pilih File" (line 3645–3659). Accepts `.xlsx, .xls, .csv`.
+  3. **Step 3: Upload** button (line 3736–3744) calls `handleBulkUpdateExcel` (line 1182) → `POST /api/products/bulk-update-excel` with FormData.
+  4. **Step 4: Result summary** shown (lines 3669–3721): updated count, variantsUpdated, notFound, variantsNotFound, errors list with line numbers (`Baris N: ...`).
+- **NO preview step** — Excel is uploaded directly, server processes it in a single transaction.
+- API: bulk-update-excel/route.ts line 78 wraps in `db.$transaction`. Per-row errors push to `result.errors` but continue. ID column required for matching (`findColumn(row, ['ID*', 'ID', 'id', 'Id'])`).
+- Max 500 rows per upload (line 19 of route).
+- File size max 5MB (line 54).
+
+### K5. Bulk upload (create) UX
+- Upload dialog (lines 3211–3476).
+- **Progress bar** (lines 3256–3268): simulated progress (uploadProgressRef.current = setInterval, line 1098–1110). Phases: 0-25% "Mengupload file", 25-60% "Memproses data produk", 60-90% "Menyimpan ke database", 90-100% "Menyelesaikan".
+- **Step indicators** (lines 3270–3294): 4 steps with CheckCircle2 icons when threshold met.
+- **Cancel hint**: "Mohon tunggu, jangan tutup halaman ini" (line 3297–3299) — but **NO actual cancel button** during upload (cancel button at line 3445–3453 is `disabled={uploading}`).
+- **Error row highlighting**: NO. The result summary (lines 3388–3440) shows counts (created, skipped, variantsCreated, variantsSkipped, errors) but doesn't highlight specific rows in a table — just lists error strings as bullet points.
+- **Summary at end**: Yes, shown in dialog (lines 3388–3440). User clicks "Selesai" to close (line 3466–3472).
+
+### K6. Cancel/during-operation guard
+- During upload, Cancel button is `disabled={uploading}` (line 3449).
+- During Excel edit upload, same pattern (line 3730).
+- During bulk delete, AlertDialog confirm button is `disabled={bulkDeleteSubmitting}` (line 2951).
+- During bulk price/stock/category, the dialog's "Terapkan" button is `disabled={bulkPriceSubmitting}` (line 3054), etc.
+- No "Are you sure you want to navigate away?" guard during in-flight operations.
+- No abort controller on the fetch calls — once submitted, the operation runs to completion server-side even if user navigates away.
+
+---
+
+## L. Plan limit interaction
+
+### L1. maxProducts client-side check
+- **NOT FOUND.** The "Tambah Produk" button (line 1517) is always enabled (no `disabled` prop, no tooltip showing remaining slots).
+- `usePlan` is imported (line 8) and `plan` is destructured (line 468), but `usage.products` and `features.maxProducts` are NOT compared anywhere in the file.
+- The check only happens server-side at POST `/api/products` (route.ts line 309–314): `if (count >= features.maxProducts) return safeJsonError('Batas produk untuk paket ${accountType} sudah tercapai (${features.maxProducts}). Upgrade ke Pro untuk produk unlimited!', 400)`.
+- After this 400 response, user sees: `toast.error(data.error || 'Gagal menyimpan produk')` — they've already filled the entire form, clicked submit, and waited for a server round-trip.
+- CONTRACT DEVIATION — UX contract expects proactive gating with disabled button + tooltip when at limit.
+
+### L2. When limit reached
+- Button is NOT disabled. User can open the form, fill all fields, and only learn about the limit after pressing submit.
+- The error message is informative (`Batas produk untuk paket free sudah tercapai (50). Upgrade ke Pro untuk produk unlimited!`) but is shown as a toast, which disappears after 4 seconds.
+- No inline upgrade CTA in the form. No ProGate overlay on the "Tambah Produk" button.
+
+### L3. Bulk upload respects maxProducts?
+- **PARTIALLY**. bulk-upload route.ts line 372–381 checks: if `currentCount + rows.length > remainingSlots`, adds a warning to `result.warnings` but does NOT abort. The upload proceeds, and individual product creates will fail when DB count exceeds limit (caught by `@@unique` or similar).
+- The bigger issue: bulk-upload uses **hardcoded `MAX_ROWS = 500`** (line 20), NOT `outletPlan.features.maxBulkUploadRows`. So a Pro user (limit 200) can upload 500 rows; an Enterprise user (limit 500) is fine. This is the documented DEFERRED-ISSUES **PLAN-P2-001** (confirmed in docs/DEFERRED-ISSUES.md line 194 and plan-config.ts line 128/163).
+
+### L4. ProGate usage
+- `ProGate` is imported at products-page.tsx line 114 but **NEVER rendered in JSX** (verified: 0 `<ProGate` occurrences).
+- `LockedDropdownItem` IS used (line 1496 and 1506) for the Excel dropdown's "Upload Excel" and "Edit Excel" items — gates on `feature="bulkUpload"`. For Free users, these items appear disabled with a Crown+Lock badge and clicking them navigates to the plan page (`usePageStore().setCurrentPage('plan')`, locked-dropdown-item.tsx line 68).
+- The "Export Excel" item (line 1484) is NOT gated client-side — it's a plain DropdownMenuItem. The server enforces `features.exportExcel` at export/route.ts line 27–29, returning 403 if not Pro. So Free users will see "Export Excel" enabled, click it, then get a 403 toast.
+
+---
+
+## M. Code structure observations
+
+### M1. useState count in products-page.tsx
+- **52 useState** (verified via grep).
+- Target per UX contract: <25 (mentioned in task prompt).
+- DEVIATION: 52 vs 25 = 27 over target.
+
+### M2. useState count in product-form-dialog.tsx
+- **5 useState** (verified: `saving`, `categories`, `hasVariants`, `variants`, `expandedVariant`, `massFill`, `hasComposition`, `compositions`, `inventoryItems`, `variantCompositions`, `form`). 
+- Grep counted 5 but manual count is 11. Re-verifying: lines 106, 107, 108, 109, 110, 113, 116, 117, 118, 122, 124 = 11 useState calls. (Grep may have undercounted due to multiline patterns.)
+- Final answer: **11 useState** in product-form-dialog.tsx.
+
+### M3. Custom hooks extracted
+- **0 hooks** named `use-product-*` or `use-category-*` in `/src/hooks/` (verified via LS).
+- All data fetching is inline `useCallback` + `useEffect` + `useState` in the component.
+- CONTRACT DEVIATION — no separation of concerns.
+
+### M4. Largest single function in each file
+- **products-page.tsx**: `ProductsPage` itself (line 465 to 4150) = ~3685 lines. The largest handler inside is `handleRestock` (line 766–829) = ~63 lines. `handleAdjust` (line 831–907) = ~76 lines. `handleBulkUpload` (line 1085–1154) = ~69 lines. The render JSX is the bulk of the function.
+- **product-form-dialog.tsx**: `handleSubmit` (line 384–605) = **221 lines**. This is the longest single function (validation + main product save + composition sync with per-variant matching logic). Refactor candidate.
+
+### M5. Commented-out code / TODO/FIXME/HACK
+- **0 `TODO|FIXME|HACK|BUG|XXX`** in either file (verified by grep).
+- 7 `FIX-COMP-A` through `FIX-COMP-G` historical-fix comments in product-form-dialog.tsx (lines 244, 279, 334, 498, 502, 522, 554, 572) — these are documented completed fixes, not open issues.
+- 11 `FIX-102` cache-busting comments in products-page.tsx — documented completed P0 fix.
+- 1 `Fix Bug #11` comment at lines 1140 and 1231 — error message detail improvement.
+- 1 `FIX-PLAN-007` comment in API route (not in the page files).
+- 1 `P1-1 AUDIT-3` comment block at route.ts line 221–232 (upsert-by-name fix).
+- No dead/commented-out code blocks observed.
+
+---
+
+## N. Cross-cutting
+
+### N1. ErrorBoundary usage
+- NOT used inside products-page.tsx (0 imports).
+- IS used at app-shell.tsx:47 — wraps every LazyPage including ProductsPage.
+- So ProductsPage render-time crashes are caught; fetch errors are NOT.
+
+### N2. ConfirmDialog vs AlertDialog
+- Uses **AlertDialog directly** (imported at lines 23–32).
+- 5 AlertDialog instances in products-page.tsx:
+  1. Single category delete (line 2656).
+  2. Bulk category delete (line 2692).
+  3. Single product delete (line 2722).
+  4. Bulk product delete (line 2934).
+- 0 ConfirmDialog shared component usages.
+- CONTRACT DEVIATION — should use the shared `useConfirm` hook + ConfirmDialog for consistency with rest of app (per UX-DESIGN-CONTRACT Section 4.4).
+
+### N3. DataTable shared component
+- **NOT used**. ProductsPage uses raw `<Table>` + `<TableHeader>` + `<TableRow>` + `<TableCell>` directly (imported at lines 61–68).
+- 0 `<DataTable` occurrences.
+- The custom table is heavily customized (image cells, badges, sortable headers, conditional coloring) which the generic DataTable doesn't support.
+- Inference: refactoring to DataTable would require extending DataTable's API significantly.
+
+### N4. Pagination shared component
+- **YES used**. Imported at line 60, rendered at line 2506 (main list) and line 4125 (movement history in detail sheet).
+
+### N5. ProGate usage
+- Imported at line 114 but **NEVER rendered** (0 `<ProGate` JSX occurrences).
+- The Excel dropdown uses `LockedDropdownItem` (lines 1496, 1506) instead — gates on `feature="bulkUpload"`.
+
+### N6. DateFilter usage
+- **NOT used** (0 imports). Products don't have a date filter; the movement history inside the detail sheet uses Tabs (line 4063) for filtering by action type (all/restock/sale/void/transfer/adjustment), not by date.
+
+### N7. Barcode display
+- Uses BOTH:
+  - `BarcodeDisplay` (dynamically imported at line 120, used at lines 3887 and 3912 inside the detail Sheet for non-variant and variant barcode cards).
+  - `BatchBarcodeDialog` (dynamically imported at line 121, rendered at line 4143 with `open={batchBarcodeOpen}`).
+- The "Cetak Barcode" button at line 1460–1467 opens BatchBarcodeDialog.
+- Both are dynamically imported (`ssr: false`) because they use browser-only barcode rendering libraries (jsbarcode).
+
+---
+
+## Completion Header
+
+- Executed: READ-ONLY discovery audit of products-page.tsx (4150L), product-form-dialog.tsx (1616L), 17 API routes (~5303L), 8 shared components (~2700L), 3 hooks (~280L).
+- Passed: All evidence gathering completed without code modification.
+- Failed: None.
+- Blocked: None.
+- Not Executed: Runtime testing of the actual page (only static code analysis performed, per READ-ONLY mandate).
+- Code Changes: NONE (READ-ONLY mode, per AI_RUNTIME_RULES R5).
+- Contract Violations (discovered, not introduced):
+  - UX: Empty state missing CTA (A7)
+  - UX: No error state with retry (A9)
+  - UX: No unsaved-changes guard in form (C5)
+  - UX: Delete confirmation message incomplete — missing "transaction history preserved" + "analytics affected" (D3)
+  - UX: No actionable toasts (F3)
+  - UX: No status-aware HTTP error handling (F5)
+  - UX: VALID_UNITS desync between UI (19) and excel-utils (28) (E3)
+  - UX: Mixed English/Bahasa toast messages (E4)
+  - UX: 0 aria-required attributes (E5)
+  - UX: No auto-refresh on window focus (G5)
+  - UX: No page-size selector (G6)
+  - UX: Form dialog not Sheet on mobile (H4)
+  - UX: Touch targets below 44px (H6)
+  - UX: Hardcoded colors (515 occurrences across 2 files) vs theme tokens (117 occurrences) (I1)
+  - UX: No typography scale classes (I5)
+  - UX: Composition toggle to variant mode silently deletes product-level composition (J2)
+  - UX: No client-side maxProducts gating (L1)
+  - UX: PLAN-P2-001 still open — bulk-upload uses hardcoded MAX_ROWS=500 (L3)
+  - UX: "Export Excel" not client-gated — Free users hit 403 (L4)
+  - CODE: 52 useState in products-page.tsx vs <25 target (M1)
+  - CODE: 0 custom hooks extracted for product/category domain logic (M3)
+  - CODE: handleSubmit in form is 221 lines (M4)
+  - CODE: 0 ConfirmDialog / DataTable / DateFilter shared-component usages (N2, N3, N6)
+  - CODE: ProGate imported but never rendered (N5)
+- Open Decisions: Founder to decide which findings to address in a follow-up UX stabilization task (per UX_STABILIZATION_RULES allowed scope).
+- Final Status: DISCOVERY COMPLETE — no code modified, evidence recorded, awaiting founder decision on which findings to prioritize.
+
+
+---
+Task ID: PROD-DISC-FINAL
+Agent: main (Z.ai Code) — orchestrator
+Task: Compose founder-facing READ-ONLY discovery report on Products page UX surface, using PROD-DISC-1 subagent evidence.
+
+Work Log:
+- Read AI_RUNTIME_RULES (R1-R12, mandatory stop conditions, required task/completion headers).
+- Read UX_STABILIZATION_RULES (allowed vs forbidden scope, stop rule, write boundary, completion rule).
+- Read UX-DESIGN-CONTRACT key sections: §1.4 mutation sources, §1.6 product delete example, §2 design tokens, §2.4 button hierarchy, §2.5 component library rules, §4.2 dialog/drawer, §4.3 validation, §4.4 confirmation, §5.1-5.3 loading/error/empty states, §6 cache/freshness, §8.4 disabled state, §9 search/filter, §10 pagination, §11 toast, §12.1 phase roadmap, §12.1.1 POS methodology, §15.1 file size targets, §15.2 useState targets, §16 contract approval.
+- Read ARCHITECTURE-LOCK §0-16: confirmed core inventory engine FROZEN; 17 mutation paths locked; cannot touch InventoryConsumptionService/FEFOEngine/TransactionConsumption/BatchConsumptionLog/Product.stock/Product.hpp semantics; 5 inventory modes (A-E) locked; void contract atomic; offline path uses localDB shim.
+- Read PLATFORM-ARCHITECTURE-REVIEW relevant grep hits: CREW-006/007/008/009 permission endpoints already satisfied; PLAN-007 plan enforcement on 8 endpoints; maxProducts/maxBulkUploadRows feature flags per plan.
+- Read DEFERRED-ISSUES relevant items: MIG-P2-001 (VALID_UNITS drift across 4 lists, 19 in product form vs 28 in excel-utils), PLAN-P2-001 (products/bulk-upload hardcoded MAX_ROWS=500 vs maxBulkUploadRows), INV-P3-001 (dormant offline engine).
+- Dispatched PROD-DISC-1 (Explore subagent, very thorough) to gather factual evidence on products-page.tsx + product-form-dialog.tsx + 17 product/category API routes + shared components. Subagent returned A-N structured findings with file:line citations for every claim.
+- Spot-verified 4 critical findings directly: (a) usePlan imported but maxProducts never checked client-side; (b) ProGate imported but never rendered; (c) Empty state at line 1959-1963 lacks title/description/CTA; (d) Delete confirm at line 2722-2744 lacks "transaction history preserved" + "analytics affected" per contract.
+- Composed founder-facing report with 6 sections per user request: Flow aktual / Friction / Flow ideal minimal / Perubahan UI minimal / Exact files involved / Dependencies requiring founder approval.
+- No code modified. READ-ONLY mode honored (R5). Founder decision gate honored (R12).
+
+Stage Summary:
+- Discovery report delivered to founder in chat. 23 contract deviations documented with severity classification (BLOCKER / HIGH / MEDIUM / LOW) and file:line evidence.
+- Of 23 deviations: 14 are within UX_STABILIZATION_RULES allowed scope (UX-only fixable), 9 require founder escalation (cross-contract: PLAN-P2-001 maxBulkUploadRows; MIG-P2-001 VALID_UNITS consolidation; ARCHITECTURE-LOCK constraint on Product.stock/Product.hpp; ARCHITECTURE-LOCK constraint on TransactionItem.productId onDelete:SetNull).
+- Recommended next phase: founder picks approved fixes from §4 "Perubahan UI minimal" → I draft docs/POS-REDESIGN-PILOT.md-style mini-pilot doc for Products page (parallel to AETHER_UX_BLUEPRINT v1.3 §9) → founder approves → implement → verify via Agent Browser → checkpoint → commit.
+- No code touched. Lint not run (no code changed). Dev server still healthy on port 3000.
+
+---
+Task ID: PROD-BATCH1
+Agent: main (Z.ai Code) — implementer
+Task: Implement Product UX Batch 1 — Add/Edit Form Safety (5 items per founder approval)
+
+Work Log:
+- Read founder approval: "Founder approval 👍 — Implement Product UX Batch 1 only" with 5 specific items + explicit do-not list.
+- Read product-form-dialog.tsx (1616 lines) thoroughly to understand form structure, validation, submit handler, composition/variant interaction.
+- Read confirm-dialog.tsx to understand useConfirm hook API + ConfirmDialog component.
+- Implemented all 5 items in a single coordinated MultiEdit:
+  1. Unsaved-changes confirmation (double-click-to-confirm pattern on Batal button)
+  2. Inline validation (onBlur + onChange clearing + submit-time validation with focus-first-error)
+  3. aria-required + aria-invalid on all required fields
+  4. Saving/loading state clarity (Menyimpan... text, aria-busy, disabled Batal during save)
+  5. Composition → Variant warning (portaled overlay with consequences list)
+- Hit Dialog-inside-Dialog event conflict: React onClick handlers don't fire for buttons in overlays/portals inside an open Radix Dialog (focus-trap + event-delegation conflict). Tried 4 approaches before finding working solution:
+  a. useConfirm hook + ConfirmDialog → pre-existing bug (handleConfirm never wired)
+  b. Raw AlertDialog + AlertDialogAction → onClick doesn't fire inside open Dialog
+  c. Manual overlay div (non-portaled) → z-index/stacking-context conflict with Dialog portal
+  d. createPortal overlay → onClick still doesn't fire for discard confirm (but works for variant toggle)
+  e. FINAL: Double-click-to-confirm on existing Batal button + native DOM event listener (useRef + addEventListener capture phase)
+- Browser-tested all 5 features via agent-browser (8 test cases, all PASS):
+  - Add Product with valid data → product appears in list ✅
+  - Edit Product open + close clean → no confirm ✅
+  - Invalid required fields → inline errors + aria-invalid + red borders ✅
+  - Close with unsaved changes → double-click confirm → form closes ✅
+  - Close without changes → immediate close ✅
+  - Composition → Variant toggle → warning dialog appears ✅
+  - Composition → Variant confirm → variant mode activates ✅
+  - aria-required present on required fields ✅
+- Lint: 0 errors, 0 warnings.
+- Dev server: healthy on port 3000 throughout.
+- Wrote checkpoint: docs/checkpoints/UX-PRODUCT-CHECKPOINT.md.
+- No code touched outside product-form-dialog.tsx. No Prisma, API, core logic, plan, inventory, bulk upload, theme tokens, pagination, refresh, or code extraction changes.
+
+Stage Summary:
+- Batch 1 COMPLETE. All 5 founder-approved items implemented and browser-verified.
+- Key technical finding: Dialog-inside-Dialog React event conflict is fundamental to Radix. Double-click-to-confirm pattern (native DOM listener) is the workaround for confirmations triggered from within the form. Portaled overlay works for confirmations triggered by toggle actions (not close actions).
+- Pre-existing bug documented: useConfirm hook in confirm-dialog.tsx has handleConfirm defined but never wired to AlertDialogAction — confirm() always resolves false. Should be fixed in future batch.
+- Known limitation: composition items excluded from dirty-state snapshot (async load in Edit mode). hasComposition toggle IS tracked. Per-item composition changes won't trigger discard confirm.
+- Ready for commit + ZIP backup.
+
+---
+Task ID: PROD-BATCH2
+Agent: main (Z.ai Code) — implementer
+Task: Implement Product UX Batch 2 — Consolidated "Tambah" button (Manual / Excel mode picker). Founder instruction: "batch 2 redesign flow add manual product & bulk add menjadi 1 tombol button kli Tambah -> 2 mode Manual / Excel"
+
+Work Log:
+- Read worklog tail to understand Batch 1 state (PROD-BATCH1 complete, all 5 form-safety items browser-verified).
+- Read previous Batch 1 checkpoint at docs/checkpoints/UX-PRODUCT-CHECKPOINT.md to understand existing patterns + LockedDropdownItem usage.
+- Investigated current products-page.tsx header action group (lines 1460-1521 pre-change):
+  * "Cetak Barcode" button (lines 1460-1467) — unchanged.
+  * "Excel" dropdown (lines 1469-1516) — 3 items: Export Excel / Upload Excel (bulk add, gated) / Edit Excel (gated).
+  * "Tambah Produk" standalone button (lines 1517-1520) — calls handleAdd → opens ProductFormDialog.
+- Verified handleAdd (line 741-744): setEditProduct(null); setFormOpen(true).
+- Verified bulk upload open path: setUploadOpen(true); setUploadFile(null); setUploadResult(null).
+- Verified LockedDropdownItem API (src/components/shared/locked-dropdown-item.tsx): feature prop gates based on usePlan().features[feature]; Free plan → disabled item with Crown+Lock badge; Pro/Enterprise → normal clickable item.
+- Designed Batch 2 flow:
+  * Keep "Cetak Barcode" unchanged.
+  * Remove "Upload Excel" item from Excel dropdown (moved to Tambah). Excel dropdown keeps Export + Edit Excel only.
+  * Replace standalone "Tambah Produk" button with new "Tambah" dropdown button.
+  * Tambah dropdown has 2 modes: Manual (handleAdd) + Excel (LockedDropdownItem feature=bulkUpload).
+- Implemented via MultiEdit on products-page.tsx (1 file, 2 atomic edits):
+  * Edit 1: Removed `<DropdownMenuSeparator/>` + `<LockedDropdownItem title="Upload Excel" .../>` block from Excel dropdown (lines 1495-1504 pre-change).
+  * Edit 2: Replaced `<Button onClick={handleAdd}>Tambah Produk</Button>` (lines 1517-1520 pre-change) with new `<DropdownMenu>` containing trigger button + content with Manual + Excel mode items (lines 1507-1547 post-change).
+- Lint: `bun run lint` → 0 errors, 0 warnings.
+- Dev server healthy throughout (port 3000, no fatal errors in dev.log).
+- Browser-tested via agent-browser with hc@test.com (Free plan):
+  * Navigated to Products page → verified "Tambah produk — pilih mode" button visible (ref=e8) with correct aria-label.
+  * Clicked Tambah → dropdown opened with `menuitem "Manual Isi form produk satu per satu"` + `menuitem "Excel Upload file untuk tambah massal" [disabled]` (Excel disabled for Free plan — correct gating).
+  * Clicked Manual → ProductFormDialog opened with heading "Tambah Produk Baru" + Batch 1 features (aria-required on name/price) preserved.
+  * Closed dialog (Escape), opened Excel dropdown → verified only Export Excel + Edit Excel items remain (Upload Excel successfully removed).
+  * Tried clicking disabled Excel item → no dialog opened (HTML disabled prevents onClick — correct).
+  * Checked console + errors → only pre-existing warnings (nested button from Kategori card, desktopClassName prop from ResponsiveDialog) — no new errors from Batch 2.
+  * Screenshot saved to /tmp/batch2-tambah-dropdown.png.
+- Attempted Pro account verification with owner@rnb.aether.com — login failed ("No user found with this email"). Pro account not seeded in this DB. Not a blocker: LockedDropdownItem component is unchanged from before Batch 2 — Pro behavior identical to pre-change. The "Upload Excel" item in the original Excel dropdown was already proven to work for Pro users before this batch; the same component instance is now just inside the Tambah dropdown.
+- Updated docs/checkpoints/UX-PRODUCT-CHECKPOINT.md with Batch 2 section (Task Header, Implemented, Not Touched, Browser Verification Results table, Completion Header, Technical Notes).
+- No code touched outside products-page.tsx. No Prisma, API, core logic, plan, inventory, form, bulk-upload dialog internals, theme tokens, pagination, refresh, hooks, or component library changes.
+
+Stage Summary:
+- Batch 2 COMPLETE. Single "Tambah" button with 2 modes (Manual / Excel) implemented and browser-verified.
+- File changed: src/components/pages/products-page.tsx (1 file, ~50 lines net change).
+- Key UX improvement: Consolidated two add flows (manual + bulk Excel) into one primary CTA with mode picker. Single conceptual entry point for "add product" reduces cognitive load.
+- Feature gating preserved: Excel mode uses same LockedDropdownItem feature="bulkUpload" as before — Free plan sees disabled item with Crown+Lock badge.
+- Excel dropdown simplified: Upload Excel removed (moved to Tambah), now only Export Excel + Edit Excel remain (read + update operations).
+- Batch 1 features preserved: ProductFormDialog still has all 5 form-safety items (unsaved-changes guard, inline validation, aria-required, saving state, composition→variant warning).
+- Pre-existing LockedDropdownItem disabled-onClick behavior noted in checkpoint: when disabled, the onClick handler doesn't fire (HTML disabled prevents all events). This is pre-existing — not introduced by Batch 2. If it becomes a UX issue, fix would be in locked-dropdown-item.tsx, not in this batch's scope.
+- Ready for commit.
+
+---
+Task ID: REVERT-BATCH2
+Agent: main (Z.ai Code) — implementer
+Task: Undo all Batch 2 changes per founder instruction "undo semua batch 2". Revert products-page.tsx and checkpoint to pre-Batch-2 (Batch 1) state.
+
+Work Log:
+- Read founder instruction: "undo semua batch 2" — revert all Batch 2 Product UX changes.
+- Verified git log: Batch 1 committed at d845b91 ("PRODUCT UX BATCH 1: Add/Edit Form Safety"). Batch 2 changes committed in 3 subsequent commits (f56c58f, 84b028d, 0672fe9) on top of Batch 1.
+- Reviewed `git diff d845b91 HEAD -- src/components/pages/products-page.tsx` to confirm exact Batch 2 footprint:
+  * Added imports: useFeatureGate, usePageStore, Crown, Lock
+  * Added hooks: bulkUploadEnabled = useFeatureGate('bulkUpload'), { setCurrentPage } = usePageStore()
+  * Added state: const [addModeOpen, setAddModeOpen] = useState(false)
+  * Removed "Upload Excel" LockedDropdownItem from Excel dropdown (with its separator)
+  * Replaced standalone "Tambah Produk" button with mode-picker dialog trigger
+  * Added ~85-line ResponsiveDialog JSX for Manual/Excel mode picker
+- Restored both files to Batch 1 state via: `git checkout d845b91 -- src/components/pages/products-page.tsx docs/checkpoints/UX-PRODUCT-CHECKPOINT.md`
+- Verified revert:
+  * grep confirmed "Upload Excel" back at line 1501 (in Excel dropdown).
+  * grep confirmed "Tambah Produk" standalone button back at line 1519.
+  * grep confirmed 0 occurrences of addModeOpen, bulkUploadEnabled, useFeatureGate, usePageStore, Crown/Lock imports — all Batch 2 code gone.
+  * Checkpoint file back to 158 lines (Batch 2 section removed); ends at Batch 1 technical notes.
+- Did NOT delete the PROD-BATCH2 worklog entry — kept for historical record. This REVERT-BATCH2 entry documents the undo.
+- No code touched outside the 2 restored files. Batch 1 (product-form-dialog.tsx) untouched and intact.
+
+Stage Summary:
+- Batch 2 FULLY REVERTED. Products page header action group is back to pre-Batch-2 state:
+  * "Cetak Barcode" button (unchanged)
+  * "Excel" dropdown with 3 items: Export Excel / Upload Excel (LockedDropdownItem, gated) / Edit Excel (LockedDropdownItem, gated)
+  * "Tambah Produk" standalone button → calls handleAdd → opens ProductFormDialog directly
+- Batch 1 features (product-form-dialog.tsx) remain intact: unsaved-changes guard, inline validation, aria-required, saving state, composition→variant warning.
+- Checkpoint restored to Batch 1 only.
+- Ready for lint + browser verification.
+
+---
+Task ID: GITHUB-SYNC-2
+Agent: main (Z.ai Code)
+Task: Pull from GitHub per founder instruction "pull form github" + "lanjut". Sync latest files from https://github.com/tygerearth-labs/aetherpos-tested (commit c351163 "UX Batch 2") into local sandbox.
+
+Work Log:
+- Read worklog for GITHUB-SYNC-1 context: no git remote configured; previous sync used fresh clone to /tmp.
+- Cloned fresh from https://github.com/tygerearth-labs/aetherpos-tested to /tmp/aetherpos-gh (shallow clone, depth 1). Latest commit: `c351163 "UX Batch 2"` by blackbearlabs888, dated 2026-07-23 16:01 +0700.
+- Ran `diff -rq /tmp/aetherpos-gh /home/z/my-project` (filtered node_modules, .next, .git, db, dev.log, sandbox-only artifacts).
+- Diff results:
+  * **src/lib/local-db.ts → ONLY IN GITHUB** (truly new, not present locally). This was the root cause of the HTTP 500 error — pos-page.tsx imports `localDB` from `@/lib/local-db` but the file didn't exist locally. CRITICAL fix.
+  * **src/components/pages/product-form-dialog.tsx → differs**. GitHub version has Batch 1 safety features (25 markers: aria-required, isDirty, inline validation) — same as local but with founder's "UX Batch 2" refinements (343 lines changed in commit c351163).
+  * **src/components/pages/products-page.tsx → differs**. GitHub version has Bahasa toast messages (local had English). GitHub version has NO mode picker (0 markers) — confirms founder's "UX Batch 2" is different from the reverted local Batch 2 mode picker.
+  * **docs/checkpoints/UX-PRODUCT-CHECKPOINT.md → differs**. GitHub has 290 lines (local had 158 after Batch 2 revert). GitHub version includes founder's Batch 2 checkpoint section.
+  * package.json → differs (local-ahead per GITHUB-SYNC-1 policy — has db:generate, db:reset). Decision: do NOT overwrite.
+  * prisma/schema.prisma → differs ONLY at provider line (GitHub=postgresql, local=sqlite). Env-specific. Decision: do NOT overwrite.
+  * worklog.md → differs (local-ahead — has all session logs). Decision: do NOT overwrite.
+- Synced 4 files from GitHub → local:
+  1. `src/lib/local-db.ts` (7969 B) — CRITICAL: fixes HTTP 500 module-not-found error.
+  2. `src/components/pages/product-form-dialog.tsx` (92842 B) — founder's UX Batch 2 version (Batch 1 safety features preserved).
+  3. `src/components/pages/products-page.tsx` (197489 B) — founder's UX Batch 2 version (Bahasa toasts, no mode picker, Upload Excel in dropdown).
+  4. `docs/checkpoints/UX-PRODUCT-CHECKPOINT.md` (15122 B) — founder's Batch 2 checkpoint (290 lines).
+- Did NOT overwrite: package.json, prisma/schema.prisma, worklog.md (local-ahead / env-specific per GITHUB-SYNC-1 policy).
+- Lint: `bun run lint` → 0 errors, 0 warnings.
+- Dev server issue: previous `nohup`/`setsid` approaches failed — process kept dying between bash commands. Fixed by using `npx pm2 start "npx next dev -p 3000" --name aetherpos-dev`. PM2 properly daemonizes the process and it survives across bash sessions.
+- Browser-verified via agent-browser (after PM2-managed restart):
+  * HTTP 200 on `/` — no more module-not-found error.
+  * Login as hc@test.com / HealthCheck123! succeeded.
+  * Navigated to Products page → heading "Produk" rendered.
+  * Header buttons verified: "Cetak Barcode", "Excel" dropdown, "Tambah Produk" (standalone button — Batch 2 revert intact, NOT a mode picker).
+  * Excel dropdown has 3 items: "Export Excel", "Upload Excel", "Edit Excel" — Upload Excel is back in the dropdown (founder's version).
+  * No console errors. No runtime errors in dev.log.
+  * Screenshot saved to /tmp/github-sync-products.png.
+
+Stage Summary:
+- GitHub sync COMPLETE. 4 files synced from founder's repo (commit c351163 "UX Batch 2"):
+  - **src/lib/local-db.ts** — critical missing module, fixed HTTP 500.
+  - **src/components/pages/product-form-dialog.tsx** — founder's Batch 2 (Batch 1 safety preserved).
+  - **src/components/pages/products-page.tsx** — founder's Batch 2 (Bahasa toasts, no mode picker, Upload Excel in dropdown).
+  - **docs/checkpoints/UX-PRODUCT-CHECKPOINT.md** — founder's Batch 2 checkpoint (290 lines).
+- Local-ahead files preserved: worklog.md, package.json, prisma/schema.prisma (per GITHUB-SYNC-1 policy).
+- Dev server now PM2-managed (stable across sessions): `npx pm2 start "npx next dev -p 3000" --name aetherpos-dev`.
+- Batch 2 revert confirmed intact: "Tambah Produk" is a standalone button (not a mode picker), "Upload Excel" is in the Excel dropdown (not in a Tambah mode picker).
+- No code modified beyond the 4 synced files. Lint clean. Browser-verified.
+
+---
+Task ID: MIG-WIZARD-READONLY
+Agent: main (Z.ai Code)
+Task: READ-ONLY investigation of Migration Wizard flow only — trace end-to-end, identify source of maxBulkUploadRows, batching behavior, atomicity, and exact reason Enterprise still hits a 500-row limit. No code changes.
+
+Work Log:
+- Read migration-wizard.tsx (798 lines) — frontend upload flow.
+- Read migration/import/route.ts (1522 lines) — backend processing.
+- Read plan-config.ts (280 lines) — three plan-resolution functions.
+- Grepped all usages of getOutletPlan / getPlanFeaturesFromDB / getFeaturesForOutlet / getPlanFeatures across src/.
+- Cross-referenced which routes use static-only vs DB-merged plan resolution.
+- No code modified. No DB state changes (outlet was already set to enterprise by prior task in this session; no further changes).
+
+Stage Summary:
+- Frontend: single POST, no client-side batching, "steps" are pure UI animation (setTimeout theater).
+- Backend: single db.$transaction wrapping entire import, 120s timeout. Per-row errors caught and skipped (tx continues). Uncaught errors roll back entire import.
+- Source of truth for maxBulkUploadRows in migration route: STATIC PLANS matrix via getOutletPlan() — DB Plan table overrides are NOT consulted.
+- Enterprise 500-row cap originates from plan-config.ts:163 (PLANS.enterprise.maxBulkUploadRows = 500).
+- "batch-100" does not exist anywhere in the migration flow.
+- Full report delivered to founder in chat. Awaiting founder decision on minimal fix.
+
+---
+Task ID: MIG-ENTERPRISE-UNLIMITED
+Agent: main (Z.ai Code) — implementer
+Task: Fix Migration Wizard Enterprise upload capacity. Replace static-only plan resolution with DB-aware getFeaturesForOutlet; remove MAX_ROWS=5000 truncation; -1 = unlimited; enforce limited plans with clear error before processing; return actual productsCreated + totalInputRows. Founder-approved minimal scope: only src/app/api/migration/import/route.ts + supporting DB setup.
+
+Work Log:
+- Read worklog for MIG-WIZARD-READONLY context: previous read-only investigation identified two bugs — (1) static-only getOutletPlan() ignoring webmaster DB Plan overrides, (2) independent MAX_ROWS=5000 per-sheet truncation silently splicing Enterprise rows.
+- Read /home/z/my-project/src/lib/config/plan-config.ts (279 lines): confirmed three plan-resolution functions. getOutletPlan() = static-only; getFeaturesForOutlet(db, outletId) = DB-aware (merges Plan table features over static PLANS defaults). getFeaturesForOutlet returns { features, isSuspended } | null (no .plan field, but migration route never used .plan).
+- Read /home/z/my-project/src/app/api/migration/import/route.ts (1522 lines): identified exact change sites — line 5 (import), line 13 (MAX_ROWS const), line 362 (getOutletPlan call), lines 606-609 (per-sheet splice truncation), line 1464 (tx timeout 120s), lines 1499-1516 (response shape).
+- Verified outletPlan.plan is NOT used anywhere in the route (only .features.*) — safe to swap to getFeaturesForOutlet which lacks .plan.
+- Checked ARCHITECTURE-LOCK.md: Migration Wizard is explicitly OUT OF SCOPE for the core inventory contract lock ("Platform layers... may evolve independently as long as they continue to honor the core inventory contract"). Fix is compliant.
+- Applied 6 edits to src/app/api/migration/import/route.ts via MultiEdit:
+  1. Import: getOutletPlan → getFeaturesForOutlet
+  2. Removed `const MAX_ROWS = 5000` (line 13)
+  3. Plan resolution: getOutletPlan(outletId, db) → getFeaturesForOutlet(db, outletId) with explanatory comment
+  4. Plan limit check: changed `planMaxRows > 0` to `planMaxRows >= 0` (defense-in-depth for Free=0)
+  5. Removed per-sheet truncation block (lines 606-609: `if (rows.length > MAX_ROWS) { errors.push("...dipotong..."); rows.splice(MAX_ROWS) }`)
+  6. Transaction timeout: 120000 → 270000 (4.5 min, under maxDuration 300)
+  7. Response: added totalInputRows: totalSheetRows + effectiveMaxBulkUploadRows: planMaxRows
+- Lint: `bun run lint` → 0 errors, 0 warnings.
+- DB setup: wrote and ran scripts-setup-enterprise-db.ts to upsert all three Plan rows (simulating webmaster DB config via Command Center). Enterprise features JSON now includes maxBulkUploadRows: -1 (overrides static 500). Pro = 200 (explicit, matches static). Free = 0 (explicit, matches static). This makes the DB authoritative per founder instruction.
+- Generated test xlsx files via scripts-gen-test-xlsx.ts:
+  * /tmp/test-enterprise-5001.xlsx (5001 rows, sheet "Produk Non-Varian", unique SKUs)
+  * /tmp/test-enterprise-10000.xlsx (10000 rows)
+  * /tmp/test-pro-201.xlsx (201 rows)
+- Wrote scripts-verify-migration.sh: logs in via NextAuth credentials flow (hc@test.com / HealthCheck123!), POSTs each xlsx to /api/migration/import, parses JSON response, reports HTTP/totalInputRows/productsCreated/effectiveMaxBulkUploadRows/errors/truncation/duration.
+- Restarted dev server (PM2: npx pm2 restart aetherpos-dev). Confirmed Ready in 764ms.
+- Ran verification script. ALL 4 TESTS PASSED:
+  * Test 1 (Enterprise 5001): HTTP 200, totalInputRows=5001, productsCreated=5001, effectiveMax=-1, 0 errors, NO "dipotong". Duration 8.1s. PASS.
+  * Test 2 (Enterprise 10000): HTTP 200, totalInputRows=10000, productsCreated=10000, effectiveMax=-1, 0 errors, NO "dipotong". Duration 14.7s. PASS. (Counted as 10000, NOT 5000 — truncation is gone.)
+  * Test 3 (Pro 201): HTTP 403, body={"error":"Migrasi melebihi batas baris paket Anda (200 baris). Silakan upgrade paket."}. Duration 15ms (rejected before processing). PASS.
+  * Test 4 (productsCreated + totalInputRows returned): Confirmed in Tests 1 and 2. PASS.
+- PM2 logs confirmed all three requests: POST /api/migration/import 200 in 8.1s / 200 in 14.7s / 403 in 15ms. No runtime errors.
+- Post-test cleanup: deleted 15001 test products (SKU prefixes SKU-E5K-, SKU-E10K-, SKU-PRO-). 3 original products remain. Outlet restored to enterprise.
+- Created docs/checkpoints/MIGRATION-WIZARD-CHECKPOINT.md (full checkpoint with problem statement, fix details, verification results, files changed, architecture lock compliance).
+
+Stage Summary:
+- Migration Wizard Enterprise upload capacity FIXED. Two bugs resolved:
+  1. Static-only getOutletPlan() → DB-aware getFeaturesForOutlet(db, outletId). Webmaster Plan DB is now authoritative for maxBulkUploadRows.
+  2. Per-sheet MAX_ROWS=5000 truncation REMOVED. Unlimited Enterprise plans process all rows as-is — never silently spliced.
+- Effective maxBulkUploadRows rule: -1 = unlimited (Enterprise via DB), 0 = blocked (Free, also gated by bulkUpload=false), positive N = enforced with clear 403 error before processing (Pro = 200).
+- Response now returns totalInputRows + effectiveMaxBulkUploadRows alongside productsCreated.
+- Transaction timeout bumped 120s → 270s to accommodate 10000+ row Enterprise imports within the 300s maxDuration.
+- All 4 founder verification tests PASSED. Lint clean. Dev server stable. No core inventory contracts touched (FEFO/HPP/stock/void all honored).
+- Files changed: ONLY src/app/api/migration/import/route.ts. DB Plan rows upserted (data, not schema). docs/checkpoints/MIGRATION-WIZARD-CHECKPOINT.md created.
+- NOT modified (per founder constraint): products/bulk-upload, products/bulk-update-excel, plan-config.ts static values, Prisma schema, inventory engine, FEFO, HPP, migration mapping, Product page UX, unrelated plan routes.
+- Ready for commit + ZIP backup.
