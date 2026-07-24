@@ -1,29 +1,26 @@
 /**
- * usePosCheckout() — Payment flow, hold/resume transactions, checkout orchestration,
- * and dialog state management for POS.
+ * usePosCheckout() — Payment flow, hold/resume, checkout orchestration, dialog state.
  *
- * Extracted from pos-page.tsx Phase 1A modularization.
- * Original lines: 118-123 (CheckoutResult), 440-442 (payment states),
- *                 534-536 + 561 (dialog states), 543 (holdNote),
- *                 544 (holdNoteOpen), 545 (checkingOut), 546 (checkoutResult),
- *                 1130-1132 (pointsChange), 1134-1234 (pending transactions),
- *                 1354-1483 (handleCheckout + payment/receipt handlers)
+ * PR 3 — Offline POS with Dexie:
+ *   - Checkout writes to transactionOutbox with localTransactionId (= eventId)
+ *     + persisted calculation snapshot.
+ *   - Online: sync immediately via /api/transactions/sync (eventId = idempotency).
+ *   - Offline: store in outbox (status PENDING); synced on reconnect.
+ *   - localTransactionId prevents duplicate invoice / inventory / audit (DEX-007).
  *
- * @phase 1A — Move code without changing meaning
  * @boundary COCKPIT only — no engine imports
  * @preserve OFFLINE-FIRST COMMIT PATTERN: Local commit ≠ server success
- * @preserve BUG-02 (stock rollback on sync failure) — fix in Phase 1B
  */
 
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { toast } from 'sonner'
-import { localDB } from '@/lib/local-db'
 import { useSession } from 'next-auth/react'
 import type { CartItem } from './use-pos-cart'
-import type { Product, ProductVariant } from './use-pos-products'
 import type { Customer } from './use-pos-customers'
+import { tryGetPosDB, type TransactionOutboxRow } from '@/lib/pos/pos-db'
+import { buildCheckoutPayload, type CalcResult } from '@/lib/pos/pos-calc'
 
 // ==================== INTERFACES ====================
 
@@ -34,77 +31,33 @@ export interface CheckoutResult {
   syncError?: string
 }
 
-export interface PendingTransaction {
-  id?: number
-  items: Array<{
-    product: Product
-    variant: unknown
-    qty: number
-    customPrice?: number | null
-  }>
-  customerId: string | null
-  customerName: string | null
-  note: string
-  subtotal: number
-  createdAt: number
-  userId: string
-  userName: string
-}
-
-// ==================== HOOK OPTIONS ====================
-
 interface UsePosCheckoutOptions {
-  // From usePosCart
   cart: CartItem[]
-  subtotal: number
-  total: number
-  change: number
-  manualDiscountTotal: number
-  pointsDiscount: number
-  promoDiscount: number
-  ppnAmount: number
-  hasBelowHpp: boolean
-  maxPointsToUse: number
-  pointsToUse: number
-
-  // From usePosSync
+  calcResult: CalcResult
   isOnline: boolean
-  checkoutSyncRef: React.RefObject<boolean>
-
-  // From usePosCustomers
   selectedCustomer: Customer | null
-  customers: Customer[]
-
-  // From usePosSettings
   availablePaymentMethods: Array<'CASH' | 'QRIS' | 'DEBIT' | 'TRANSFER'>
-  selectedPromo: { id: string; name: string } | null
-
-  // Helpers from usePosCart
-  getItemPrice: (item: CartItem) => number
-
-  // Refresh callbacks
+  selectedPromo: { id: string; name: string; type: string; value: number; minPurchase?: number | null; maxDiscount?: number | null } | null
+  pointsToUse: number
+  paymentMethod: 'CASH' | 'QRIS' | 'DEBIT' | 'TRANSFER'
+  paidAmount: string
+  onSetPaymentMethod: (m: 'CASH' | 'QRIS' | 'DEBIT' | 'TRANSFER') => void
+  onSetPaidAmount: (a: string) => void
   onRefreshProducts?: () => void
   onRefreshCustomers?: () => void
-
-  // State setters from parent (for cross-concern coordination)
   onClearCart: () => void
   onSetPointsToUse: (points: number) => void
   onSetSelectedCustomer: (customer: Customer | null) => void
-  onSetPaidAmount: (amount: string) => void
-  onSetPaymentMethod: (method: 'CASH' | 'QRIS' | 'DEBIT' | 'TRANSFER') => void
-  onSetSelectedPromo: (promo: { id: string; name: string; type: string; discount: number; description: string } | null) => void
+  onSetSelectedPromo: (promo: unknown) => void
   onSetPromoDiscount: (discount: number) => void
-
-  // C3: Resume pending — restore cart items through usePosCart (single source of truth)
   onRestoreCart: (items: CartItem[]) => void
 }
 
-// ==================== HOOK RETURN ====================
-
 interface UsePosCheckoutReturn {
-  // State
   paymentMethod: 'CASH' | 'QRIS' | 'DEBIT' | 'TRANSFER'
   paidAmount: string
+  setPaymentMethod: (m: 'CASH' | 'QRIS' | 'DEBIT' | 'TRANSFER') => void
+  setPaidAmount: (a: string) => void
   paymentDialogOpen: boolean
   receiptDialogOpen: boolean
   holdNote: string
@@ -112,49 +65,29 @@ interface UsePosCheckoutReturn {
   checkingOut: boolean
   checkoutResult: CheckoutResult | null
   mobileCartOpen: boolean
-
-  // Actions
-  setPaidAmount: (amount: string) => void
   setPaymentDialogOpen: (open: boolean) => void
   setReceiptDialogOpen: (open: boolean) => void
   setMobileCartOpen: (open: boolean) => void
   setHoldNote: (note: string) => void
   setHoldNoteOpen: (open: boolean) => void
-
-  // Handlers
   openPaymentDialog: () => void
   handleCheckout: () => Promise<void>
   handleReceiptFinish: () => void
   handlePointsChange: (value: string) => void
-
-  // Pending transactions
-  handleHoldTransaction: () => void
-  confirmHoldTransaction: () => Promise<void>
-  handleResumePending: (pending: PendingTransaction) => Promise<void>
-  handleDeletePending: (id: number) => Promise<void>
+  triggerSync: () => Promise<{ synced: number; failed: number }>
 }
-
-// ==================== HOOK IMPLEMENTATION ====================
 
 export function usePosCheckout(options: UsePosCheckoutOptions): UsePosCheckoutReturn {
   const {
-    cart, subtotal, total, change, manualDiscountTotal, pointsDiscount, promoDiscount, ppnAmount,
-    hasBelowHpp, maxPointsToUse, pointsToUse,
-    isOnline, checkoutSyncRef,
-    selectedCustomer, customers,
-    availablePaymentMethods, selectedPromo,
-    getItemPrice,
-    onRefreshProducts, onRefreshCustomers,
-    onClearCart, onSetPointsToUse, onSetSelectedCustomer, onSetPaidAmount,
-    onSetPaymentMethod, onSetSelectedPromo, onSetPromoDiscount,
-    onRestoreCart,
+    cart, calcResult, isOnline, selectedCustomer, availablePaymentMethods, selectedPromo, pointsToUse,
+    paymentMethod, paidAmount, onSetPaymentMethod, onSetPaidAmount,
+    onRefreshProducts, onRefreshCustomers, onClearCart,
+    onSetPointsToUse, onSetSelectedCustomer,
+    onSetSelectedPromo, onSetPromoDiscount, onRestoreCart,
   } = options
 
   const { data: session } = useSession()
 
-  // ── Dialog / UI State (originally lines 440-446, 534-546) ──
-  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'QRIS' | 'DEBIT' | 'TRANSFER'>('CASH')
-  const [paidAmount, setPaidAmount] = useState('')
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false)
   const [receiptDialogOpen, setReceiptDialogOpen] = useState(false)
   const [holdNote, setHoldNote] = useState('')
@@ -163,233 +96,67 @@ export function usePosCheckout(options: UsePosCheckoutOptions): UsePosCheckoutRe
   const [checkoutResult, setCheckoutResult] = useState<CheckoutResult | null>(null)
   const [mobileCartOpen, setMobileCartOpen] = useState(false)
 
-  // ── Payment method reset if not in available methods (C2: single owner) ──
-  // Moved from usePosSettings — usePosCheckout owns active paymentMethod
   useEffect(() => {
     if (availablePaymentMethods.length > 0 && !availablePaymentMethods.includes(paymentMethod)) {
       setPaymentMethod(availablePaymentMethods[0])
     }
   }, [availablePaymentMethods, paymentMethod])
 
-  // ── Points change handler (originally line 1130-1132) ──
   const handlePointsChange = (value: string) => {
-    onSetPointsToUse(Math.min(Number(value) || 0, maxPointsToUse))
+    onSetPointsToUse(Math.min(Number(value) || 0, calcResult.maxPointsToUse))
   }
 
-  // ==================== PENDING TRANSACTIONS (originally lines 1134-1234) ====================
-
-  const handleHoldTransaction = useCallback(() => {
-    if (cart.length === 0) return
-    setHoldNoteOpen(true)
-  }, [cart.length])
-
-  const confirmHoldTransaction = useCallback(async () => {
-    setHoldNoteOpen(false)
-    try {
-      const userName = session?.user?.name || 'Unknown'
-      const userId = (session?.user as any)?.id || ''
-      await localDB.pendingTransactions.add({
-        items: cart.map(item => ({
-          product: item.product,
-          variant: item.variant,
-          qty: item.qty,
-          customPrice: item.customPrice,
-        })),
-        customerId: selectedCustomer?.id || null,
-        customerName: selectedCustomer?.name || null,
-        note: holdNote.trim(),
-        subtotal,
-        createdAt: Date.now(),
-        userId,
-        userName,
-      })
-      setHoldNote('')
-      onClearCart()
-      setMobileCartOpen(false)
-      toast.success('Transaksi ditunda')
-    } catch {
-      toast.error('Gagal menunda transaksi')
-    }
-  }, [cart, selectedCustomer, holdNote, subtotal, session, onClearCart])
-
-  // C3: Resume pending — FULL CART RESTORATION through usePosCart (single source of truth)
-  // Flow: load pending → restore customer → restore payment → RESTORE CART ITEMS → UI reflects
-  const handleResumePending = useCallback(async (pending: PendingTransaction) => {
-    // Step 1: If current cart has items, auto-hold them first (BUG-06: silent, fix in Phase 1B)
-    if (cart.length > 0) {
-      try {
-        const userName = session?.user?.name || 'Unknown'
-        const userId = (session?.user as any)?.id || ''
-        await localDB.pendingTransactions.add({
-          items: cart.map(item => ({
-            product: item.product,
-            variant: item.variant,
-            qty: item.qty,
-            customPrice: item.customPrice,
-          })),
-          customerId: selectedCustomer?.id || null,
-          customerName: selectedCustomer?.name || null,
-          note: '',
-          subtotal,
-          createdAt: Date.now(),
-          userId,
-          userName,
-        })
-      } catch { /* silent auto-hold */ }
-    }
-
-    // Step 2: Restore customer
-    if (pending.customerId && pending.customerName) {
-      const customer = customers.find(c => c.id === pending.customerId)
-      if (customer) {
-        onSetSelectedCustomer(customer)
-      } else {
-        onSetSelectedCustomer({ id: pending.customerId, name: pending.customerName, whatsapp: '', points: 0 })
-      }
-    } else {
-      onSetSelectedCustomer(null)
-    }
-
-    // Step 3: Reset payment and promo state
-    onSetPointsToUse(0)
-    onSetPaidAmount('')
-    onSetSelectedPromo(null)
-    onSetPromoDiscount(0)
-
-    // Step 4: RESTORE CART ITEMS through usePosCart (single source of truth!)
-    const items = pending.items as Array<{ product: Product; variant: ProductVariant | null; qty: number; customPrice?: number | null }>
-    onRestoreCart(items.map(item => ({
-      product: item.product,
-      variant: item.variant,
-      qty: item.qty,
-      customPrice: item.customPrice ?? null,
-    })))
-
-    // Step 5: Delete the pending transaction from IndexedDB
-    if (pending.id) {
-      await localDB.pendingTransactions.delete(pending.id)
-    }
-
-    toast.success('Transaksi dilanjutkan')
-  }, [cart, selectedCustomer, subtotal, session, customers, onSetSelectedCustomer, onSetPointsToUse, onSetPaidAmount, onSetSelectedPromo, onSetPromoDiscount, onRestoreCart])
-
-  const handleDeletePending = useCallback(async (id: number) => {
-    try {
-      await localDB.pendingTransactions.delete(id)
-      toast.success('Transaksi pending dihapus')
-    } catch {
-      toast.error('Gagal menghapus transaksi pending')
-    }
-  }, [])
-
-  // ==================== CHECKOUT (originally lines 1354-1483) ====================
-  // PRESERVE: Offline-first commit pattern (COMMIT ≠ server success)
+  // ==================== CHECKOUT (PR 3: transactionOutbox + localTransactionId) ====================
 
   const handleCheckout = useCallback(async () => {
     if (cart.length === 0) return
-    if (paymentMethod === 'CASH' && Number(paidAmount) < total) {
+    if (paymentMethod === 'CASH' && Number(paidAmount) < calcResult.grandTotal) {
       toast.error('Jumlah bayar kurang dari total')
       return
     }
     setCheckingOut(true)
     try {
-      const checkoutPayload = {
-        customerId: selectedCustomer?.id || null,
-        items: cart.map((item) => ({
-          productId: item.product.id,
-          productName: item.product.name,
-          price: getItemPrice(item),
-          qty: item.qty,
-          subtotal: getItemPrice(item) * item.qty,
-          variantId: item.variant?.id || null,
-          variantName: item.variant?.name || null,
-          itemDiscount: item.customPrice != null ? Math.round((getItemPrice(item) - item.customPrice) * item.qty) : 0,
-        })),
-        subtotal,
-        discount: manualDiscountTotal + pointsDiscount + promoDiscount,
-        pointsUsed: pointsToUse,
-        taxAmount: ppnAmount,
-        total,
-        paymentMethod,
-        paidAmount: paymentMethod === 'CASH' ? Number(paidAmount) : total,
-        change: paymentMethod === 'CASH' ? change : 0,
-        promoId: selectedPromo?.id || null,
-        promoDiscount,
-      }
-
-      // STEP 1: Save to IndexedDB first (LOCAL COMMIT)
-      const eventId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+      const localTransactionId = (typeof crypto !== 'undefined' && crypto.randomUUID)
         ? crypto.randomUUID()
         : `evt-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
-      const localId = await localDB.transactions.add({
-        payload: checkoutPayload,
-        isSynced: 0,
-        createdAt: Date.now(),
-        retryCount: 0,
-        eventId,
+
+      const customerIsLocal = !!(selectedCustomer?.isLocal)
+      const payload = buildCheckoutPayload(cart, calcResult, {
+        customerId: selectedCustomer?.id || null,
+        customerIsLocal,
+        paymentMethod,
+        paidAmount: Number(paidAmount) || calcResult.grandTotal,
+        promoId: selectedPromo?.id || null,
+        pointsUsed: calcResult.snapshot.pointsUsed,
       })
 
-      // STEP 1b: Decrement stock locally in IndexedDB to prevent overselling while offline
-      await Promise.all(cart.map(item =>
-        localDB.products
-          .where('id')
-          .equals(item.product.id)
-          .modify((p: any) => {
-            if (item.variant) {
-              const v = p.variants?.find((v: any) => v.id === item.variant!.id)
-              if (v) {
-                v.stock = Math.max(0, (v.stock || 0) - item.qty)
-              }
-            } else {
-              p.stock = Math.max(0, (p.stock || 0) - item.qty)
-            }
-            p.updatedAt = new Date().toISOString()
-          })
-      ))
+      const outboxRow: TransactionOutboxRow = {
+        id: localTransactionId,
+        payload,
+        snapshot: calcResult.snapshot,
+        createdAt: Date.now(),
+        status: 'PENDING',
+        serverId: null,
+        invoiceNumber: null,
+        error: null,
+        retryCount: 0,
+      }
+      const db = tryGetPosDB()
+      if (db) {
+        await db.transactionOutbox.put(outboxRow)
+      }
 
-      // STEP 2: If online, sync immediately
       if (isOnline) {
-        checkoutSyncRef.current = true
-        try {
-          const unsyncedTx = await localDB.transactions.get(localId)
-          if (unsyncedTx) {
-            const controller = new AbortController()
-            const timeoutId = setTimeout(() => controller.abort(), 20000)
-            try {
-              const syncRes = await fetch('/api/transactions/sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ transactions: [unsyncedTx] }),
-                signal: controller.signal,
-              })
-              clearTimeout(timeoutId)
-              const syncData = await syncRes.json()
-              if (syncRes.ok && syncData.synced > 0) {
-                await localDB.transactions.update(localId, {
-                  isSynced: 1,
-                  syncedAt: Date.now(),
-                  invoiceNumber: syncData.results?.[0]?.invoiceNumber,
-                  serverTransactionId: syncData.results?.[0]?.serverId,
-                })
-                const invoiceNum = syncData.results?.[0]?.invoiceNumber || `OFF-${Date.now().toString(36).toUpperCase()}`
-                setCheckoutResult({ success: true, invoiceNumber: invoiceNum })
-                toast.success(`Pembayaran berhasil! Invoice: ${invoiceNum}`)
-              } else {
-                const error = syncData.results?.[0]?.error || syncData.error || 'Gagal sync ke server'
-                const invoiceNum = `OFF-${Date.now().toString(36).toUpperCase()}`
-                setCheckoutResult({ success: true, invoiceNumber: invoiceNum, message: 'Tersimpan lokal', syncError: error })
-                toast.warning('Tersimpan lokal — akan sync otomatis', { description: error })
-              }
-            } catch (syncErr) {
-              clearTimeout(timeoutId)
-              console.error('Immediate sync failed:', syncErr)
-              const invoiceNum = `OFF-${Date.now().toString(36).toUpperCase()}`
-              setCheckoutResult({ success: true, invoiceNumber: invoiceNum, message: 'Tersimpan offline', syncError: 'Tidak dapat terhubung ke server' })
-              toast.warning('Tersimpan offline — akan sync otomatis')
-            }
-          }
-        } finally {
-          checkoutSyncRef.current = false
+        const syncResult = await syncOutbox()
+        if (syncResult.synced > 0) {
+          const row = db ? await db.transactionOutbox.get(localTransactionId) : null
+          const invoiceNum = row?.invoiceNumber || `INV-${Date.now().toString(36).toUpperCase()}`
+          setCheckoutResult({ success: true, invoiceNumber: invoiceNum })
+          toast.success(`Pembayaran berhasil! Invoice: ${invoiceNum}`)
+        } else {
+          const invoiceNum = `OFF-${Date.now().toString(36).toUpperCase()}`
+          setCheckoutResult({ success: true, invoiceNumber: invoiceNum, message: 'Tersimpan lokal', syncError: 'Akan sync otomatis' })
+          toast.warning('Tersimpan lokal — akan sync otomatis')
         }
       } else {
         const invoiceNum = `OFF-${Date.now().toString(36).toUpperCase()}`
@@ -397,7 +164,6 @@ export function usePosCheckout(options: UsePosCheckoutOptions): UsePosCheckoutRe
         toast.warning('Offline — transaksi tersimpan lokal', { duration: 5000 })
       }
 
-      // Close payment dialog, open receipt dialog
       setPaymentDialogOpen(false)
       setReceiptDialogOpen(true)
       onRefreshProducts?.()
@@ -407,17 +173,19 @@ export function usePosCheckout(options: UsePosCheckoutOptions): UsePosCheckoutRe
     } finally {
       setCheckingOut(false)
     }
-  }, [
-    cart, selectedCustomer, subtotal, total, paymentMethod, paidAmount, change,
-    manualDiscountTotal, pointsDiscount, promoDiscount, ppnAmount, pointsToUse,
-    selectedPromo, getItemPrice, isOnline, checkoutSyncRef,
-    onRefreshProducts, onRefreshCustomers,
-  ])
+  }, [cart, calcResult, paymentMethod, paidAmount, isOnline, selectedCustomer, selectedPromo, onRefreshProducts, onRefreshCustomers])
 
-  // ── Open payment dialog (originally lines 1486-1496) ──
+  const triggerSync = useCallback(async (): Promise<{ synced: number; failed: number }> => {
+    return syncOutbox()
+  }, [])
+
   const openPaymentDialog = useCallback(() => {
     if (cart.length === 0) return
-    if (hasBelowHpp) {
+    if (cart.some(item => {
+      const eff = item.customPrice != null ? item.customPrice : (item.variant ? item.variant.price : item.product.price)
+      const hpp = item.variant ? item.variant.hpp : item.product.hpp
+      return eff < hpp
+    })) {
       toast.error('Harga diskon di bawah HPP. Sesuaikan harga atau konfirmasi owner.', { duration: 3000, id: 'below-hpp-block' })
       return
     }
@@ -425,44 +193,139 @@ export function usePosCheckout(options: UsePosCheckoutOptions): UsePosCheckoutRe
     onSetPaidAmount('')
     setPaymentDialogOpen(true)
     setMobileCartOpen(false)
-  }, [cart.length, hasBelowHpp, onSetPaidAmount])
+  }, [cart, calcResult, onSetPaidAmount])
 
-  // ── Receipt finish (originally lines 1499-1502) ──
   const handleReceiptFinish = useCallback(() => {
     setReceiptDialogOpen(false)
     onClearCart()
   }, [onClearCart])
 
   return {
-    // State
-    paymentMethod,
-    paidAmount,
-    paymentDialogOpen,
-    receiptDialogOpen,
-    holdNote,
-    holdNoteOpen,
-    checkingOut,
-    checkoutResult,
-    mobileCartOpen,
-
-    // Setters
-    setPaidAmount,
-    setPaymentDialogOpen,
-    setReceiptDialogOpen,
-    setMobileCartOpen,
-    setHoldNote,
-    setHoldNoteOpen,
-
-    // Handlers
-    openPaymentDialog,
-    handleCheckout,
-    handleReceiptFinish,
-    handlePointsChange,
-
-    // Pending transactions
-    handleHoldTransaction,
-    confirmHoldTransaction,
-    handleResumePending,
-    handleDeletePending,
+    paymentMethod, paidAmount, setPaymentMethod: onSetPaymentMethod, setPaidAmount: onSetPaidAmount,
+    paymentDialogOpen, receiptDialogOpen, holdNote, holdNoteOpen,
+    checkingOut, checkoutResult, mobileCartOpen,
+    setPaymentDialogOpen, setReceiptDialogOpen, setMobileCartOpen,
+    setHoldNote, setHoldNoteOpen,
+    openPaymentDialog, handleCheckout, handleReceiptFinish, handlePointsChange,
+    triggerSync,
   }
+}
+
+// ==================== PR 3: Outbox sync logic ====================
+
+/**
+ * Sync the outbox in the correct order:
+ *   1. Sync customerOutbox (create local customers on server)
+ *   2. Resolve localCustomerId → serverId in pending transactions
+ *   3. Sync transactionOutbox (eventId = localTransactionId for idempotency)
+ *
+ * Safety:
+ *   - Never clears Dexie before successful response.
+ *   - Failed sync preserves cache + outbox row (status FAILED, retryCount++).
+ *   - Duplicate-safe: eventId dedupes server-side (DEX-007).
+ */
+export async function syncOutbox(): Promise<{ synced: number; failed: number }> {
+  const db = tryGetPosDB()
+  if (!db) return { synced: 0, failed: 0 }
+
+  let synced = 0
+  let failed = 0
+
+  // ── 1. Sync customerOutbox ──
+  const pendingCustomers = await db.customerOutbox.where('status').equals('PENDING').toArray()
+  for (const cust of pendingCustomers) {
+    try {
+      await db.customerOutbox.update(cust.id, { status: 'SYNCING' })
+      const res = await fetch('/api/customers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: cust.name, whatsapp: cust.whatsapp || undefined }),
+      })
+      if (res.ok) {
+        const created = await res.json()
+        await db.customerOutbox.update(cust.id, { status: 'SYNCED', serverId: created.id })
+        await db.customers.delete(cust.id)
+        await db.customers.put({
+          id: created.id, name: created.name, whatsapp: created.whatsapp || '',
+          points: 0, totalSpend: 0, isLocal: false, cachedAt: Date.now(),
+        })
+        synced++
+      } else {
+        const err = await res.json().catch(() => ({}))
+        await db.customerOutbox.update(cust.id, {
+          status: 'FAILED', error: err.message || `HTTP ${res.status}`, retryCount: cust.retryCount + 1,
+        })
+        failed++
+      }
+    } catch (e) {
+      await db.customerOutbox.update(cust.id, {
+        status: 'FAILED', error: e instanceof Error ? e.message : 'Network error',
+        retryCount: cust.retryCount + 1,
+      })
+      failed++
+    }
+  }
+
+  // ── 2. Resolve localCustomerId in pending transactions ──
+  const resolvedCustomers = await db.customerOutbox.where('status').equals('SYNCED').toArray()
+  const localToServer = new Map(resolvedCustomers.filter(c => c.serverId).map(c => [c.id, c.serverId!]))
+  const pendingTx = await db.transactionOutbox.where('status').equals('PENDING').toArray()
+  for (const tx of pendingTx) {
+    if (tx.payload.customerIsLocal && tx.payload.customerId && localToServer.has(tx.payload.customerId)) {
+      const serverId = localToServer.get(tx.payload.customerId)!
+      await db.transactionOutbox.update(tx.id, {
+        payload: { ...tx.payload, customerId: serverId, customerIsLocal: false },
+      })
+    }
+  }
+
+  // ── 3. Sync transactionOutbox ──
+  const toSync = await db.transactionOutbox.where('status').equals('PENDING').toArray()
+  if (toSync.length > 0) {
+    // Assign unique integer localIds for result matching (sync route returns localId)
+    const idMap = new Map<number, string>() // localId → eventId (localTransactionId)
+    const transactions = toSync.map((tx, i) => {
+      const localId = i + 1
+      idMap.set(localId, tx.id)
+      return { id: localId, eventId: tx.id, payload: tx.payload, createdAt: tx.createdAt }
+    })
+    try {
+      const res = await fetch('/api/transactions/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transactions }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        for (const result of data.results || []) {
+          const eventId = idMap.get(result.localId)
+          if (!eventId) continue
+          if (result.success) {
+            await db.transactionOutbox.update(eventId, {
+              status: 'SYNCED', serverId: result.serverId || null,
+              invoiceNumber: result.invoiceNumber || null,
+            })
+            synced++
+          } else {
+            const existing = await db.transactionOutbox.get(eventId)
+            await db.transactionOutbox.update(eventId, {
+              status: 'FAILED', error: result.error || 'Sync failed',
+              retryCount: (existing?.retryCount || 0) + 1,
+            })
+            failed++
+          }
+        }
+      } else {
+        for (const tx of toSync) {
+          await db.transactionOutbox.update(tx.id, { status: 'FAILED', error: `HTTP ${res.status}` })
+        }
+        failed += toSync.length
+      }
+    } catch (e) {
+      // Network error — leave as PENDING (will retry on next trigger)
+      failed += toSync.length
+    }
+  }
+
+  return { synced, failed }
 }

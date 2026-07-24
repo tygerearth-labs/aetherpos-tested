@@ -1,21 +1,23 @@
 /**
  * usePosSettings() — Settings, outlets, and promos management for POS.
  *
- * Extracted from pos-page.tsx Phase 1A modularization.
- * Original lines: 125-158 (interfaces), 236-259 (states), 261-263 (derived),
- *                 266-378 (settings effects), 381-407 (outlets effect),
- *                 445-450 (payment reset), 452-464 (promos effect)
+ * PR 3 — caches outlet settings + promos to the posDB working-set for offline use.
  *
- * @phase 1A — Move code without changing meaning
+ * RECOVERY 2026-07-24: POS-local serviceChargeRate + roundingEnabled REMOVED.
+ *   They had no server field and were folded into `discount` (negative),
+ *   breaking calculation integrity. The locked server contract is
+ *   `total = subtotal − discount + taxAmount`; the POS now matches it exactly.
+ *
  * @boundary COCKPIT only — no engine imports
  */
 
 'use client'
 
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { syncSettingsFromServer, getCachedSettings } from '@/lib/sync-service'
+import { tryGetPosDB, type CachedPromo } from '@/lib/pos/pos-db'
 
-// ==================== INTERFACES (moved from pos-page.tsx) ====================
+// ==================== INTERFACES ====================
 
 export interface OutletSettings {
   paymentMethods: string
@@ -57,6 +59,11 @@ export interface PromoInfo {
   name: string
   type: string
   description: string
+  value: number
+  minPurchase: number | null
+  maxDiscount: number | null
+  active: boolean
+  validUntil: string | null
 }
 
 // ==================== DEFAULTS ====================
@@ -81,11 +88,9 @@ const DEFAULT_SETTINGS: OutletSettings = {
   receiptBatchOrderEnabled: false,
 }
 
-// ==================== HELPER: Map API response to OutletSettings ====================
-// Eliminates the duplication that existed in two useEffects (~75 lines × 2)
-
-function mapApiDataToSettings(data: Record<string, unknown>): OutletSettings {
+function mapToSettings(data: Record<string, unknown>): OutletSettings {
   return {
+    ...DEFAULT_SETTINGS,
     paymentMethods: (data.paymentMethods as string) || 'CASH,QRIS',
     loyaltyEnabled: (data.loyaltyEnabled as boolean) ?? true,
     loyaltyPointsPerAmount: (data.loyaltyPointsPerAmount as number) || 10000,
@@ -106,28 +111,6 @@ function mapApiDataToSettings(data: Record<string, unknown>): OutletSettings {
   }
 }
 
-function mapCachedToSettings(cached: Record<string, unknown>): OutletSettings {
-  return {
-    paymentMethods: (cached.paymentMethods as string) || 'CASH,QRIS',
-    loyaltyEnabled: (cached.loyaltyEnabled as boolean) ?? true,
-    loyaltyPointsPerAmount: (cached.loyaltyPointsPerAmount as number) || 10000,
-    loyaltyPointValue: (cached.loyaltyPointValue as number) || 100,
-    receiptBusinessName: (cached.receiptBusinessName as string) || 'Aether POS',
-    receiptAddress: (cached.receiptAddress as string) || '',
-    receiptPhone: (cached.receiptPhone as string) || '',
-    receiptFooter: (cached.receiptFooter as string) || 'Terima kasih atas kunjungan Anda!',
-    receiptLogo: (cached.receiptLogo as string) || '',
-    themePrimaryColor: (cached.themePrimaryColor as string) || 'emerald',
-    ppnEnabled: (cached.ppnEnabled as boolean) ?? false,
-    ppnRate: (cached.ppnRate as number) || 11,
-    manualDiscountEnabled: (cached.manualDiscountEnabled as boolean) ?? false,
-    receiptDoublePrintEnabled: (cached.receiptDoublePrintEnabled as boolean) ?? false,
-    receiptMerchantCopyEnabled: (cached.receiptMerchantCopyEnabled as boolean) ?? true,
-    receiptCustomerCopyEnabled: (cached.receiptCustomerCopyEnabled as boolean) ?? true,
-    receiptBatchOrderEnabled: (cached.receiptBatchOrderEnabled as boolean) ?? false,
-  }
-}
-
 // ==================== HOOK ====================
 
 interface UsePosSettingsOptions {
@@ -136,36 +119,28 @@ interface UsePosSettingsOptions {
 }
 
 interface UsePosSettingsReturn {
-  // State
   settings: OutletSettings
   outletInfo: OutletInfo | null
   userOutlets: UserOutlet[]
   outletsLoading: boolean
   availablePromos: PromoInfo[]
-
-  // Payment methods (derived) — NOTE: active paymentMethod is owned by usePosCheckout
-  // This hook only provides the AVAILABLE methods list from settings
   availablePaymentMethods: Array<'CASH' | 'QRIS' | 'DEBIT' | 'TRANSFER'>
 }
 
 export function usePosSettings(options: UsePosSettingsOptions): UsePosSettingsReturn {
   const { isOnline, currentPage } = options
 
-  // ── State (originally lines 236-259) ──
   const [settings, setSettings] = useState<OutletSettings>(DEFAULT_SETTINGS)
   const [outletInfo, setOutletInfo] = useState<OutletInfo | null>(null)
   const [userOutlets, setUserOutlets] = useState<UserOutlet[]>([])
   const [outletsLoading, setOutletsLoading] = useState(false)
   const [availablePromos, setAvailablePromos] = useState<PromoInfo[]>([])
 
-  // ── Derived: Available payment methods (originally lines 261-263) ──
-  // NOTE: Active paymentMethod ownership is in usePosCheckout. This hook only provides the list.
-
   const availablePaymentMethods = useMemo(() => {
     return settings.paymentMethods.split(',').map(m => m.trim().toUpperCase()).filter(Boolean) as Array<'CASH' | 'QRIS' | 'DEBIT' | 'TRANSFER'>
   }, [settings.paymentMethods])
 
-  // ── Effect 1: Fetch settings on mount / online change (originally lines 266-342) ──
+  // ── Fetch settings (online: server; offline: Dexie cache) ──
   useEffect(() => {
     const fetchSettings = async () => {
       try {
@@ -173,33 +148,30 @@ export function usePosSettings(options: UsePosSettingsOptions): UsePosSettingsRe
           const res = await fetch('/api/settings')
           if (res.ok) {
             const data = await res.json()
-            setSettings(mapApiDataToSettings(data))
-            // Extract outlet info from settings response
+            const mapped = mapToSettings(data)
+            setSettings(mapped)
             if (data.outlet) {
-              setOutletInfo({
-                id: data.outlet.id,
-                name: data.outlet.name,
-                address: data.outlet.address,
-                phone: data.outlet.phone,
-              })
+              setOutletInfo({ id: data.outlet.id, name: data.outlet.name, address: data.outlet.address, phone: data.outlet.phone })
             }
-            // Cache settings for offline use
             syncSettingsFromServer()
+            // Cache settings to posDB for offline
+            await cacheSettingsToPosDB(data)
           }
         } else {
-          // Offline: load from IndexedDB cache
           const cached = await getCachedSettings()
           if (cached) {
-            setSettings(mapCachedToSettings(cached))
-            // Extract outlet info from cached settings
+            const mapped = mapToSettings(cached)
+            setSettings(mapped)
             const cachedOutlet = cached.outlet as { id: string; name: string; address: string | null; phone: string | null } | undefined
             if (cachedOutlet) {
-              setOutletInfo({
-                id: cachedOutlet.id,
-                name: cachedOutlet.name,
-                address: cachedOutlet.address,
-                phone: cachedOutlet.phone,
-              })
+              setOutletInfo({ id: cachedOutlet.id, name: cachedOutlet.name, address: cachedOutlet.address, phone: cachedOutlet.phone })
+            }
+          } else {
+            // Fall back to posDB cache
+            const posCached = await readSettingsFromPosDB()
+            if (posCached) {
+              const mapped = mapToSettings(posCached)
+              setSettings(mapped)
             }
           }
         }
@@ -208,25 +180,20 @@ export function usePosSettings(options: UsePosSettingsOptions): UsePosSettingsRe
     fetchSettings()
   }, [isOnline])
 
-  // ── Effect 2: Re-fetch settings when returning to POS page (originally lines 345-378) ──
+  // ── Re-fetch settings when returning to POS page ──
   useEffect(() => {
-    if (currentPage === 'pos') {
-      const refetchSettings = async () => {
-        try {
-          if (isOnline) {
-            const res = await fetch('/api/settings')
-            if (res.ok) {
-              const data = await res.json()
-              setSettings(mapApiDataToSettings(data))
-            }
-          }
-        } catch { /* silent */ }
-      }
-      refetchSettings()
+    if (currentPage === 'pos' && isOnline) {
+      fetch('/api/settings').then(async res => {
+        if (res.ok) {
+          const data = await res.json()
+          const mapped = mapToSettings(data)
+          setSettings(mapped)
+        }
+      }).catch(() => {})
     }
   }, [currentPage, isOnline])
 
-  // ── Effect 3: Fetch user's outlets (enterprise multi-outlet) (originally lines 381-407) ──
+  // ── Fetch user outlets ──
   useEffect(() => {
     const fetchOutlets = async () => {
       if (!isOnline) return
@@ -236,49 +203,82 @@ export function usePosSettings(options: UsePosSettingsOptions): UsePosSettingsRe
           const data = await res.json()
           if (data.outlets && Array.isArray(data.outlets)) {
             setUserOutlets(data.outlets.map((o: Record<string, unknown>) => ({
-              id: o.id as string,
-              name: o.name as string,
-              address: (o.address as string) || null,
-              phone: (o.phone as string) || null,
+              id: o.id as string, name: o.name as string,
+              address: (o.address as string) || null, phone: (o.phone as string) || null,
               isPrimary: (o.isPrimary as boolean) || false,
             })))
           }
         }
-      } catch { /* silent - outlets list is non-critical */ }
-      finally {
-        setOutletsLoading(false)
-      }
+      } catch { /* silent */ }
+      finally { setOutletsLoading(false) }
     }
-
     setOutletsLoading(true)
     void fetchOutlets()
   }, [isOnline])
 
-  // NOTE: Payment method reset logic moved to usePosCheckout (single owner for active paymentMethod)
-
-  // ── Effect 5: Fetch available promos (originally lines 452-464) ──
+  // ── Fetch promos (online) or read from posDB cache (offline) ──
   useEffect(() => {
     const fetchPromos = async () => {
       try {
-        const res = await fetch('/api/settings/promos?active=true')
-        if (res.ok) {
-          const data = await res.json()
-          setAvailablePromos(data.promos || [])
+        if (isOnline) {
+          const res = await fetch('/api/settings/promos?active=true')
+          if (res.ok) {
+            const data = await res.json()
+            const promos: PromoInfo[] = (data.promos || []).map((p: Record<string, unknown>) => ({
+              id: p.id as string, name: p.name as string, type: p.type as string,
+              description: (p.description as string) || '', value: Number(p.value) || 0,
+              minPurchase: p.minPurchase ? Number(p.minPurchase) : null,
+              maxDiscount: p.maxDiscount ? Number(p.maxDiscount) : null,
+              active: Boolean(p.active), validUntil: (p.validUntil as string) || null,
+            }))
+            setAvailablePromos(promos)
+            // Cache promos to posDB
+            const db = tryGetPosDB()
+            if (db && promos.length > 0) {
+              const cached: CachedPromo[] = promos.map(p => ({
+                id: p.id, name: p.name, type: p.type, value: p.value,
+                minPurchase: p.minPurchase, maxDiscount: p.maxDiscount,
+                active: p.active, validUntil: p.validUntil, cachedAt: Date.now(),
+              }))
+              await db.promos.clear()
+              await db.promos.bulkPut(cached)
+            }
+          }
+        } else {
+          // Offline: read promos from posDB
+          const db = tryGetPosDB()
+          if (db) {
+            const cached = await db.promos.toArray()
+            setAvailablePromos(cached.map(p => ({
+              id: p.id, name: p.name, type: p.type, description: '', value: p.value,
+              minPurchase: p.minPurchase, maxDiscount: p.maxDiscount,
+              active: p.active, validUntil: p.validUntil,
+            })))
+          }
         }
       } catch { /* silent */ }
     }
-    if (isOnline) fetchPromos()
+    fetchPromos()
   }, [isOnline])
 
   return {
-    // State
-    settings,
-    outletInfo,
-    userOutlets,
-    outletsLoading,
-    availablePromos,
-
-    // Derived
+    settings, outletInfo, userOutlets, outletsLoading, availablePromos,
     availablePaymentMethods,
   }
+}
+
+// ── Helpers: posDB settings cache ──
+
+async function cacheSettingsToPosDB(data: Record<string, unknown>): Promise<void> {
+  const db = tryGetPosDB()
+  if (!db) return
+  await db.outletSettings.put({ key: 'outlet-settings', value: JSON.stringify(data), updatedAt: new Date().toISOString() })
+}
+
+async function readSettingsFromPosDB(): Promise<Record<string, unknown> | null> {
+  const db = tryGetPosDB()
+  if (!db) return null
+  const row = await db.outletSettings.get('outlet-settings')
+  if (!row) return null
+  try { return JSON.parse(row.value) as Record<string, unknown> } catch { return null }
 }

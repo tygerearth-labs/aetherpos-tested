@@ -4,21 +4,19 @@ import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonError, CACHE } from '@/lib/api/safe-response'
 import { buildFlexibleSearch } from '@/lib/api/api-helpers'
 import {
-  POS_PRODUCT_SELECT,
-  mapPosProduct,
+  POS_PRODUCT_PARENT_SELECT,
+  mapPosProductParent,
   posLimit,
   posPage,
-  type PosProductRaw,
+  type PosProductParentRaw,
 } from '@/lib/pos/pos-product'
 
 /**
  * GET /api/pos/products/search?q=...&limit=20&page=1&categoryId=...
  *
- * PR 1 — backend on-demand search for the POS. Replaces the legacy in-memory
- * filter over the full cached catalog (localDB.products.toArray() + .filter).
- *
- * The POS debounces the search input (250-300ms) and calls this endpoint.
- * Results are capped at MAX_POS_LIMIT (30) per request — governance lock.
+ * PR 2 — backend on-demand search for the POS. Returns PARENT products only
+ * (no variant preload). Variants are fetched on-demand via
+ * /api/pos/products/:id/variants when the user clicks a variant parent.
  *
  * Governance:
  *   - outlet-scoped via getAuthUser
@@ -54,7 +52,8 @@ export async function GET(request: NextRequest) {
     }
     if (q) {
       // Flexible, case-insensitive, token-aware search across product +
-      // variant fields. Mirrors /api/products/search but with POS-compact select.
+      // variant fields. Parent products are returned; variant details are
+      // fetched on-demand.
       Object.assign(
         where,
         buildFlexibleSearch(q, (token) => [
@@ -74,16 +73,16 @@ export async function GET(request: NextRequest) {
     const [rows, total] = await Promise.all([
       db.product.findMany({
         where,
-        select: POS_PRODUCT_SELECT,
+        select: POS_PRODUCT_PARENT_SELECT,
         orderBy: { name: 'asc' },
         skip,
         take: limit,
-      }) as unknown as Promise<PosProductRaw[]>,
+      }) as unknown as Promise<PosProductParentRaw[]>,
       db.product.count({ where }),
     ])
 
     const totalPages = Math.max(1, Math.ceil(total / limit))
-    const mapped = rows.map(mapPosProduct)
+    const mapped = rows.map(mapPosProductParent)
 
     return safeJson({ products: mapped, total, totalPages }, 200, CACHE.SHORT)
   } catch (error) {

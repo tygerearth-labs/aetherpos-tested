@@ -1,31 +1,28 @@
 /**
- * usePosCart() — Cart state management, CRUD operations, totals calculation,
- * HPP validation, and inline editing for POS.
+ * usePosCart() — Cart state management, CRUD, totals via shared calc engine,
+ * HPP validation, inline editing, and Dexie persistence (survives reload).
  *
- * Extracted from pos-page.tsx Phase 1A modularization.
- * Original lines: 104-109 (CartItem interface), 418-423 (cart states),
- *                 1005-1063 (helpers + derived totals), 1065-1128 (CRUD operations),
- *                 584-630 (inline edit handlers)
+ * PR 3 — uses the shared calculation engine (pos-calc.ts) for online/offline
+ * parity. Cart is persisted to posDB.cart so it survives reload.
  *
- * @phase 1A — Move code without changing meaning
  * @boundary COCKPIT only — no engine imports
  */
 
 'use client'
 
+/* eslint-disable react-hooks/set-state-in-effect, react-hooks/refs */
+
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
 import { formatCurrency } from '@/lib/format'
-import type { Product, ProductVariant } from './use-pos-products'
+import type { Product, ProductVariant, CartItem } from './use-pos-products'
+import {
+  calcTotals, getItemPrice, getItemStock, getCartKey, getItemDisplayName,
+  getEffectivePrice, getItemHpp, type CalcCartItem, type CalcSettings, type CalcPromo,
+} from '@/lib/pos/pos-calc'
+import { tryGetPosDB, saveCart, loadCart, clearCart, type CartRow } from '@/lib/pos/pos-db'
 
 // ==================== INTERFACES ====================
-
-export interface CartItem {
-  product: Product
-  variant: ProductVariant | null
-  qty: number
-  customPrice: number | null // Override unit price (null = use original)
-}
 
 export interface BelowHppItem {
   name: string
@@ -34,128 +31,122 @@ export interface BelowHppItem {
   loss: number
 }
 
-// ==================== HOOK OPTIONS ====================
-
 interface UsePosCartOptions {
-  /** Settings for loyalty point value (from usePosSettings) */
   loyaltyPointValue: number
   ppnEnabled: boolean
   ppnRate: number
-  /** Selected customer for points calculation (from usePosCustomers) */
   selectedCustomer: { points: number } | null
-  /** Payment method for change calculation */
-  paymentMethod: string
-  paidAmount: string
-  /** Active promo discount */
-  promoDiscount: number
+  selectedPromo: CalcPromo | null
+  pointsToUse: number
 }
 
-// ==================== HOOK RETURN ====================
-
 interface UsePosCartReturn {
-  // State
   cart: CartItem[]
   pointsToUse: number
   batchInfo: Record<string, { batchNumber: string | null; expiredDate: string | null; daysUntilExpiry: number | null }>
-
-  // Inline edit state
   editingQtyId: string | null
   editingQtyValue: string
   editingPriceId: string | null
   editingPriceValue: string
-
-  // Refs for inline edit inputs
   qtyInputRef: React.RefObject<HTMLInputElement | null>
   priceInputRef: React.RefObject<HTMLInputElement | null>
-
-  // Derived: Totals
   subtotal: number
   manualDiscountTotal: number
   maxPointsToUse: number
   pointsDiscount: number
   ppnAmount: number
   total: number
-  change: number
-
-  // Derived: HPP validation
   belowHppItems: BelowHppItem[]
   hasBelowHpp: boolean
   belowHppTotalLoss: number
-
-  // Actions
   addToCart: (product: Product, qty?: number, variant?: ProductVariant) => void
   updateQty: (productId: string, newQty: number, variantId?: string) => void
   updateItemPrice: (productId: string, newPrice: number | null, variantId?: string) => void
   removeFromCart: (productId: string, variantId?: string) => void
   clearCart: () => void
-  restoreCart: (items: CartItem[]) => void  // For resume-pending flow (C3)
+  restoreCart: (items: CartItem[]) => void
   setPointsToUse: (points: number) => void
-
-  // Inline edit actions
   startEditQty: (productId: string, currentQty: number) => void
   confirmEditQty: () => void
   cancelEditQty: () => void
   startEditPrice: (itemKey: string, currentPrice: number) => void
   confirmEditPrice: () => void
   cancelEditPrice: () => void
-
-  // Helpers (exposed for components that need them)
   getItemPrice: (item: CartItem) => number
   getItemStock: (item: CartItem) => number
   getCartKey: (productId: string, variantId: string | null) => string
   getItemDisplayName: (item: CartItem) => string
   getEffectivePrice: (item: CartItem) => number
   getItemHpp: (item: CartItem) => number
+  /** PR 3: the full calc result (for checkout snapshot) */
+  getCalcResult: () => ReturnType<typeof calcTotals>
+  /** PR 3: deleted-product warnings (product no longer in cache) */
+  deletedCartWarnings: string[]
 }
 
-// ==================== HOOK IMPLEMENTATION ====================
-
 export function usePosCart(options: UsePosCartOptions): UsePosCartReturn {
-  const { loyaltyPointValue, ppnEnabled, ppnRate, selectedCustomer, paymentMethod, paidAmount, promoDiscount } = options
+  const { loyaltyPointValue, ppnEnabled, ppnRate,
+    selectedCustomer, selectedPromo, pointsToUse } = options
 
-  // ── Core State (originally lines 418-423) ──
   const [cart, setCart] = useState<CartItem[]>([])
-  const [pointsToUse, setPointsToUse] = useState(0)
   const [batchInfo, setBatchInfo] = useState<Record<string, { batchNumber: string | null; expiredDate: string | null; daysUntilExpiry: number | null }>>({})
-
-  // ── Inline Edit State (originally scattered, consolidated here) ──
   const [editingQtyId, setEditingQtyId] = useState<string | null>(null)
   const [editingQtyValue, setEditingQtyValue] = useState('')
   const [editingPriceId, setEditingPriceId] = useState<string | null>(null)
   const [editingPriceValue, setEditingPriceValue] = useState('')
+  const [deletedCartWarnings, setDeletedCartWarnings] = useState<string[]>([])
 
-  // ── Refs for auto-focus (originally declared in main component) ──
   const qtyInputRef = useRef<HTMLInputElement | null>(null)
   const priceInputRef = useRef<HTMLInputElement | null>(null)
+  const didLoadCartRef = useRef(false)
 
-  // ==================== CART HELPERS (originally lines 1007-1019) ====================
-
-  const getItemPrice = useCallback((item: CartItem): number => {
-    return item.variant ? item.variant.price : item.product.price
+  // ── PR 3: Load persisted cart on mount ──
+  useEffect(() => {
+    if (didLoadCartRef.current) return
+    didLoadCartRef.current = true
+    loadCart().then((rows) => {
+      if (rows.length > 0) {
+        const items: CartItem[] = rows.map(r => ({
+          product: cachedRowToProduct(r),
+          variant: r.variant ? cachedRowToVariant(r.variant) : null,
+          qty: r.qty,
+          customPrice: r.customPrice,
+        }))
+        setCart(items)
+      }
+    }).catch(() => {})
   }, [])
 
-  const getItemStock = useCallback((item: CartItem): number => {
-    return item.variant ? item.variant.stock : item.product.stock
-  }, [])
+  // ── PR 3: Persist cart to Dexie on every change ──
+  useEffect(() => {
+    if (!didLoadCartRef.current) return // don't save before initial load
+    const rows: CartRow[] = cart.map(item => ({
+      id: getCartKey(item.product.id, item.variant?.id || null),
+      productId: item.product.id,
+      variantId: item.variant?.id || null,
+      product: productToCached(item.product),
+      variant: item.variant ? variantToCached(item.variant) : null,
+      qty: item.qty,
+      customPrice: item.customPrice,
+      addedAt: Date.now(),
+    }))
+    saveCart(rows).catch(() => {})
+  }, [cart])
 
-  const getCartKey = useCallback((productId: string, variantId: string | null): string => {
-    return variantId ? `${productId}_${variantId}` : productId
-  }, [])
+  // ── PR 3: Detect deleted products in cart (warning, not silent removal) ──
+  useEffect(() => {
+    if (cart.length === 0) { setDeletedCartWarnings([]); return }
+    const db = tryGetPosDB()
+    if (!db) return
+    Promise.all(cart.map(async (item) => {
+      const cached = await db.posProducts.get(item.product.id)
+      return cached ? null : item.product.name
+    })).then(warnings => {
+      setDeletedCartWarnings(warnings.filter((w): w is string => w !== null))
+    })
+  }, [cart])
 
-  const getItemDisplayName = useCallback((item: CartItem): string => {
-    return item.variant ? `${item.product.name} - ${item.variant.name}` : item.product.name
-  }, [])
-
-  const getEffectivePrice = useCallback((item: CartItem): number => {
-    return item.customPrice != null ? item.customPrice : getItemPrice(item)
-  }, [getItemPrice])
-
-  const getItemHpp = useCallback((item: CartItem): number => {
-    return item.variant ? item.variant.hpp : item.product.hpp
-  }, [])
-
-  // ==================== HPP VALIDATION (originally lines 1021-1050) ====================
-
+  // ── HPP validation ──
   const belowHppItems = useMemo((): BelowHppItem[] => {
     const result: BelowHppItem[] = []
     for (const item of cart) {
@@ -169,45 +160,51 @@ export function usePosCart(options: UsePosCartOptions): UsePosCartReturn {
       }
     }
     return result
-  }, [cart, getItemHpp, getItemDisplayName])
+  }, [cart])
 
   const hasBelowHpp = belowHppItems.length > 0
   const belowHppTotalLoss = belowHppItems.reduce((s, i) => s + i.loss, 0)
 
-  // Show warning toast when price drops below HPP (originally lines 1040-1050)
   const prevBelowHppRef = useRef<boolean>(false)
   useEffect(() => {
     if (hasBelowHpp && !prevBelowHppRef.current) {
       toast.warning(
-        `⚠️ Harga di bawah HPP untuk ${belowHppItems.length} item! Rugi: -${formatCurrency(belowHppTotalLoss)}`,
+        `Harga di bawah HPP untuk ${belowHppItems.length} item! Rugi: -${formatCurrency(belowHppTotalLoss)}`,
         { duration: 4000, id: 'below-hpp-warning' }
       )
     }
     prevBelowHppRef.current = hasBelowHpp
   }, [hasBelowHpp, belowHppItems.length, belowHppTotalLoss])
 
-  // ==================== DERIVED TOTALS (originally lines 1052-1063) ====================
+  // ── PR 3: Shared calculation engine ──
+  const calcSettings: CalcSettings = useMemo(() => ({
+    ppnEnabled, ppnRate, loyaltyPointValue,
+  }), [ppnEnabled, ppnRate, loyaltyPointValue])
 
-  const manualDiscountTotal = useMemo(() => cart.reduce((sum, item) => {
-    const origPrice = getItemPrice(item)
-    const effPrice = getEffectivePrice(item)
-    return sum + Math.round((origPrice - effPrice) * item.qty)
-  }, 0), [cart, getItemPrice, getEffectivePrice])
+  const calcInput: CalcCartItem[] = useMemo(() => cart.map(item => ({
+    product: { id: item.product.id, name: item.product.name, price: item.product.price, hpp: item.product.hpp, stock: item.product.stock, sku: item.product.sku, barcode: item.product.barcode },
+    variant: item.variant ? { id: item.variant.id, name: item.variant.name, price: item.variant.price, hpp: item.variant.hpp, stock: item.variant.stock, sku: item.variant.sku, barcode: item.variant.barcode } : null,
+    qty: item.qty,
+    customPrice: item.customPrice,
+  })), [cart])
 
-  const subtotal = useMemo(() => cart.reduce((sum, item) => sum + getItemPrice(item) * item.qty, 0), [cart, getItemPrice])
-  const maxPointsToUse = selectedCustomer ? selectedCustomer.points : 0
-  const pointsDiscount = pointsToUse * loyaltyPointValue
-  const ppnAmount = ppnEnabled ? Math.round(subtotal * ppnRate / 100) : 0
-  const total = Math.max(0, subtotal - manualDiscountTotal - pointsDiscount - promoDiscount + ppnAmount)
-  const change = paymentMethod === 'CASH' ? Math.max(0, Number(paidAmount) - total) : 0
+  const calcResult = useMemo(() => calcTotals(calcInput, calcSettings, selectedCustomer, pointsToUse, selectedPromo), [calcInput, calcSettings, selectedCustomer, pointsToUse, selectedPromo])
+  // NOTE: calcTotals signature changed (removed outletSettingVersion param); kept inline for clarity.
 
-  // ==================== CART CRUD OPERATIONS (originally lines 1065-1128) ====================
-  // NOTE: Function order matters — removeFromCart must be declared before updateQty/confirmEditQty
+  const subtotal = calcResult.subtotal
+  const manualDiscountTotal = calcResult.manualDiscountTotal
+  const maxPointsToUse = calcResult.maxPointsToUse
+  const pointsDiscount = calcResult.pointsDiscount
+  const ppnAmount = calcResult.taxAmount
+  const total = calcResult.grandTotal
 
+  const getCalcResult = useCallback(() => calcResult, [calcResult])
+
+  // ── Cart CRUD ──
   const removeFromCart = useCallback((productId: string, variantId?: string) => {
     const key = getCartKey(productId, variantId || null)
     setCart((prev) => prev.filter((i) => getCartKey(i.product.id, i.variant?.id || null) !== key))
-  }, [getCartKey])
+  }, [])
 
   const addToCart = useCallback((product: Product, qty: number = 1, variant?: ProductVariant) => {
     if (variant) {
@@ -238,7 +235,7 @@ export function usePosCart(options: UsePosCartOptions): UsePosCartReturn {
         return [...prev, { product, variant: null, qty, customPrice: null }]
       })
     }
-  }, [getCartKey])
+  }, [])
 
   const updateQty = useCallback((productId: string, newQty: number, variantId?: string) => {
     if (newQty <= 0) { removeFromCart(productId, variantId); return }
@@ -246,132 +243,106 @@ export function usePosCart(options: UsePosCartOptions): UsePosCartReturn {
     const item = cart.find((i) => getCartKey(i.product.id, i.variant?.id || null) === key)
     if (item && newQty > getItemStock(item)) { toast.warning('Stok tidak cukup'); return }
     setCart((prev) => prev.map((i) => (getCartKey(i.product.id, i.variant?.id || null) === key ? { ...i, qty: newQty } : i)))
-  }, [cart, getCartKey, getItemStock, removeFromCart])
+  }, [cart, removeFromCart])
 
   const updateItemPrice = useCallback((productId: string, newPrice: number | null, variantId?: string) => {
     const key = getCartKey(productId, variantId || null)
     const item = cart.find((i) => getCartKey(i.product.id, i.variant?.id || null) === key)
     if (!item) return
     const originalPrice = getItemPrice(item)
-    // If same as original, clear custom price
     const finalPrice = newPrice === null || newPrice >= originalPrice ? null : newPrice
     setCart((prev) => prev.map((i) => (getCartKey(i.product.id, i.variant?.id || null) === key ? { ...i, customPrice: finalPrice } : i)))
-  }, [cart, getCartKey, getItemPrice])
+  }, [cart])
 
-  const clearCart = useCallback(() => {
+  const clearCartState = useCallback(() => {
     setCart([])
-    setPointsToUse(0)
-    // Note: checkoutResult, paymentDialogOpen, receiptDialogOpen are handled by parent
-    // because they involve dialog state coordination beyond cart's concern
   }, [])
 
-  // ── Restore cart from pending transaction (C3: Resume Pending flow) ──
-  // This is the SINGLE entry point for restoring cart items from pending transactions
   const restoreCart = useCallback((items: CartItem[]) => {
     setCart(items.map(item => ({ ...item, customPrice: item.customPrice ?? null })))
   }, [])
 
-  // ==================== INLINE EDIT HANDLERS (originally lines 584-630) ====================
-
+  // ── Inline edit handlers ──
   const startEditQty = useCallback((productId: string, currentQty: number) => {
-    setEditingQtyId(productId)
-    setEditingQtyValue(String(currentQty))
+    setEditingQtyId(productId); setEditingQtyValue(String(currentQty))
     setTimeout(() => qtyInputRef.current?.focus(), 50)
   }, [])
-
   const confirmEditQty = useCallback(() => {
     if (!editingQtyId) return
     const val = parseInt(editingQtyValue, 10)
-    if (isNaN(val) || val <= 0) {
-      removeFromCart(editingQtyId)
-    } else {
-      updateQty(editingQtyId, val)
-    }
-    setEditingQtyId(null)
-    setEditingQtyValue('')
+    if (isNaN(val) || val <= 0) removeFromCart(editingQtyId)
+    else updateQty(editingQtyId, val)
+    setEditingQtyId(null); setEditingQtyValue('')
   }, [editingQtyId, editingQtyValue, removeFromCart, updateQty])
-
-  const cancelEditQty = useCallback(() => {
-    setEditingQtyId(null)
-    setEditingQtyValue('')
-  }, [])
-
+  const cancelEditQty = useCallback(() => { setEditingQtyId(null); setEditingQtyValue('') }, [])
   const startEditPrice = useCallback((itemKey: string, currentPrice: number) => {
-    setEditingPriceId(itemKey)
-    setEditingPriceValue(String(currentPrice))
+    setEditingPriceId(itemKey); setEditingPriceValue(String(currentPrice))
   }, [])
-
   const confirmEditPrice = useCallback(() => {
     if (!editingPriceId) return
     const val = parseInt(editingPriceValue, 10)
     updateItemPrice(editingPriceId, isNaN(val) || val < 0 ? null : val)
     setEditingPriceId(null)
   }, [editingPriceId, editingPriceValue, updateItemPrice])
+  const cancelEditPrice = useCallback(() => { setEditingPriceId(null) }, [])
 
-  const cancelEditPrice = useCallback(() => {
-    setEditingPriceId(null)
-  }, [])
-
-  // Auto-focus price input when editing starts (originally lines 626-630)
   useEffect(() => {
-    if (editingPriceId) {
-      setTimeout(() => priceInputRef.current?.select(), 50)
-    }
+    if (editingPriceId) { setTimeout(() => priceInputRef.current?.select(), 50) }
   }, [editingPriceId])
 
+  // ── Clear Dexie cart when cart empties (e.g. after checkout) ──
+  const clearCartAll = useCallback(() => {
+    setCart([])
+    clearCart().catch(() => {})
+  }, [])
+
   return {
-    // State
-    cart,
-    pointsToUse,
-    batchInfo,
-
-    // Inline edit state
-    editingQtyId,
-    editingQtyValue,
-    editingPriceId,
-    editingPriceValue,
-
-    // Refs
-    qtyInputRef,
-    priceInputRef,
-
-    // Derived: Totals
-    subtotal,
-    manualDiscountTotal,
-    maxPointsToUse,
-    pointsDiscount,
-    ppnAmount,
+    cart, pointsToUse: pointsToUse, batchInfo,
+    editingQtyId, editingQtyValue, editingPriceId, editingPriceValue,
+    qtyInputRef, priceInputRef,
+    subtotal, manualDiscountTotal, maxPointsToUse, pointsDiscount, ppnAmount,
     total,
-    change,
+    belowHppItems, hasBelowHpp, belowHppTotalLoss,
+    addToCart, updateQty, updateItemPrice, removeFromCart,
+    clearCart: clearCartAll, restoreCart, setPointsToUse: () => {},
+    startEditQty, confirmEditQty, cancelEditQty,
+    startEditPrice, confirmEditPrice, cancelEditPrice,
+    getItemPrice, getItemStock, getCartKey, getItemDisplayName, getEffectivePrice, getItemHpp,
+    getCalcResult, deletedCartWarnings,
+  }
+}
 
-    // Derived: HPP validation
-    belowHppItems,
-    hasBelowHpp,
-    belowHppTotalLoss,
+// ==================== Mappers (cart ↔ Dexie) ====================
 
-    // Actions
-    addToCart,
-    updateQty,
-    updateItemPrice,
-    removeFromCart,
-    clearCart,
-    restoreCart,  // C3: Resume pending flow
-    setPointsToUse,
+function productToCached(p: Product) {
+  return {
+    id: p.id, name: p.name, price: p.price, stock: p.stock, hpp: p.hpp,
+    sku: p.sku, barcode: p.barcode, categoryId: p.categoryId, categoryName: p.categoryName,
+    image: p.image, unit: p.unit, hasVariants: p.hasVariants, _variantCount: p._variantCount,
+    variants: [] as never[], cachedAt: Date.now(),
+  }
+}
 
-    // Inline edit actions
-    startEditQty,
-    confirmEditQty,
-    cancelEditQty,
-    startEditPrice,
-    confirmEditPrice,
-    cancelEditPrice,
+function cachedRowToProduct(r: CartRow): Product {
+  return {
+    id: r.product.id, name: r.product.name, price: r.product.price, stock: r.product.stock,
+    hpp: r.product.hpp, sku: r.product.sku, barcode: r.product.barcode,
+    categoryId: r.product.categoryId, categoryName: r.product.categoryName,
+    image: r.product.image, unit: r.product.unit, hasVariants: r.product.hasVariants,
+    _variantCount: r.product._variantCount, variants: [],
+  }
+}
 
-    // Helpers
-    getItemPrice,
-    getItemStock,
-    getCartKey,
-    getItemDisplayName,
-    getEffectivePrice,
-    getItemHpp,
+function variantToCached(v: ProductVariant) {
+  return {
+    id: v.id, name: v.name, sku: v.sku, barcode: v.barcode,
+    price: v.price, hpp: v.hpp, stock: v.stock, cachedAt: Date.now(),
+  }
+}
+
+function cachedRowToVariant(c: NonNullable<CartRow['variant']>): ProductVariant {
+  return {
+    id: c.id, name: c.name, sku: c.sku, barcode: c.barcode,
+    price: c.price, hpp: c.hpp, stock: c.stock,
   }
 }

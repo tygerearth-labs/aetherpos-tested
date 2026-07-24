@@ -38,11 +38,91 @@ export function posPage(raw: string | null): number {
   return n
 }
 
-// ── Prisma select (shared by featured / search / lookup) ─────────────────────
-// Compact: only fields the POS needs. `category.name` is denormalized into
-// `categoryName` by mapPosProduct() so the frontend can display/filter without
-// a second query. Variants are inline (PR 1); PR 2 strips these from
-// featured/search and loads them via /api/pos/products/:id/variants on demand.
+// ── PR 2: Parent-only select (NO variant preload) ────────────────────────────
+// featured + search use this. Variants are fetched on-demand via
+// /api/pos/products/:id/variants when the user clicks a variant parent.
+// `_count.variants` is included so the UI knows whether to show the picker.
+export const POS_PRODUCT_PARENT_SELECT = {
+  id: true,
+  name: true,
+  sku: true,
+  barcode: true,
+  price: true,
+  hpp: true,
+  stock: true,
+  unit: true,
+  image: true,
+  categoryId: true,
+  hasVariants: true,
+  category: { select: { name: true } },
+  _count: { select: { variants: true } },
+} as const
+
+/** Structural type of the parent-only select result. */
+export interface PosProductParentRaw {
+  id: string
+  name: string
+  sku: string | null
+  barcode: string | null
+  price: number
+  hpp: number
+  stock: number
+  unit: string
+  image: string | null
+  categoryId: string | null
+  hasVariants: boolean
+  category: { name: string } | null
+  _count: { variants: number }
+}
+
+/**
+ * Map a parent-only raw product to the POS shape.
+ * Variants are ALWAYS an empty array (PR 2: no preload).
+ * `_variantCount` is populated from the relation count.
+ */
+export function mapPosProductParent(p: PosProductParentRaw): PosProduct {
+  const categoryName = p.category?.name || null
+  const variantCount = p._count?.variants ?? 0
+  if (p.hasVariants && variantCount > 0) {
+    // Variant parent: price = 0 placeholder (UI shows "Pilih Varian"), stock = 0
+    // until variants are loaded on-demand. The variant picker fetches real prices.
+    return {
+      id: p.id,
+      name: p.name,
+      price: p.price,
+      stock: p.stock,
+      hpp: p.hpp || 0,
+      sku: p.sku,
+      barcode: p.barcode,
+      categoryId: p.categoryId,
+      image: p.image,
+      unit: p.unit,
+      categoryName,
+      hasVariants: true,
+      _variantCount: variantCount,
+      variants: [],
+    }
+  }
+  return {
+    id: p.id,
+    name: p.name,
+    price: p.price,
+    stock: p.stock,
+    hpp: p.hpp || 0,
+    sku: p.sku,
+    barcode: p.barcode,
+    categoryId: p.categoryId,
+    image: p.image,
+    unit: p.unit,
+    categoryName,
+    hasVariants: false,
+    _variantCount: 0,
+    variants: [],
+  }
+}
+
+// ── PR 1 select (with inline variants) — used ONLY by lookup ─────────────────
+// lookup needs variant data to return matchedVariantId for barcode/SKU bypass.
 export const POS_PRODUCT_SELECT = {
   id: true,
   name: true,
@@ -56,6 +136,7 @@ export const POS_PRODUCT_SELECT = {
   categoryId: true,
   hasVariants: true,
   category: { select: { name: true } },
+  _count: { select: { variants: true } },
   variants: {
     select: {
       id: true,
@@ -84,6 +165,7 @@ export interface PosProductRaw {
   categoryId: string | null
   hasVariants: boolean
   category: { name: string } | null
+  _count?: { variants: number }
   variants: Array<{
     id: string
     name: string

@@ -1,20 +1,22 @@
 /**
  * usePosCustomers() — Customer loading, search, selection, and add-new for POS.
  *
- * Extracted from pos-page.tsx Phase 1A modularization.
- * Original lines: 97-102 (Customer interface), 409-416 (states),
- *                 893-900 (loadCustomersFromCache), 996-1003 (filteredCustomers),
- *                 customer-related handlers in render
+ * PR 3 — Offline customer support:
+ *   - Online: fetch /api/customers → render → cache working set to Dexie
+ *   - Offline: read from Dexie customers
+ *   - Add customer online: POST /api/customers → select
+ *   - Add customer offline: write to customerOutbox (local UUID) → select
+ *     (synced later; localCustomerId resolved to serverId on reconnect)
  *
- * @phase 1A — Move code without changing meaning
  * @boundary COCKPIT only — no engine imports
  */
 
 'use client'
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { localDB } from '@/lib/local-db'
 import { toast } from 'sonner'
+import { tryGetPosDB, type CachedCustomer, type CustomerOutboxRow } from '@/lib/pos/pos-db'
+import type { Customer } from './use-pos-customers'
 
 // ==================== INTERFACES ====================
 
@@ -23,12 +25,11 @@ export interface Customer {
   name: string
   whatsapp: string
   points: number
+  /** PR 3: true if created locally (pending sync) */
+  isLocal?: boolean
 }
 
-// ==================== HOOK RETURN ====================
-
 interface UsePosCustomersReturn {
-  // State
   customers: Customer[]
   customerSearch: string
   selectedCustomer: Customer | null
@@ -36,11 +37,7 @@ interface UsePosCustomersReturn {
   addCustomerOpen: boolean
   newCustomer: { name: string; whatsapp: string }
   addingCustomer: boolean
-
-  // Derived
   filteredCustomers: Customer[]
-
-  // Actions
   setCustomerSearch: (value: string) => void
   setSelectedCustomer: (customer: Customer | null) => void
   setCustomerDropdownOpen: (open: boolean) => void
@@ -52,8 +49,9 @@ interface UsePosCustomersReturn {
 
 // ==================== HOOK IMPLEMENTATION ====================
 
-export function usePosCustomers(): UsePosCustomersReturn {
-  // ── State (originally lines 409-416) ──
+export function usePosCustomers(options: { isOnline: boolean }): UsePosCustomersReturn {
+  const { isOnline } = options
+
   const [customers, setCustomers] = useState<Customer[]>([])
   const [customerSearch, setCustomerSearch] = useState('')
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
@@ -62,84 +60,117 @@ export function usePosCustomers(): UsePosCustomersReturn {
   const [newCustomer, setNewCustomer] = useState({ name: '', whatsapp: '' })
   const [addingCustomer, setAddingCustomer] = useState(false)
 
-  // ── Load customers from IndexedDB cache (originally lines 893-900) ──
+  // ── Load customers (online: /api/customers; offline: Dexie) ──
   const loadCustomersFromCache = useCallback(async () => {
     try {
-      const cached = await localDB.customers.toArray()
-      setCustomers(cached as unknown as Customer[])
+      const db = tryGetPosDB()
+      if (isOnline) {
+        const res = await fetch('/api/customers?limit=200')
+        if (res.ok) {
+          const data = await res.json()
+          const list: Customer[] = (data.customers || []).map((c: Record<string, unknown>) => ({
+            id: c.id as string, name: c.name as string, whatsapp: (c.whatsapp as string) || '',
+            points: Number(c.points) || 0,
+          }))
+          setCustomers(list)
+          // Cache working set to Dexie
+          if (db && list.length > 0) {
+            const cached: CachedCustomer[] = list.map(c => ({
+              id: c.id, name: c.name, whatsapp: c.whatsapp, points: c.points,
+              totalSpend: 0, isLocal: false, cachedAt: Date.now(),
+            }))
+            await db.customers.clear()
+            await db.customers.bulkPut(cached)
+          }
+        }
+      } else if (db) {
+        // Offline: read from Dexie (including local outbox customers)
+        const cached = await db.customers.toArray()
+        const outbox = await db.customerOutbox.where('status').equals('PENDING').toArray()
+        const localCustomers: Customer[] = outbox.map(o => ({
+          id: o.id, name: o.name, whatsapp: o.whatsapp, points: 0, isLocal: true,
+        }))
+        setCustomers([
+          ...localCustomers,
+          ...cached.map(c => ({ id: c.id, name: c.name, whatsapp: c.whatsapp, points: c.points })),
+        ])
+      }
     } catch { /* silent */ }
-  }, [])
+  }, [isOnline])
 
   useEffect(() => { loadCustomersFromCache() }, [loadCustomersFromCache])
 
-  // ── Derived: Filtered customers for dropdown (originally lines 996-1003) ──
   const filteredCustomers = useMemo(() => {
     if (!customerSearch) return customers.slice(0, 20)
     const q = customerSearch.toLowerCase()
-    return customers.filter(
-      (c) => c.name.toLowerCase().includes(q) || c.whatsapp.includes(q)
-    )
+    return customers.filter((c) => c.name.toLowerCase().includes(q) || c.whatsapp.includes(q))
   }, [customers, customerSearch])
 
-  // ── Handler: Add new customer (originally in pos-page around line 1314) ──
+  // ── Add customer (online: API; offline: customerOutbox) ──
   const handleAddCustomer = useCallback(async () => {
     if (!newCustomer.name.trim()) {
       toast.error('Nama pelanggan wajib diisi')
       return
     }
-
     setAddingCustomer(true)
     try {
-      const res = await fetch('/api/customers', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: newCustomer.name.trim(),
-          whatsapp: newCustomer.whatsapp.trim() || undefined,
-          outletId: undefined, // Server will infer from auth session
-        }),
-      })
-
-      if (res.ok) {
-        const created = await res.json()
-        setSelectedCustomer(created)
-        setCustomerSearch('')
-        setNewCustomer({ name: '', whatsapp: '' })
-        setAddCustomerOpen(false)
-        toast.success(`Pelanggan ${created.name} ditambahkan`)
-        // Refresh customer list
-        await loadCustomersFromCache()
+      if (isOnline) {
+        const res = await fetch('/api/customers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: newCustomer.name.trim(), whatsapp: newCustomer.whatsapp.trim() || undefined }),
+        })
+        if (res.ok) {
+          const created = await res.json()
+          const customer: Customer = { id: created.id, name: created.name, whatsapp: created.whatsapp || '', points: 0 }
+          setSelectedCustomer(customer)
+          setCustomerSearch(''); setNewCustomer({ name: '', whatsapp: '' }); setAddCustomerOpen(false)
+          toast.success(`Pelanggan ${created.name} ditambahkan`)
+          await loadCustomersFromCache()
+        } else {
+          const err = await res.json()
+          toast.error(err.message || 'Gagal menambah pelanggan')
+        }
       } else {
-        const err = await res.json()
-        toast.error(err.message || 'Gagal menambah pelanggan')
+        // PR 3: Offline — write to customerOutbox with local UUID
+        const db = tryGetPosDB()
+        if (!db) { toast.error('Offline DB tidak tersedia'); return }
+        const localId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+          ? crypto.randomUUID()
+          : `local-cust-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+        const row: CustomerOutboxRow = {
+          id: localId,
+          name: newCustomer.name.trim(),
+          whatsapp: newCustomer.whatsapp.trim(),
+          createdAt: Date.now(),
+          status: 'PENDING',
+          serverId: null,
+          error: null,
+          retryCount: 0,
+        }
+        await db.customerOutbox.put(row)
+        // Also cache in customers table so it appears in search
+        await db.customers.put({
+          id: localId, name: row.name, whatsapp: row.whatsapp, points: 0,
+          totalSpend: 0, isLocal: true, cachedAt: Date.now(),
+        })
+        const customer: Customer = { id: localId, name: row.name, whatsapp: row.whatsapp, points: 0, isLocal: true }
+        setSelectedCustomer(customer)
+        setCustomerSearch(''); setNewCustomer({ name: '', whatsapp: '' }); setAddCustomerOpen(false)
+        toast.success(`Pelanggan ${row.name} ditambahkan (offline)`)
+        await loadCustomersFromCache()
       }
     } catch {
       toast.error('Gagal menambah pelanggan')
     } finally {
       setAddingCustomer(false)
     }
-  }, [newCustomer, loadCustomersFromCache])
+  }, [newCustomer, isOnline, loadCustomersFromCache])
 
   return {
-    // State
-    customers,
-    customerSearch,
-    selectedCustomer,
-    customerDropdownOpen,
-    addCustomerOpen,
-    newCustomer,
-    addingCustomer,
-
-    // Derived
-    filteredCustomers,
-
-    // Actions
-    setCustomerSearch,
-    setSelectedCustomer,
-    setCustomerDropdownOpen,
-    setAddCustomerOpen,
-    setNewCustomer,
-    handleAddCustomer,
-    loadCustomersFromCache,
+    customers, customerSearch, selectedCustomer, customerDropdownOpen, addCustomerOpen,
+    newCustomer, addingCustomer, filteredCustomers,
+    setCustomerSearch, setSelectedCustomer, setCustomerDropdownOpen, setAddCustomerOpen,
+    setNewCustomer, handleAddCustomer, loadCustomersFromCache,
   }
 }
