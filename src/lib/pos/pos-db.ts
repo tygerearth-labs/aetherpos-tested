@@ -129,7 +129,7 @@ export interface CartRow {
 // Customer Outbox (offline-created customers)
 // ════════════════════════════════════════════════════════════
 
-export type OutboxSyncStatus = 'PENDING' | 'SYNCING' | 'SYNCED' | 'FAILED' | 'CONFLICT'
+export type OutboxSyncStatus = 'PENDING' | 'SYNCING' | 'SYNCED' | 'FAILED' | 'CONFLICT' | 'ABANDONED'
 
 export interface CustomerOutboxRow {
   /** local UUID — used to reference this customer in transactionOutbox */

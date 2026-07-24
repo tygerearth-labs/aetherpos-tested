@@ -95,17 +95,36 @@ export function usePosSync(options?: UsePosSyncOptions): UsePosSyncReturn {
   }, [isOnline, syncing, unsyncedCount])
 
   // ── Run sync (customerOutbox → resolve → transactionOutbox) ──
-  const runSync = useCallback(async (): Promise<{ synced: number; failed: number }> => {
-    if (syncingRef.current) return { synced: 0, failed: 0 }
+  //
+  // UX FIX 2026-07-24: syncOutbox() now retries FAILED rows (up to
+  // MAX_SYNC_RETRY) and resolves DEX-007 duplicates as SYNCED. The result
+  // includes duplicateResolved (stale entries confirmed as already-processed)
+  // and abandoned (rows that exceeded the retry cap and were removed from
+  // the failed queue).
+  const runSync = useCallback(async (): Promise<{ synced: number; failed: number; duplicateResolved: number; abandoned: number }> => {
+    if (syncingRef.current) return { synced: 0, failed: 0, duplicateResolved: 0, abandoned: 0 }
     syncingRef.current = true
     setSyncing(true)
     try {
       const result = await syncOutbox()
       setLastSyncAt(Date.now())
       if (result.synced > 0) {
-        toast.success(`${result.synced} transaksi tersinkron`)
+        if (result.duplicateResolved > 0) {
+          toast.success(
+            `${result.synced} transaksi tersinkron`,
+            { description: `${result.duplicateResolved} transaksi lama dikonfirmasi sudah tersinkron (DEX-007)` },
+          )
+        } else {
+          toast.success(`${result.synced} transaksi tersinkron`)
+        }
         onRefreshProducts?.()
         onRefreshCustomers?.()
+      }
+      if (result.abandoned > 0) {
+        toast.warning(
+          `${result.abandoned} transaksi ditinggalkan`,
+          { description: `Melebihi batas retry — periksa manual di outbox.` },
+        )
       }
       if (result.failed > 0 && result.synced === 0) {
         toast.error(`${result.failed} transaksi gagal sync`, { description: 'Periksa koneksi atau stok.' })
@@ -114,7 +133,7 @@ export function usePosSync(options?: UsePosSyncOptions): UsePosSyncReturn {
       try { broadcastRef.current?.postMessage({ type: 'sync-complete', synced: result.synced }) } catch {}
       return result
     } catch {
-      return { synced: 0, failed: 0 }
+      return { synced: 0, failed: 0, duplicateResolved: 0, abandoned: 0 }
     } finally {
       syncingRef.current = false
       setSyncing(false)
@@ -139,13 +158,14 @@ export function usePosSync(options?: UsePosSyncOptions): UsePosSyncReturn {
   }, [runSync])
 
   // ── PR 3: Window focus trigger ──
+  // UX FIX 2026-07-24: also trigger when there are FAILED rows (below retry
+  // cap) so stale entries can resolve via DEX-007 on focus.
   useEffect(() => {
     const handleFocus = () => {
       if (navigator.onLine && !syncingRef.current) {
-        // Lightweight: only sync if there are pending items
         const db = tryGetPosDB()
         if (db) {
-          db.transactionOutbox.where('status').equals('PENDING').count().then(count => {
+          db.transactionOutbox.where('status').anyOf('PENDING', 'FAILED').count().then(count => {
             if (count > 0) runSync()
           })
         }
@@ -173,12 +193,13 @@ export function usePosSync(options?: UsePosSyncOptions): UsePosSyncReturn {
   }, [runSync, onRefreshProducts, onRefreshCustomers])
 
   // ── PR 3: Lightweight periodic status check (every 60s) ──
+  // UX FIX 2026-07-24: also check FAILED rows so they auto-retry.
   useEffect(() => {
     const iv = setInterval(() => {
       if (navigator.onLine && !syncingRef.current) {
         const db = tryGetPosDB()
         if (db) {
-          db.transactionOutbox.where('status').equals('PENDING').count().then(count => {
+          db.transactionOutbox.where('status').anyOf('PENDING', 'FAILED').count().then(count => {
             if (count > 0) runSync()
           })
         }
@@ -187,12 +208,14 @@ export function usePosSync(options?: UsePosSyncOptions): UsePosSyncReturn {
     return () => clearInterval(iv)
   }, [runSync])
 
-  // ── Initial sync on mount (if online + pending) ──
+  // ── Initial sync on mount (if online + retryable) ──
+  // UX FIX 2026-07-24: also fire when there are FAILED rows so stale entries
+  // from a prior session can resolve via DEX-007 immediately on page load.
   useEffect(() => {
     if (navigator.onLine) {
       const db = tryGetPosDB()
       if (db) {
-        db.transactionOutbox.where('status').equals('PENDING').count().then(count => {
+        db.transactionOutbox.where('status').anyOf('PENDING', 'FAILED').count().then(count => {
           if (count > 0) setTimeout(() => runSync(), 1000)
         })
       }

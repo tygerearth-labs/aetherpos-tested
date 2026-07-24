@@ -74,7 +74,7 @@ interface UsePosCheckoutReturn {
   handleCheckout: () => Promise<void>
   handleReceiptFinish: () => void
   handlePointsChange: (value: string) => void
-  triggerSync: () => Promise<{ synced: number; failed: number }>
+  triggerSync: () => Promise<{ synced: number; failed: number; duplicateResolved: number; abandoned: number }>
 }
 
 export function usePosCheckout(options: UsePosCheckoutOptions): UsePosCheckoutReturn {
@@ -175,7 +175,7 @@ export function usePosCheckout(options: UsePosCheckoutOptions): UsePosCheckoutRe
     }
   }, [cart, calcResult, paymentMethod, paidAmount, isOnline, selectedCustomer, selectedPromo, onRefreshProducts, onRefreshCustomers])
 
-  const triggerSync = useCallback(async (): Promise<{ synced: number; failed: number }> => {
+  const triggerSync = useCallback(async (): Promise<{ synced: number; failed: number; duplicateResolved: number; abandoned: number }> => {
     return syncOutbox()
   }, [])
 
@@ -214,22 +214,58 @@ export function usePosCheckout(options: UsePosCheckoutOptions): UsePosCheckoutRe
 // ==================== PR 3: Outbox sync logic ====================
 
 /**
+ * Max sync attempts before a FAILED row is marked ABANDONED.
+ *
+ * Rationale: a genuinely broken row (e.g. qty=0 validation, deleted product)
+ * will never sync. Capping retries prevents infinite hammering. Rows that hit
+ * this cap are marked ABANDONED — preserved for audit but removed from the
+ * active failed queue (no longer counted in unsyncedCount, no longer retried).
+ *
+ * Stale rows whose transaction was actually committed server-side (but whose
+ * client response was lost) resolve on the FIRST retry via DEX-007 — they
+ * never approach this cap.
+ */
+const MAX_SYNC_RETRY = 10
+
+export interface SyncOutboxResult {
+  synced: number
+  failed: number
+  /** Rows that were previously FAILED but resolved as SYNCED this cycle
+   *  (server confirmed the transaction was already processed — DEX-007). */
+  duplicateResolved: number
+  /** Rows that exceeded MAX_SYNC_RETRY and were marked ABANDONED. */
+  abandoned: number
+}
+
+/**
  * Sync the outbox in the correct order:
  *   1. Sync customerOutbox (create local customers on server)
  *   2. Resolve localCustomerId → serverId in pending transactions
  *   3. Sync transactionOutbox (eventId = localTransactionId for idempotency)
+ *
+ * Retry policy (UX FIX 2026-07-24):
+ *   - PENDING rows: always synced.
+ *   - FAILED rows with retryCount < MAX_SYNC_RETRY: retried. This is the key
+ *     fix — a stale FAILED row whose server commit succeeded (but whose HTTP
+ *     response was lost) will resolve as SYNCED on the next sync, because the
+ *     server's DEX-007 pre-check returns success:true with the original
+ *     invoiceNumber + serverId.
+ *   - FAILED rows with retryCount >= MAX_SYNC_RETRY: marked ABANDONED.
+ *     Removed from the active failed queue; preserved for audit.
  *
  * Safety:
  *   - Never clears Dexie before successful response.
  *   - Failed sync preserves cache + outbox row (status FAILED, retryCount++).
  *   - Duplicate-safe: eventId dedupes server-side (DEX-007).
  */
-export async function syncOutbox(): Promise<{ synced: number; failed: number }> {
+export async function syncOutbox(): Promise<SyncOutboxResult> {
   const db = tryGetPosDB()
-  if (!db) return { synced: 0, failed: 0 }
+  if (!db) return { synced: 0, failed: 0, duplicateResolved: 0, abandoned: 0 }
 
   let synced = 0
   let failed = 0
+  let duplicateResolved = 0
+  let abandoned = 0
 
   // ── 1. Sync customerOutbox ──
   const pendingCustomers = await db.customerOutbox.where('status').equals('PENDING').toArray()
@@ -279,8 +315,33 @@ export async function syncOutbox(): Promise<{ synced: number; failed: number }> 
     }
   }
 
-  // ── 3. Sync transactionOutbox ──
-  const toSync = await db.transactionOutbox.where('status').equals('PENDING').toArray()
+  // ── 3. Sync transactionOutbox (PENDING + retryable FAILED) ──
+  //
+  // UX FIX 2026-07-24: FAILED rows are retried (up to MAX_SYNC_RETRY) so that
+  // DEX-007 duplicate responses can resolve stale entries. The server returns
+  // success:true + invoiceNumber + serverId when an eventId was already
+  // processed — we mark the row SYNCED with that reference, removing it from
+  // the failed queue. Rows exceeding the retry cap are marked ABANDONED.
+  const pendingOrFailed = await db.transactionOutbox
+    .where('status').anyOf('PENDING', 'FAILED').toArray()
+
+  // Abandon permanently-failed rows (retryCount exhausted)
+  const toAbandon = pendingOrFailed.filter(r => r.status === 'FAILED' && r.retryCount >= MAX_SYNC_RETRY)
+  for (const r of toAbandon) {
+    await db.transactionOutbox.update(r.id, {
+      status: 'ABANDONED',
+      error: r.error || `Melebihi batas retry (${MAX_SYNC_RETRY}x) — periksa manual`,
+    })
+    abandoned++
+  }
+
+  // Retryable: PENDING rows + FAILED rows below the cap
+  const toSync = pendingOrFailed.filter(r => r.status === 'PENDING' || r.retryCount < MAX_SYNC_RETRY)
+
+  // Track which rows were previously FAILED so we can count duplicateResolved
+  // (stale entries confirmed as already-processed by the server).
+  const previouslyFailed = new Set(toSync.filter(r => r.status === 'FAILED').map(r => r.id))
+
   if (toSync.length > 0) {
     // Assign unique integer localIds for result matching (sync route returns localId)
     const idMap = new Map<number, string>() // localId → eventId (localTransactionId)
@@ -301,15 +362,22 @@ export async function syncOutbox(): Promise<{ synced: number; failed: number }> 
           const eventId = idMap.get(result.localId)
           if (!eventId) continue
           if (result.success) {
+            // DEX-007 duplicates arrive here too (server returns success:true
+            // + invoiceNumber + serverId). Resolving as SYNCED removes the
+            // row from the failed queue and stores the server reference.
             await db.transactionOutbox.update(eventId, {
-              status: 'SYNCED', serverId: result.serverId || null,
+              status: 'SYNCED',
+              serverId: result.serverId || null,
               invoiceNumber: result.invoiceNumber || null,
+              error: null,
             })
             synced++
+            if (previouslyFailed.has(eventId)) duplicateResolved++
           } else {
             const existing = await db.transactionOutbox.get(eventId)
             await db.transactionOutbox.update(eventId, {
-              status: 'FAILED', error: result.error || 'Sync failed',
+              status: 'FAILED',
+              error: result.error || 'Sync failed',
               retryCount: (existing?.retryCount || 0) + 1,
             })
             failed++
@@ -317,15 +385,23 @@ export async function syncOutbox(): Promise<{ synced: number; failed: number }> 
         }
       } else {
         for (const tx of toSync) {
-          await db.transactionOutbox.update(tx.id, { status: 'FAILED', error: `HTTP ${res.status}` })
+          const existing = await db.transactionOutbox.get(tx.id)
+          await db.transactionOutbox.update(tx.id, {
+            status: 'FAILED',
+            error: `HTTP ${res.status}`,
+            retryCount: (existing?.retryCount || 0) + 1,
+          })
         }
         failed += toSync.length
       }
     } catch (e) {
-      // Network error — leave as PENDING (will retry on next trigger)
+      // Network error — leave rows in their current status (PENDING stays
+      // PENDING, FAILED stays FAILED); they'll be retried on the next trigger.
+      // Do NOT increment retryCount for network errors (transient, not a real
+      // validation failure).
       failed += toSync.length
     }
   }
 
-  return { synced, failed }
+  return { synced, failed, duplicateResolved, abandoned }
 }
