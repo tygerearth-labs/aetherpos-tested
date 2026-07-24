@@ -13,11 +13,13 @@
  *   - usePosCart      → cart + shared calc engine (PR 3 service charge + rounding)
  *   - usePosCheckout  → checkout + transactionOutbox (PR 3 localTransactionId)
  *
- * V2 LAYOUT (POS-LAYOUT-V2) — operational interaction model:
- *   - Fixed 2-row mission-control header (search dominant, utilities tiny)
- *   - Compact horizontal product rows (48px thumb or initials, NOT tall cards)
- *   - Cart panel with 5 structured sections filling vertical space
- *   - Amber for price/CTA only; cyan for sync/status only; flat, sharp, dense
+ * V3 LAYOUT (POS-V3-PREMIUM) — premium compact, dark luxury:
+ *   - Fixed 2-row header: search dominant + tiny sync pill (Tunda/Reprint moved to cart header)
+ *   - Short vertical product mini-cards (5-6 cols, ~108px tall, 36px thumbnail)
+ *   - White prices (hero via weight/contrast, NOT amber)
+ *   - Narrower cart panel (320px) with 5 sections incl. cart header
+ *   - Soft amber for active states; solid amber reserved for Bayar/Proses Pembayaran ONLY
+ *   - Quiet, dense, mature typography; thin borders; no glow/gradient
  *
  * @boundary COCKPIT only — no engine imports
  */
@@ -41,7 +43,7 @@ import {
 } from '@/components/ui/sheet'
 import { ReceiptDialog } from '@/components/pos/receipt-dialog'
 import {
-  Search, Plus, Minus, Trash2, ShoppingCart, Package, Loader2, Check, X,
+  Search, Plus, Minus, Trash2, ShoppingCart, ShoppingBag, Package, Loader2, Check, X,
   User, UserPlus, Coins, Wifi, WifiOff, RefreshCw, CloudOff, Tag, AlertTriangle,
   ChevronLeft, ChevronRight, Pencil, Pause, Clock, Printer,
   LayoutGrid, Layers, Banknote, QrCode, CreditCard, ArrowLeftRight,
@@ -135,57 +137,30 @@ export default function PosPage() {
   return (
     <div className="flex flex-col h-full bg-deep-space">
       {/* ═══════════════════════════════════════════════════════════
-          HEADER — Mission Control (fixed 2-row, no scroll)
-          Row 1: search (dominant) + tiny utility cluster
-          Row 2: segmented category chips
+          HEADER — V3 minimal (fixed 2-row, no scroll)
+          Row 1: search (dominant) + tiny sync pill (the only utility here)
+          Row 2: segmented category chips (soft amber active)
           ═══════════════════════════════════════════════════════════ */}
-      <div className="shrink-0 bg-nebula/80 backdrop-blur-xl border-b border-white/[0.04]">
-        {/* Row 1 — main bar */}
-        <div className="flex items-center gap-2 h-14 px-3">
-          {/* Search — dominant */}
+      <div className="shrink-0 bg-nebula/80 backdrop-blur-xl border-b border-white/[0.05]">
+        {/* Row 1 — search + sync (Tunda/Reprint moved to cart header) */}
+        <div className="flex items-center gap-2 h-12 px-3">
+          {/* Search — thinner h-9, dominant */}
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500 pointer-events-none" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500 pointer-events-none" />
             <Input
-              placeholder="Cari produk, SKU, atau barcode…"
+              placeholder="Cari produk atau SKU…"
               value={products.productSearch}
               onChange={(e) => products.handleSearchChange(e.target.value)}
               onKeyDown={products.handleSearchKeyDown}
-              className="pl-10 h-10 bg-white/[0.03] border-white/[0.06] text-white placeholder:text-slate-500 rounded-lg focus-visible:border-cyan-500/40"
+              className="pl-9 h-9 bg-white/[0.03] border-white/[0.06] text-sm text-slate-100 placeholder:text-slate-500 rounded-lg focus-visible:border-cyan-400/30"
             />
           </div>
 
-          {/* Utility cluster — small, secondary */}
-          <div className="flex items-center gap-1 shrink-0">
-            <SyncButton sync={sync} />
-
-            {/* Tunda — icon-only */}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="relative h-8 w-8 rounded-md hover:bg-white/[0.06] text-slate-400 hover:text-slate-200"
-              onClick={() => checkout.setPendingListOpen(true)}
-              title="Transaksi tertunda"
-            >
-              <Clock className="h-4 w-4" />
-              {checkout.pendingCount > 0 && (
-                <Badge variant="secondary" className="absolute -top-1 -right-1 h-4 min-w-4 px-1 text-[9px] justify-center bg-amber-500 text-white border border-nebula">{checkout.pendingCount}</Badge>
-              )}
-            </Button>
-
-            {/* Cetak Ulang — icon-only */}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 rounded-md hover:bg-white/[0.06] text-slate-400 hover:text-slate-200"
-              onClick={checkout.handleReprint}
-              title="Cetak ulang struk"
-            >
-              <Printer className="h-4 w-4" />
-            </Button>
-          </div>
+          {/* Sync pill — just dot + tiny label, right-aligned */}
+          <SyncButton sync={sync} />
         </div>
 
-        {/* Row 2 — segmented category chips */}
+        {/* Row 2 — segmented category chips (h-7, rounded-md, soft amber active) */}
         <CategoryFilter
           categories={products.categories}
           selected={products.selectedCategoryId}
@@ -213,7 +188,7 @@ export default function PosPage() {
       )}
 
       {/* ═══════════════════════════════════════════════════════════
-          MAIN CONTENT — products (left) + cart (right, desktop)
+          MAIN CONTENT — products (left, 5-6 cols) + cart (right, 320px)
           ═══════════════════════════════════════════════════════════ */}
       <div className="flex flex-1 overflow-hidden">
         {/* ── Left: products ── */}
@@ -226,13 +201,13 @@ export default function PosPage() {
               </div>
             ) : products.products.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-64 gap-3 text-slate-500">
-                <div className="h-12 w-12 rounded-lg bg-white/[0.03] flex items-center justify-center">
-                  <Package className="h-6 w-6 text-slate-600" />
+                <div className="h-10 w-10 rounded-md bg-white/[0.03] flex items-center justify-center">
+                  <Package className="h-5 w-5 text-slate-600" />
                 </div>
                 <p className="text-sm">Tidak ada produk ditemukan</p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2 p-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 p-3">
                 {products.products.map((product) => (
                   <ProductCard key={product.id} product={product} onClick={() => handleProductClick(product)} />
                 ))}
@@ -242,7 +217,7 @@ export default function PosPage() {
 
           {/* Pagination */}
           {products.totalProductPages > 1 && (
-            <div className="flex items-center justify-center gap-2 p-2 border-t border-white/[0.04] bg-nebula/40 shrink-0">
+            <div className="flex items-center justify-center gap-2 p-2 border-t border-white/[0.05] bg-nebula/40 shrink-0">
               <Button variant="outline" size="icon" className="h-8 w-8 bg-white/[0.04] hover:bg-white/[0.08] border-white/[0.06] text-slate-300" onClick={() => products.setProductPage(Math.max(1, products.productPage - 1))} disabled={products.productPage === 1}>
                 <ChevronLeft className="h-4 w-4" />
               </Button>
@@ -254,9 +229,9 @@ export default function PosPage() {
           )}
         </div>
 
-        {/* ── Right: cart (desktop) / hidden on mobile ── */}
+        {/* ── Right: cart (desktop, 320px) / hidden on mobile ── */}
         {!isMobile && (
-          <div className="w-[360px] border-l border-white/[0.06] flex flex-col bg-nebula shrink-0">
+          <div className="w-[320px] border-l border-white/[0.05] flex flex-col bg-nebula shrink-0">
             <CartPanel
               cart={cart}
               customers={customers}
@@ -272,11 +247,11 @@ export default function PosPage() {
         )}
       </div>
 
-      {/* ── Mobile cart bar (in-flow, full-width amber) ── */}
+      {/* ── Mobile cart bar (in-flow, full-width solid amber) ── */}
       {isMobile && cart.cart.length > 0 && (
         <div className="p-3 border-t border-white/[0.06] bg-nebula/80 backdrop-blur-xl mobile-safe-bottom shrink-0">
           <Button
-            className="w-full bg-amber-500 hover:bg-amber-400 text-white rounded-lg h-12 font-semibold transition-colors flex items-center px-4"
+            className="w-full bg-amber-500 hover:bg-amber-400 text-white rounded-lg h-11 font-semibold transition-colors flex items-center px-4 shadow-[0_1px_2px_rgba(0,0,0,0.25)] hover:shadow-[0_2px_8px_rgba(245,158,11,0.25)]"
             onClick={() => checkout.setMobileCartOpen(true)}
           >
             <span className="flex-1 text-left text-sm">Bayar · {cart.cart.length} item</span>
@@ -307,7 +282,7 @@ export default function PosPage() {
       )}
 
       {/* ═══════════════════════════════════════════════════════════
-          VARIANT PICKER — compact operational rows
+          VARIANT PICKER — compact operational rows, white prices
           ═══════════════════════════════════════════════════════════ */}
       <ResponsiveDialog open={products.variantPicker.open} onOpenChange={(o) => !o && products.setVariantPicker({ product: null as unknown as Product, open: false, variants: [], loading: false })}>
         <ResponsiveDialogContent>
@@ -332,9 +307,9 @@ export default function PosPage() {
                     disabled={out}
                     onClick={() => products.handleVariantSelect(v)}
                     className={cn(
-                      'flex items-center justify-between w-full text-left p-3 rounded-lg border transition-colors',
-                      'border-white/[0.04] bg-white/[0.02] hover:bg-white/[0.05] hover:border-white/[0.08]',
-                      out && 'opacity-50 cursor-not-allowed hover:bg-white/[0.02] hover:border-white/[0.04]'
+                      'flex items-center justify-between w-full text-left p-2.5 rounded-lg border transition-colors',
+                      'border-white/[0.05] bg-white/[0.02] hover:bg-white/[0.04] hover:border-white/[0.08]',
+                      out && 'opacity-50 cursor-not-allowed hover:bg-white/[0.02] hover:border-white/[0.05]'
                     )}
                   >
                     <div className="flex flex-col min-w-0 gap-1">
@@ -347,7 +322,7 @@ export default function PosPage() {
                         </span>
                       </div>
                     </div>
-                    <span className="text-sm font-semibold text-amber-400 tabular-nums shrink-0 ml-3">{formatCurrency(v.price)}</span>
+                    <span className="text-sm font-semibold text-white tabular-nums shrink-0 ml-3">{formatCurrency(v.price)}</span>
                   </button>
                 )
               })}
@@ -401,7 +376,7 @@ export default function PosPage() {
         <ResponsiveDialogContent>
           <ResponsiveDialogHeader>
             <ResponsiveDialogTitle className="flex items-center gap-2">
-              <Pause className="h-4 w-4 text-cyan-400" />
+              <Pause className="h-4 w-4 text-slate-400" />
               Tunda Transaksi
             </ResponsiveDialogTitle>
             <ResponsiveDialogDescription>Tambahkan catatan untuk transaksi yang ditunda (opsional).</ResponsiveDialogDescription>
@@ -412,9 +387,9 @@ export default function PosPage() {
               value={checkout.holdNote}
               onChange={(e) => checkout.setHoldNote(e.target.value)}
               rows={3}
-              className="bg-white/[0.03] border-white/[0.06] text-white placeholder:text-slate-500 rounded-lg resize-none h-20"
+              className="bg-white/[0.03] border-white/[0.06] text-slate-100 placeholder:text-slate-500 rounded-lg resize-none h-20"
             />
-            <div className="flex items-center gap-2 p-3 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+            <div className="flex items-center gap-2 p-2.5 rounded-lg bg-white/[0.02] border border-white/[0.05]">
               <ShoppingCart className="h-3.5 w-3.5 text-slate-500 shrink-0" />
               <p className="text-xs text-slate-400">
                 {cart.cart.length} item — <span className="text-slate-200 font-medium">{formatCurrency(cart.total)}</span> akan disimpan dan dapat dilanjutkan nanti.
@@ -423,7 +398,7 @@ export default function PosPage() {
           </div>
           <ResponsiveDialogFooter>
             <Button variant="outline" className="bg-white/[0.04] hover:bg-white/[0.08] border-white/[0.06] text-slate-300 rounded-lg h-10" onClick={() => checkout.setHoldNoteOpen(false)}>Batal</Button>
-            <Button className="bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.06] text-slate-200 rounded-lg h-10" onClick={checkout.confirmHoldTransaction}>
+            <Button className="bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.06] text-slate-100 rounded-lg h-10" onClick={checkout.confirmHoldTransaction}>
               <Pause className="h-3.5 w-3.5 mr-2" />
               Tunda
             </Button>
@@ -436,7 +411,7 @@ export default function PosPage() {
         <SheetContent side="right" className="w-full sm:max-w-md bg-nebula border-white/[0.06] flex flex-col gap-0 p-0">
           <SheetHeader className="px-4 py-4 border-b border-white/[0.06]">
             <SheetTitle className="text-white flex items-center gap-2">
-              <Clock className="h-4 w-4 text-cyan-400" />
+              <Clock className="h-4 w-4 text-slate-400" />
               Transaksi Tertunda
               {checkout.pendingList.length > 0 && (
                 <Badge variant="secondary" className="bg-white/[0.06] text-slate-300 text-xs rounded-md ml-1">{checkout.pendingList.length}</Badge>
@@ -501,17 +476,17 @@ export default function PosPage() {
   }
 }
 
-// ==================== SYNC BUTTON (tiny status pill) ====================
+// ==================== SYNC BUTTON (tiny status pill — dot + label only) ====================
 
 function SyncButton({ sync }: { sync: ReturnType<typeof usePosSync> }) {
-  // V2 color discipline: cyan=synced, blue=syncing, red=offline, orange=failed/conflict
-  // (amber reserved for price/CTA only)
+  // V3 color discipline: cyan=synced, blue-pulse=syncing, red=offline, amber=pending/failed/conflict
+  // (solid amber reserved for Bayar/Proses Pembayaran only — these are tiny dots, not fills)
   const config = {
-    synced:   { dot: 'bg-cyan-400',           label: 'Synced',  spin: false },
-    syncing:  { dot: 'bg-blue-400 animate-pulse', label: 'Sync…',  spin: true },
-    offline:  { dot: 'bg-red-400',            label: 'Offline', spin: false },
-    failed:   { dot: 'bg-orange-400',         label: `${sync.unsyncedCount} pending`, spin: false },
-    conflict: { dot: 'bg-orange-400',         label: 'Conflict', spin: false },
+    synced:   { dot: 'bg-cyan-400',                label: 'Synced',  },
+    syncing:  { dot: 'bg-blue-400 animate-pulse',  label: 'Sync…',   },
+    offline:  { dot: 'bg-red-400',                 label: 'Offline', },
+    failed:   { dot: 'bg-amber-400',               label: `${sync.unsyncedCount} pending`, },
+    conflict: { dot: 'bg-amber-400',               label: 'Conflict', },
   }[sync.syncStatus]
 
   return (
@@ -524,13 +499,12 @@ function SyncButton({ sync }: { sync: ReturnType<typeof usePosSync> }) {
       title="Sinkronkan"
     >
       <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', config.dot)} />
-      <RefreshCw className={cn('h-3 w-3', config.spin && 'animate-spin')} />
       <span className="text-[10px] font-medium hidden sm:inline">{config.label}</span>
     </Button>
   )
 }
 
-// ==================== CATEGORY FILTER (segmented chips) ====================
+// ==================== CATEGORY FILTER (h-7 chips, soft amber active) ====================
 
 function CategoryFilter({ categories, selected, onSelect }: {
   categories: Array<{ id: string; name: string; color: string }>
@@ -538,18 +512,18 @@ function CategoryFilter({ categories, selected, onSelect }: {
   onSelect: (id: string | null) => void
 }) {
   return (
-    <div className="flex items-center gap-1.5 h-11 px-3 overflow-x-auto border-t border-white/[0.04] bg-nebula/40 scrollbar-hide">
+    <div className="flex items-center gap-1.5 h-10 px-3 overflow-x-auto border-t border-white/[0.05] bg-nebula/40 scrollbar-hide">
       <button
         type="button"
         onClick={() => onSelect(null)}
         className={cn(
-          'inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-medium shrink-0 transition-colors',
+          'inline-flex items-center gap-1.5 h-7 px-3 rounded-md text-xs font-medium shrink-0 transition-colors',
           selected === null
-            ? 'bg-white/[0.08] text-white'
-            : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'
+            ? 'bg-amber-500/10 text-amber-300'
+            : 'text-slate-500 hover:text-slate-200 hover:bg-white/[0.04]'
         )}
       >
-        <LayoutGrid className="h-3.5 w-3.5" />
+        <LayoutGrid className="h-3 w-3" />
         Semua
       </button>
       {categories.map((c) => {
@@ -560,10 +534,10 @@ function CategoryFilter({ categories, selected, onSelect }: {
             type="button"
             onClick={() => onSelect(c.id)}
             className={cn(
-              'inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-medium shrink-0 transition-colors',
+              'inline-flex items-center gap-1.5 h-7 px-3 rounded-md text-xs font-medium shrink-0 transition-colors',
               isActive
-                ? 'bg-white/[0.08] text-white'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'
+                ? 'bg-amber-500/10 text-amber-300'
+                : 'text-slate-500 hover:text-slate-200 hover:bg-white/[0.04]'
             )}
           >
             <span
@@ -578,7 +552,7 @@ function CategoryFilter({ categories, selected, onSelect }: {
   )
 }
 
-// ==================== PRODUCT CARD (compact horizontal row) ====================
+// ==================== PRODUCT CARD (short vertical mini-card, ~108px) ====================
 
 function ProductCard({ product, onClick }: { product: Product; onClick: () => void }) {
   const outOfStock = !product.hasVariants && product.stock <= 0
@@ -594,62 +568,52 @@ function ProductCard({ product, onClick }: { product: Product; onClick: () => vo
       onClick={onClick}
       disabled={outOfStock}
       className={cn(
-        'flex items-center gap-3 p-2 rounded-lg border text-left transition-colors w-full',
-        'border-white/[0.04] bg-white/[0.02] hover:bg-white/[0.05] hover:border-white/[0.08]',
-        outOfStock && 'opacity-50 cursor-not-allowed hover:bg-white/[0.02] hover:border-white/[0.04]'
+        'flex flex-col gap-1 p-2 rounded-lg border text-left transition-colors w-full h-[108px]',
+        'border-white/[0.05] bg-white/[0.02] hover:bg-white/[0.04] hover:border-white/[0.08]',
+        outOfStock && 'opacity-50 cursor-not-allowed hover:bg-white/[0.02] hover:border-white/[0.05]'
       )}
     >
-      {/* Thumbnail — 48px (h-12 w-12). Image or initials, no big empty box. */}
-      <div className="h-12 w-12 rounded-md shrink-0 overflow-hidden bg-white/[0.04] flex items-center justify-center">
+      {/* Thumbnail — 36px mini. Image or initials tile, no big empty box. */}
+      <div className="h-9 w-9 rounded-md shrink-0 overflow-hidden bg-white/[0.05] flex items-center justify-center">
         {product.image ? (
           <img src={product.image} alt={product.name} className="h-full w-full object-cover" />
         ) : (
-          <span className="text-xs font-semibold text-slate-300 select-none">{initials || '?'}</span>
+          <span className="text-[10px] font-semibold text-slate-400 select-none uppercase">{initials || '?'}</span>
         )}
       </div>
 
-      {/* Text column — name + stock */}
-      <div className="flex-1 min-w-0 flex flex-col gap-0.5">
-        {product.sku && (
-          <span className="text-[10px] text-slate-500 font-mono truncate leading-tight">{product.sku}</span>
-        )}
-        <p className="text-xs font-medium text-slate-100 truncate leading-tight">{product.name}</p>
+      {/* Name — 1-2 lines, small medium */}
+      <p className="text-[11px] font-medium text-slate-200 line-clamp-2 leading-tight min-h-[28px]">
+        {product.name}
+      </p>
+
+      {/* Bottom row — price (hero, WHITE bold) kiri + stock (tiny dot) kanan */}
+      <div className="flex items-end justify-between gap-1 mt-auto">
         {product.hasVariants ? (
-          <span className="text-[10px] text-cyan-400 inline-flex items-center gap-1 leading-tight">
-            <Layers className="h-2.5 w-2.5" />
+          <span className="text-[10px] text-cyan-400 inline-flex items-center gap-0.5">
+            <Layers className="h-3 w-3" />
             {product._variantCount} varian
           </span>
         ) : (
-          <span className="inline-flex items-center gap-1 text-[10px] leading-tight">
-            <span className={cn(
-              'h-1.5 w-1.5 rounded-full',
-              outOfStock ? 'bg-red-400' : lowStock ? 'bg-orange-400' : 'bg-emerald-400'
-            )} />
-            <span className={outOfStock ? 'text-red-400' : 'text-slate-500'}>
-              {outOfStock ? 'Habis' : `Stok ${product.stock}`}
+          <>
+            <span className="text-sm font-bold text-white tabular-nums leading-tight">
+              {formatCurrency(product.price)}
             </span>
-          </span>
-        )}
-      </div>
-
-      {/* Price column — amber, flat, tabular */}
-      <div className="shrink-0 text-right">
-        {product.hasVariants ? (
-          <span className="text-[10px] text-cyan-400 inline-flex items-center gap-1">
-            <Layers className="h-3 w-3" />
-            Pilih Varian
-          </span>
-        ) : (
-          <p className="text-sm font-semibold text-amber-400 tabular-nums leading-tight">
-            {formatCurrency(product.price)}
-          </p>
+            <span className="inline-flex items-center gap-1 text-[10px] text-slate-500 shrink-0 tabular-nums">
+              <span className={cn(
+                'h-1 w-1 rounded-full',
+                outOfStock ? 'bg-red-400/70' : lowStock ? 'bg-orange-400/70' : 'bg-emerald-400/60'
+              )} />
+              {outOfStock ? 'Habis' : product.stock}
+            </span>
+          </>
         )}
       </div>
     </button>
   )
 }
 
-// ==================== CART PANEL (5 structured sections) ====================
+// ==================== CART PANEL (320px, 5 sections incl. cart header) ====================
 
 function CartPanel({ cart, customers, settings, selectedPromo, onSelectPromo, pointsToUse, onPointsChange, checkout, onCheckout, isMobile }: {
   cart: ReturnType<typeof usePosCart>
@@ -665,15 +629,51 @@ function CartPanel({ cart, customers, settings, selectedPromo, onSelectPromo, po
 }) {
   return (
     <div className="flex flex-col h-full bg-nebula">
-      {/* ── Section 1: Customer (compact, p-3, border-b) ── */}
+      {/* ── Section 1: Cart header (p-2.5, border-b) — Tunda + Reprint moved here ── */}
+      <div className="flex items-center justify-between gap-2 p-2.5 border-b border-white/[0.05] shrink-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <ShoppingBag className="h-4 w-4 text-slate-400 shrink-0" />
+          <span className="text-sm font-semibold text-slate-100">Keranjang</span>
+          {cart.cart.length > 0 && (
+            <span className="bg-white/[0.08] text-slate-300 text-[10px] px-1.5 py-0.5 rounded-md tabular-nums">{cart.cart.length}</span>
+          )}
+        </div>
+        <div className="flex items-center gap-0.5 shrink-0">
+          {/* Pending list (Clock) — opens pending transactions drawer (preserved from V2 top header) */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="relative h-7 w-7 rounded-md hover:bg-white/[0.06] text-slate-500 hover:text-slate-200"
+            onClick={() => checkout.setPendingListOpen(true)}
+            title="Transaksi tertunda"
+          >
+            <Clock className="h-3.5 w-3.5" />
+            {checkout.pendingCount > 0 && (
+              <Badge variant="secondary" className="absolute -top-1 -right-1 h-4 min-w-4 px-1 text-[9px] justify-center bg-amber-500 text-white border border-nebula">{checkout.pendingCount}</Badge>
+            )}
+          </Button>
+          {/* Reprint (Printer) — cetak ulang struk (preserved from V2 top header) */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 rounded-md hover:bg-white/[0.06] text-slate-500 hover:text-slate-200"
+            onClick={checkout.handleReprint}
+            title="Cetak ulang struk"
+          >
+            <Printer className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </div>
+
+      {/* ── Section 2: Customer (compact, p-2.5, border-b) ── */}
       <CustomerSelector customers={customers} />
 
-      {/* ── Section 2: Items (flex-1, scroll) ── */}
+      {/* ── Section 3: Items (flex-1, scroll) ── */}
       <ScrollArea className="flex-1 min-h-0">
-        <div className="px-3">
+        <div className="px-2.5">
           {cart.cart.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 gap-2 text-slate-600">
-              <ShoppingCart className="h-8 w-8 text-slate-600" />
+              <ShoppingCart className="h-7 w-7 text-slate-600" />
               <p className="text-xs text-slate-500">Keranjang kosong</p>
             </div>
           ) : (
@@ -684,8 +684,8 @@ function CartPanel({ cart, customers, settings, selectedPromo, onSelectPromo, po
         </div>
       </ScrollArea>
 
-      {/* ── Section 3: Discount / Promo (p-3, border-t, compact) ── */}
-      <div className="border-t border-white/[0.06] p-3 space-y-2 shrink-0">
+      {/* ── Section 4: Discount / Promo (p-2.5, border-t, compact) ── */}
+      <div className="border-t border-white/[0.05] p-2.5 space-y-2 shrink-0">
         <PromoSelector
           promos={settings.availablePromos}
           selected={selectedPromo}
@@ -695,34 +695,35 @@ function CartPanel({ cart, customers, settings, selectedPromo, onSelectPromo, po
 
         {customers.selectedCustomer && settings.settings.loyaltyEnabled && (
           <div className="flex items-center gap-2">
-            <Coins className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+            <Coins className="h-3.5 w-3.5 text-slate-400 shrink-0" />
             <Label className="text-xs text-slate-400 shrink-0">Points ({customers.selectedCustomer.points})</Label>
             <Input type="number" value={pointsToUse} onChange={(e) => onPointsChange(e.target.value)} className="h-7 flex-1 text-xs bg-white/[0.03] border-white/[0.06] text-white rounded-md min-w-0" max={cart.maxPointsToUse} />
-            <span className="text-xs text-emerald-400 shrink-0 tabular-nums">-{formatCurrency(cart.pointsDiscount)}</span>
+            <span className="text-xs text-slate-300 shrink-0 tabular-nums">-{formatCurrency(cart.pointsDiscount)}</span>
           </div>
         )}
       </div>
 
-      {/* ── Section 4: Summary (p-3, border-t, dense) ── */}
-      <div className="border-t border-white/[0.06] p-3 space-y-1 text-xs shrink-0">
+      {/* ── Section 5: Summary + Action (p-2.5, border-t) ── */}
+      <div className="border-t border-white/[0.05] p-2.5 space-y-1 text-xs shrink-0">
+        {/* Summary — dense rows, minimal */}
         <div className="flex justify-between">
           <span className="text-slate-400">Subtotal</span>
           <span className="text-slate-200 tabular-nums">{formatCurrency(cart.subtotal)}</span>
         </div>
         {cart.manualDiscountTotal > 0 && (
-          <div className="flex justify-between text-emerald-400">
+          <div className="flex justify-between text-slate-300">
             <span>Diskon Manual</span>
             <span className="tabular-nums">-{formatCurrency(cart.manualDiscountTotal)}</span>
           </div>
         )}
         {cart.pointsDiscount > 0 && (
-          <div className="flex justify-between text-emerald-400">
+          <div className="flex justify-between text-slate-300">
             <span>Points</span>
             <span className="tabular-nums">-{formatCurrency(cart.pointsDiscount)}</span>
           </div>
         )}
         {selectedPromo && cart.promoDiscount > 0 && (
-          <div className="flex justify-between text-emerald-400">
+          <div className="flex justify-between text-slate-300">
             <span>Promo ({selectedPromo.name})</span>
             <span className="tabular-nums">-{formatCurrency(cart.promoDiscount)}</span>
           </div>
@@ -733,49 +734,46 @@ function CartPanel({ cart, customers, settings, selectedPromo, onSelectPromo, po
             <span className="text-slate-200 tabular-nums">{formatCurrency(cart.ppnAmount)}</span>
           </div>
         )}
-        <Separator className="bg-white/[0.06] my-2" />
+        <Separator className="bg-white/[0.05] my-2" />
         <div className="flex justify-between items-baseline">
-          <span className="text-sm font-bold text-white">Total</span>
-          <span className="text-base font-bold text-amber-400 tabular-nums">{formatCurrency(cart.total)}</span>
+          <span className="text-sm font-bold text-slate-100">Total</span>
+          <span className="text-base font-bold text-white tabular-nums">{formatCurrency(cart.total)}</span>
         </div>
-      </div>
 
-      {/* ── Section 5: Action row (p-3, border-t, Tunda + Bayar) ── */}
-      <div className="border-t border-white/[0.06] p-3 flex gap-2 shrink-0">
-        {/* Tunda — secondary, ~1/3 width */}
-        <Button
-          variant="outline"
-          className="flex-1 h-11 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] text-slate-300 text-sm font-medium shrink-0"
-          disabled={cart.cart.length === 0}
-          onClick={checkout.handleHoldTransaction}
-        >
-          <Pause className="h-4 w-4 mr-1.5" />
-          Tunda
-        </Button>
-
-        {/* Bayar — dominant CTA, ~2/3 width, solid amber */}
-        <Button
-          className="flex-[2] h-11 rounded-lg bg-amber-500 hover:bg-amber-400 text-white font-semibold text-sm shrink-0 disabled:opacity-50 transition-colors"
-          disabled={cart.cart.length === 0 || cart.hasBelowHpp}
-          onClick={onCheckout}
-        >
-          {cart.hasBelowHpp ? (
-            <>
-              <AlertTriangle className="h-4 w-4 mr-2" />
-              Harga di bawah HPP
-            </>
-          ) : (
-            <>
-              Bayar · <span className="tabular-nums ml-1">{formatCurrency(cart.total)}</span>
-            </>
-          )}
-        </Button>
+        {/* Action row — Tunda (secondary) + Bayar (dominant solid amber) */}
+        <div className="flex gap-2 mt-2">
+          <Button
+            variant="outline"
+            className="flex-1 h-10 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] text-slate-300 text-xs font-medium shrink-0"
+            disabled={cart.cart.length === 0}
+            onClick={checkout.handleHoldTransaction}
+          >
+            <Pause className="h-3.5 w-3.5 mr-1.5" />
+            Tunda
+          </Button>
+          <Button
+            className="flex-[2] h-10 rounded-lg bg-amber-500 hover:bg-amber-400 text-white font-semibold text-sm shrink-0 disabled:opacity-50 transition-colors shadow-[0_1px_2px_rgba(0,0,0,0.25)] hover:shadow-[0_2px_8px_rgba(245,158,11,0.25)]"
+            disabled={cart.cart.length === 0 || cart.hasBelowHpp}
+            onClick={onCheckout}
+          >
+            {cart.hasBelowHpp ? (
+              <>
+                <AlertTriangle className="h-4 w-4 mr-2" />
+                Harga di bawah HPP
+              </>
+            ) : (
+              <>
+                Bayar · <span className="tabular-nums ml-1">{formatCurrency(cart.total)}</span>
+              </>
+            )}
+          </Button>
+        </div>
       </div>
     </div>
   )
 }
 
-// ==================== CART ITEM ROW (compact operational) ====================
+// ==================== CART ITEM ROW (tight py-1.5, h-5 stepper, white line total) ====================
 
 function CartItemRow({ item, cart }: { item: CartItem; cart: ReturnType<typeof usePosCart> }) {
   const key = cart.getCartKey(item.product.id, item.variant?.id || null)
@@ -786,7 +784,7 @@ function CartItemRow({ item, cart }: { item: CartItem; cart: ReturnType<typeof u
   const stock = cart.getItemStock(item)
 
   return (
-    <div className="flex items-start gap-2 py-2 border-b border-white/[0.04] last:border-b-0">
+    <div className="flex items-center gap-2 py-1.5 border-b border-white/[0.04] last:border-b-0">
       {/* Left: name + sub-line (variant · price/pc) */}
       <div className="flex-1 min-w-0">
         <p className="text-xs font-medium text-slate-100 truncate leading-tight">{cart.getItemDisplayName(item)}</p>
@@ -819,7 +817,7 @@ function CartItemRow({ item, cart }: { item: CartItem; cart: ReturnType<typeof u
         </div>
       </div>
 
-      {/* Middle: qty stepper [−] N [+] */}
+      {/* Middle: qty stepper [− h-5] N [+ h-5] */}
       <div className="shrink-0 flex items-center">
         {isEditingQty ? (
           <Input
@@ -829,7 +827,7 @@ function CartItemRow({ item, cart }: { item: CartItem; cart: ReturnType<typeof u
             onChange={(e) => cart.setEditingQtyValue(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') cart.confirmEditQty(); if (e.key === 'Escape') cart.cancelEditQty() }}
             onBlur={cart.confirmEditQty}
-            className="h-6 w-12 text-xs bg-white/[0.04] border-white/[0.06] text-white rounded-md text-center"
+            className="h-5 w-12 text-xs bg-white/[0.04] border-white/[0.06] text-white rounded-md text-center"
           />
         ) : (
           <div className="flex items-center gap-1">
@@ -837,14 +835,14 @@ function CartItemRow({ item, cart }: { item: CartItem; cart: ReturnType<typeof u
               type="button"
               onClick={() => cart.updateQty(item.product.id, Math.max(1, item.qty - 1), item.variant?.id || undefined)}
               disabled={item.qty <= 1}
-              className="h-6 w-6 rounded-md bg-white/[0.06] hover:bg-white/[0.1] text-slate-300 flex items-center justify-center transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              className="h-5 w-5 rounded bg-white/[0.06] hover:bg-white/[0.1] text-slate-300 flex items-center justify-center transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               title="Kurangi"
             >
-              <Minus className="h-3 w-3" />
+              <Minus className="h-2.5 w-2.5" />
             </button>
             <button
               onClick={() => cart.startEditQty(item.product.id, item.qty)}
-              className="text-xs font-medium text-white w-5 text-center tabular-nums hover:text-cyan-400 transition-colors"
+              className="text-xs font-medium text-white w-4 text-center tabular-nums hover:text-cyan-400 transition-colors"
               title="Edit qty"
             >
               {item.qty}
@@ -853,18 +851,18 @@ function CartItemRow({ item, cart }: { item: CartItem; cart: ReturnType<typeof u
               type="button"
               onClick={() => cart.updateQty(item.product.id, Math.min(stock, item.qty + 1), item.variant?.id || undefined)}
               disabled={item.qty >= stock}
-              className="h-6 w-6 rounded-md bg-white/[0.06] hover:bg-white/[0.1] text-slate-300 flex items-center justify-center transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              className="h-5 w-5 rounded bg-white/[0.06] hover:bg-white/[0.1] text-slate-300 flex items-center justify-center transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               title="Tambah"
             >
-              <Plus className="h-3 w-3" />
+              <Plus className="h-2.5 w-2.5" />
             </button>
           </div>
         )}
       </div>
 
-      {/* Right: line total (amber) + delete */}
+      {/* Right: line total (WHITE) + delete */}
       <div className="shrink-0 flex flex-col items-end gap-1">
-        <span className="text-xs font-semibold text-amber-400 tabular-nums leading-tight">{formatCurrency(effPrice * item.qty)}</span>
+        <span className="text-xs font-semibold text-white tabular-nums leading-tight">{formatCurrency(effPrice * item.qty)}</span>
         <button
           onClick={() => cart.removeFromCart(item.product.id, item.variant?.id || undefined)}
           className="text-slate-500 hover:text-red-400 transition-colors p-0.5"
@@ -877,21 +875,21 @@ function CartItemRow({ item, cart }: { item: CartItem; cart: ReturnType<typeof u
   )
 }
 
-// ==================== CUSTOMER SELECTOR (compact) ====================
+// ==================== CUSTOMER SELECTOR (compact, p-2.5, avatar h-7) ====================
 
 function CustomerSelector({ customers }: { customers: ReturnType<typeof usePosCustomers> }) {
   return (
-    <div className="p-3 border-b border-white/[0.06] shrink-0">
+    <div className="p-2.5 border-b border-white/[0.05] shrink-0">
       {customers.selectedCustomer ? (
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
-            <div className="h-8 w-8 rounded-md bg-white/[0.06] flex items-center justify-center shrink-0">
-              <User className="h-4 w-4 text-slate-300" />
+            <div className="h-7 w-7 rounded-md bg-white/[0.06] flex items-center justify-center shrink-0">
+              <User className="h-3.5 w-3.5 text-slate-300" />
             </div>
             <div className="min-w-0">
               <p className="text-xs font-medium text-white truncate leading-tight">{customers.selectedCustomer.name}</p>
               <p className="text-[10px] text-slate-400 flex items-center gap-1 leading-tight">
-                <Coins className="h-2.5 w-2.5 text-amber-400" />
+                <Coins className="h-2.5 w-2.5 text-slate-400" />
                 {customers.selectedCustomer.points} points
                 {customers.selectedCustomer.isLocal && <Badge variant="outline" className="ml-1 text-[9px] py-0 px-1 h-3.5 bg-white/[0.04] border-white/[0.06] text-slate-300">Offline</Badge>}
               </p>
@@ -945,7 +943,7 @@ function CustomerSelector({ customers }: { customers: ReturnType<typeof usePosCu
           </div>
           <ResponsiveDialogFooter>
             <Button variant="outline" className="bg-white/[0.04] hover:bg-white/[0.08] border-white/[0.06] text-slate-300 rounded-lg h-10" onClick={() => customers.setAddCustomerOpen(false)}>Batal</Button>
-            <Button className="bg-amber-500 hover:bg-amber-400 text-white rounded-lg h-10" onClick={customers.handleAddCustomer} disabled={customers.addingCustomer}>
+            <Button className="bg-white/[0.08] hover:bg-white/[0.12] border border-white/[0.06] text-white rounded-lg h-10 font-medium" onClick={customers.handleAddCustomer} disabled={customers.addingCustomer}>
               {customers.addingCustomer && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               Simpan
             </Button>
@@ -956,7 +954,7 @@ function CustomerSelector({ customers }: { customers: ReturnType<typeof usePosCu
   )
 }
 
-// ==================== PROMO SELECTOR (minimal) ====================
+// ==================== PROMO SELECTOR (minimal, neutral Tag icon) ====================
 
 function PromoSelector({ promos, selected, onSelect, subtotal }: {
   promos: Array<{ id: string; name: string; type: string; value: number; minPurchase?: number | null; maxDiscount?: number | null }>
@@ -967,10 +965,10 @@ function PromoSelector({ promos, selected, onSelect, subtotal }: {
   if (promos.length === 0) return null
   return (
     <div className="flex items-center gap-2">
-      <Tag className="h-3.5 w-3.5 text-cyan-400 shrink-0" />
+      <Tag className="h-3.5 w-3.5 text-slate-400 shrink-0" />
       <div className="relative flex-1 min-w-0">
         <select
-          className="h-8 w-full text-xs rounded-md border border-white/[0.06] bg-white/[0.03] text-white pl-3 pr-8 appearance-none cursor-pointer focus:outline-none focus-visible:border-cyan-500/40"
+          className="h-8 w-full text-xs rounded-md border border-white/[0.06] bg-white/[0.03] text-white pl-3 pr-8 appearance-none cursor-pointer focus:outline-none focus-visible:border-cyan-400/30"
           value={selected?.id || ''}
           onChange={(e) => {
             const p = promos.find(pp => pp.id === e.target.value)
@@ -990,7 +988,7 @@ function PromoSelector({ promos, selected, onSelect, subtotal }: {
   )
 }
 
-// ==================== PAYMENT DIALOG BODY (operational) ====================
+// ==================== PAYMENT DIALOG BODY (quiet premium, white total) ====================
 
 function PaymentDialogBody({ total, paymentMethod, paidAmount, availableMethods, onSetPaymentMethod, onSetPaidAmount, checkingOut, onCheckout }: {
   total: number
@@ -1011,13 +1009,13 @@ function PaymentDialogBody({ total, paymentMethod, paidAmount, availableMethods,
   }
   return (
     <div className="space-y-4">
-      {/* Total display — flat amber on subtle bg */}
-      <div className="text-center py-3 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+      {/* Total display — flat WHITE on subtle bg (no amber) */}
+      <div className="text-center py-3 rounded-lg bg-white/[0.02] border border-white/[0.05]">
         <p className="text-[10px] text-slate-400 uppercase tracking-wide">Total Pembayaran</p>
-        <p className="text-2xl font-bold text-amber-400 mt-1 tabular-nums">{formatCurrency(total)}</p>
+        <p className="text-2xl font-bold text-white mt-1 tabular-nums">{formatCurrency(total)}</p>
       </div>
 
-      {/* Method selection — 2-col compact cards */}
+      {/* Method selection — 2-col compact cards, soft amber active */}
       <div>
         <Label className="text-slate-400 text-[10px] uppercase tracking-wide">Metode Pembayaran</Label>
         <div className="grid grid-cols-2 gap-2 mt-2">
@@ -1031,10 +1029,10 @@ function PaymentDialogBody({ total, paymentMethod, paidAmount, availableMethods,
                 type="button"
                 onClick={() => onSetPaymentMethod(m)}
                 className={cn(
-                  'flex items-center justify-center gap-2 h-12 rounded-lg border transition-colors',
+                  'flex items-center justify-center gap-2 h-11 rounded-lg border transition-colors',
                   isActive
-                    ? 'border-amber-500/40 bg-amber-500/10 text-amber-400'
-                    : 'border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.05] text-slate-300 hover:text-white'
+                    ? 'border-amber-500/40 bg-amber-500/10 text-amber-300'
+                    : 'border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04] text-slate-300 hover:text-white'
                 )}
               >
                 <Icon className="h-4 w-4" />
@@ -1079,7 +1077,7 @@ function PaymentDialogBody({ total, paymentMethod, paidAmount, availableMethods,
         </div>
       )}
 
-      {/* Process button — solid amber, matches Bayar */}
+      {/* Proses Pembayaran — solid amber (matches Bayar, the ONE amber fill) */}
       <Button
         className="w-full bg-amber-500 hover:bg-amber-400 text-white font-semibold rounded-lg h-11 transition-colors disabled:opacity-50"
         disabled={checkingOut || (paymentMethod === 'CASH' && Number(paidAmount) < total)}
@@ -1098,7 +1096,7 @@ function PaymentDialogBody({ total, paymentMethod, paidAmount, availableMethods,
   )
 }
 
-// ==================== PR 4: Pending Row (compact operational) ====================
+// ==================== PR 4: Pending Row (quiet neutral) ====================
 
 function PendingRow({ pending, onResume, onDelete }: {
   pending: PendingTransactionRow
@@ -1116,10 +1114,10 @@ function PendingRow({ pending, onResume, onDelete }: {
       <div className="flex-1 min-w-0">
         <p className="text-xs font-medium text-white truncate leading-tight">{pending.customerName || 'Walk-in'}</p>
         <p className="text-[10px] text-slate-400 mt-0.5 tabular-nums">{itemCount} item · {formatCurrency(pending.subtotal)} · {time}</p>
-        {pending.note && <p className="text-[10px] text-amber-400 mt-0.5 truncate">Catatan: {pending.note}</p>}
+        {pending.note && <p className="text-[10px] text-slate-400 italic mt-0.5 truncate">Catatan: {pending.note}</p>}
       </div>
       <div className="flex items-center gap-1 shrink-0">
-        <Button size="sm" className="h-7 px-2 rounded-md bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 text-xs" onClick={onResume}>Lanjutkan</Button>
+        <Button size="sm" className="h-7 px-2 rounded-md bg-white/[0.06] hover:bg-white/[0.1] text-slate-100 text-xs" onClick={onResume}>Lanjutkan</Button>
         <Button size="icon" variant="ghost" className="h-7 w-7 text-slate-500 hover:text-red-400 hover:bg-red-500/10" onClick={onDelete} title="Hapus">
           <Trash2 className="h-3.5 w-3.5" />
         </Button>
