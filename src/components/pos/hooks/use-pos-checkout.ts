@@ -15,11 +15,18 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { useLiveQuery } from 'dexie-react-hooks'
 import { toast } from 'sonner'
 import { useSession } from 'next-auth/react'
 import type { CartItem } from './use-pos-cart'
 import type { Customer } from './use-pos-customers'
-import { tryGetPosDB, type TransactionOutboxRow } from '@/lib/pos/pos-db'
+import type { Product, ProductVariant } from './use-pos-products'
+import {
+  tryGetPosDB, type TransactionOutboxRow,
+  type PendingTransactionRow, type LastReceiptRow, type PendingCartItem,
+  addPendingTransaction, getPendingTransactions, deletePendingTransaction,
+  saveLastReceipt, getLastReceipt,
+} from '@/lib/pos/pos-db'
 import { buildCheckoutPayload, type CalcResult } from '@/lib/pos/pos-calc'
 
 // ==================== INTERFACES ====================
@@ -75,6 +82,20 @@ interface UsePosCheckoutReturn {
   handleReceiptFinish: () => void
   handlePointsChange: (value: string) => void
   triggerSync: () => Promise<{ synced: number; failed: number; duplicateResolved: number; abandoned: number }>
+  // PR 4 — Pending / Held orders
+  pendingCount: number
+  pendingList: PendingTransactionRow[]
+  pendingListOpen: boolean
+  setPendingListOpen: (open: boolean) => void
+  handleHoldTransaction: () => void
+  confirmHoldTransaction: () => Promise<void>
+  handleResumePending: (pending: PendingTransactionRow) => Promise<void>
+  handleDeletePending: (id: number) => Promise<void>
+  // PR 4 — Reprint last receipt
+  reprintOpen: boolean
+  setReprintOpen: (open: boolean) => void
+  reprintData: LastReceiptRow | null
+  handleReprint: () => Promise<void>
 }
 
 export function usePosCheckout(options: UsePosCheckoutOptions): UsePosCheckoutReturn {
@@ -95,6 +116,14 @@ export function usePosCheckout(options: UsePosCheckoutOptions): UsePosCheckoutRe
   const [checkingOut, setCheckingOut] = useState(false)
   const [checkoutResult, setCheckoutResult] = useState<CheckoutResult | null>(null)
   const [mobileCartOpen, setMobileCartOpen] = useState(false)
+  // PR 4 — Pending / Held orders + reprint
+  const [pendingListOpen, setPendingListOpen] = useState(false)
+  const [reprintOpen, setReprintOpen] = useState(false)
+  const [reprintData, setReprintData] = useState<LastReceiptRow | null>(null)
+
+  // Live pending list + count (auto-updates when Dexie changes)
+  const pendingList = useLiveQuery(() => getPendingTransactions(), []) ?? []
+  const pendingCount = pendingList.length
 
   useEffect(() => {
     if (availablePaymentMethods.length > 0 && !availablePaymentMethods.includes(paymentMethod)) {
@@ -151,17 +180,24 @@ export function usePosCheckout(options: UsePosCheckoutOptions): UsePosCheckoutRe
         if (syncResult.synced > 0) {
           const row = db ? await db.transactionOutbox.get(localTransactionId) : null
           const invoiceNum = row?.invoiceNumber || `INV-${Date.now().toString(36).toUpperCase()}`
-          setCheckoutResult({ success: true, invoiceNumber: invoiceNum })
+          const result: CheckoutResult = { success: true, invoiceNumber: invoiceNum }
+          setCheckoutResult(result)
           toast.success(`Pembayaran berhasil! Invoice: ${invoiceNum}`)
+          // PR 4 — save last receipt snapshot for reprint
+          await saveLastReceiptSnapshot(result, cart, calcResult, paymentMethod, paidAmount, selectedCustomer, selectedPromo)
         } else {
           const invoiceNum = `OFF-${Date.now().toString(36).toUpperCase()}`
-          setCheckoutResult({ success: true, invoiceNumber: invoiceNum, message: 'Tersimpan lokal', syncError: 'Akan sync otomatis' })
+          const result: CheckoutResult = { success: true, invoiceNumber: invoiceNum, message: 'Tersimpan lokal', syncError: 'Akan sync otomatis' }
+          setCheckoutResult(result)
           toast.warning('Tersimpan lokal — akan sync otomatis')
+          await saveLastReceiptSnapshot(result, cart, calcResult, paymentMethod, paidAmount, selectedCustomer, selectedPromo)
         }
       } else {
         const invoiceNum = `OFF-${Date.now().toString(36).toUpperCase()}`
-        setCheckoutResult({ success: true, invoiceNumber: invoiceNum, message: 'Transaksi offline' })
+        const result: CheckoutResult = { success: true, invoiceNumber: invoiceNum, message: 'Transaksi offline' }
+        setCheckoutResult(result)
         toast.warning('Offline — transaksi tersimpan lokal', { duration: 5000 })
+        await saveLastReceiptSnapshot(result, cart, calcResult, paymentMethod, paidAmount, selectedCustomer, selectedPromo)
       }
 
       setPaymentDialogOpen(false)
@@ -200,6 +236,116 @@ export function usePosCheckout(options: UsePosCheckoutOptions): UsePosCheckoutRe
     onClearCart()
   }, [onClearCart])
 
+  // ==================== PR 4: Pending / Held orders ====================
+  //
+  // Behavior matches the pre-rewrite implementation:
+  //   - Tunda → opens note dialog → confirm → freeze cart+customer+promo+points
+  //     to posDB.pendingTransactions → clear active cart.
+  //   - Resume → if active cart has items, hold it first; then load pending items
+  //     + customer + promo + points into the cart; delete the pending row.
+  //   - Delete → removes the pending row.
+  //   - pendingCount + pendingList are live (useLiveQuery) — the badge + dialog
+  //     update automatically when rows are added/removed.
+
+  const handleHoldTransaction = useCallback(() => {
+    if (cart.length === 0) return
+    setHoldNoteOpen(true)
+  }, [cart.length])
+
+  const confirmHoldTransaction = useCallback(async () => {
+    setHoldNoteOpen(false)
+    try {
+      const userName = session?.user?.name || 'Unknown'
+      const userId = (session?.user as { id?: string } | undefined)?.id || ''
+      await addPendingTransaction({
+        items: cartToPendingItems(cart),
+        customerId: selectedCustomer?.id || null,
+        customerName: selectedCustomer?.name || null,
+        promo: selectedPromo ? { id: selectedPromo.id, name: selectedPromo.name, type: selectedPromo.type, value: selectedPromo.value, minPurchase: selectedPromo.minPurchase, maxDiscount: selectedPromo.maxDiscount } : null,
+        pointsToUse,
+        note: holdNote.trim(),
+        subtotal: calcResult.subtotal,
+        createdAt: Date.now(),
+        userId,
+        userName,
+      })
+      setHoldNote('')
+      onClearCart()
+      onSetSelectedCustomer(null)
+      onSetSelectedPromo(null)
+      onSetPointsToUse(0)
+      setMobileCartOpen(false)
+      toast.success('Transaksi ditunda')
+    } catch {
+      toast.error('Gagal menunda transaksi')
+    }
+  }, [cart, selectedCustomer, selectedPromo, pointsToUse, holdNote, calcResult.subtotal, session, onClearCart, onSetSelectedCustomer, onSetSelectedPromo, onSetPointsToUse])
+
+  const handleResumePending = useCallback(async (pending: PendingTransactionRow) => {
+    if (!pending.id) return
+    // If active cart has items, hold it first (preserves current work)
+    if (cart.length > 0) {
+      try {
+        const userName = session?.user?.name || 'Unknown'
+        const userId = (session?.user as { id?: string } | undefined)?.id || ''
+        await addPendingTransaction({
+          items: cartToPendingItems(cart),
+          customerId: selectedCustomer?.id || null,
+          customerName: selectedCustomer?.name || null,
+          promo: selectedPromo ? { id: selectedPromo.id, name: selectedPromo.name, type: selectedPromo.type, value: selectedPromo.value, minPurchase: selectedPromo.minPurchase, maxDiscount: selectedPromo.maxDiscount } : null,
+          pointsToUse,
+          note: '',
+          subtotal: calcResult.subtotal,
+          createdAt: Date.now(),
+          userId,
+          userName,
+        })
+      } catch { /* silent — don't block resume */ }
+    }
+
+    // Load pending items into cart + restore customer/promo/points
+    try {
+      const items = pendingItemsToCart(pending.items)
+      onRestoreCart(items)
+      if (pending.customerId && pending.customerName) {
+        onSetSelectedCustomer({ id: pending.customerId, name: pending.customerName, whatsapp: '', points: 0 } as Customer)
+      } else {
+        onSetSelectedCustomer(null)
+      }
+      onSetPointsToUse(pending.pointsToUse || 0)
+      onSetSelectedPromo(pending.promo)
+      onSetPaidAmount('')
+
+      await deletePendingTransaction(pending.id)
+      setPendingListOpen(false)
+      setMobileCartOpen(false)
+      toast.success('Transaksi dilanjutkan')
+    } catch {
+      toast.error('Gagal melanjutkan transaksi')
+    }
+  }, [cart, selectedCustomer, selectedPromo, pointsToUse, calcResult.subtotal, session, onRestoreCart, onSetSelectedCustomer, onSetPointsToUse, onSetSelectedPromo, onSetPaidAmount])
+
+  const handleDeletePending = useCallback(async (id: number) => {
+    try {
+      await deletePendingTransaction(id)
+      toast.success('Transaksi pending dihapus')
+    } catch {
+      toast.error('Gagal menghapus transaksi pending')
+    }
+  }, [])
+
+  // ==================== PR 4: Reprint last receipt ====================
+
+  const handleReprint = useCallback(async () => {
+    const last = await getLastReceipt()
+    if (!last) {
+      toast.info('Belum ada transaksi untuk dicetak ulang')
+      return
+    }
+    setReprintData(last)
+    setReprintOpen(true)
+  }, [])
+
   return {
     paymentMethod, paidAmount, setPaymentMethod: onSetPaymentMethod, setPaidAmount: onSetPaidAmount,
     paymentDialogOpen, receiptDialogOpen, holdNote, holdNoteOpen,
@@ -208,7 +354,88 @@ export function usePosCheckout(options: UsePosCheckoutOptions): UsePosCheckoutRe
     setHoldNote, setHoldNoteOpen,
     openPaymentDialog, handleCheckout, handleReceiptFinish, handlePointsChange,
     triggerSync,
+    // PR 4
+    pendingCount, pendingList, pendingListOpen, setPendingListOpen,
+    handleHoldTransaction, confirmHoldTransaction, handleResumePending, handleDeletePending,
+    reprintOpen, setReprintOpen, reprintData, handleReprint,
   }
+}
+
+// ==================== PR 4: Cart ↔ Pending mappers ====================
+
+/** Convert active cart items to the serializable pending-item shape. */
+function cartToPendingItems(cart: CartItem[]): PendingCartItem[] {
+  return cart.map(item => ({
+    product: {
+      id: item.product.id,
+      name: item.product.name,
+      price: item.product.price,
+      stock: item.product.stock,
+      hpp: item.product.hpp,
+      sku: item.product.sku,
+      barcode: item.product.barcode,
+      categoryId: item.product.categoryId,
+      categoryName: item.product.categoryName,
+      image: item.product.image,
+      unit: item.product.unit,
+      hasVariants: item.product.hasVariants,
+      _variantCount: item.product._variantCount,
+    },
+    variant: item.variant ? {
+      id: item.variant.id,
+      name: item.variant.name,
+      sku: item.variant.sku,
+      barcode: item.variant.barcode,
+      price: item.variant.price,
+      hpp: item.variant.hpp,
+      stock: item.variant.stock,
+    } : null,
+    qty: item.qty,
+    customPrice: item.customPrice,
+  }))
+}
+
+/** Convert stored pending items back to full CartItem (reconstructs Product/Variant). */
+function pendingItemsToCart(items: PendingCartItem[]): CartItem[] {
+  return items.map(item => ({
+    product: {
+      ...item.product,
+      variants: [] as ProductVariant[],
+    } as Product,
+    variant: item.variant ? { ...item.variant } as ProductVariant : null,
+    qty: item.qty,
+    customPrice: item.customPrice ?? null,
+  }))
+}
+
+/** Save a frozen snapshot of the just-completed transaction for reprint. */
+async function saveLastReceiptSnapshot(
+  result: CheckoutResult,
+  cart: CartItem[],
+  calcResult: CalcResult,
+  paymentMethod: string,
+  paidAmount: string,
+  selectedCustomer: Customer | null,
+  selectedPromo: { id: string; name: string } | null,
+): Promise<void> {
+  try {
+    await saveLastReceipt({
+      cart: cartToPendingItems(cart),
+      subtotal: calcResult.subtotal,
+      pointsDiscount: calcResult.pointsDiscount,
+      promoDiscount: calcResult.promoDiscount,
+      manualDiscountTotal: calcResult.manualDiscountTotal,
+      ppnAmount: calcResult.taxAmount,
+      total: calcResult.grandTotal,
+      paymentMethod,
+      paidAmount,
+      change: paymentMethod === 'CASH' ? Math.max(0, (Number(paidAmount) || 0) - calcResult.grandTotal) : 0,
+      customer: selectedCustomer ? { id: selectedCustomer.id, name: selectedCustomer.name, whatsapp: selectedCustomer.whatsapp, points: selectedCustomer.points } : null,
+      promo: selectedPromo ? { id: selectedPromo.id, name: selectedPromo.name } : null,
+      checkoutResult: result,
+      createdAt: Date.now(),
+    })
+  } catch { /* non-critical — reprint just won't have a snapshot */ }
 }
 
 // ==================== PR 3: Outbox sync logic ====================

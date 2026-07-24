@@ -200,6 +200,94 @@ export interface TransactionOutboxRow {
 }
 
 // ════════════════════════════════════════════════════════════
+// Pending / Held Transactions (PR 4 — Feature Restoration)
+// ════════════════════════════════════════════════════════════
+
+/**
+ * A held/parked order. Created when the cashier taps "Tunda" — the current
+ * cart + customer + promo are frozen here and the active cart is cleared.
+ * Resuming loads these back into the cart and deletes the pending row.
+ *
+ * Behavior matches the pre-rewrite localDB.pendingTransactions table exactly.
+ *
+ * NOTE: `product`/`variant` use the structural common-ground between the
+ * POS `Product` type and `CachedPosProduct`. Both are assignable to this
+ * shape, so the hook can store a CartItem snapshot directly and cast back
+ * on resume without losing type safety.
+ */
+export interface PendingCartItem {
+  product: {
+    id: string
+    name: string
+    price: number
+    stock: number
+    hpp: number
+    sku: string | null
+    barcode: string | null
+    categoryId: string | null
+    categoryName: string | null
+    image: string | null
+    unit: string
+    hasVariants: boolean
+    _variantCount: number
+  }
+  variant: {
+    id: string
+    name: string
+    sku: string | null
+    barcode: string | null
+    price: number
+    hpp: number
+    stock: number
+  } | null
+  qty: number
+  customPrice: number | null
+}
+
+export interface PendingTransactionRow {
+  /** auto-increment id (Dexie ++id) */
+  id?: number
+  /** frozen cart items (product + variant + qty + customPrice) */
+  items: PendingCartItem[]
+  customerId: string | null
+  customerName: string | null
+  /** promo snapshot (so resume can re-select it) */
+  promo: { id: string; name: string; type: string; value: number; minPurchase?: number | null; maxDiscount?: number | null } | null
+  pointsToUse: number
+  note: string
+  subtotal: number
+  createdAt: number
+  userId: string
+  userName: string
+}
+
+// ════════════════════════════════════════════════════════════
+// Last Completed Transaction (PR 4 — Reprint receipt)
+// ════════════════════════════════════════════════════════════
+
+/**
+ * Frozen snapshot of the most recently completed checkout, used to re-open
+ * the receipt dialog for reprint ("Cetak Ulang"). Single-row table (key='last').
+ */
+export interface LastReceiptRow {
+  key: 'last'
+  cart: PendingCartItem[]
+  subtotal: number
+  pointsDiscount: number
+  promoDiscount: number
+  manualDiscountTotal: number
+  ppnAmount: number
+  total: number
+  paymentMethod: string
+  paidAmount: string
+  change: number
+  customer: { id: string; name: string; whatsapp: string; points: number } | null
+  promo: { id: string; name: string } | null
+  checkoutResult: { success: boolean; invoiceNumber: string; message?: string; syncError?: string }
+  createdAt: number
+}
+
+// ════════════════════════════════════════════════════════════
 // Sync Meta
 // ════════════════════════════════════════════════════════════
 
@@ -225,6 +313,10 @@ class PosDB extends Dexie {
   customerOutbox!: EntityTable<CustomerOutboxRow, 'id'>
   transactionOutbox!: EntityTable<TransactionOutboxRow, 'id'>
   syncMeta!: EntityTable<SyncMetaRow, 'key'>
+  /** PR 4 — held/parked orders */
+  pendingTransactions!: EntityTable<PendingTransactionRow, 'id'>
+  /** PR 4 — last completed checkout snapshot (for reprint) */
+  lastReceipt!: EntityTable<LastReceiptRow, 'key'>
 
   constructor() {
     super('aetherpos-pos')
@@ -243,6 +335,12 @@ class PosDB extends Dexie {
       customerOutbox:    'id, status, createdAt, serverId',
       transactionOutbox: 'id, status, createdAt, serverId',
       syncMeta:          'key',
+    })
+
+    // PR 4 — Feature Restoration: pending/held orders + last receipt for reprint
+    this.version(2).stores({
+      pendingTransactions: '++id, createdAt, customerId',
+      lastReceipt:         'key',
     })
   }
 }
@@ -337,6 +435,45 @@ export async function clearCart(): Promise<void> {
   const db = tryGetPosDB()
   if (!db) return
   await db.cart.clear()
+}
+
+// ════════════════════════════════════════════════════════════
+// PR 4 — Pending / Held Transactions helpers
+// ════════════════════════════════════════════════════════════
+
+export async function addPendingTransaction(row: Omit<PendingTransactionRow, 'id'>): Promise<number> {
+  const db = tryGetPosDB()
+  if (!db) return -1
+  return (await db.pendingTransactions.add(row as PendingTransactionRow)) as number
+}
+
+export async function getPendingTransactions(): Promise<PendingTransactionRow[]> {
+  const db = tryGetPosDB()
+  if (!db) return []
+  return db.pendingTransactions.orderBy('createdAt').reverse().toArray()
+}
+
+export async function deletePendingTransaction(id: number): Promise<void> {
+  const db = tryGetPosDB()
+  if (!db) return
+  await db.pendingTransactions.delete(id)
+}
+
+// ════════════════════════════════════════════════════════════
+// PR 4 — Last Receipt helpers (for reprint)
+// ════════════════════════════════════════════════════════════
+
+export async function saveLastReceipt(row: Omit<LastReceiptRow, 'key'>): Promise<void> {
+  const db = tryGetPosDB()
+  if (!db) return
+  await db.lastReceipt.put({ ...row, key: 'last' })
+}
+
+export async function getLastReceipt(): Promise<LastReceiptRow | null> {
+  const db = tryGetPosDB()
+  if (!db) return null
+  const row = await db.lastReceipt.get('last')
+  return row ?? null
 }
 
 export type {

@@ -578,8 +578,15 @@ function fmtDate(date: Date): string {
   return `${yyyy}${mm}${dd}`;
 }
 
-// Auto-run when executed directly
-seedDatabase().catch((err) => {
-  console.error('Seed failed:', err);
-  process.exit(1);
-});
+// Auto-run ONLY when executed directly (e.g. `bun run src/lib/seed.ts`).
+// Guarded so that importing { seedDatabase } from API routes does NOT trigger
+// the side-effect auto-run (which previously destabilized the Next.js server
+// by opening a Prisma connection on every module load).
+// @ts-expect-error import.meta.main is a Bun-specific API
+const _isMain = typeof import.meta !== 'undefined' && import.meta.main === true
+if (_isMain) {
+  seedDatabase().catch((err) => {
+    console.error('Seed failed:', err);
+    process.exit(1);
+  });
+}
