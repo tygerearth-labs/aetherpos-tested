@@ -825,104 +825,44 @@ export default function PosPage() {
 
   useEffect(() => { loadCategoriesFromCache() }, [loadCategoriesFromCache])
 
-   
+  // ====================================================================
+  // fetchProducts — TRANSPARENT search path (bug fix).
+  //   input → fetch backend → response → setProducts → render grid
+  //
+  // No debounce, no localDB fallback cache. Min 2 chars triggers the
+  // /search endpoint; otherwise the /featured working set is shown.
+  //
+  // CRITICAL: setProductsLoading(false) MUST run in `finally` so the grid
+  // never gets stuck on shimmer skeletons after a successful fetch (this
+  // was the root cause of "search input filled, results don't appear").
+  // ====================================================================
   const fetchProducts = useCallback(async (search: string, page: number, categoryId: string | null) => {
     setProductsLoading(true)
     const q = search.trim()
+    const isSearch = q.length >= 2 || !!categoryId
 
-    // ── PR 1: backend working-set / search (online path) ──────────────────
-    // No full catalog load. Featured set (24 best-sellers) when no search;
-    // backend debounced search when q or categoryId is set. Max 30 results
-    // per request (governance: MAX_POS_LIMIT). Falls through to legacy cache
-    // filter on offline / backend error — does NOT download the full catalog.
-    if (typeof window !== 'undefined' && navigator.onLine) {
-      try {
-        let url: string
-        if (q || categoryId) {
-          const params = new URLSearchParams()
-          if (q) params.set('q', q)
-          if (categoryId) params.set('categoryId', categoryId)
-          params.set('limit', String(PRODUCTS_PER_PAGE))
-          params.set('page', String(page))
-          url = `/api/pos/products/search?${params.toString()}`
-        } else {
-          // Featured working set — top best-sellers, 1 page.
-          url = `/api/pos/products/featured?limit=${PRODUCTS_PER_PAGE}`
-        }
-        const res = await fetch(url)
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        const data = await res.json()
-        const list = (data.products || []) as Product[]
-        setProducts(list)
-        // Search returns total/totalPages for pagination; featured is a fixed 1-page set.
-        const totalPages = (q || categoryId) ? Math.max(1, data.totalPages || 1) : 1
-        setTotalProductPages(totalPages)
-        return
-      } catch {
-        // fall through to legacy cache fallback (offline / backend error)
-      }
-    }
-
-    // ── Legacy fallback: in-memory filter over localDB cache ──────────────
-    // Reads ONLY what's already cached (from a prior manual "Refresh" sync).
-    // Does NOT download anything. PR 4 will replace this with a proper Dexie
-    // working-set cache (featured + recent search + cart items).
     try {
-      const allProducts = await localDB.products.toArray()
-
-      let filtered = allProducts
-
-      // Category filter
-      if (categoryId) {
-        filtered = filtered.filter(p => p.categoryId === categoryId)
+      let url: string
+      if (isSearch) {
+        const params = new URLSearchParams()
+        if (q) params.set('q', q)
+        if (categoryId) params.set('categoryId', categoryId)
+        params.set('limit', String(PRODUCTS_PER_PAGE))
+        params.set('page', String(page))
+        url = `/api/pos/products/search?${params.toString()}`
+      } else {
+        // Featured working set — top best-sellers padded with newest, 1 page.
+        url = `/api/pos/products/featured?limit=${PRODUCTS_PER_PAGE}`
       }
 
-      // Search filter — also match variant SKUs, barcodes, unit, and category name
-      if (q) {
-        const ql = q.toLowerCase()
-        filtered = filtered.filter(
-          (p) =>
-            p.name.toLowerCase().includes(ql) ||
-            (p.sku && p.sku.toLowerCase().includes(ql)) ||
-            (p.barcode && p.barcode.toLowerCase().includes(ql)) ||
-            (p.unit && p.unit.toLowerCase().includes(ql)) ||
-            ((p as any).categoryName && (p as any).categoryName.toLowerCase().includes(ql)) ||
-            (p.hasVariants && (p as any).variants && (p as any).variants.some((v: any) =>
-              (v.sku && v.sku.toLowerCase().includes(ql)) ||
-              (v.barcode && v.barcode.toLowerCase().includes(ql)) ||
-              v.name.toLowerCase().includes(ql)
-            ))
-        )
-      }
+      const res = await fetch(url)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      const list = (data.products || []) as Product[]
 
-      // Pre-compute aggregated stock into a Map (Fix #4 perf)
-      const aggStockMap = new Map<string, number>()
-      for (const p of filtered) {
-        if (p.hasVariants && (p as any).variants && (p as any).variants.length > 0) {
-          aggStockMap.set(p.id, (p as any).variants.reduce((s: number, v: any) => s + (v.stock || 0), 0))
-        } else {
-          aggStockMap.set(p.id, p.stock || 0)
-        }
-      }
-
-      // Sort: in-stock first (highest stock on top), out-of-stock at the bottom
-      filtered.sort((a, b) => {
-        const aStock = aggStockMap.get(a.id) ?? 0
-        const bStock = aggStockMap.get(b.id) ?? 0
-        const aInStock = aStock > 0
-        const bInStock = bStock > 0
-        if (aInStock !== bInStock) return aInStock ? -1 : 1
-        const stockDiff = bStock - aStock
-        if (stockDiff !== 0) return stockDiff
-        return a.name.localeCompare(b.name)
-      })
-
-      const totalPages = Math.max(1, Math.ceil(filtered.length / PRODUCTS_PER_PAGE))
-      const skip = (page - 1) * PRODUCTS_PER_PAGE
-      const paged = filtered.slice(skip, skip + PRODUCTS_PER_PAGE)
-
-      setProducts(paged as unknown as Product[])
-      setTotalProductPages(totalPages)
+      // ── setProducts → render grid ──
+      setProducts(list)
+      setTotalProductPages(isSearch ? Math.max(1, data.totalPages || 1) : 1)
     } catch {
       setProducts([])
       setTotalProductPages(1)
@@ -932,16 +872,11 @@ export default function PosPage() {
     }
   }, [])
 
-  // PR 1: Debounced fetch — 300ms for search (backend on-demand), 0ms for
-  // featured/category (immediate). Barcode/SKU exact lookup bypasses this
-  // debounce entirely via handleSearchKeyDown (Enter key).
+  // Transparent fetch — NO debounce. Every keystroke that changes
+  // productSearch / productPage / selectedCategoryId fires fetchProducts
+  // immediately (input → fetch backend → setProducts → render grid).
   useEffect(() => {
-    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
-    const timer = setTimeout(() => {
-      fetchProducts(productSearch, productPage, selectedCategoryId)
-    }, productSearch ? 300 : 0)
-    debounceTimerRef.current = timer
-    return () => { if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current) }
+    fetchProducts(productSearch, productPage, selectedCategoryId)
   }, [productSearch, productPage, selectedCategoryId, fetchProducts])
 
   // Auto-add product when barcode scanning is detected and exactly 1 match found
