@@ -93,7 +93,34 @@ export async function POST(request: NextRequest) {
     //              pointsUsed*100 again here)
     //   total    = subtotal - discount + taxAmount
     const computedSubtotal = checkoutItems.reduce((sum, it) => sum + (it.price * it.qty), 0)
-    const computedTotal = computedSubtotal - (discount || 0) + (taxAmount || 0)
+
+    // ── SETTINGS CONTRACT — PPN (tax) server-side validation ──────────────
+    // The server is authoritative for ppnEnabled/ppnRate (OutletSetting), exactly
+    // as it already is for subtotal/total (AUDIT-1-003) and paymentMethod (K5).
+    // Previously the server trusted the client-supplied taxAmount verbatim, so a
+    // stale/offline POS client could charge the wrong tax after the owner changed
+    // PPN settings. Now we recompute the expected tax from DB settings and reject
+    // on mismatch (> Rp 1 rounding tolerance), forcing the POS to respect the
+    // current server-side PPN configuration.
+    const outletSetting = await db.outletSetting.findUnique({
+      where: { outletId },
+      select: { ppnEnabled: true, ppnRate: true, paymentMethods: true },
+    })
+    const serverPpnEnabled = outletSetting?.ppnEnabled ?? false
+    const serverPpnRate = outletSetting?.ppnRate ?? 11
+    const baseAfterDiscounts = Math.max(0, computedSubtotal - (discount || 0))
+    const serverTaxAmount = serverPpnEnabled
+      ? Math.round((baseAfterDiscounts * (serverPpnRate || 0)) / 100)
+      : 0
+    if (Math.abs((taxAmount || 0) - serverTaxAmount) > 1) {
+      return safeJsonError(
+        `Pajak (PPN) tidak sesuai pengaturan. Server: ${serverPpnEnabled ? `PPN ${serverPpnRate}% = Rp ${serverTaxAmount.toLocaleString('id-ID')}` : 'PPN nonaktif = Rp 0'}, ` +
+        `Klien: Rp ${(taxAmount || 0).toLocaleString('id-ID')}. Muat ulang pengaturan kasir lalu coba lagi.`,
+        400
+      )
+    }
+
+    const computedTotal = computedSubtotal - (discount || 0) + serverTaxAmount
     if (Math.abs((subtotal || 0) - computedSubtotal) > 1) {
       return safeJsonError(
         `Subtotal tidak sesuai. Server: Rp ${computedSubtotal.toLocaleString('id-ID')}, ` +
@@ -130,17 +157,12 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // K5: Validate paymentMethod against outlet settings
-    if (paymentMethod) {
-      const setting = await db.outletSetting.findUnique({
-        where: { outletId },
-        select: { paymentMethods: true },
-      })
-      if (setting?.paymentMethods) {
-        const allowedMethods = setting.paymentMethods.split(',').map((m) => m.trim().toUpperCase())
-        if (!allowedMethods.includes(paymentMethod.toUpperCase())) {
-          return safeJsonError(`Metode pembayaran "${paymentMethod}" tidak tersedia. Metode yang diizinkan: ${setting.paymentMethods}`, 400)
-        }
+    // K5: Validate paymentMethod against outlet settings (reuses the
+    // outletSetting row fetched above for PPN validation — single query).
+    if (paymentMethod && outletSetting?.paymentMethods) {
+      const allowedMethods = outletSetting.paymentMethods.split(',').map((m) => m.trim().toUpperCase())
+      if (!allowedMethods.includes(paymentMethod.toUpperCase())) {
+        return safeJsonError(`Metode pembayaran "${paymentMethod}" tidak tersedia. Metode yang diizinkan: ${outletSetting.paymentMethods}`, 400)
       }
     }
 
