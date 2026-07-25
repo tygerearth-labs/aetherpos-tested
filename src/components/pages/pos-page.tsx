@@ -25,6 +25,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react'
+import { useSession } from 'next-auth/react'
 import { toast } from 'sonner'
 import { formatCurrency } from '@/lib/format'
 import { Button } from '@/components/ui/button'
@@ -41,13 +42,16 @@ import {
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
 } from '@/components/ui/sheet'
+import {
+  Popover, PopoverContent, PopoverTrigger,
+} from '@/components/ui/popover'
 import { ReceiptDialog } from '@/components/pos/receipt-dialog'
 import {
   Search, Plus, Minus, Trash2, ShoppingCart, ShoppingBag, Package, Loader2, Check, X,
   User, UserPlus, Coins, Wifi, WifiOff, RefreshCw, CloudOff, Tag, AlertTriangle,
   ChevronLeft, ChevronRight, Pencil, Pause, Clock, Printer,
   LayoutGrid, Layers, Banknote, QrCode, CreditCard, ArrowLeftRight,
-  ChevronDown,
+  ChevronDown, Store, Calendar, TrendingUp, ScanLine, Database,
 } from 'lucide-react'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { cn } from '@/lib/utils'
@@ -63,17 +67,20 @@ import type { Product, ProductVariant, CartItem } from '@/components/pos/hooks/u
 import type { Customer } from '@/components/pos/hooks/use-pos-customers'
 import type { PendingTransactionRow, LastReceiptRow } from '@/lib/pos/pos-db'
 
-const PRODUCTS_PER_PAGE = 24
-
 export default function PosPage() {
   const isMobile = useIsMobile()
   const { currentPage } = usePageStore()
+  const { data: session } = useSession()
 
   // ── Shared state (owned by orchestrator) ──
   const [selectedPromo, setSelectedPromo] = useState<{ id: string; name: string; type: string; value: number; minPurchase?: number | null; maxDiscount?: number | null } | null>(null)
   const [pointsToUse, setPointsToUse] = useState(0)
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'QRIS' | 'DEBIT' | 'TRANSFER'>('CASH')
   const [paidAmount, setPaidAmount] = useState('')
+
+  // ── Header info: live clock + today's transactions summary ──
+  const [now, setNow] = useState(() => new Date())
+  const [todaySummary, setTodaySummary] = useState<{ count: number; total: number } | null>(null)
 
   // ── Hooks ──
   const sync = usePosSync({
@@ -134,17 +141,56 @@ export default function PosPage() {
     }
   }, [cart.cart.length])
 
+  // ── Live clock (ticks every 30s — enough for minute display) ──
+  useEffect(() => {
+    const iv = setInterval(() => setNow(new Date()), 30_000)
+    return () => clearInterval(iv)
+  }, [])
+
+  // ── Fetch today's transactions summary (count + total) ──
+  // Refreshes on mount, on online reconnect, and after each successful checkout.
+  const fetchTodaySummary = useCallback(async () => {
+    if (!sync.isOnline) return
+    try {
+      const tzOffset = -new Date().getTimezoneOffset()
+      const res = await fetch(`/api/pos/today?tzOffset=${tzOffset}`)
+      if (res.ok) {
+        const data = await res.json()
+        setTodaySummary({ count: data.count ?? 0, total: data.total ?? 0 })
+      }
+    } catch { /* silent — header is non-critical */ }
+  }, [sync.isOnline])
+
+  useEffect(() => { void fetchTodaySummary() }, [fetchTodaySummary])
+
+  // Refresh today summary after a successful checkout (receipt shown)
+  useEffect(() => {
+    if (checkout.receiptDialogOpen && checkout.checkoutResult) {
+      void fetchTodaySummary()
+    }
+  }, [checkout.receiptDialogOpen, checkout.checkoutResult, fetchTodaySummary])
+
   return (
     <div className="flex flex-col h-full bg-deep-space">
       {/* ═══════════════════════════════════════════════════════════
-          HEADER — V3 minimal (fixed 2-row, no scroll)
-          Row 1: search (dominant) + tiny sync pill (the only utility here)
-          Row 2: segmented category chips (soft amber active)
+          HEADER — V4 (3 rows)
+          Row 1: Info strip — Outlet · Cashier · Date/Time · Today's tx
+          Row 2: Search (dominant) + utility icons (sync popover)
+          Row 3: Segmented category chips (subtle dark chip active)
           ═══════════════════════════════════════════════════════════ */}
       <div className="shrink-0 bg-nebula/80 backdrop-blur-xl border-b border-white/[0.05]">
-        {/* Row 1 — search + sync (Tunda/Reprint moved to cart header) */}
+        {/* Row 1 — Info strip (h-9, quiet) */}
+        <PosInfoStrip
+          outletName={settings.outletInfo?.name ?? settings.settings.receiptBusinessName}
+          cashierName={session?.user?.name ?? null}
+          now={now}
+          todaySummary={todaySummary}
+          isOnline={isOnline}
+        />
+
+        {/* Row 2 — search + sync popover */}
         <div className="flex items-center gap-2 h-12 px-3">
-          {/* Search — thinner h-9, dominant */}
+          {/* Search — thinner h-9, dominant, with scan icon hint */}
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500 pointer-events-none" />
             <Input
@@ -154,13 +200,16 @@ export default function PosPage() {
               onKeyDown={products.handleSearchKeyDown}
               className="pl-9 h-9 bg-white/[0.03] border-white/[0.06] text-sm text-slate-100 placeholder:text-slate-500 rounded-lg focus-visible:border-cyan-400/30"
             />
+            <kbd className="hidden md:inline-flex absolute right-2.5 top-1/2 -translate-y-1/2 items-center gap-0.5 h-5 px-1.5 rounded bg-white/[0.04] border border-white/[0.05] text-[9px] font-medium text-slate-500 pointer-events-none">
+              <ScanLine className="h-2.5 w-2.5" /> Scan
+            </kbd>
           </div>
 
-          {/* Sync pill — just dot + tiny label, right-aligned */}
+          {/* Sync popover — rich offline context */}
           <SyncButton sync={sync} />
         </div>
 
-        {/* Row 2 — segmented category chips (h-7, rounded-md, soft amber active) */}
+        {/* Row 3 — segmented category chips (subtle dark chip active) */}
         <CategoryFilter
           categories={products.categories}
           selected={products.selectedCategoryId}
@@ -207,11 +256,20 @@ export default function PosPage() {
                 <p className="text-sm">Tidak ada produk ditemukan</p>
               </div>
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 p-3">
-                {products.products.map((product) => (
-                  <ProductCard key={product.id} product={product} onClick={() => handleProductClick(product)} />
-                ))}
-              </div>
+              <>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 p-3">
+                  {products.products.map((product) => (
+                    <ProductCard key={product.id} product={product} onClick={() => handleProductClick(product)} />
+                  ))}
+                </div>
+                {/* Footer count — fills the empty area below grid */}
+                <div className="px-3 py-3 flex items-center justify-center gap-2 text-[10px] text-slate-600">
+                  <span className="h-px flex-1 max-w-12 bg-white/[0.04]" />
+                  <Package className="h-3 w-3" />
+                  <span className="tabular-nums">{products.products.length} produk ditampilkan</span>
+                  <span className="h-px flex-1 max-w-12 bg-white/[0.04]" />
+                </div>
+              </>
             )}
           </ScrollArea>
 
@@ -476,11 +534,69 @@ export default function PosPage() {
   }
 }
 
-// ==================== SYNC BUTTON (tiny status pill — dot + label only) ====================
+// ==================== POS INFO STRIP (Row 1 — outlet · cashier · date · today) ====================
+
+function PosInfoStrip({ outletName, cashierName, now, todaySummary, isOnline }: {
+  outletName: string | null
+  cashierName: string | null
+  now: Date
+  todaySummary: { count: number; total: number } | null
+  isOnline: boolean
+}) {
+  const dateStr = now.toLocaleDateString('id-ID', { weekday: 'short', day: '2-digit', month: 'short' })
+  const timeStr = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+  return (
+    <div className="flex items-center gap-3 h-9 px-3 border-b border-white/[0.04] bg-deep-space/40 text-[11px]">
+      {/* Outlet name — primary identity */}
+      <div className="flex items-center gap-1.5 min-w-0">
+        <Store className="h-3 w-3 text-slate-500 shrink-0" />
+        <span className="text-slate-200 font-medium truncate max-w-[140px]" title={outletName ?? 'Outlet'}>
+          {outletName ?? 'Outlet'}
+        </span>
+      </div>
+      <span className="text-slate-700">·</span>
+      {/* Cashier name */}
+      <div className="flex items-center gap-1.5 min-w-0">
+        <User className="h-3 w-3 text-slate-500 shrink-0" />
+        <span className="text-slate-300 truncate max-w-[100px]" title={cashierName ?? 'Kasir'}>
+          {cashierName ?? 'Kasir'}
+        </span>
+      </div>
+      <span className="text-slate-700">·</span>
+      {/* Date & time */}
+      <div className="flex items-center gap-1.5">
+        <Calendar className="h-3 w-3 text-slate-500 shrink-0" />
+        <span className="text-slate-400 tabular-nums">{dateStr}</span>
+        <span className="text-slate-200 tabular-nums font-medium">{timeStr}</span>
+      </div>
+      {/* Today's transactions — right aligned, badge-style */}
+      <div className="ml-auto flex items-center gap-1.5 shrink-0">
+        <TrendingUp className="h-3 w-3 text-cyan-400/70 shrink-0" />
+        <span className="text-slate-400">Hari ini</span>
+        {todaySummary ? (
+          <span className="text-slate-200 font-medium tabular-nums">
+            {todaySummary.count} tx
+          </span>
+        ) : (
+          <span className="text-slate-600 tabular-nums">— tx</span>
+        )}
+        <span className="text-slate-700">·</span>
+        {todaySummary ? (
+          <span className="text-cyan-300 font-semibold tabular-nums">{formatCurrency(todaySummary.total)}</span>
+        ) : (
+          <span className="text-slate-600 tabular-nums">—</span>
+        )}
+        {/* Online/offline dot */}
+        <span className={cn('h-1.5 w-1.5 rounded-full ml-1', isOnline ? 'bg-emerald-400' : 'bg-red-400')} title={isOnline ? 'Online' : 'Offline'} />
+      </div>
+    </div>
+  )
+}
+
+// ==================== SYNC BUTTON (popover with rich offline context) ====================
 
 function SyncButton({ sync }: { sync: ReturnType<typeof usePosSync> }) {
-  // V3 color discipline: cyan=synced, blue-pulse=syncing, red=offline, amber=pending/failed/conflict
-  // (solid amber reserved for Bayar/Proses Pembayaran only — these are tiny dots, not fills)
+  // V4 color discipline: cyan=synced, blue-pulse=syncing, red=offline, amber=pending/failed/conflict
   const config = {
     synced:   { dot: 'bg-cyan-400',                label: 'Synced',  },
     syncing:  { dot: 'bg-blue-400 animate-pulse',  label: 'Sync…',   },
@@ -489,22 +605,79 @@ function SyncButton({ sync }: { sync: ReturnType<typeof usePosSync> }) {
     conflict: { dot: 'bg-amber-400',               label: 'Conflict', },
   }[sync.syncStatus]
 
+  const lastSyncLabel = sync.lastSyncAt ? sync.timeAgo(sync.lastSyncAt) : null
+
   return (
-    <Button
-      variant="ghost"
-      size="sm"
-      className="h-7 px-2 gap-1.5 rounded-md hover:bg-white/[0.06] text-slate-400 hover:text-slate-200 shrink-0"
-      onClick={sync.handleSync}
-      disabled={sync.syncing || !sync.isOnline}
-      title="Sinkronkan"
-    >
-      <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', config.dot)} />
-      <span className="text-[10px] font-medium hidden sm:inline">{config.label}</span>
-    </Button>
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-8 px-2.5 gap-1.5 rounded-md hover:bg-white/[0.06] text-slate-300 hover:text-slate-100 shrink-0 border border-white/[0.05]"
+          title="Status sinkronisasi"
+        >
+          <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', config.dot)} />
+          <span className="text-[10px] font-medium hidden sm:inline">{config.label}</span>
+          <ChevronDown className="h-2.5 w-2.5 text-slate-500 hidden sm:inline" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-64 p-3 bg-nebula border-white/[0.08] text-slate-200" align="end">
+        <div className="space-y-2.5">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-slate-300">Status Sinkronisasi</span>
+            <span className={cn('inline-flex items-center gap-1 text-[10px] font-medium',
+              sync.syncStatus === 'synced' && 'text-cyan-400',
+              sync.syncStatus === 'syncing' && 'text-blue-400',
+              sync.syncStatus === 'offline' && 'text-red-400',
+              (sync.syncStatus === 'failed' || sync.syncStatus === 'conflict') && 'text-amber-400',
+            )}>
+              <span className={cn('h-1.5 w-1.5 rounded-full', config.dot)} />
+              {config.label}
+            </span>
+          </div>
+          <Separator className="bg-white/[0.05]" />
+          {/* Local cache context */}
+          <div className="flex items-center gap-2 text-[11px]">
+            <Database className="h-3 w-3 text-slate-500 shrink-0" />
+            <span className="text-slate-400">Produk lokal cache</span>
+            <span className="ml-auto text-slate-200 tabular-nums font-medium">Aktif</span>
+          </div>
+          {/* Last sync */}
+          <div className="flex items-center gap-2 text-[11px]">
+            <RefreshCw className="h-3 w-3 text-slate-500 shrink-0" />
+            <span className="text-slate-400">Terakhir sync</span>
+            <span className="ml-auto text-slate-200 tabular-nums">
+              {lastSyncLabel ? `${lastSyncLabel} lalu` : 'belum pernah'}
+            </span>
+          </div>
+          {/* Pending count */}
+          {sync.unsyncedCount > 0 && (
+            <div className="flex items-center gap-2 text-[11px]">
+              <CloudOff className="h-3 w-3 text-amber-400 shrink-0" />
+              <span className="text-slate-400">Transaksi pending</span>
+              <span className="ml-auto text-amber-300 tabular-nums font-medium">{sync.unsyncedCount}</span>
+            </div>
+          )}
+          <Separator className="bg-white/[0.05]" />
+          <Button
+            size="sm"
+            className="w-full h-7 text-xs rounded-md bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.06] text-slate-100"
+            onClick={sync.handleSync}
+            disabled={sync.syncing || !sync.isOnline || sync.unsyncedCount === 0}
+          >
+            {sync.syncing ? (
+              <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> Menyinkronkan…</>
+            ) : (
+              <><RefreshCw className="h-3 w-3 mr-1.5" /> Sinkronkan sekarang</>
+            )}
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
   )
 }
 
-// ==================== CATEGORY FILTER (h-7 chips, soft amber active) ====================
+// ==================== CATEGORY FILTER (h-8 chips, dark chip + accent underline active) ====================
 
 function CategoryFilter({ categories, selected, onSelect }: {
   categories: Array<{ id: string; name: string; color: string }>
@@ -512,19 +685,22 @@ function CategoryFilter({ categories, selected, onSelect }: {
   onSelect: (id: string | null) => void
 }) {
   return (
-    <div className="flex items-center gap-1.5 h-10 px-3 overflow-x-auto border-t border-white/[0.05] bg-nebula/40 scrollbar-hide">
+    <div className="flex items-center gap-1 h-10 px-3 overflow-x-auto border-t border-white/[0.05] bg-deep-space/30 scrollbar-hide">
       <button
         type="button"
         onClick={() => onSelect(null)}
         className={cn(
-          'inline-flex items-center gap-1.5 h-7 px-3 rounded-md text-xs font-medium shrink-0 transition-colors',
+          'relative inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-xs font-medium shrink-0 transition-colors',
           selected === null
-            ? 'bg-amber-500/10 text-amber-300'
+            ? 'bg-white/[0.08] text-slate-100'
             : 'text-slate-500 hover:text-slate-200 hover:bg-white/[0.04]'
         )}
       >
         <LayoutGrid className="h-3 w-3" />
         Semua
+        {selected === null && (
+          <span className="absolute -bottom-px left-2 right-2 h-px bg-cyan-400/70 rounded-full" />
+        )}
       </button>
       {categories.map((c) => {
         const isActive = selected === c.id
@@ -534,9 +710,9 @@ function CategoryFilter({ categories, selected, onSelect }: {
             type="button"
             onClick={() => onSelect(c.id)}
             className={cn(
-              'inline-flex items-center gap-1.5 h-7 px-3 rounded-md text-xs font-medium shrink-0 transition-colors',
+              'relative inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-xs font-medium shrink-0 transition-colors',
               isActive
-                ? 'bg-amber-500/10 text-amber-300'
+                ? 'bg-white/[0.08] text-slate-100'
                 : 'text-slate-500 hover:text-slate-200 hover:bg-white/[0.04]'
             )}
           >
@@ -545,6 +721,9 @@ function CategoryFilter({ categories, selected, onSelect }: {
               style={{ backgroundColor: c.color || '#64748b' }}
             />
             {c.name}
+            {isActive && (
+              <span className="absolute -bottom-px left-2 right-2 h-px bg-cyan-400/70 rounded-full" />
+            )}
           </button>
         )
       })}
@@ -552,7 +731,7 @@ function CategoryFilter({ categories, selected, onSelect }: {
   )
 }
 
-// ==================== PRODUCT CARD (short vertical mini-card, ~108px) ====================
+// ==================== PRODUCT CARD (vertical mini-card, ~116px — refined V4) ====================
 
 function ProductCard({ product, onClick }: { product: Product; onClick: () => void }) {
   const outOfStock = !product.hasVariants && product.stock <= 0
@@ -563,50 +742,72 @@ function ProductCard({ product, onClick }: { product: Product; onClick: () => vo
     .map((w) => w.charAt(0).toUpperCase())
     .join('')
 
+  // Stock state — explicit color: emerald=safe, amber=low, red=empty
+  const stockState = product.hasVariants
+    ? null
+    : outOfStock
+      ? { label: 'Stok habis', color: 'text-red-400', dot: 'bg-red-400' }
+      : lowStock
+        ? { label: `Stok ${product.stock}`, color: 'text-amber-400', dot: 'bg-amber-400' }
+        : { label: `Stok ${product.stock}`, color: 'text-emerald-400/80', dot: 'bg-emerald-400/70' }
+
   return (
     <button
       onClick={onClick}
       disabled={outOfStock}
       className={cn(
-        'flex flex-col gap-1 p-2 rounded-lg border text-left transition-colors w-full h-[108px]',
-        'border-white/[0.05] bg-white/[0.02] hover:bg-white/[0.04] hover:border-white/[0.08]',
-        outOfStock && 'opacity-50 cursor-not-allowed hover:bg-white/[0.02] hover:border-white/[0.05]'
+        'group flex flex-col gap-1 p-2 rounded-lg border text-left transition-all w-full h-[116px]',
+        'border-white/[0.05] bg-white/[0.02]',
+        'hover:bg-white/[0.05] hover:border-white/[0.1] hover:-translate-y-px hover:shadow-[0_4px_12px_rgba(0,0,0,0.25)]',
+        'focus-visible:outline-none focus-visible:border-cyan-400/40 focus-visible:bg-white/[0.05]',
+        outOfStock && 'opacity-45 cursor-not-allowed hover:bg-white/[0.02] hover:border-white/[0.05] hover:translate-y-0 hover:shadow-none'
       )}
     >
-      {/* Thumbnail — 36px mini. Image or initials tile, no big empty box. */}
-      <div className="h-9 w-9 rounded-md shrink-0 overflow-hidden bg-white/[0.05] flex items-center justify-center">
-        {product.image ? (
-          <img src={product.image} alt={product.name} className="h-full w-full object-cover" />
-        ) : (
-          <span className="text-[10px] font-semibold text-slate-400 select-none uppercase">{initials || '?'}</span>
+      {/* Top row — thumbnail (36px) + variant badge (if any) */}
+      <div className="flex items-start justify-between gap-1">
+        <div className="h-9 w-9 rounded-md shrink-0 overflow-hidden bg-white/[0.05] flex items-center justify-center ring-1 ring-white/[0.03]">
+          {product.image ? (
+            <img src={product.image} alt={product.name} className="h-full w-full object-cover" />
+          ) : (
+            <span className="text-[10px] font-semibold text-slate-400 select-none uppercase">{initials || '?'}</span>
+          )}
+        </div>
+        {/* Variant badge — explicit "N Varian" */}
+        {product.hasVariants && (
+          <span className="inline-flex items-center gap-0.5 text-[9px] font-medium text-cyan-300 bg-cyan-500/10 px-1.5 py-0.5 rounded-md shrink-0">
+            <Layers className="h-2.5 w-2.5" />
+            {product._variantCount} Varian
+          </span>
         )}
       </div>
 
-      {/* Name — 1-2 lines, small medium */}
-      <p className="text-[11px] font-medium text-slate-200 line-clamp-2 leading-tight min-h-[28px]">
+      {/* Name — 1-2 lines, small medium (primary identity) */}
+      <p className="text-[11px] font-medium text-slate-100 line-clamp-2 leading-tight min-h-[28px]">
         {product.name}
       </p>
 
-      {/* Bottom row — price (hero, WHITE bold) kiri + stock (tiny dot) kanan */}
+      {/* Secondary identity — SKU (mono, subtle) */}
+      {product.sku && (
+        <p className="text-[9px] text-slate-500 font-mono truncate -mt-0.5" title={product.sku}>
+          {product.sku}
+        </p>
+      )}
+
+      {/* Bottom row — price (hero, WHITE bold) kiri + stock state kanan */}
       <div className="flex items-end justify-between gap-1 mt-auto">
         {product.hasVariants ? (
-          <span className="text-[10px] text-cyan-400 inline-flex items-center gap-0.5">
-            <Layers className="h-3 w-3" />
-            {product._variantCount} varian
-          </span>
+          <span className="text-[10px] text-slate-400 italic">Pilih varian</span>
         ) : (
-          <>
-            <span className="text-sm font-bold text-white tabular-nums leading-tight">
-              {formatCurrency(product.price)}
-            </span>
-            <span className="inline-flex items-center gap-1 text-[10px] text-slate-500 shrink-0 tabular-nums">
-              <span className={cn(
-                'h-1 w-1 rounded-full',
-                outOfStock ? 'bg-red-400/70' : lowStock ? 'bg-orange-400/70' : 'bg-emerald-400/60'
-              )} />
-              {outOfStock ? 'Habis' : product.stock}
-            </span>
-          </>
+          <span className="text-sm font-bold text-white tabular-nums leading-tight">
+            {formatCurrency(product.price)}
+          </span>
+        )}
+        {/* Stock state — explicit label + colored dot */}
+        {stockState && (
+          <span className={cn('inline-flex items-center gap-1 text-[10px] font-medium shrink-0 tabular-nums', stockState.color)}>
+            <span className={cn('h-1.5 w-1.5 rounded-full', stockState.dot)} />
+            {stockState.label}
+          </span>
         )}
       </div>
     </button>
@@ -672,9 +873,46 @@ function CartPanel({ cart, customers, settings, selectedPromo, onSelectPromo, po
       <ScrollArea className="flex-1 min-h-0">
         <div className="px-2.5">
           {cart.cart.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 gap-2 text-slate-600">
-              <ShoppingCart className="h-7 w-7 text-slate-600" />
-              <p className="text-xs text-slate-500">Keranjang kosong</p>
+            /* V4 — purposeful empty cart state */
+            <div className="flex flex-col items-center justify-center py-10 px-3 gap-3 text-center">
+              <div className="h-12 w-12 rounded-xl bg-white/[0.03] border border-white/[0.05] flex items-center justify-center">
+                <ShoppingCart className="h-5 w-5 text-slate-500" />
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-slate-200">Keranjang kosong</p>
+                <p className="text-[11px] text-slate-500 leading-relaxed max-w-[220px]">
+                  Scan barcode atau pilih produk dari katalog di sebelah kiri
+                </p>
+              </div>
+              {/* Quick actions — purposeful, not passive */}
+              <div className="flex flex-col gap-1.5 w-full max-w-[240px] mt-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 text-xs rounded-md bg-white/[0.03] hover:bg-white/[0.06] border-white/[0.06] text-slate-300 justify-center"
+                  onClick={() => checkout.setPendingListOpen(true)}
+                >
+                  <Clock className="h-3.5 w-3.5 mr-1.5" />
+                  Lihat Pesanan Tertunda
+                  {checkout.pendingCount > 0 && (
+                    <Badge variant="secondary" className="ml-1.5 h-4 min-w-4 px-1 text-[9px] justify-center bg-amber-500/20 text-amber-300 border border-amber-500/20">{checkout.pendingCount}</Badge>
+                  )}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 text-xs rounded-md bg-white/[0.03] hover:bg-white/[0.06] border-white/[0.06] text-slate-300 justify-center"
+                  onClick={() => customers.setAddCustomerOpen(true)}
+                >
+                  <UserPlus className="h-3.5 w-3.5 mr-1.5" />
+                  Tambah Customer
+                </Button>
+              </div>
+              {/* Shortcut hint */}
+              <div className="flex items-center gap-1.5 mt-2 text-[10px] text-slate-600">
+                <ScanLine className="h-3 w-3" />
+                <span>Tip: gunakan kolom pencarian untuk scan barcode</span>
+              </div>
             </div>
           ) : (
             cart.cart.map((item) => (
@@ -740,11 +978,11 @@ function CartPanel({ cart, customers, settings, selectedPromo, onSelectPromo, po
           <span className="text-base font-bold text-white tabular-nums">{formatCurrency(cart.total)}</span>
         </div>
 
-        {/* Action row — Tunda (secondary) + Bayar (dominant solid amber) */}
+        {/* Action row — Tunda (secondary) + Bayar (dominant solid amber, 3 explicit states) */}
         <div className="flex gap-2 mt-2">
           <Button
             variant="outline"
-            className="flex-1 h-10 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] text-slate-300 text-xs font-medium shrink-0"
+            className="flex-1 h-10 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] text-slate-300 text-xs font-medium shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
             disabled={cart.cart.length === 0}
             onClick={checkout.handleHoldTransaction}
           >
@@ -752,11 +990,27 @@ function CartPanel({ cart, customers, settings, selectedPromo, onSelectPromo, po
             Tunda
           </Button>
           <Button
-            className="flex-[2] h-10 rounded-lg bg-amber-500 hover:bg-amber-400 text-white font-semibold text-sm shrink-0 disabled:opacity-50 transition-colors shadow-[0_1px_2px_rgba(0,0,0,0.25)] hover:shadow-[0_2px_8px_rgba(245,158,11,0.25)]"
-            disabled={cart.cart.length === 0 || cart.hasBelowHpp}
+            className={cn(
+              'flex-[2] h-10 rounded-lg font-semibold text-sm shrink-0 transition-all',
+              // State 1: DISABLED (cart empty / below HPP) → muted, no amber
+              (cart.cart.length === 0 || cart.hasBelowHpp) &&
+                'bg-white/[0.06] hover:bg-white/[0.06] text-slate-500 cursor-not-allowed shadow-none',
+              // State 2: READY → solid amber, subtle shadow + hover glow
+              cart.cart.length > 0 && !cart.hasBelowHpp && !checkout.checkingOut &&
+                'bg-amber-500 hover:bg-amber-400 text-white shadow-[0_1px_2px_rgba(0,0,0,0.25)] hover:shadow-[0_2px_12px_rgba(245,158,11,0.35)] hover:-translate-y-px',
+              // State 3: PROCESSING → darker amber, spinner, no hover transform
+              checkout.checkingOut &&
+                'bg-amber-600 hover:bg-amber-600 text-white cursor-wait shadow-[0_1px_2px_rgba(0,0,0,0.3)]',
+            )}
+            disabled={cart.cart.length === 0 || cart.hasBelowHpp || checkout.checkingOut}
             onClick={onCheckout}
           >
-            {cart.hasBelowHpp ? (
+            {checkout.checkingOut ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Memproses…
+              </>
+            ) : cart.hasBelowHpp ? (
               <>
                 <AlertTriangle className="h-4 w-4 mr-2" />
                 Harga di bawah HPP
@@ -936,23 +1190,47 @@ function CustomerSelector({ customers }: { customers: ReturnType<typeof usePosCu
       <ResponsiveDialog open={customers.addCustomerOpen} onOpenChange={customers.setAddCustomerOpen}>
         <ResponsiveDialogContent>
           <ResponsiveDialogHeader>
-            <ResponsiveDialogTitle>Tambah Pelanggan</ResponsiveDialogTitle>
+            <ResponsiveDialogTitle className="flex items-center gap-2">
+              <UserPlus className="h-4 w-4 text-cyan-400" />
+              Tambah Pelanggan
+            </ResponsiveDialogTitle>
+            <ResponsiveDialogDescription>Pelanggan baru akan tersinkron ke server saat online.</ResponsiveDialogDescription>
           </ResponsiveDialogHeader>
           <div className="space-y-3">
-            <div>
-              <Label className="text-slate-300">Nama *</Label>
-              <Input className="bg-white/[0.03] border-white/[0.06] text-white" value={customers.newCustomer.name} onChange={(e) => customers.setNewCustomer({ ...customers.newCustomer, name: e.target.value })} />
+            <div className="space-y-1.5">
+              <Label className="text-slate-300 text-xs">Nama <span className="text-red-400">*</span></Label>
+              <Input
+                className="bg-white/[0.03] border-white/[0.06] text-white rounded-lg h-10 focus-visible:border-cyan-400/40 focus-visible:bg-white/[0.05] transition-colors"
+                placeholder="Nama pelanggan"
+                value={customers.newCustomer.name}
+                onChange={(e) => customers.setNewCustomer({ ...customers.newCustomer, name: e.target.value })}
+                autoFocus
+              />
             </div>
-            <div>
-              <Label className="text-slate-300">WhatsApp</Label>
-              <Input className="bg-white/[0.03] border-white/[0.06] text-white" value={customers.newCustomer.whatsapp} onChange={(e) => customers.setNewCustomer({ ...customers.newCustomer, whatsapp: e.target.value })} />
+            <div className="space-y-1.5">
+              <Label className="text-slate-300 text-xs">WhatsApp <span className="text-slate-500 font-normal">(opsional)</span></Label>
+              <Input
+                className="bg-white/[0.03] border-white/[0.06] text-white rounded-lg h-10 focus-visible:border-cyan-400/40 focus-visible:bg-white/[0.05] transition-colors tabular-nums"
+                placeholder="08xxxxxxxxxx"
+                value={customers.newCustomer.whatsapp}
+                onChange={(e) => customers.setNewCustomer({ ...customers.newCustomer, whatsapp: e.target.value })}
+              />
             </div>
           </div>
           <ResponsiveDialogFooter>
             <Button variant="outline" className="bg-white/[0.04] hover:bg-white/[0.08] border-white/[0.06] text-slate-300 rounded-lg h-10" onClick={() => customers.setAddCustomerOpen(false)}>Batal</Button>
-            <Button className="bg-white/[0.08] hover:bg-white/[0.12] border border-white/[0.06] text-white rounded-lg h-10 font-medium" onClick={customers.handleAddCustomer} disabled={customers.addingCustomer}>
+            <Button
+              className={cn(
+                'rounded-lg h-10 font-medium transition-all',
+                customers.addingCustomer
+                  ? 'bg-cyan-600 hover:bg-cyan-600 text-white cursor-wait'
+                  : 'bg-cyan-500 hover:bg-cyan-400 text-white hover:shadow-[0_2px_12px_rgba(34,211,238,0.3)] hover:-translate-y-px'
+              )}
+              onClick={customers.handleAddCustomer}
+              disabled={customers.addingCustomer}
+            >
               {customers.addingCustomer && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Simpan
+              Simpan Pelanggan
             </Button>
           </ResponsiveDialogFooter>
         </ResponsiveDialogContent>
@@ -995,7 +1273,7 @@ function PromoSelector({ promos, selected, onSelect, subtotal }: {
   )
 }
 
-// ==================== PAYMENT DIALOG BODY (quiet premium, white total) ====================
+// ==================== PAYMENT DIALOG BODY (V4 — distinct method states, premium CTA) ====================
 
 function PaymentDialogBody({ total, paymentMethod, paidAmount, availableMethods, onSetPaymentMethod, onSetPaidAmount, checkingOut, onCheckout }: {
   total: number
@@ -1008,21 +1286,22 @@ function PaymentDialogBody({ total, paymentMethod, paidAmount, availableMethods,
   onCheckout: () => void
 }) {
   const change = paymentMethod === 'CASH' ? Math.max(0, Number(paidAmount) - total) : 0
-  const methodConfig: Record<string, { icon: typeof Banknote; label: string }> = {
-    CASH: { icon: Banknote, label: 'Tunai' },
-    QRIS: { icon: QrCode, label: 'QRIS' },
-    DEBIT: { icon: CreditCard, label: 'Debit' },
-    TRANSFER: { icon: ArrowLeftRight, label: 'Transfer' },
+  const methodConfig: Record<string, { icon: typeof Banknote; label: string; desc: string }> = {
+    CASH: { icon: Banknote, label: 'Tunai', desc: 'Uang kontan' },
+    QRIS: { icon: QrCode, label: 'QRIS', desc: 'Scan QR' },
+    DEBIT: { icon: CreditCard, label: 'Debit', desc: 'Kartu debit' },
+    TRANSFER: { icon: ArrowLeftRight, label: 'Transfer', desc: 'Bank transfer' },
   }
+  const cashInsufficient = paymentMethod === 'CASH' && Number(paidAmount) < total
   return (
     <div className="space-y-4">
       {/* Total display — flat WHITE on subtle bg (no amber) */}
-      <div className="text-center py-3 rounded-lg bg-white/[0.02] border border-white/[0.05]">
+      <div className="text-center py-3.5 rounded-lg bg-white/[0.02] border border-white/[0.05]">
         <p className="text-[10px] text-slate-400 uppercase tracking-wide">Total Pembayaran</p>
         <p className="text-2xl font-bold text-white mt-1 tabular-nums">{formatCurrency(total)}</p>
       </div>
 
-      {/* Method selection — 2-col compact cards, soft amber active */}
+      {/* Method selection — 2-col cards, distinct selected state (thick border + bg + check icon) */}
       <div>
         <Label className="text-slate-400 text-[10px] uppercase tracking-wide">Metode Pembayaran</Label>
         <div className="grid grid-cols-2 gap-2 mt-2">
@@ -1036,14 +1315,25 @@ function PaymentDialogBody({ total, paymentMethod, paidAmount, availableMethods,
                 type="button"
                 onClick={() => onSetPaymentMethod(m)}
                 className={cn(
-                  'flex items-center justify-center gap-2 h-11 rounded-lg border transition-colors',
+                  'relative flex items-center gap-2.5 h-12 px-3 rounded-lg border transition-all text-left',
                   isActive
-                    ? 'border-amber-500/40 bg-amber-500/10 text-amber-300'
-                    : 'border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04] text-slate-300 hover:text-white'
+                    ? 'border-amber-500/60 bg-amber-500/10 shadow-[0_0_0_1px_rgba(245,158,11,0.2)]'
+                    : 'border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04] hover:border-white/[0.1]'
                 )}
               >
-                <Icon className="h-4 w-4" />
-                <span className="text-xs font-medium">{cfg?.label || m}</span>
+                <span className={cn(
+                  'h-8 w-8 rounded-md flex items-center justify-center shrink-0 transition-colors',
+                  isActive ? 'bg-amber-500/20 text-amber-300' : 'bg-white/[0.04] text-slate-400'
+                )}>
+                  <Icon className="h-4 w-4" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className={cn('text-xs font-medium leading-tight', isActive ? 'text-amber-200' : 'text-slate-200')}>{cfg?.label || m}</p>
+                  <p className="text-[9px] text-slate-500 leading-tight mt-0.5">{cfg?.desc || ''}</p>
+                </div>
+                {isActive && (
+                  <Check className="h-3.5 w-3.5 text-amber-400 shrink-0 absolute top-1.5 right-1.5" />
+                )}
               </button>
             )
           })}
@@ -1060,7 +1350,10 @@ function PaymentDialogBody({ total, paymentMethod, paidAmount, availableMethods,
             onChange={(e) => onSetPaidAmount(e.target.value)}
             placeholder="0"
             autoFocus
-            className="bg-white/[0.03] border-white/[0.06] text-white text-base h-10 rounded-lg tabular-nums"
+            className={cn(
+              'bg-white/[0.03] border-white/[0.06] text-white text-base h-10 rounded-lg tabular-nums',
+              cashInsufficient && Number(paidAmount) > 0 && 'border-amber-500/40 focus-visible:border-amber-500/60'
+            )}
           />
           <div className="flex gap-1.5 flex-wrap">
             {[total, 50000, 100000, 150000].filter((v, i, a) => a.indexOf(v) === i).map((amt) => (
@@ -1076,24 +1369,37 @@ function PaymentDialogBody({ total, paymentMethod, paidAmount, availableMethods,
             ))}
           </div>
           {Number(paidAmount) > 0 && (
-            <div className="flex justify-between items-center mt-2 px-3 py-2 rounded-md bg-emerald-500/10">
-              <span className="text-xs text-emerald-300">Kembalian</span>
-              <span className="font-bold text-emerald-400 tabular-nums text-sm">{formatCurrency(change)}</span>
+            <div className={cn(
+              'flex justify-between items-center mt-2 px-3 py-2 rounded-md',
+              cashInsufficient ? 'bg-amber-500/10' : 'bg-emerald-500/10'
+            )}>
+              <span className={cn('text-xs', cashInsufficient ? 'text-amber-300' : 'text-emerald-300')}>
+                {cashInsufficient ? 'Kurang' : 'Kembalian'}
+              </span>
+              <span className={cn('font-bold tabular-nums text-sm', cashInsufficient ? 'text-amber-400' : 'text-emerald-400')}>
+                {formatCurrency(cashInsufficient ? total - Number(paidAmount) : change)}
+              </span>
             </div>
           )}
         </div>
       )}
 
-      {/* Proses Pembayaran — solid amber (matches Bayar, the ONE amber fill) */}
+      {/* Proses Pembayaran — 3 states: disabled muted / ready amber / processing darker amber */}
       <Button
-        className="w-full bg-amber-500 hover:bg-amber-400 text-white font-semibold rounded-lg h-11 transition-colors disabled:opacity-50"
-        disabled={checkingOut || (paymentMethod === 'CASH' && Number(paidAmount) < total)}
+        className={cn(
+          'w-full font-semibold rounded-lg h-11 transition-all',
+          checkingOut
+            ? 'bg-amber-600 hover:bg-amber-600 text-white cursor-wait'
+            : 'bg-amber-500 hover:bg-amber-400 text-white hover:shadow-[0_2px_12px_rgba(245,158,11,0.35)] hover:-translate-y-px',
+          (checkingOut || cashInsufficient) && !checkingOut && 'opacity-60 cursor-not-allowed hover:translate-y-0 hover:shadow-none',
+        )}
+        disabled={checkingOut || cashInsufficient}
         onClick={onCheckout}
       >
         {checkingOut ? (
           <>
             <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            Memproses…
+            Memproses Pembayaran…
           </>
         ) : (
           'Proses Pembayaran'

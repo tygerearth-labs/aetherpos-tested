@@ -48,6 +48,12 @@ interface UsePosCartReturn {
   editingQtyValue: string
   editingPriceId: string | null
   editingPriceValue: string
+  /** Exposed so the POS edit inputs can update the draft value on each keystroke.
+   *  Without these, onChange throws (undefined is not a function) and the draft
+   *  never updates — confirmEditPrice/Qty then re-applies the ORIGINAL value, so
+   *  manual price/qty edits silently no-op. (Fix for SETTINGS-AUDIT-MANUAL-DISCOUNT.) */
+  setEditingQtyValue: (v: string) => void
+  setEditingPriceValue: (v: string) => void
   qtyInputRef: React.RefObject<HTMLInputElement | null>
   priceInputRef: React.RefObject<HTMLInputElement | null>
   subtotal: number
@@ -299,6 +305,7 @@ export function usePosCart(options: UsePosCartOptions): UsePosCartReturn {
   return {
     cart, pointsToUse: pointsToUse, batchInfo,
     editingQtyId, editingQtyValue, editingPriceId, editingPriceValue,
+    setEditingQtyValue, setEditingPriceValue,
     qtyInputRef, priceInputRef,
     subtotal, manualDiscountTotal, maxPointsToUse, pointsDiscount, ppnAmount,
     total,

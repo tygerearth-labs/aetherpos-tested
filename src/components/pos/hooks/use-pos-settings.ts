@@ -102,7 +102,7 @@ function mapToSettings(data: Record<string, unknown>): OutletSettings {
     receiptLogo: (data.receiptLogo as string) || '',
     themePrimaryColor: (data.themePrimaryColor as string) || 'emerald',
     ppnEnabled: (data.ppnEnabled as boolean) ?? false,
-    ppnRate: (data.ppnRate as number) || 11,
+    ppnRate: (data.ppnRate as number) ?? 11,
     manualDiscountEnabled: (data.manualDiscountEnabled as boolean) ?? false,
     receiptDoublePrintEnabled: (data.receiptDoublePrintEnabled as boolean) ?? false,
     receiptMerchantCopyEnabled: (data.receiptMerchantCopyEnabled as boolean) ?? true,
