@@ -50,7 +50,7 @@ import {
   Search, Plus, Minus, Trash2, ShoppingCart, ShoppingBag, Package, PackageSearch, Loader2, Check, X,
   User, UserPlus, Coins, Wifi, WifiOff, RefreshCw, CloudOff, Tag, AlertTriangle,
   ChevronLeft, ChevronRight, Pencil, History, Clock, Printer,
-  LayoutGrid, Layers, Banknote, QrCode, CreditCard, ArrowLeftRight,
+  LayoutGrid, Layers, Banknote, HandCoins, QrCode, CreditCard, ArrowLeftRight,
   ChevronDown, Store, Calendar, TrendingUp, ScanLine, Database,
 } from 'lucide-react'
 import { useIsMobile } from '@/hooks/use-mobile'
@@ -172,13 +172,13 @@ export default function PosPage() {
   }, [checkout.receiptDialogOpen, checkout.checkoutResult, fetchTodaySummary])
 
   return (
-    <div className="flex h-full bg-deep-space overflow-hidden">
+    <div className="flex h-[100dvh] md:h-full bg-deep-space overflow-hidden">
       {/* ═══════════════════════════════════════════════════════════
           LAYOUT V6 — Header + Products (75%) | Cart full-height (25%)
           Left column: header (info+search+categories) + product grid
           Right column: cart panel spanning full height
           ═══════════════════════════════════════════════════════════ */}
-      <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
+      <div className="flex flex-col flex-1 min-w-0 min-h-0 overflow-hidden">
         {/* HEADER — V6 (3 rows, scoped to left 75%) */}
         <div className="sticky top-0 z-30 shrink-0 bg-nebula/95 backdrop-blur-xl border-b border-white/[0.05]">
           {/* Row 1 — Info strip (h-9, quiet) */}
@@ -236,8 +236,8 @@ export default function PosPage() {
         )}
 
         {/* Product workspace — scrollable grid */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <ScrollArea className="flex-1">
+        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+          <ScrollArea className="flex-1 min-h-0">
             {products.productsLoading ? (
               <div className="flex items-center justify-center h-64">
                 <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
@@ -858,20 +858,20 @@ function ProductCard({ product, onClick }: { product: Product; onClick: () => vo
       onClick={onClick}
       disabled={outOfStock}
       className={cn(
-        'group flex flex-col gap-1.5 p-2 rounded-lg border text-left transition-all w-full h-[156px]',
+        'group flex flex-col gap-1 p-2 rounded-lg border text-left transition-all w-full',
         'border-white/[0.05] bg-white/[0.02]',
         'hover:bg-white/[0.05] hover:border-white/[0.1] hover:-translate-y-px hover:shadow-[0_4px_12px_rgba(0,0,0,0.25)]',
         'focus-visible:outline-none focus-visible:border-cyan-400/40 focus-visible:bg-white/[0.05]',
         outOfStock && 'opacity-45 cursor-not-allowed hover:bg-white/[0.02] hover:border-white/[0.05] hover:translate-y-0 hover:shadow-none'
       )}
     >
-      {/* Image area — prominent top section (h-16, full-width, centered) */}
-      <div className="h-16 w-full rounded-md overflow-hidden bg-white/[0.03] flex items-center justify-center ring-1 ring-white/[0.04] relative shrink-0">
+      {/* Image area — 1:1 square (aspect-square), full-width */}
+      <div className="aspect-square w-full rounded-md overflow-hidden bg-white/[0.03] flex items-center justify-center ring-1 ring-white/[0.04] relative shrink-0">
         {product.image ? (
           <img src={product.image} alt={product.name} className="h-full w-full object-cover" />
         ) : (
           <div className="h-full w-full bg-gradient-to-br from-white/[0.06] to-white/[0.01] flex items-center justify-center">
-            <PackageSearch className="h-6 w-6 text-slate-500" />
+            <PackageSearch className="h-7 w-7 text-slate-500" />
           </div>
         )}
         {/* Variant badge — overlaid top-right on image */}
@@ -883,19 +883,19 @@ function ProductCard({ product, onClick }: { product: Product; onClick: () => vo
         )}
       </div>
 
-      {/* Name + SKU — middle section */}
-      <div className="flex-1 min-w-0">
+      {/* Name + SKU — tight, no extra space */}
+      <div className="min-w-0">
         <p className="text-[11px] font-medium text-slate-100 line-clamp-1 leading-tight" title={product.name}>
           {product.name}
         </p>
         {product.sku && (
-          <p className="text-[9px] text-slate-500 font-mono truncate mt-0.5" title={product.sku}>
+          <p className="text-[9px] text-slate-500 font-mono truncate leading-tight mt-px" title={product.sku}>
             {product.sku}
           </p>
         )}
       </div>
 
-      {/* Price + stock — bottom row */}
+      {/* Price + stock — bottom row, tight */}
       <div className="flex items-end justify-between gap-1 shrink-0">
         {product.hasVariants ? (
           <span className="text-[10px] text-slate-400 italic">Pilih varian</span>
@@ -1388,33 +1388,25 @@ function PaymentDialogBody({ total, paymentMethod, paidAmount, availableMethods,
 }) {
   const change = paymentMethod === 'CASH' ? Math.max(0, Number(paidAmount) - total) : 0
   const methodConfig: Record<string, { icon: typeof Banknote; label: string; desc: string; instruction: string }> = {
-    CASH: { icon: Banknote, label: 'Tunai', desc: 'Uang kontan', instruction: 'Terima pembayaran tunai dari pelanggan' },
+    CASH: { icon: HandCoins, label: 'Tunai', desc: 'Uang kontan', instruction: 'Terima pembayaran tunai dari pelanggan' },
     QRIS: { icon: QrCode, label: 'QRIS', desc: 'Scan QR', instruction: 'Tampilkan QR code kepada pelanggan' },
     DEBIT: { icon: CreditCard, label: 'Debit', desc: 'Kartu debit', instruction: 'Tap atau masukkan kartu ke EDC' },
     TRANSFER: { icon: ArrowLeftRight, label: 'Transfer', desc: 'Bank transfer', instruction: 'Konfirmasi transfer masuk' },
   }
   const cashInsufficient = paymentMethod === 'CASH' && Number(paidAmount) < total
   const selectedCfg = methodConfig[paymentMethod]
-  const SelectedIcon = selectedCfg?.icon || Banknote
+  const SelectedIcon = selectedCfg?.icon || HandCoins
   return (
     <div className="space-y-4">
-      {/* Total display — flat WHITE on subtle bg (no amber) */}
-      <div className="text-center py-3.5 rounded-lg bg-white/[0.02] border border-white/[0.05]">
-        <p className="text-[10px] text-slate-400 uppercase tracking-wide">Total Pembayaran</p>
-        <p className="text-2xl font-bold text-white mt-1 tabular-nums">{formatCurrency(total)}</p>
-      </div>
-
-      {/* Selected method preview — large icon + label + instruction (NO duplicate amount).
-          Positioned directly below Total, above method choices. Non-CASH only. */}
-      {paymentMethod !== 'CASH' && (
-        <div className="flex flex-col items-center py-4 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-          <div className="h-14 w-14 rounded-2xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center mb-2">
-            <SelectedIcon className="h-7 w-7 text-slate-100" />
-          </div>
-          <p className="text-[10px] text-slate-400 uppercase tracking-wide">{selectedCfg?.label || paymentMethod}</p>
-          <p className="text-[11px] text-slate-500 mt-1.5 text-center max-w-[240px] leading-relaxed">{selectedCfg?.instruction}</p>
+      {/* Unified Total + Method preview — icon + total amount + label/instruction */}
+      <div className="flex flex-col items-center py-4 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+        <div className="h-14 w-14 rounded-2xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center mb-2">
+          <SelectedIcon className="h-7 w-7 text-slate-100" />
         </div>
-      )}
+        <p className="text-[10px] text-slate-400 uppercase tracking-wide">{selectedCfg?.label || paymentMethod}</p>
+        <p className="text-2xl font-bold text-white mt-1 tabular-nums">{formatCurrency(total)}</p>
+        <p className="text-[11px] text-slate-500 mt-1.5 text-center max-w-[240px] leading-relaxed">{selectedCfg?.instruction}</p>
+      </div>
 
       {/* Method selection — 2-col cards, distinct selected state (thick border + bg + check icon) */}
       <div>
@@ -1422,7 +1414,7 @@ function PaymentDialogBody({ total, paymentMethod, paidAmount, availableMethods,
         <div className="grid grid-cols-2 gap-2 mt-2">
           {availableMethods.map((m) => {
             const cfg = methodConfig[m]
-            const Icon = cfg?.icon || Banknote
+            const Icon = cfg?.icon || HandCoins
             const isActive = paymentMethod === m
             return (
               <button
