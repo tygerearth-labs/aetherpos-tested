@@ -24,7 +24,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { tryGetPosDB } from '@/lib/pos/pos-db'
-import { syncOutbox } from './use-pos-checkout'
+import { syncOutboxTracked } from './use-pos-checkout'
 
 // ==================== TYPES ====================
 
@@ -74,16 +74,16 @@ export function usePosSync(options?: UsePosSyncOptions): UsePosSyncReturn {
     return pending + failed
   }, []) ?? 0
 
-  // ── Time formatter ──
+  // ── Time formatter (full readable Indonesian) ──
   const timeAgo = useCallback((ts: number | null): string | null => {
     if (!ts) return null
     const sec = Math.floor((Date.now() - ts) / 1000)
-    if (sec < 60) return 'baru'
+    if (sec < 60) return 'Baru saja'
     const min = Math.floor(sec / 60)
-    if (min < 60) return `${min}m`
+    if (min < 60) return `${min} menit lalu`
     const hrs = Math.floor(min / 60)
-    if (hrs < 24) return `${hrs}j`
-    return `${Math.floor(hrs / 24)}h`
+    if (hrs < 24) return `${hrs} jam lalu`
+    return `${Math.floor(hrs / 24)} hari lalu`
   }, [])
 
   // ── Compute sync status from unsyncedCount + isOnline + syncing ──
@@ -96,27 +96,30 @@ export function usePosSync(options?: UsePosSyncOptions): UsePosSyncReturn {
 
   // ── Run sync (customerOutbox → resolve → transactionOutbox) ──
   //
-  // UX FIX 2026-07-24: syncOutbox() now retries FAILED rows (up to
-  // MAX_SYNC_RETRY) and resolves DEX-007 duplicates as SYNCED. The result
-  // includes duplicateResolved (stale entries confirmed as already-processed)
-  // and abandoned (rows that exceeded the retry cap and were removed from
-  // the failed queue).
+  // OUTBOX CONTRADICTION FIX (toast discipline):
+  //   - Success is SILENT when this run JOINED an in-flight sync that the
+  //     checkout started (initiated === false). The checkout shows its own
+  //     "Pembayaran berhasil" toast; a redundant "N tersinkron" would confuse.
+  //   - Duplicate resolutions (DEX-007) are ALWAYS silent — they are background
+  //     confirmations of already-committed transactions, not new events.
+  //   - Genuine failures (failed > 0) always surface so the cashier can act.
+  //   - Abandoned rows (exceeded retry cap) always surface as a warning.
   const runSync = useCallback(async (): Promise<{ synced: number; failed: number; duplicateResolved: number; abandoned: number }> => {
     if (syncingRef.current) return { synced: 0, failed: 0, duplicateResolved: 0, abandoned: 0 }
     syncingRef.current = true
     setSyncing(true)
     try {
-      const result = await syncOutbox()
+      const { result, initiated } = await syncOutboxTracked()
       setLastSyncAt(Date.now())
-      if (result.synced > 0) {
-        if (result.duplicateResolved > 0) {
-          toast.success(
-            `${result.synced} transaksi tersinkron`,
-            { description: `${result.duplicateResolved} transaksi lama dikonfirmasi sudah tersinkron (DEX-007)` },
-          )
-        } else {
-          toast.success(`${result.synced} transaksi tersinkron`)
-        }
+      // Success toast: only when THIS call initiated the sync AND there were
+      // genuinely new syncs (not just duplicate resolutions). Duplicates are
+      // silent per the outbox contradiction fix.
+      if (initiated && result.synced > 0 && result.synced > result.duplicateResolved) {
+        toast.success(`${result.synced} transaksi tersinkron`)
+        onRefreshProducts?.()
+        onRefreshCustomers?.()
+      } else if (initiated && result.synced > 0) {
+        // All synced rows were duplicate resolutions — refresh data but stay silent.
         onRefreshProducts?.()
         onRefreshCustomers?.()
       }
@@ -126,7 +129,7 @@ export function usePosSync(options?: UsePosSyncOptions): UsePosSyncReturn {
           { description: `Melebihi batas retry — periksa manual di outbox.` },
         )
       }
-      if (result.failed > 0 && result.synced === 0) {
+      if (result.failed > 0) {
         toast.error(`${result.failed} transaksi gagal sync`, { description: 'Periksa koneksi atau stok.' })
       }
       // Broadcast to other tabs

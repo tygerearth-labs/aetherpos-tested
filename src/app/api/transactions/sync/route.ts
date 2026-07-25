@@ -192,6 +192,44 @@ export async function POST(request: NextRequest) {
         const transactionDate = new Date(createdAt)
 
         const result = await db.$transaction(async (txDb) => {
+          // 0. ATOMIC DEDUP MARKER (FIRST — must precede stock validation).
+          //    OUTBOX CONTRADICTION FIX: previously this marker was inserted at
+          //    the END of the $transaction, AFTER stock deduction. Two parallel
+          //    sync requests for the same eventId could both pass the pre-check
+          //    (line 130, outside the $transaction) because neither had committed
+          //    yet; the winner committed + decremented stock; the loser then
+          //    failed the stock check (line 340) and returned success:false with
+          //    "Stok tidak cukup" — NOT recognized as a duplicate. The client
+          //    marked the row FAILED → "1 transaksi gagal sync" toast appeared
+          //    alongside the checkout's "Pembayaran berhasil" toast.
+          //    NOW: the marker is the FIRST write inside the $transaction. SQLite
+          //    serializes writes, so the second parallel request blocks until the
+          //    first commits; when it acquires the lock, NOT EXISTS is false →
+          //    affected=0 → throws DUPLICATE_SYNC_EVENT (caught below as success).
+          //    The marker is created with placeholder details and updated with the
+          //    real invoiceNumber/serverId at the end (step 9b). If the
+          //    $transaction fails for a genuine reason, the marker rolls back.
+          if (tx.eventId) {
+            const placeholderDetails = JSON.stringify({ eventId: tx.eventId, pending: true })
+            const dedupAffected = await txDb.$executeRaw`
+              INSERT INTO "AuditLog" (id, action, "entityType", "entityId", "outletId", "userId", details, "createdAt")
+              SELECT ${crypto.randomUUID()}, 'SYNC_DEDUP', 'SYNC_EVENT', ${tx.eventId}, ${outletId}, ${userId}, ${placeholderDetails}, ${new Date()}
+              WHERE NOT EXISTS (
+                SELECT 1 FROM "AuditLog"
+                WHERE action = 'SYNC_DEDUP' AND "entityId" = ${tx.eventId}
+              )
+            `
+            if (dedupAffected === 0) {
+              const winner = await txDb.auditLog.findFirst({
+                where: { action: 'SYNC_DEDUP', entityId: tx.eventId },
+              })
+              throw new Error(
+                'DUPLICATE_SYNC_EVENT' +
+                (winner ? `::${winner.details}` : '')
+              )
+            }
+          }
+
           // 1. Collect all variant IDs from items to batch-fetch
           const variantIds = payload.items
             .map((item) => item.variantId)
@@ -537,14 +575,13 @@ export async function POST(request: NextRequest) {
             }
           }
 
-          // AUDIT-1-004 FIX: Atomic idempotency marker — INSERT ... WHERE NOT EXISTS
-          // guarded by the unique partial index `auditlog_sync_dedup_eventid_uidx`
-          // (created by ensureMigrated). This is the authoritative dedup guard:
-          // two parallel sync transactions can both pass the fast pre-check
-          // (neither sees the other's uncommitted write), but only ONE can win
-          // this INSERT — the other gets affected=0 (or a unique-constraint
-          // violation on race) and we throw, rolling back the transaction.create
-          // and stock decrements so no duplicate is persisted.
+          // 9b. UPDATE dedup marker with the real invoiceNumber + serverId.
+          //     The marker was inserted with placeholder details at step 0 (start
+          //     of the $transaction). Now that the transaction is fully created,
+          //     fill in the real references so a later duplicate-resolution (lost
+          //     response → retry) can return the correct invoiceNumber to the
+          //     client. This UPDATE is inside the $transaction — if anything
+          //     above threw, both the marker and this update roll back.
           if (tx.eventId) {
             const markerDetails = JSON.stringify({
               invoiceNumber,
@@ -552,24 +589,10 @@ export async function POST(request: NextRequest) {
               localId: tx.id,
               processedAt: new Date().toISOString(),
             })
-            const affected = await txDb.$executeRaw`
-              INSERT INTO "AuditLog" (id, action, "entityType", "entityId", "outletId", "userId", details, "createdAt")
-              SELECT ${crypto.randomUUID()}, 'SYNC_DEDUP', 'SYNC_EVENT', ${tx.eventId}, ${outletId}, ${userId}, ${markerDetails}, ${new Date()}
-              WHERE NOT EXISTS (
-                SELECT 1 FROM "AuditLog"
-                WHERE action = 'SYNC_DEDUP' AND "entityId" = ${tx.eventId}
-              )
+            await txDb.$executeRaw`
+              UPDATE "AuditLog" SET details = ${markerDetails}
+              WHERE action = 'SYNC_DEDUP' AND "entityId" = ${tx.eventId}
             `
-            if (affected === 0) {
-              // Another parallel sync won the race — fetch its result and treat as duplicate.
-              const winner = await txDb.auditLog.findFirst({
-                where: { action: 'SYNC_DEDUP', entityId: tx.eventId },
-              })
-              throw new Error(
-                'DUPLICATE_SYNC_EVENT' +
-                (winner ? `::${winner.details}` : '')
-              )
-            }
           }
 
           return { transactionId: transaction.id, invoiceNumber }

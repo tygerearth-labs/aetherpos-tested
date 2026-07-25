@@ -24,7 +24,7 @@
  * @boundary COCKPIT only — no engine imports
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSession } from 'next-auth/react'
 import { toast } from 'sonner'
 import { formatCurrency } from '@/lib/format'
@@ -49,7 +49,7 @@ import { ReceiptDialog } from '@/components/pos/receipt-dialog'
 import {
   Search, Plus, Minus, Trash2, ShoppingCart, ShoppingBag, Package, Loader2, Check, X,
   User, UserPlus, Coins, Wifi, WifiOff, RefreshCw, CloudOff, Tag, AlertTriangle,
-  ChevronLeft, ChevronRight, Pencil, Pause, Clock, Printer,
+  ChevronLeft, ChevronRight, Pencil, History, Clock, Printer,
   LayoutGrid, Layers, Banknote, QrCode, CreditCard, ArrowLeftRight,
   ChevronDown, Store, Calendar, TrendingUp, ScanLine, Database,
 } from 'lucide-react'
@@ -96,6 +96,7 @@ export default function PosPage() {
     isOnline,
     onAddToCart: (product, qty, variant) => cart.addToCart(product, qty, variant),
     onOpenVariantPicker: (product) => products.openVariantPicker(product),
+    pageSize: isMobile ? 10 : undefined,
   })
 
   const calcPromo: CalcPromo | null = selectedPromo
@@ -257,7 +258,7 @@ export default function PosPage() {
               </div>
             ) : (
               <>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 p-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 p-3 pb-24 md:pb-3">
                   {products.products.map((product) => (
                     <ProductCard key={product.id} product={product} onClick={() => handleProductClick(product)} />
                   ))}
@@ -305,16 +306,19 @@ export default function PosPage() {
         )}
       </div>
 
-      {/* ── Mobile cart bar (in-flow, full-width solid amber) ── */}
+      {/* ── Mobile floating Bayar button (fixed, floating pill with cart total) ── */}
       {isMobile && cart.cart.length > 0 && (
-        <div className="p-3 border-t border-white/[0.06] bg-nebula/80 backdrop-blur-xl mobile-safe-bottom shrink-0">
+        <div className="fixed bottom-4 left-3 right-3 z-50 flex justify-center pointer-events-none mobile-safe-bottom">
           <Button
-            className="w-full bg-amber-500 hover:bg-amber-400 text-white rounded-lg h-11 font-semibold transition-colors flex items-center px-4 shadow-[0_1px_2px_rgba(0,0,0,0.25)] hover:shadow-[0_2px_8px_rgba(245,158,11,0.25)]"
+            className="w-full max-w-md bg-amber-500 hover:bg-amber-400 text-white rounded-2xl h-14 font-semibold transition-all flex items-center justify-between px-5 shadow-[0_8px_24px_rgba(245,158,11,0.35)] hover:shadow-[0_10px_30px_rgba(245,158,11,0.45)] hover:-translate-y-0.5 pointer-events-auto"
             onClick={() => checkout.setMobileCartOpen(true)}
           >
-            <span className="flex-1 text-left text-sm">Bayar · {cart.cart.length} item</span>
-            <span className="text-sm tabular-nums">{formatCurrency(cart.total)}</span>
-            <ChevronRight className="h-4 w-4 ml-2 opacity-80 shrink-0" />
+            <span className="flex items-center gap-2">
+              <ShoppingBag className="h-4 w-4" />
+              <span className="text-sm">Bayar · {cart.cart.length} item</span>
+            </span>
+            <span className="text-base tabular-nums font-bold">{formatCurrency(cart.total)}</span>
+            <ChevronRight className="h-4 w-4 opacity-80 shrink-0" />
           </Button>
         </div>
       )}
@@ -434,7 +438,7 @@ export default function PosPage() {
         <ResponsiveDialogContent>
           <ResponsiveDialogHeader>
             <ResponsiveDialogTitle className="flex items-center gap-2">
-              <Pause className="h-4 w-4 text-slate-400" />
+              <History className="h-4 w-4 text-slate-400" />
               Tunda Transaksi
             </ResponsiveDialogTitle>
             <ResponsiveDialogDescription>Tambahkan catatan untuk transaksi yang ditunda (opsional).</ResponsiveDialogDescription>
@@ -457,7 +461,7 @@ export default function PosPage() {
           <ResponsiveDialogFooter>
             <Button variant="outline" className="bg-white/[0.04] hover:bg-white/[0.08] border-white/[0.06] text-slate-300 rounded-lg h-10" onClick={() => checkout.setHoldNoteOpen(false)}>Batal</Button>
             <Button className="bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.06] text-slate-100 rounded-lg h-10" onClick={checkout.confirmHoldTransaction}>
-              <Pause className="h-3.5 w-3.5 mr-2" />
+              <History className="h-3.5 w-3.5 mr-2" />
               Tunda
             </Button>
           </ResponsiveDialogFooter>
@@ -545,46 +549,49 @@ function PosInfoStrip({ outletName, cashierName, now, todaySummary, isOnline }: 
 }) {
   const dateStr = now.toLocaleDateString('id-ID', { weekday: 'short', day: '2-digit', month: 'short' })
   const timeStr = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+  const todayTitle = todaySummary
+    ? `Hari ini: ${todaySummary.count} tx · ${formatCurrency(todaySummary.total)}`
+    : 'Hari ini: belum ada transaksi'
   return (
-    <div className="flex items-center gap-3 h-9 px-3 border-b border-white/[0.04] bg-deep-space/40 text-[11px]">
-      {/* Outlet name — primary identity */}
+    <div className="flex items-center gap-2 sm:gap-3 h-9 px-3 border-b border-white/[0.04] bg-deep-space/40 text-[11px]">
+      {/* Outlet name — primary identity (always visible) */}
       <div className="flex items-center gap-1.5 min-w-0">
         <Store className="h-3 w-3 text-slate-500 shrink-0" />
         <span className="text-slate-200 font-medium truncate max-w-[140px]" title={outletName ?? 'Outlet'}>
           {outletName ?? 'Outlet'}
         </span>
       </div>
-      <span className="text-slate-700">·</span>
-      {/* Cashier name */}
-      <div className="flex items-center gap-1.5 min-w-0">
+      <span className="text-slate-700 hidden sm:inline">·</span>
+      {/* Cashier name — icon only on mobile, full on desktop */}
+      <div className="flex items-center gap-1.5 min-w-0" title={cashierName ?? 'Kasir'}>
         <User className="h-3 w-3 text-slate-500 shrink-0" />
-        <span className="text-slate-300 truncate max-w-[100px]" title={cashierName ?? 'Kasir'}>
+        <span className="text-slate-300 truncate max-w-[100px] hidden sm:inline">
           {cashierName ?? 'Kasir'}
         </span>
       </div>
-      <span className="text-slate-700">·</span>
-      {/* Date & time */}
-      <div className="flex items-center gap-1.5">
+      <span className="text-slate-700 hidden sm:inline">·</span>
+      {/* Date & time — icon only on mobile, full on desktop */}
+      <div className="flex items-center gap-1.5" title={`${dateStr} ${timeStr}`}>
         <Calendar className="h-3 w-3 text-slate-500 shrink-0" />
-        <span className="text-slate-400 tabular-nums">{dateStr}</span>
-        <span className="text-slate-200 tabular-nums font-medium">{timeStr}</span>
+        <span className="text-slate-400 tabular-nums hidden sm:inline">{dateStr}</span>
+        <span className="text-slate-200 tabular-nums font-medium hidden sm:inline">{timeStr}</span>
       </div>
-      {/* Today's transactions — right aligned, badge-style */}
-      <div className="ml-auto flex items-center gap-1.5 shrink-0">
+      {/* Today's transactions — icon only on mobile, full on desktop; right aligned */}
+      <div className="ml-auto flex items-center gap-1.5 shrink-0" title={todayTitle}>
         <TrendingUp className="h-3 w-3 text-cyan-400/70 shrink-0" />
-        <span className="text-slate-400">Hari ini</span>
+        <span className="text-slate-400 hidden sm:inline">Hari ini</span>
         {todaySummary ? (
-          <span className="text-slate-200 font-medium tabular-nums">
+          <span className="text-slate-200 font-medium tabular-nums hidden sm:inline">
             {todaySummary.count} tx
           </span>
         ) : (
-          <span className="text-slate-600 tabular-nums">— tx</span>
+          <span className="text-slate-600 tabular-nums hidden sm:inline">— tx</span>
         )}
-        <span className="text-slate-700">·</span>
+        <span className="text-slate-700 hidden sm:inline">·</span>
         {todaySummary ? (
-          <span className="text-cyan-300 font-semibold tabular-nums">{formatCurrency(todaySummary.total)}</span>
+          <span className="text-cyan-300 font-semibold tabular-nums hidden sm:inline">{formatCurrency(todaySummary.total)}</span>
         ) : (
-          <span className="text-slate-600 tabular-nums">—</span>
+          <span className="text-slate-600 tabular-nums hidden sm:inline">—</span>
         )}
         {/* Online/offline dot */}
         <span className={cn('h-1.5 w-1.5 rounded-full ml-1', isOnline ? 'bg-emerald-400' : 'bg-red-400')} title={isOnline ? 'Online' : 'Offline'} />
@@ -647,7 +654,7 @@ function SyncButton({ sync }: { sync: ReturnType<typeof usePosSync> }) {
             <RefreshCw className="h-3 w-3 text-slate-500 shrink-0" />
             <span className="text-slate-400">Terakhir sync</span>
             <span className="ml-auto text-slate-200 tabular-nums">
-              {lastSyncLabel ? `${lastSyncLabel} lalu` : 'belum pernah'}
+              {lastSyncLabel ?? 'Belum pernah'}
             </span>
           </div>
           {/* Pending count */}
@@ -684,11 +691,45 @@ function CategoryFilter({ categories, selected, onSelect }: {
   selected: string | null
   onSelect: (id: string | null) => void
 }) {
+  // Drag-to-scroll: mouse drag moves the horizontal list (touch swipe is
+  // native via overflow-x-auto). A movement threshold distinguishes drag
+  // from click so chip selection isn't triggered after a drag.
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const drag = useRef({ isDown: false, startX: 0, scrollLeft: 0, moved: false })
+
+  const onMouseDown = (e: React.MouseEvent) => {
+    const el = scrollRef.current
+    if (!el) return
+    drag.current = { isDown: true, startX: e.pageX - el.offsetLeft, scrollLeft: el.scrollLeft, moved: false }
+  }
+  const onMouseMove = (e: React.MouseEvent) => {
+    if (!drag.current.isDown) return
+    const el = scrollRef.current
+    if (!el) return
+    e.preventDefault()
+    const x = e.pageX - el.offsetLeft
+    const walk = x - drag.current.startX
+    if (Math.abs(walk) > 4) drag.current.moved = true
+    el.scrollLeft = drag.current.scrollLeft - walk
+  }
+  const onMouseUp = () => { drag.current.isDown = false }
+  const handleSelect = (id: string | null) => {
+    if (drag.current.moved) { drag.current.moved = false; return }
+    onSelect(id)
+  }
+
   return (
-    <div className="flex items-center gap-1 h-10 px-3 overflow-x-auto border-t border-white/[0.05] bg-deep-space/30 scrollbar-hide">
+    <div
+      ref={scrollRef}
+      onMouseDown={onMouseDown}
+      onMouseMove={onMouseMove}
+      onMouseUp={onMouseUp}
+      onMouseLeave={onMouseUp}
+      className="flex items-center gap-1 h-10 px-3 overflow-x-auto border-t border-white/[0.05] bg-deep-space/30 scrollbar-hide cursor-grab active:cursor-grabbing select-none"
+    >
       <button
         type="button"
-        onClick={() => onSelect(null)}
+        onClick={() => handleSelect(null)}
         className={cn(
           'relative inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-xs font-medium shrink-0 transition-colors',
           selected === null
@@ -708,7 +749,7 @@ function CategoryFilter({ categories, selected, onSelect }: {
           <button
             key={c.id}
             type="button"
-            onClick={() => onSelect(c.id)}
+            onClick={() => handleSelect(c.id)}
             className={cn(
               'relative inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-xs font-medium shrink-0 transition-colors',
               isActive
@@ -769,7 +810,9 @@ function ProductCard({ product, onClick }: { product: Product; onClick: () => vo
           {product.image ? (
             <img src={product.image} alt={product.name} className="h-full w-full object-cover" />
           ) : (
-            <span className="text-[10px] font-semibold text-slate-400 select-none uppercase">{initials || '?'}</span>
+            <div className="h-full w-full bg-gradient-to-br from-white/[0.08] to-white/[0.02] flex items-center justify-center">
+              <span className="text-[11px] font-bold text-slate-300 select-none uppercase tracking-wide">{initials || '?'}</span>
+            </div>
           )}
         </div>
         {/* Variant badge — explicit "N Varian" */}
@@ -986,7 +1029,7 @@ function CartPanel({ cart, customers, settings, selectedPromo, onSelectPromo, po
             disabled={cart.cart.length === 0}
             onClick={checkout.handleHoldTransaction}
           >
-            <Pause className="h-3.5 w-3.5 mr-1.5" />
+            <History className="h-3.5 w-3.5 mr-1.5" />
             Tunda
           </Button>
           <Button
@@ -1286,13 +1329,15 @@ function PaymentDialogBody({ total, paymentMethod, paidAmount, availableMethods,
   onCheckout: () => void
 }) {
   const change = paymentMethod === 'CASH' ? Math.max(0, Number(paidAmount) - total) : 0
-  const methodConfig: Record<string, { icon: typeof Banknote; label: string; desc: string }> = {
-    CASH: { icon: Banknote, label: 'Tunai', desc: 'Uang kontan' },
-    QRIS: { icon: QrCode, label: 'QRIS', desc: 'Scan QR' },
-    DEBIT: { icon: CreditCard, label: 'Debit', desc: 'Kartu debit' },
-    TRANSFER: { icon: ArrowLeftRight, label: 'Transfer', desc: 'Bank transfer' },
+  const methodConfig: Record<string, { icon: typeof Banknote; label: string; desc: string; instruction: string }> = {
+    CASH: { icon: Banknote, label: 'Tunai', desc: 'Uang kontan', instruction: 'Terima pembayaran tunai dari pelanggan' },
+    QRIS: { icon: QrCode, label: 'QRIS', desc: 'Scan QR', instruction: 'Tampilkan QR code kepada pelanggan' },
+    DEBIT: { icon: CreditCard, label: 'Debit', desc: 'Kartu debit', instruction: 'Tap atau masukkan kartu ke EDC' },
+    TRANSFER: { icon: ArrowLeftRight, label: 'Transfer', desc: 'Bank transfer', instruction: 'Konfirmasi transfer masuk' },
   }
   const cashInsufficient = paymentMethod === 'CASH' && Number(paidAmount) < total
+  const selectedCfg = methodConfig[paymentMethod]
+  const SelectedIcon = selectedCfg?.icon || Banknote
   return (
     <div className="space-y-4">
       {/* Total display — flat WHITE on subtle bg (no amber) */}
@@ -1339,6 +1384,18 @@ function PaymentDialogBody({ total, paymentMethod, paidAmount, availableMethods,
           })}
         </div>
       </div>
+
+      {/* Selected method display — large icon + nominal (non-CASH) */}
+      {paymentMethod !== 'CASH' && (
+        <div className="flex flex-col items-center py-5 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+          <div className="h-16 w-16 rounded-2xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center mb-3">
+            <SelectedIcon className="h-8 w-8 text-slate-100" />
+          </div>
+          <p className="text-[10px] text-slate-400 uppercase tracking-wide">{selectedCfg?.label || paymentMethod}</p>
+          <p className="text-2xl font-bold text-white tabular-nums mt-1">{formatCurrency(total)}</p>
+          <p className="text-[11px] text-slate-500 mt-1.5 text-center max-w-[240px] leading-relaxed">{selectedCfg?.instruction}</p>
+        </div>
+      )}
 
       {/* Cash payment */}
       {paymentMethod === 'CASH' && (

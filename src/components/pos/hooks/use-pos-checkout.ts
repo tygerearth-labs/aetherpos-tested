@@ -175,35 +175,53 @@ export function usePosCheckout(options: UsePosCheckoutOptions): UsePosCheckoutRe
         await db.transactionOutbox.put(outboxRow)
       }
 
+      // OUTBOX CONTRADICTION FIX: the checkout's toast is now based on the
+      // status of THIS transaction's own outbox row (looked up after sync),
+      // NOT on the aggregate synced/failed counts. This prevents two bugs:
+      //   (a) An OLD failed row masking the new row's success (synced > 0
+      //       from the old row resolving → "Pembayaran berhasil" even though
+      //       the new row actually failed).
+      //   (b) The new row failing but "Tersimpan lokal" showing (synced === 0
+      //       branch was reached even when failed > 0 — a real failure was
+      //       mislabeled as offline-saved).
+      // Correct UX:
+      //   - Online + own row SYNCED → only "Pembayaran berhasil" + receipt.
+      //   - Online + own row FAILED → "Pembayaran gagal: <reason>" (no receipt,
+      //     cart preserved so cashier can fix and retry).
+      //   - Offline → "Tersimpan offline, menunggu sinkronisasi" + receipt.
       if (isOnline) {
-        const syncResult = await syncOutbox()
-        if (syncResult.synced > 0) {
-          const row = db ? await db.transactionOutbox.get(localTransactionId) : null
-          const invoiceNum = row?.invoiceNumber || `INV-${Date.now().toString(36).toUpperCase()}`
+        await syncOutbox()
+        const row = db ? await db.transactionOutbox.get(localTransactionId) : null
+        if (row?.status === 'SYNCED') {
+          const invoiceNum = row.invoiceNumber || `INV-${Date.now().toString(36).toUpperCase()}`
           const result: CheckoutResult = { success: true, invoiceNumber: invoiceNum }
           setCheckoutResult(result)
           toast.success(`Pembayaran berhasil! Invoice: ${invoiceNum}`)
-          // PR 4 — save last receipt snapshot for reprint
           await saveLastReceiptSnapshot(result, cart, calcResult, paymentMethod, paidAmount, selectedCustomer, selectedPromo)
+          setPaymentDialogOpen(false)
+          setReceiptDialogOpen(true)
+          onRefreshProducts?.()
+          onRefreshCustomers?.()
         } else {
-          const invoiceNum = `OFF-${Date.now().toString(36).toUpperCase()}`
-          const result: CheckoutResult = { success: true, invoiceNumber: invoiceNum, message: 'Tersimpan lokal', syncError: 'Akan sync otomatis' }
-          setCheckoutResult(result)
-          toast.warning('Tersimpan lokal — akan sync otomatis')
-          await saveLastReceiptSnapshot(result, cart, calcResult, paymentMethod, paidAmount, selectedCustomer, selectedPromo)
+          // Online but this transaction's sync failed — genuine failure.
+          // Keep the row (for manual retry from the sync panel) but do NOT
+          // show a receipt or clear the cart. The cashier sees the error and
+          // can adjust (stock/price) and retry.
+          const errMsg = row?.error || 'Gagal terhubung ke server'
+          toast.error(`Pembayaran gagal: ${errMsg}`, { duration: 6000 })
+          // Leave payment dialog open so the cashier can retry or cancel.
         }
       } else {
         const invoiceNum = `OFF-${Date.now().toString(36).toUpperCase()}`
-        const result: CheckoutResult = { success: true, invoiceNumber: invoiceNum, message: 'Transaksi offline' }
+        const result: CheckoutResult = { success: true, invoiceNumber: invoiceNum, message: 'Tersimpan offline, menunggu sinkronisasi' }
         setCheckoutResult(result)
-        toast.warning('Offline — transaksi tersimpan lokal', { duration: 5000 })
+        toast.info('Tersimpan offline — menunggu sinkronisasi', { duration: 5000 })
         await saveLastReceiptSnapshot(result, cart, calcResult, paymentMethod, paidAmount, selectedCustomer, selectedPromo)
+        setPaymentDialogOpen(false)
+        setReceiptDialogOpen(true)
+        onRefreshProducts?.()
+        onRefreshCustomers?.()
       }
-
-      setPaymentDialogOpen(false)
-      setReceiptDialogOpen(true)
-      onRefreshProducts?.()
-      onRefreshCustomers?.()
     } catch {
       toast.error('Checkout gagal')
     } finally {
@@ -485,7 +503,39 @@ export interface SyncOutboxResult {
  *   - Failed sync preserves cache + outbox row (status FAILED, retryCount++).
  *   - Duplicate-safe: eventId dedupes server-side (DEX-007).
  */
+// OUTBOX CONTRADICTION FIX: module-level lock prevents concurrent syncOutbox
+// calls. Previously, handleCheckout called syncOutbox() directly while the
+// sync hook's runSync() (triggered by mount/focus/periodic) could fire
+// concurrently — both processed the same PENDING row, both POSTed to the
+// server, and the loser's response (a stock-mismatch from the parallel
+// duplicate) overwrote the winner's SYNCED status with FAILED. Now, a
+// second call while one is in-flight simply awaits the same promise.
+//
+// The `initiated` flag (from syncOutboxTracked) lets the sync hook suppress
+// its "N transaksi tersinkron" toast when it JOINED an in-flight sync that
+// the checkout started — so an online checkout shows ONLY "Pembayaran
+// berhasil", not a redundant sync toast alongside it.
+let syncOutboxPromise: Promise<SyncOutboxResult> | null = null
+
 export async function syncOutbox(): Promise<SyncOutboxResult> {
+  return (await syncOutboxTracked()).result
+}
+
+/** Like syncOutbox, but also reports whether this call initiated the sync
+ *  (true) or joined an in-flight one (false). Used by the sync hook to
+ *  suppress redundant toasts when the checkout triggered the sync. */
+export async function syncOutboxTracked(): Promise<{ result: SyncOutboxResult; initiated: boolean }> {
+  if (syncOutboxPromise) {
+    const result = await syncOutboxPromise
+    return { result, initiated: false }
+  }
+  const promise = doSyncOutbox().finally(() => { syncOutboxPromise = null })
+  syncOutboxPromise = promise
+  const result = await promise
+  return { result, initiated: true }
+}
+
+async function doSyncOutbox(): Promise<SyncOutboxResult> {
   const db = tryGetPosDB()
   if (!db) return { synced: 0, failed: 0, duplicateResolved: 0, abandoned: 0 }
 
@@ -601,7 +651,17 @@ export async function syncOutbox(): Promise<SyncOutboxResult> {
             synced++
             if (previouslyFailed.has(eventId)) duplicateResolved++
           } else {
+            // DEFENSIVE: never overwrite a SYNCED row with FAILED. If a
+            // concurrent syncOutbox call (or the server's DEX-007 late
+            // resolution) already marked this row SYNCED, a stale FAILED
+            // response must not regress it. This is the client-side half of
+            // the outbox contradiction fix.
             const existing = await db.transactionOutbox.get(eventId)
+            if (existing?.status === 'SYNCED') {
+              // Already synced — count as a silent duplicate resolution.
+              duplicateResolved++
+              continue
+            }
             await db.transactionOutbox.update(eventId, {
               status: 'FAILED',
               error: result.error || 'Sync failed',
@@ -613,6 +673,7 @@ export async function syncOutbox(): Promise<SyncOutboxResult> {
       } else {
         for (const tx of toSync) {
           const existing = await db.transactionOutbox.get(tx.id)
+          if (existing?.status === 'SYNCED') continue
           await db.transactionOutbox.update(tx.id, {
             status: 'FAILED',
             error: `HTTP ${res.status}`,

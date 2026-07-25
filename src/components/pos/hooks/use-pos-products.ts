@@ -81,6 +81,9 @@ interface UsePosProductsOptions {
   onAddToCart: (product: Product, qty?: number, variant?: ProductVariant) => void
   onOpenVariantPicker: (product: Product) => void
   isOnline: boolean
+  /** Page size for product pagination. Defaults to 24. Pass 10 on mobile for a
+   *  denser, scrollable single-screen experience. */
+  pageSize?: number
 }
 
 // ==================== HOOK RETURN ====================
@@ -114,6 +117,7 @@ interface UsePosProductsReturn {
 
 export function usePosProducts(options: UsePosProductsOptions): UsePosProductsReturn {
   const { onAddToCart, onOpenVariantPicker, isOnline } = options
+  const pageSize = options.pageSize ?? PRODUCTS_PER_PAGE
 
   const [products, setProducts] = useState<Product[]>([])
   const [categories, setCategories] = useState<Category[]>([])
@@ -166,11 +170,11 @@ export function usePosProducts(options: UsePosProductsOptions): UsePosProductsRe
     setProductsLoading(true)
     try {
       if (isOnline) {
-        const res = await fetch('/api/pos/products/featured?limit=24')
+        const res = await fetch(`/api/pos/products/featured?limit=${pageSize}`)
         if (res.ok) {
           const data = await res.json()
           const prods: Product[] = (data.products || []).map(mapApiProduct)
-          setProducts(prods)
+          setProducts(prods.slice(0, pageSize))
           setTotalProductPages(1)
           // PR 3: cache working set to Dexie
           await cacheProducts(prods.map(toCachedPosProduct), 'featured')
@@ -188,7 +192,7 @@ export function usePosProducts(options: UsePosProductsOptions): UsePosProductsRe
             if (aIn !== bIn) return aIn ? -1 : 1
             return a.name.localeCompare(b.name)
           })
-          setProducts(prods.slice(0, PRODUCTS_PER_PAGE))
+          setProducts(prods.slice(0, pageSize))
           setTotalProductPages(1)
         }
       }
@@ -197,7 +201,7 @@ export function usePosProducts(options: UsePosProductsOptions): UsePosProductsRe
     } finally {
       setProductsLoading(false)
     }
-  }, [isOnline])
+  }, [isOnline, pageSize])
 
   // ── PR 2: Backend search (parent products only) ──
   const fetchSearch = useCallback(async (search: string, page: number, categoryId: string | null) => {
@@ -206,7 +210,7 @@ export function usePosProducts(options: UsePosProductsOptions): UsePosProductsRe
       if (isOnline) {
         const params = new URLSearchParams()
         if (search.trim()) params.set('q', search.trim())
-        params.set('limit', String(PRODUCTS_PER_PAGE))
+        params.set('limit', String(pageSize))
         params.set('page', String(page))
         if (categoryId) params.set('categoryId', categoryId)
         const res = await fetch(`/api/pos/products/search?${params}`)
@@ -234,9 +238,9 @@ export function usePosProducts(options: UsePosProductsOptions): UsePosProductsRe
             )
           }
           const total = cached.length
-          const totalPages = Math.max(1, Math.ceil(total / PRODUCTS_PER_PAGE))
-          const skip = (page - 1) * PRODUCTS_PER_PAGE
-          setProducts(cached.slice(skip, skip + PRODUCTS_PER_PAGE).map(fromCachedPosProduct))
+          const totalPages = Math.max(1, Math.ceil(total / pageSize))
+          const skip = (page - 1) * pageSize
+          setProducts(cached.slice(skip, skip + pageSize).map(fromCachedPosProduct))
           setTotalProductPages(totalPages)
         }
       }
@@ -245,7 +249,7 @@ export function usePosProducts(options: UsePosProductsOptions): UsePosProductsRe
     } finally {
       setProductsLoading(false)
     }
-  }, [isOnline])
+  }, [isOnline, pageSize])
 
   // ── Debounced fetch effect ──
   useEffect(() => {
