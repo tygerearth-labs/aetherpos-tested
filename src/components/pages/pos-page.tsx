@@ -51,8 +51,12 @@ import {
   User, UserPlus, Coins, Wifi, WifiOff, RefreshCw, CloudOff, Tag, AlertTriangle,
   ChevronLeft, ChevronRight, Pencil, History, Clock, Printer,
   LayoutGrid, Layers, Banknote, HandCoins, QrCode, CreditCard, ArrowLeftRight,
-  ChevronDown, Store, Calendar, TrendingUp, ScanLine, Database,
+  ChevronDown, Store, Calendar, TrendingUp, ScanLine, Database, Eraser, Phone,
 } from 'lucide-react'
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { cn } from '@/lib/utils'
 import { usePageStore } from '@/hooks/use-page-store'
@@ -96,7 +100,8 @@ export default function PosPage() {
     isOnline,
     onAddToCart: (product, qty, variant) => cart.addToCart(product, qty, variant),
     onOpenVariantPicker: (product) => products.openVariantPicker(product),
-    pageSize: isMobile ? 10 : undefined,
+    // Max 20 products per page on desktop (mobile uses compact 10)
+    pageSize: isMobile ? 10 : 20,
   })
 
   const calcPromo: CalcPromo | null = selectedPromo
@@ -190,7 +195,7 @@ export default function PosPage() {
             isOnline={isOnline}
           />
 
-          {/* Row 2 — search + sync popover */}
+          {/* Row 2 — search + product count + sync popover */}
           <div className="flex items-center gap-2 h-12 px-3">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500 pointer-events-none" />
@@ -199,12 +204,32 @@ export default function PosPage() {
                 value={products.productSearch}
                 onChange={(e) => products.handleSearchChange(e.target.value)}
                 onKeyDown={products.handleSearchKeyDown}
-                className="pl-9 h-9 bg-white/[0.03] border-white/[0.06] text-sm text-slate-100 placeholder:text-slate-500 rounded-lg focus-visible:border-cyan-400/30"
+                className="pl-9 pr-9 h-9 bg-white/[0.03] border-white/[0.06] text-sm text-slate-100 placeholder:text-slate-500 rounded-lg focus-visible:border-cyan-400/30 focus-visible:bg-white/[0.05] transition-colors"
               />
-              <kbd className="hidden md:inline-flex absolute right-2.5 top-1/2 -translate-y-1/2 items-center gap-0.5 h-5 px-1.5 rounded bg-white/[0.04] border border-white/[0.05] text-[9px] font-medium text-slate-500 pointer-events-none">
-                <ScanLine className="h-2.5 w-2.5" /> Scan
-              </kbd>
+              {products.productSearch ? (
+                <button
+                  type="button"
+                  onClick={() => products.handleSearchChange('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 h-5 w-5 flex items-center justify-center rounded-md text-slate-500 hover:text-slate-200 hover:bg-white/[0.08] transition-colors"
+                  title="Bersihkan pencarian"
+                  aria-label="Bersihkan pencarian"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              ) : (
+                <kbd className="hidden md:inline-flex absolute right-2.5 top-1/2 -translate-y-1/2 items-center gap-0.5 h-5 px-1.5 rounded bg-white/[0.04] border border-white/[0.05] text-[9px] font-medium text-slate-500 pointer-events-none">
+                  <ScanLine className="h-2.5 w-2.5" /> Scan
+                </kbd>
+              )}
             </div>
+            {/* Product count summary — quiet context */}
+            {!products.productsLoading && (
+              <div className="hidden sm:flex items-center gap-1.5 h-9 px-2.5 rounded-lg bg-white/[0.03] border border-white/[0.05] text-[10px] text-slate-400 shrink-0">
+                <Package className="h-3 w-3 text-slate-500" />
+                <span className="tabular-nums font-medium text-slate-300">{products.products.length}</span>
+                <span className="text-slate-600">produk</span>
+              </div>
+            )}
             <SyncButton sync={sync} />
           </div>
 
@@ -545,17 +570,19 @@ function PosInfoStrip({ outletName, cashierName, now, todaySummary, isOnline }: 
     ? `Hari ini: ${todaySummary.count} tx · ${formatCurrency(todaySummary.total)}`
     : 'Hari ini: belum ada transaksi'
   return (
-    <div className="flex items-center gap-2 sm:gap-3 h-9 px-3 border-b border-white/[0.04] bg-deep-space/40 text-[11px]">
-      {/* Outlet name — primary identity (always visible) */}
-      <div className="flex items-center gap-1.5 min-w-0">
-        <Store className="h-3 w-3 text-slate-500 shrink-0" />
-        <span className="text-slate-200 font-medium truncate max-w-[140px]" title={outletName ?? 'Outlet'}>
+    <div className="flex items-center gap-2 sm:gap-2.5 h-9 px-3 border-b border-white/[0.04] bg-deep-space/40 text-[11px]">
+      {/* Outlet name — primary identity with subtle accent (always visible) */}
+      <div className="flex items-center gap-1.5 min-w-0 shrink-0">
+        <span className="h-4 w-4 rounded-md bg-cyan-500/10 ring-1 ring-cyan-500/15 flex items-center justify-center shrink-0">
+          <Store className="h-2.5 w-2.5 text-cyan-300" />
+        </span>
+        <span className="text-slate-100 font-semibold truncate max-w-[140px]" title={outletName ?? 'Outlet'}>
           {outletName ?? 'Outlet'}
         </span>
       </div>
       <span className="text-slate-700 hidden sm:inline">·</span>
       {/* Cashier name — icon-only popover on mobile, full on desktop */}
-      <div className="flex items-center gap-1.5 min-w-0">
+      <div className="flex items-center gap-1.5 min-w-0 shrink-0">
         {/* Mobile: tap icon → popover with cashier name */}
         <Popover>
           <PopoverTrigger asChild>
@@ -583,7 +610,7 @@ function PosInfoStrip({ outletName, cashierName, now, todaySummary, isOnline }: 
       </div>
       <span className="text-slate-700 hidden sm:inline">·</span>
       {/* Date & time — icon-only popover on mobile, full on desktop */}
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-1.5 shrink-0">
         {/* Mobile: tap icon → popover with date + time */}
         <Popover>
           <PopoverTrigger asChild>
@@ -609,9 +636,9 @@ function PosInfoStrip({ outletName, cashierName, now, todaySummary, isOnline }: 
         {/* Desktop: icon + text */}
         <Calendar className="h-3 w-3 text-slate-500 shrink-0 hidden sm:block" />
         <span className="text-slate-400 tabular-nums hidden sm:inline">{dateStr}</span>
-        <span className="text-slate-200 tabular-nums font-medium hidden sm:inline">{timeStr}</span>
+        <span className="text-slate-100 tabular-nums font-medium hidden sm:inline">{timeStr}</span>
       </div>
-      {/* Today's transactions — icon-only popover on mobile, full on desktop; right aligned */}
+      {/* Today's transactions — pill-style summary, right aligned */}
       <div className="ml-auto flex items-center gap-1.5 shrink-0">
         {/* Mobile: tap icon → popover with today's count + total */}
         <Popover>
@@ -643,24 +670,21 @@ function PosInfoStrip({ outletName, cashierName, now, todaySummary, isOnline }: 
             </div>
           </PopoverContent>
         </Popover>
-        {/* Desktop: icon + text */}
-        <TrendingUp className="h-3 w-3 text-cyan-400/70 shrink-0 hidden sm:block" />
-        <span className="text-slate-400 hidden sm:inline">Hari ini</span>
-        {todaySummary ? (
-          <span className="text-slate-200 font-medium tabular-nums hidden sm:inline">
-            {todaySummary.count} tx
-          </span>
-        ) : (
-          <span className="text-slate-600 tabular-nums hidden sm:inline">— tx</span>
-        )}
-        <span className="text-slate-700 hidden sm:inline">·</span>
-        {todaySummary ? (
-          <span className="text-cyan-300 font-semibold tabular-nums hidden sm:inline">{formatCurrency(todaySummary.total)}</span>
-        ) : (
-          <span className="text-slate-600 tabular-nums hidden sm:inline">—</span>
-        )}
+        {/* Desktop: pill-style summary with subtle accent bg */}
+        <div className="hidden sm:flex items-center gap-1.5 h-6 px-2 rounded-full bg-cyan-500/[0.07] ring-1 ring-cyan-500/10" title={todayTitle}>
+          <TrendingUp className="h-3 w-3 text-cyan-400/80 shrink-0" />
+          {todaySummary ? (
+            <>
+              <span className="text-slate-300 tabular-nums font-medium">{todaySummary.count} tx</span>
+              <span className="text-slate-700">·</span>
+              <span className="text-cyan-300 tabular-nums font-semibold">{formatCurrency(todaySummary.total)}</span>
+            </>
+          ) : (
+            <span className="text-slate-500 tabular-nums">Belum ada transaksi</span>
+          )}
+        </div>
         {/* Online/offline dot */}
-        <span className={cn('h-1.5 w-1.5 rounded-full ml-1', isOnline ? 'bg-emerald-400' : 'bg-red-400')} title={isOnline ? 'Online' : 'Offline'} />
+        <span className={cn('h-1.5 w-1.5 rounded-full ml-0.5 shrink-0', isOnline ? 'bg-emerald-400' : 'bg-red-400')} title={isOnline ? 'Online' : 'Offline'} />
       </div>
     </div>
   )
@@ -931,17 +955,60 @@ function CartPanel({ cart, customers, settings, selectedPromo, onSelectPromo, po
 }) {
   return (
     <div className="flex flex-col h-full bg-nebula">
-      {/* ── Section 1: Cart header (p-2.5, border-b) — Tunda + Reprint moved here ── */}
-      <div className="flex items-center justify-between gap-2 p-2.5 border-b border-white/[0.05] shrink-0">
+      {/* ── Section 1: Cart header — icon tile + title + count + Bersihkan/Pending/Reprint ── */}
+      <div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-white/[0.05] shrink-0">
         <div className="flex items-center gap-2 min-w-0">
-          <ShoppingBag className="h-4 w-4 text-slate-400 shrink-0" />
-          <span className="text-sm font-semibold text-slate-100">Keranjang</span>
-          {cart.cart.length > 0 && (
-            <span className="bg-white/[0.08] text-slate-300 text-[10px] px-1.5 py-0.5 rounded-md tabular-nums">{cart.cart.length}</span>
-          )}
+          <div className="h-7 w-7 rounded-lg bg-white/[0.04] border border-white/[0.05] flex items-center justify-center shrink-0">
+            <ShoppingBag className="h-3.5 w-3.5 text-slate-300" />
+          </div>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="text-sm font-semibold text-slate-100">Keranjang</span>
+            {cart.cart.length > 0 && (
+              <span className="bg-cyan-500/15 text-cyan-300 text-[10px] font-semibold px-1.5 py-0.5 rounded-md tabular-nums ring-1 ring-cyan-500/20">{cart.cart.length}</span>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-0.5 shrink-0">
-          {/* Pending list (Clock) — opens pending transactions drawer (preserved from V2 top header) */}
+          {/* Bersihkan — clear all cart items (only when cart has items) */}
+          {cart.cart.length > 0 && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 gap-1 rounded-md hover:bg-red-500/10 text-slate-500 hover:text-red-400 text-[10px] font-medium"
+                  title="Bersihkan keranjang"
+                >
+                  <Eraser className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Bersihkan</span>
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent className="bg-nebula border-white/[0.08]">
+                <AlertDialogHeader>
+                  <AlertDialogTitle className="flex items-center gap-2 text-slate-100">
+                    <span className="h-7 w-7 rounded-md bg-red-500/15 ring-1 ring-red-500/20 flex items-center justify-center">
+                      <Eraser className="h-3.5 w-3.5 text-red-400" />
+                    </span>
+                    Bersihkan Keranjang?
+                  </AlertDialogTitle>
+                  <AlertDialogDescription className="text-slate-400">
+                    Semua <span className="text-slate-200 font-medium">{cart.cart.length} item</span> di keranjang akan dihapus. Tindakan ini tidak dapat dibatalkan.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel className="bg-white/[0.04] hover:bg-white/[0.08] border-white/[0.06] text-slate-300 rounded-lg h-9">Batal</AlertDialogCancel>
+                  <AlertDialogAction
+                    className="bg-red-500 hover:bg-red-400 text-white rounded-lg h-9 font-medium"
+                    onClick={() => { cart.clearCart(); toast.success('Keranjang dibersihkan') }}
+                  >
+                    <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                    Bersihkan
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+          {/* Pending list (Clock) — opens pending transactions drawer */}
           <Button
             variant="ghost"
             size="icon"
@@ -954,7 +1021,7 @@ function CartPanel({ cart, customers, settings, selectedPromo, onSelectPromo, po
               <Badge variant="secondary" className="absolute -top-1 -right-1 h-4 min-w-4 px-1 text-[9px] justify-center bg-amber-500 text-white border border-nebula">{checkout.pendingCount}</Badge>
             )}
           </Button>
-          {/* Reprint (Printer) — cetak ulang struk (preserved from V2 top header) */}
+          {/* Reprint (Printer) — cetak ulang struk */}
           <Button
             variant="ghost"
             size="icon"
@@ -1128,7 +1195,7 @@ function CartPanel({ cart, customers, settings, selectedPromo, onSelectPromo, po
   )
 }
 
-// ==================== CART ITEM ROW (tight py-1.5, h-5 stepper, white line total) ====================
+// ==================== CART ITEM ROW (2-row layout: name+total | details+controls) ====================
 
 function CartItemRow({ item, cart, manualDiscountEnabled }: { item: CartItem; cart: ReturnType<typeof usePosCart>; manualDiscountEnabled: boolean }) {
   const key = cart.getCartKey(item.product.id, item.variant?.id || null)
@@ -1137,17 +1204,27 @@ function CartItemRow({ item, cart, manualDiscountEnabled }: { item: CartItem; ca
   const price = item.variant ? item.variant.price : item.product.price
   const effPrice = item.customPrice != null ? item.customPrice : price
   const stock = cart.getItemStock(item)
+  const hasCustomPrice = item.customPrice != null && item.customPrice < price
 
   return (
-    <div className="flex items-center gap-2 py-1.5 border-b border-white/[0.04] last:border-b-0">
-      {/* Left: name + sub-line (variant · price/pc) */}
-      <div className="flex-1 min-w-0">
-        <p className="text-xs font-medium text-slate-100 truncate leading-tight">{cart.getItemDisplayName(item)}</p>
-        <div className="flex items-center gap-1 mt-0.5">
+    <div className="group py-2 border-b border-white/[0.04] last:border-b-0 transition-colors hover:bg-white/[0.015] -mx-1 px-1 rounded-md">
+      {/* Row 1 — product name (left) + line total (right); primary info */}
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-xs font-medium text-slate-100 truncate leading-tight min-w-0" title={cart.getItemDisplayName(item)}>
+          {cart.getItemDisplayName(item)}
+        </p>
+        <span className="text-xs font-semibold text-white tabular-nums leading-tight shrink-0">
+          {formatCurrency(effPrice * item.qty)}
+        </span>
+      </div>
+
+      {/* Row 2 — variant + price/pc (left) + qty stepper + delete (right) */}
+      <div className="flex items-center justify-between gap-2 mt-1.5">
+        <div className="flex items-center gap-1 min-w-0">
           {item.variant && (
             <>
-              <span className="text-[10px] text-slate-500 truncate">{item.variant.name}</span>
-              <span className="text-slate-600 text-[10px]">·</span>
+              <span className="text-[10px] text-slate-500 truncate max-w-[80px]" title={item.variant.name}>{item.variant.name}</span>
+              <span className="text-slate-700 text-[10px] shrink-0">·</span>
             </>
           )}
           {/* SETTINGS CONTRACT: price-edit gated by outlet setting `manualDiscountEnabled`.
@@ -1166,124 +1243,168 @@ function CartItemRow({ item, cart, manualDiscountEnabled }: { item: CartItem; ca
           ) : manualDiscountEnabled ? (
             <button
               onClick={() => cart.startEditPrice(key, effPrice)}
-              className="inline-flex items-center gap-0.5 text-[10px] text-slate-500 hover:text-slate-300 transition-colors"
+              className={cn(
+                'inline-flex items-center gap-0.5 text-[10px] transition-colors hover:text-slate-200',
+                hasCustomPrice ? 'text-amber-400 font-medium' : 'text-slate-500'
+              )}
               title="Edit harga"
             >
-              {formatCurrency(effPrice)}/pc <Pencil className="h-2.5 w-2.5 opacity-50" />
+              {formatCurrency(effPrice)}/pc
+              {hasCustomPrice && <span className="text-[9px]">●</span>}
+              <Pencil className="h-2.5 w-2.5 opacity-40" />
             </button>
           ) : (
-            <span className="text-[10px] text-slate-500" title="Diskon manual dinonaktifkan di Pengaturan">
+            <span className={cn('text-[10px]', hasCustomPrice ? 'text-amber-400 font-medium' : 'text-slate-500')} title="Diskon manual dinonaktifkan di Pengaturan">
               {formatCurrency(effPrice)}/pc
             </span>
           )}
         </div>
-      </div>
 
-      {/* Middle: qty stepper [− h-5] N [+ h-5] */}
-      <div className="shrink-0 flex items-center">
-        {isEditingQty ? (
-          <Input
-            ref={cart.qtyInputRef}
-            type="number"
-            value={cart.editingQtyValue}
-            onChange={(e) => cart.setEditingQtyValue(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') cart.confirmEditQty(); if (e.key === 'Escape') cart.cancelEditQty() }}
-            onBlur={cart.confirmEditQty}
-            className="h-5 w-12 text-xs bg-white/[0.04] border-white/[0.06] text-white rounded-md text-center"
-          />
-        ) : (
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => cart.updateQty(item.product.id, Math.max(1, item.qty - 1), item.variant?.id || undefined)}
-              disabled={item.qty <= 1}
-              className="h-5 w-5 rounded bg-white/[0.06] hover:bg-white/[0.1] text-slate-300 flex items-center justify-center transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-              title="Kurangi"
-            >
-              <Minus className="h-2.5 w-2.5" />
-            </button>
-            <button
-              onClick={() => cart.startEditQty(item.product.id, item.qty)}
-              className="text-xs font-medium text-white w-4 text-center tabular-nums hover:text-cyan-400 transition-colors"
-              title="Edit qty"
-            >
-              {item.qty}
-            </button>
-            <button
-              type="button"
-              onClick={() => cart.updateQty(item.product.id, Math.min(stock, item.qty + 1), item.variant?.id || undefined)}
-              disabled={item.qty >= stock}
-              className="h-5 w-5 rounded bg-white/[0.06] hover:bg-white/[0.1] text-slate-300 flex items-center justify-center transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-              title="Tambah"
-            >
-              <Plus className="h-2.5 w-2.5" />
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Right: line total (WHITE) + delete */}
-      <div className="shrink-0 flex flex-col items-end gap-1">
-        <span className="text-xs font-semibold text-white tabular-nums leading-tight">{formatCurrency(effPrice * item.qty)}</span>
-        <button
-          onClick={() => cart.removeFromCart(item.product.id, item.variant?.id || undefined)}
-          className="text-slate-500 hover:text-red-400 transition-colors p-0.5"
-          title="Hapus"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
+        <div className="flex items-center gap-1 shrink-0">
+          {/* Qty stepper [− h-5] N [+ h-5] */}
+          {isEditingQty ? (
+            <Input
+              ref={cart.qtyInputRef}
+              type="number"
+              value={cart.editingQtyValue}
+              onChange={(e) => cart.setEditingQtyValue(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') cart.confirmEditQty(); if (e.key === 'Escape') cart.cancelEditQty() }}
+              onBlur={cart.confirmEditQty}
+              className="h-5 w-12 text-xs bg-white/[0.04] border-white/[0.06] text-white rounded-md text-center"
+            />
+          ) : (
+            <div className="flex items-center gap-0.5">
+              <button
+                type="button"
+                onClick={() => cart.updateQty(item.product.id, Math.max(1, item.qty - 1), item.variant?.id || undefined)}
+                disabled={item.qty <= 1}
+                className="h-5 w-5 rounded bg-white/[0.06] hover:bg-white/[0.12] text-slate-300 hover:text-white flex items-center justify-center transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                title="Kurangi"
+              >
+                <Minus className="h-2.5 w-2.5" />
+              </button>
+              <button
+                onClick={() => cart.startEditQty(item.product.id, item.qty)}
+                className="text-xs font-semibold text-white w-6 text-center tabular-nums hover:text-cyan-400 transition-colors rounded"
+                title="Edit qty"
+              >
+                {item.qty}
+              </button>
+              <button
+                type="button"
+                onClick={() => cart.updateQty(item.product.id, Math.min(stock, item.qty + 1), item.variant?.id || undefined)}
+                disabled={item.qty >= stock}
+                className="h-5 w-5 rounded bg-white/[0.06] hover:bg-white/[0.12] text-slate-300 hover:text-white flex items-center justify-center transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                title="Tambah"
+              >
+                <Plus className="h-2.5 w-2.5" />
+              </button>
+            </div>
+          )}
+          {/* Delete — subtle by default, prominent on hover */}
+          <button
+            onClick={() => cart.removeFromCart(item.product.id, item.variant?.id || undefined)}
+            className="h-5 w-5 rounded text-slate-600 hover:text-red-400 hover:bg-red-500/10 flex items-center justify-center transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+            title="Hapus item"
+            aria-label={`Hapus ${cart.getItemDisplayName(item)}`}
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
+        </div>
       </div>
     </div>
   )
 }
 
-// ==================== CUSTOMER SELECTOR (compact, p-2.5, avatar h-7) ====================
+// ==================== CUSTOMER SELECTOR (detailed card with avatar, whatsapp, points) ====================
 
 function CustomerSelector({ customers }: { customers: ReturnType<typeof usePosCustomers> }) {
   return (
     <div className="p-2.5 border-b border-white/[0.05] shrink-0">
       {customers.selectedCustomer ? (
-        <div className="flex items-center justify-between gap-2">
+        /* Selected customer card — detailed view with avatar, name, whatsapp, points */
+        <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-white/[0.03] border border-white/[0.05]">
           <div className="flex items-center gap-2 min-w-0">
-            <div className="h-7 w-7 rounded-md bg-white/[0.06] flex items-center justify-center shrink-0">
-              <User className="h-3.5 w-3.5 text-slate-300" />
+            {/* Avatar with initial — primary identity */}
+            <div className="h-8 w-8 rounded-full bg-gradient-to-br from-cyan-500/20 to-cyan-500/5 ring-1 ring-cyan-500/20 flex items-center justify-center shrink-0">
+              <span className="text-xs font-semibold text-cyan-200">
+                {customers.selectedCustomer.name.charAt(0).toUpperCase()}
+              </span>
             </div>
-            <div className="min-w-0">
-              <p className="text-xs font-medium text-white truncate leading-tight">{customers.selectedCustomer.name}</p>
-              <p className="text-[10px] text-slate-400 flex items-center gap-1 leading-tight">
-                <Coins className="h-2.5 w-2.5 text-slate-400" />
-                {customers.selectedCustomer.points} points
-                {customers.selectedCustomer.isLocal && <Badge variant="outline" className="ml-1 text-[9px] py-0 px-1 h-3.5 bg-white/[0.04] border-white/[0.06] text-slate-300">Offline</Badge>}
-              </p>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <p className="text-xs font-semibold text-white truncate leading-tight">{customers.selectedCustomer.name}</p>
+                {customers.selectedCustomer.isLocal && (
+                  <Badge variant="outline" className="text-[9px] py-0 px-1 h-3.5 bg-amber-500/10 border-amber-500/20 text-amber-300 shrink-0">Offline</Badge>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-slate-400">
+                {customers.selectedCustomer.whatsapp ? (
+                  <span className="flex items-center gap-0.5 truncate tabular-nums" title={customers.selectedCustomer.whatsapp}>
+                    <Phone className="h-2.5 w-2.5 shrink-0" />
+                    {customers.selectedCustomer.whatsapp}
+                  </span>
+                ) : (
+                  <span className="text-slate-600 italic">Tanpa kontak</span>
+                )}
+                <span className="text-slate-700 shrink-0">·</span>
+                <span className="flex items-center gap-0.5 shrink-0 tabular-nums" title="Loyalty points">
+                  <Coins className="h-2.5 w-2.5 text-amber-400/80" />
+                  <span className="text-amber-300 font-medium">{customers.selectedCustomer.points}</span>
+                </span>
+              </div>
             </div>
           </div>
-          <Button variant="ghost" size="icon" className="h-6 w-6 text-slate-500 hover:text-white hover:bg-white/[0.06] shrink-0" onClick={() => customers.setSelectedCustomer(null)}>
+          <Button variant="ghost" size="icon" className="h-6 w-6 text-slate-500 hover:text-red-400 hover:bg-red-500/10 shrink-0" onClick={() => customers.setSelectedCustomer(null)} title="Hapus pelanggan">
             <X className="h-3 w-3" />
           </Button>
         </div>
       ) : (
+        /* No customer — search + add button */
         <div className="flex gap-2">
-          <Input
-            placeholder="Cari pelanggan…"
-            value={customers.customerSearch}
-            onChange={(e) => { customers.setCustomerSearch(e.target.value); customers.setCustomerDropdownOpen(true) }}
-            className="h-8 text-xs bg-white/[0.03] border-white/[0.06] text-white placeholder:text-slate-500 rounded-md"
-          />
-          <Button variant="outline" size="icon" className="h-8 w-8 bg-white/[0.04] hover:bg-white/[0.08] border-white/[0.06] text-slate-300 shrink-0" onClick={() => customers.setAddCustomerOpen(true)} title="Tambah pelanggan">
+          <div className="relative flex-1">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-500 pointer-events-none" />
+            <Input
+              placeholder="Cari pelanggan…"
+              value={customers.customerSearch}
+              onChange={(e) => { customers.setCustomerSearch(e.target.value); customers.setCustomerDropdownOpen(true) }}
+              className="h-8 pl-8 text-xs bg-white/[0.03] border-white/[0.06] text-white placeholder:text-slate-500 rounded-md focus-visible:border-cyan-400/30"
+            />
+          </div>
+          <Button variant="outline" size="icon" className="h-8 w-8 bg-white/[0.04] hover:bg-white/[0.08] border-white/[0.06] text-slate-300 hover:text-cyan-300 shrink-0" onClick={() => customers.setAddCustomerOpen(true)} title="Tambah pelanggan">
             <UserPlus className="h-3.5 w-3.5" />
           </Button>
         </div>
       )}
+      {/* Customer dropdown list — detailed rows with avatar, name, contact, points */}
       {customers.customerDropdownOpen && !customers.selectedCustomer && customers.filteredCustomers.length > 0 && (
-        <div className="mt-1.5 border border-white/[0.06] rounded-md max-h-40 overflow-y-auto bg-nebula">
+        <div className="mt-1.5 border border-white/[0.06] rounded-md max-h-56 overflow-y-auto bg-nebula shadow-lg">
           {customers.filteredCustomers.slice(0, 8).map((c) => (
             <button
               key={c.id}
-              className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-white/[0.06] text-left text-slate-200 first:rounded-t-md last:rounded-b-md transition-colors"
+              className="w-full flex items-center gap-2 px-2 py-1.5 hover:bg-white/[0.06] text-left first:rounded-t-md last:rounded-b-md transition-colors"
               onClick={() => { customers.setSelectedCustomer(c); customers.setCustomerDropdownOpen(false); customers.setCustomerSearch('') }}
             >
-              <span className="text-xs">{c.name}</span>
-              {c.isLocal && <Badge variant="outline" className="text-[9px] py-0 px-1 h-3.5 bg-white/[0.04] border-white/[0.06] text-slate-300">Offline</Badge>}
+              {/* Mini avatar with initial */}
+              <div className="h-6 w-6 rounded-full bg-white/[0.05] ring-1 ring-white/[0.06] flex items-center justify-center shrink-0">
+                <span className="text-[10px] font-semibold text-slate-300">{c.name.charAt(0).toUpperCase()}</span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-medium text-slate-100 truncate leading-tight">{c.name}</p>
+                <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-slate-500">
+                  {c.whatsapp ? (
+                    <span className="tabular-nums truncate">{c.whatsapp}</span>
+                  ) : (
+                    <span className="text-slate-600 italic">Tanpa kontak</span>
+                  )}
+                  <span className="text-slate-700 shrink-0">·</span>
+                  <span className="flex items-center gap-0.5 shrink-0 tabular-nums">
+                    <Coins className="h-2 w-2 text-amber-400/70" />
+                    {c.points}
+                  </span>
+                </div>
+              </div>
+              {c.isLocal && <Badge variant="outline" className="text-[9px] py-0 px-1 h-3.5 bg-amber-500/10 border-amber-500/20 text-amber-300 shrink-0">Offline</Badge>}
             </button>
           ))}
         </div>
