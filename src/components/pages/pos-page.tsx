@@ -13,11 +13,11 @@
  *   - usePosCart      → cart + shared calc engine (PR 3 service charge + rounding)
  *   - usePosCheckout  → checkout + transactionOutbox (PR 3 localTransactionId)
  *
- * V3 LAYOUT (POS-V3-PREMIUM) — premium compact, dark luxury:
- *   - Fixed 2-row header: search dominant + tiny sync pill (Tunda/Reprint moved to cart header)
- *   - Short vertical product mini-cards (5-6 cols, ~108px tall, 36px thumbnail)
+ * V6 LAYOUT — Header + Products (75%) | Cart full-height (25%):
+ *   - Left 75%: header (info strip + search + categories) + product grid (scrollable)
+ *   - Right 25%: cart panel spanning full height (header + customer + items + summary + actions)
+ *   - Product cards: prominent image area (h-16) + name/SKU + price/stock
  *   - White prices (hero via weight/contrast, NOT amber)
- *   - Narrower cart panel (320px) with 5 sections incl. cart header
  *   - Soft amber for active states; solid amber reserved for Bayar/Proses Pembayaran ONLY
  *   - Quiet, dense, mature typography; thin borders; no glow/gradient
  *
@@ -172,78 +172,71 @@ export default function PosPage() {
   }, [checkout.receiptDialogOpen, checkout.checkoutResult, fetchTodaySummary])
 
   return (
-    <div className="flex flex-col h-full bg-deep-space">
+    <div className="flex h-full bg-deep-space overflow-hidden">
       {/* ═══════════════════════════════════════════════════════════
-          HEADER — V4 (3 rows)
-          Row 1: Info strip — Outlet · Cashier · Date/Time · Today's tx
-          Row 2: Search (dominant) + utility icons (sync popover)
-          Row 3: Segmented category chips (subtle dark chip active)
+          LAYOUT V6 — Header + Products (75%) | Cart full-height (25%)
+          Left column: header (info+search+categories) + product grid
+          Right column: cart panel spanning full height
           ═══════════════════════════════════════════════════════════ */}
-      <div className="sticky top-0 z-30 shrink-0 bg-nebula/95 backdrop-blur-xl border-b border-white/[0.05]">
-        {/* Row 1 — Info strip (h-9, quiet) */}
-        <PosInfoStrip
-          outletName={settings.outletInfo?.name ?? settings.settings.receiptBusinessName}
-          cashierName={session?.user?.name ?? null}
-          now={now}
-          todaySummary={todaySummary}
-          isOnline={isOnline}
-        />
+      <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
+        {/* HEADER — V6 (3 rows, scoped to left 75%) */}
+        <div className="sticky top-0 z-30 shrink-0 bg-nebula/95 backdrop-blur-xl border-b border-white/[0.05]">
+          {/* Row 1 — Info strip (h-9, quiet) */}
+          <PosInfoStrip
+            outletName={settings.outletInfo?.name ?? settings.settings.receiptBusinessName}
+            cashierName={session?.user?.name ?? null}
+            now={now}
+            todaySummary={todaySummary}
+            isOnline={isOnline}
+          />
 
-        {/* Row 2 — search + sync popover */}
-        <div className="flex items-center gap-2 h-12 px-3">
-          {/* Search — thinner h-9, dominant, with scan icon hint */}
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500 pointer-events-none" />
-            <Input
-              placeholder="Cari produk atau SKU…"
-              value={products.productSearch}
-              onChange={(e) => products.handleSearchChange(e.target.value)}
-              onKeyDown={products.handleSearchKeyDown}
-              className="pl-9 h-9 bg-white/[0.03] border-white/[0.06] text-sm text-slate-100 placeholder:text-slate-500 rounded-lg focus-visible:border-cyan-400/30"
-            />
-            <kbd className="hidden md:inline-flex absolute right-2.5 top-1/2 -translate-y-1/2 items-center gap-0.5 h-5 px-1.5 rounded bg-white/[0.04] border border-white/[0.05] text-[9px] font-medium text-slate-500 pointer-events-none">
-              <ScanLine className="h-2.5 w-2.5" /> Scan
-            </kbd>
+          {/* Row 2 — search + sync popover */}
+          <div className="flex items-center gap-2 h-12 px-3">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500 pointer-events-none" />
+              <Input
+                placeholder="Cari produk atau SKU…"
+                value={products.productSearch}
+                onChange={(e) => products.handleSearchChange(e.target.value)}
+                onKeyDown={products.handleSearchKeyDown}
+                className="pl-9 h-9 bg-white/[0.03] border-white/[0.06] text-sm text-slate-100 placeholder:text-slate-500 rounded-lg focus-visible:border-cyan-400/30"
+              />
+              <kbd className="hidden md:inline-flex absolute right-2.5 top-1/2 -translate-y-1/2 items-center gap-0.5 h-5 px-1.5 rounded bg-white/[0.04] border border-white/[0.05] text-[9px] font-medium text-slate-500 pointer-events-none">
+                <ScanLine className="h-2.5 w-2.5" /> Scan
+              </kbd>
+            </div>
+            <SyncButton sync={sync} />
           </div>
 
-          {/* Sync popover — rich offline context */}
-          <SyncButton sync={sync} />
+          {/* Row 3 — segmented category chips */}
+          <CategoryFilter
+            categories={products.categories}
+            selected={products.selectedCategoryId}
+            onSelect={products.handleCategorySelect}
+          />
         </div>
 
-        {/* Row 3 — segmented category chips (subtle dark chip active) */}
-        <CategoryFilter
-          categories={products.categories}
-          selected={products.selectedCategoryId}
-          onSelect={products.handleCategorySelect}
-        />
-      </div>
-
-      {/* ── Offline banner ── */}
-      {!isOnline && (
-        <div className="flex items-center gap-2 px-4 py-2 bg-red-500/10 border-b border-red-500/20 text-red-400 text-sm shrink-0">
-          <CloudOff className="h-4 w-4 shrink-0" />
-          <span>Mode Offline — transaksi tersimpan lokal dan akan disinkronkan saat online</span>
-        </div>
-      )}
-
-      {/* ── Deleted product warnings ── */}
-      {cart.deletedCartWarnings.length > 0 && (
-        <div className="flex items-start gap-2 px-4 py-2 bg-amber-500/10 border-b border-amber-500/20 text-amber-400 text-sm shrink-0">
-          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
-          <div>
-            <p className="font-medium">Produk dalam keranjang tidak lagi tersedia:</p>
-            <p className="text-xs">{cart.deletedCartWarnings.join(', ')}</p>
+        {/* Offline banner */}
+        {!isOnline && (
+          <div className="flex items-center gap-2 px-4 py-2 bg-red-500/10 border-b border-red-500/20 text-red-400 text-sm shrink-0">
+            <CloudOff className="h-4 w-4 shrink-0" />
+            <span>Mode Offline — transaksi tersimpan lokal dan akan disinkronkan saat online</span>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* ═══════════════════════════════════════════════════════════
-          MAIN CONTENT — products (left, 5-6 cols) + cart (right, 320px)
-          ═══════════════════════════════════════════════════════════ */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* ── Left: products ── */}
+        {/* Deleted product warnings */}
+        {cart.deletedCartWarnings.length > 0 && (
+          <div className="flex items-start gap-2 px-4 py-2 bg-amber-500/10 border-b border-amber-500/20 text-amber-400 text-sm shrink-0">
+            <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+            <div>
+              <p className="font-medium">Produk dalam keranjang tidak lagi tersedia:</p>
+              <p className="text-xs">{cart.deletedCartWarnings.join(', ')}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Product workspace — scrollable grid */}
         <div className="flex-1 flex flex-col overflow-hidden">
-          {/* Product grid — the only thing that scrolls */}
           <ScrollArea className="flex-1">
             {products.productsLoading ? (
               <div className="flex items-center justify-center h-64">
@@ -258,12 +251,11 @@ export default function PosPage() {
               </div>
             ) : (
               <>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 p-3 pb-40 md:pb-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5 p-3 pb-40 md:pb-3">
                   {products.products.map((product) => (
                     <ProductCard key={product.id} product={product} onClick={() => handleProductClick(product)} />
                   ))}
                 </div>
-                {/* Footer count — fills the empty area below grid */}
                 <div className="px-3 py-3 flex items-center justify-center gap-2 text-[10px] text-slate-600">
                   <span className="h-px flex-1 max-w-12 bg-white/[0.04]" />
                   <Package className="h-3 w-3" />
@@ -287,24 +279,24 @@ export default function PosPage() {
             </div>
           )}
         </div>
-
-        {/* ── Right: cart (desktop, 320px) / hidden on mobile ── */}
-        {!isMobile && (
-          <div className="w-[320px] border-l border-white/[0.05] flex flex-col bg-nebula shrink-0">
-            <CartPanel
-              cart={cart}
-              customers={customers}
-              settings={settings}
-              selectedPromo={selectedPromo}
-              onSelectPromo={setSelectedPromo}
-              pointsToUse={pointsToUse}
-              onPointsChange={(v) => setPointsToUse(Math.min(Number(v) || 0, cart.maxPointsToUse))}
-              checkout={checkout}
-              onCheckout={checkout.openPaymentDialog}
-            />
-          </div>
-        )}
       </div>
+
+      {/* ═══ RIGHT COLUMN — Cart full-height (25%, desktop only) ═══ */}
+      {!isMobile && (
+        <div className="w-1/4 min-w-[360px] max-w-[460px] border-l border-white/[0.05] flex flex-col bg-nebula shrink-0">
+          <CartPanel
+            cart={cart}
+            customers={customers}
+            settings={settings}
+            selectedPromo={selectedPromo}
+            onSelectPromo={setSelectedPromo}
+            pointsToUse={pointsToUse}
+            onPointsChange={(v) => setPointsToUse(Math.min(Number(v) || 0, cart.maxPointsToUse))}
+            checkout={checkout}
+            onCheckout={checkout.openPaymentDialog}
+          />
+        </div>
+      )}
 
       {/* ── Mobile floating Bayar button (fixed, ABOVE bottom nav) ── */}
       {isMobile && cart.cart.length > 0 && (
@@ -866,47 +858,45 @@ function ProductCard({ product, onClick }: { product: Product; onClick: () => vo
       onClick={onClick}
       disabled={outOfStock}
       className={cn(
-        'group flex flex-col gap-1 p-2 rounded-lg border text-left transition-all w-full h-[116px]',
+        'group flex flex-col gap-1.5 p-2 rounded-lg border text-left transition-all w-full h-[156px]',
         'border-white/[0.05] bg-white/[0.02]',
         'hover:bg-white/[0.05] hover:border-white/[0.1] hover:-translate-y-px hover:shadow-[0_4px_12px_rgba(0,0,0,0.25)]',
         'focus-visible:outline-none focus-visible:border-cyan-400/40 focus-visible:bg-white/[0.05]',
         outOfStock && 'opacity-45 cursor-not-allowed hover:bg-white/[0.02] hover:border-white/[0.05] hover:translate-y-0 hover:shadow-none'
       )}
     >
-      {/* Top row — thumbnail (36px) + variant badge (if any) */}
-      <div className="flex items-start justify-between gap-1">
-        <div className="h-9 w-9 rounded-md shrink-0 overflow-hidden bg-white/[0.05] flex items-center justify-center ring-1 ring-white/[0.03]">
-          {product.image ? (
-            <img src={product.image} alt={product.name} className="h-full w-full object-cover" />
-          ) : (
-            <div className="h-full w-full bg-gradient-to-br from-white/[0.08] to-white/[0.02] flex items-center justify-center">
-              <PackageSearch className="h-4 w-4 text-slate-400" />
-            </div>
-          )}
-        </div>
-        {/* Variant badge — explicit "N Varian" */}
+      {/* Image area — prominent top section (h-16, full-width, centered) */}
+      <div className="h-16 w-full rounded-md overflow-hidden bg-white/[0.03] flex items-center justify-center ring-1 ring-white/[0.04] relative shrink-0">
+        {product.image ? (
+          <img src={product.image} alt={product.name} className="h-full w-full object-cover" />
+        ) : (
+          <div className="h-full w-full bg-gradient-to-br from-white/[0.06] to-white/[0.01] flex items-center justify-center">
+            <PackageSearch className="h-6 w-6 text-slate-500" />
+          </div>
+        )}
+        {/* Variant badge — overlaid top-right on image */}
         {product.hasVariants && (
-          <span className="inline-flex items-center gap-0.5 text-[9px] font-medium text-cyan-300 bg-cyan-500/10 px-1.5 py-0.5 rounded-md shrink-0">
+          <span className="absolute top-1 right-1 inline-flex items-center gap-0.5 text-[9px] font-medium text-cyan-300 bg-cyan-500/15 backdrop-blur-sm px-1.5 py-0.5 rounded-md ring-1 ring-cyan-500/20">
             <Layers className="h-2.5 w-2.5" />
             {product._variantCount} Varian
           </span>
         )}
       </div>
 
-      {/* Name — 1-2 lines, small medium (primary identity) */}
-      <p className="text-[11px] font-medium text-slate-100 line-clamp-2 leading-tight min-h-[28px]">
-        {product.name}
-      </p>
-
-      {/* Secondary identity — SKU (mono, subtle) */}
-      {product.sku && (
-        <p className="text-[9px] text-slate-500 font-mono truncate -mt-0.5" title={product.sku}>
-          {product.sku}
+      {/* Name + SKU — middle section */}
+      <div className="flex-1 min-w-0">
+        <p className="text-[11px] font-medium text-slate-100 line-clamp-1 leading-tight" title={product.name}>
+          {product.name}
         </p>
-      )}
+        {product.sku && (
+          <p className="text-[9px] text-slate-500 font-mono truncate mt-0.5" title={product.sku}>
+            {product.sku}
+          </p>
+        )}
+      </div>
 
-      {/* Bottom row — price (hero, WHITE bold) kiri + stock state kanan */}
-      <div className="flex items-end justify-between gap-1 mt-auto">
+      {/* Price + stock — bottom row */}
+      <div className="flex items-end justify-between gap-1 shrink-0">
         {product.hasVariants ? (
           <span className="text-[10px] text-slate-400 italic">Pilih varian</span>
         ) : (
@@ -914,7 +904,6 @@ function ProductCard({ product, onClick }: { product: Product; onClick: () => vo
             {formatCurrency(product.price)}
           </span>
         )}
-        {/* Stock state — explicit label + colored dot */}
         {stockState && (
           <span className={cn('inline-flex items-center gap-1 text-[10px] font-medium shrink-0 tabular-nums', stockState.color)}>
             <span className={cn('h-1.5 w-1.5 rounded-full', stockState.dot)} />
@@ -926,7 +915,7 @@ function ProductCard({ product, onClick }: { product: Product; onClick: () => vo
   )
 }
 
-// ==================== CART PANEL (320px, 5 sections incl. cart header) ====================
+// ==================== CART PANEL (25% full-height, 5 sections incl. cart header) ====================
 
 function CartPanel({ cart, customers, settings, selectedPromo, onSelectPromo, pointsToUse, onPointsChange, checkout, onCheckout, isMobile }: {
   cart: ReturnType<typeof usePosCart>
