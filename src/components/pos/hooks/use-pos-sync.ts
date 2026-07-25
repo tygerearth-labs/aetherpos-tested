@@ -226,11 +226,24 @@ export function usePosSync(options?: UsePosSyncOptions): UsePosSyncReturn {
   }, [runSync])
 
   // ── Manual sync handler ──
+  // When there are pending/failed outbox rows, push them.
+  // When there's nothing to push, treat the click as a manual refresh:
+  // pull fresh products/customers/categories from server + update
+  // lastSyncAt so the "Terakhir sync" label reflects the user's action.
   const handleSync = useCallback(async () => {
     if (!navigator.onLine) { toast.info('Tidak ada koneksi internet'); return }
-    if (unsyncedCount === 0) { toast.info('Tidak ada transaksi pending'); return }
+    if (unsyncedCount === 0) {
+      // Nothing to push — refresh local cache from server + stamp timestamp.
+      setLastSyncAt(Date.now())
+      onRefreshProducts?.()
+      onRefreshCustomers?.()
+      onRefreshCategories?.()
+      broadcastRef.current?.postMessage({ type: 'sync-complete' })
+      toast.success('Data diperbarui')
+      return
+    }
     await runSync()
-  }, [unsyncedCount, runSync])
+  }, [unsyncedCount, runSync, onRefreshProducts, onRefreshCustomers, onRefreshCategories])
 
   return {
     isOnline, syncing, syncStatus, unsyncedCount,

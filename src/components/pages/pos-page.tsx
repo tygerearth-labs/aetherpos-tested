@@ -47,7 +47,7 @@ import {
 } from '@/components/ui/popover'
 import { ReceiptDialog } from '@/components/pos/receipt-dialog'
 import {
-  Search, Plus, Minus, Trash2, ShoppingCart, ShoppingBag, Package, Loader2, Check, X,
+  Search, Plus, Minus, Trash2, ShoppingCart, ShoppingBag, Package, PackageSearch, Loader2, Check, X,
   User, UserPlus, Coins, Wifi, WifiOff, RefreshCw, CloudOff, Tag, AlertTriangle,
   ChevronLeft, ChevronRight, Pencil, History, Clock, Printer,
   LayoutGrid, Layers, Banknote, QrCode, CreditCard, ArrowLeftRight,
@@ -179,7 +179,7 @@ export default function PosPage() {
           Row 2: Search (dominant) + utility icons (sync popover)
           Row 3: Segmented category chips (subtle dark chip active)
           ═══════════════════════════════════════════════════════════ */}
-      <div className="shrink-0 bg-nebula/80 backdrop-blur-xl border-b border-white/[0.05]">
+      <div className="sticky top-0 z-30 shrink-0 bg-nebula/95 backdrop-blur-xl border-b border-white/[0.05]">
         {/* Row 1 — Info strip (h-9, quiet) */}
         <PosInfoStrip
           outletName={settings.outletInfo?.name ?? settings.settings.receiptBusinessName}
@@ -258,7 +258,7 @@ export default function PosPage() {
               </div>
             ) : (
               <>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 p-3 pb-24 md:pb-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 p-3 pb-40 md:pb-3">
                   {products.products.map((product) => (
                     <ProductCard key={product.id} product={product} onClick={() => handleProductClick(product)} />
                   ))}
@@ -306,9 +306,9 @@ export default function PosPage() {
         )}
       </div>
 
-      {/* ── Mobile floating Bayar button (fixed, floating pill with cart total) ── */}
+      {/* ── Mobile floating Bayar button (fixed, ABOVE bottom nav) ── */}
       {isMobile && cart.cart.length > 0 && (
-        <div className="fixed bottom-4 left-3 right-3 z-50 flex justify-center pointer-events-none mobile-safe-bottom">
+        <div className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] left-3 right-3 z-50 flex justify-center pointer-events-none">
           <Button
             className="w-full max-w-md bg-amber-500 hover:bg-amber-400 text-white rounded-2xl h-14 font-semibold transition-all flex items-center justify-between px-5 shadow-[0_8px_24px_rgba(245,158,11,0.35)] hover:shadow-[0_10px_30px_rgba(245,158,11,0.45)] hover:-translate-y-0.5 pointer-events-auto"
             onClick={() => checkout.setMobileCartOpen(true)}
@@ -562,23 +562,97 @@ function PosInfoStrip({ outletName, cashierName, now, todaySummary, isOnline }: 
         </span>
       </div>
       <span className="text-slate-700 hidden sm:inline">·</span>
-      {/* Cashier name — icon only on mobile, full on desktop */}
-      <div className="flex items-center gap-1.5 min-w-0" title={cashierName ?? 'Kasir'}>
-        <User className="h-3 w-3 text-slate-500 shrink-0" />
-        <span className="text-slate-300 truncate max-w-[100px] hidden sm:inline">
+      {/* Cashier name — icon-only popover on mobile, full on desktop */}
+      <div className="flex items-center gap-1.5 min-w-0">
+        {/* Mobile: tap icon → popover with cashier name */}
+        <Popover>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className="sm:hidden flex items-center text-slate-400 hover:text-slate-200 active:scale-95 transition"
+              aria-label={`Kasir: ${cashierName ?? 'Kasir'}`}
+            >
+              <User className="h-3 w-3 text-slate-500" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="w-52 p-2.5 bg-nebula border-white/[0.08] text-slate-200" align="start">
+            <div className="flex items-center gap-1.5 text-[10px] text-slate-500 mb-0.5">
+              <User className="h-2.5 w-2.5" />
+              <span>Kasir</span>
+            </div>
+            <p className="text-sm text-slate-100 font-medium truncate">{cashierName ?? 'Kasir'}</p>
+          </PopoverContent>
+        </Popover>
+        {/* Desktop: icon + text */}
+        <User className="h-3 w-3 text-slate-500 shrink-0 hidden sm:block" />
+        <span className="text-slate-300 truncate max-w-[100px] hidden sm:inline" title={cashierName ?? 'Kasir'}>
           {cashierName ?? 'Kasir'}
         </span>
       </div>
       <span className="text-slate-700 hidden sm:inline">·</span>
-      {/* Date & time — icon only on mobile, full on desktop */}
-      <div className="flex items-center gap-1.5" title={`${dateStr} ${timeStr}`}>
-        <Calendar className="h-3 w-3 text-slate-500 shrink-0" />
+      {/* Date & time — icon-only popover on mobile, full on desktop */}
+      <div className="flex items-center gap-1.5">
+        {/* Mobile: tap icon → popover with date + time */}
+        <Popover>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className="sm:hidden flex items-center text-slate-400 hover:text-slate-200 active:scale-95 transition"
+              aria-label={`Tanggal: ${dateStr} ${timeStr}`}
+            >
+              <Calendar className="h-3 w-3 text-slate-500" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="w-56 p-2.5 bg-nebula border-white/[0.08] text-slate-200" align="center">
+            <div className="flex items-center gap-1.5 text-[10px] text-slate-500 mb-0.5">
+              <Calendar className="h-2.5 w-2.5" />
+              <span>Tanggal & Waktu</span>
+            </div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-sm text-slate-300">{dateStr}</span>
+              <span className="text-sm text-slate-100 font-medium tabular-nums">{timeStr}</span>
+            </div>
+          </PopoverContent>
+        </Popover>
+        {/* Desktop: icon + text */}
+        <Calendar className="h-3 w-3 text-slate-500 shrink-0 hidden sm:block" />
         <span className="text-slate-400 tabular-nums hidden sm:inline">{dateStr}</span>
         <span className="text-slate-200 tabular-nums font-medium hidden sm:inline">{timeStr}</span>
       </div>
-      {/* Today's transactions — icon only on mobile, full on desktop; right aligned */}
-      <div className="ml-auto flex items-center gap-1.5 shrink-0" title={todayTitle}>
-        <TrendingUp className="h-3 w-3 text-cyan-400/70 shrink-0" />
+      {/* Today's transactions — icon-only popover on mobile, full on desktop; right aligned */}
+      <div className="ml-auto flex items-center gap-1.5 shrink-0">
+        {/* Mobile: tap icon → popover with today's count + total */}
+        <Popover>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className="sm:hidden flex items-center text-cyan-400/80 hover:text-cyan-300 active:scale-95 transition"
+              aria-label={todayTitle}
+            >
+              <TrendingUp className="h-3 w-3 text-cyan-400/70" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="w-56 p-2.5 bg-nebula border-white/[0.08] text-slate-200" align="end">
+            <div className="flex items-center gap-1.5 text-[10px] text-slate-500 mb-1">
+              <TrendingUp className="h-2.5 w-2.5 text-cyan-400/70" />
+              <span>Transaksi Hari Ini</span>
+            </div>
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-xs text-slate-400">Jumlah</span>
+              <span className="text-sm text-slate-100 font-medium tabular-nums">
+                {todaySummary ? `${todaySummary.count} tx` : '— tx'}
+              </span>
+            </div>
+            <div className="flex items-baseline justify-between gap-2 mt-0.5">
+              <span className="text-xs text-slate-400">Total</span>
+              <span className="text-sm text-cyan-300 font-semibold tabular-nums">
+                {todaySummary ? formatCurrency(todaySummary.total) : '—'}
+              </span>
+            </div>
+          </PopoverContent>
+        </Popover>
+        {/* Desktop: icon + text */}
+        <TrendingUp className="h-3 w-3 text-cyan-400/70 shrink-0 hidden sm:block" />
         <span className="text-slate-400 hidden sm:inline">Hari ini</span>
         {todaySummary ? (
           <span className="text-slate-200 font-medium tabular-nums hidden sm:inline">
@@ -654,7 +728,7 @@ function SyncButton({ sync }: { sync: ReturnType<typeof usePosSync> }) {
             <RefreshCw className="h-3 w-3 text-slate-500 shrink-0" />
             <span className="text-slate-400">Terakhir sync</span>
             <span className="ml-auto text-slate-200 tabular-nums">
-              {lastSyncLabel ?? 'Belum pernah'}
+              {lastSyncLabel ?? 'Tidak Update'}
             </span>
           </div>
           {/* Pending count */}
@@ -670,7 +744,7 @@ function SyncButton({ sync }: { sync: ReturnType<typeof usePosSync> }) {
             size="sm"
             className="w-full h-7 text-xs rounded-md bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.06] text-slate-100"
             onClick={sync.handleSync}
-            disabled={sync.syncing || !sync.isOnline || sync.unsyncedCount === 0}
+            disabled={sync.syncing || !sync.isOnline}
           >
             {sync.syncing ? (
               <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> Menyinkronkan…</>
@@ -777,11 +851,6 @@ function CategoryFilter({ categories, selected, onSelect }: {
 function ProductCard({ product, onClick }: { product: Product; onClick: () => void }) {
   const outOfStock = !product.hasVariants && product.stock <= 0
   const lowStock = !product.hasVariants && product.stock > 0 && product.stock <= 5
-  const initials = product.name
-    .split(' ')
-    .slice(0, 2)
-    .map((w) => w.charAt(0).toUpperCase())
-    .join('')
 
   // Stock state — explicit color: emerald=safe, amber=low, red=empty
   const stockState = product.hasVariants
@@ -811,7 +880,7 @@ function ProductCard({ product, onClick }: { product: Product; onClick: () => vo
             <img src={product.image} alt={product.name} className="h-full w-full object-cover" />
           ) : (
             <div className="h-full w-full bg-gradient-to-br from-white/[0.08] to-white/[0.02] flex items-center justify-center">
-              <span className="text-[11px] font-bold text-slate-300 select-none uppercase tracking-wide">{initials || '?'}</span>
+              <PackageSearch className="h-4 w-4 text-slate-400" />
             </div>
           )}
         </div>
@@ -1346,6 +1415,18 @@ function PaymentDialogBody({ total, paymentMethod, paidAmount, availableMethods,
         <p className="text-2xl font-bold text-white mt-1 tabular-nums">{formatCurrency(total)}</p>
       </div>
 
+      {/* Selected method preview — large icon + label + instruction (NO duplicate amount).
+          Positioned directly below Total, above method choices. Non-CASH only. */}
+      {paymentMethod !== 'CASH' && (
+        <div className="flex flex-col items-center py-4 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+          <div className="h-14 w-14 rounded-2xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center mb-2">
+            <SelectedIcon className="h-7 w-7 text-slate-100" />
+          </div>
+          <p className="text-[10px] text-slate-400 uppercase tracking-wide">{selectedCfg?.label || paymentMethod}</p>
+          <p className="text-[11px] text-slate-500 mt-1.5 text-center max-w-[240px] leading-relaxed">{selectedCfg?.instruction}</p>
+        </div>
+      )}
+
       {/* Method selection — 2-col cards, distinct selected state (thick border + bg + check icon) */}
       <div>
         <Label className="text-slate-400 text-[10px] uppercase tracking-wide">Metode Pembayaran</Label>
@@ -1384,18 +1465,6 @@ function PaymentDialogBody({ total, paymentMethod, paidAmount, availableMethods,
           })}
         </div>
       </div>
-
-      {/* Selected method display — large icon + nominal (non-CASH) */}
-      {paymentMethod !== 'CASH' && (
-        <div className="flex flex-col items-center py-5 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-          <div className="h-16 w-16 rounded-2xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center mb-3">
-            <SelectedIcon className="h-8 w-8 text-slate-100" />
-          </div>
-          <p className="text-[10px] text-slate-400 uppercase tracking-wide">{selectedCfg?.label || paymentMethod}</p>
-          <p className="text-2xl font-bold text-white tabular-nums mt-1">{formatCurrency(total)}</p>
-          <p className="text-[11px] text-slate-500 mt-1.5 text-center max-w-[240px] leading-relaxed">{selectedCfg?.instruction}</p>
-        </div>
-      )}
 
       {/* Cash payment */}
       {paymentMethod === 'CASH' && (
