@@ -954,15 +954,15 @@ function CartPanel({ cart, customers, settings, selectedPromo, onSelectPromo, po
   isMobile?: boolean
 }) {
   return (
-    <div className="flex flex-col h-full bg-nebula">
-      {/* ── Section 1: Cart header — icon tile + title + count + Bersihkan/Pending/Reprint ── */}
-      <div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-white/[0.05] shrink-0">
+    <div className="flex flex-col h-full bg-gradient-to-b from-nebula to-deep-space/60">
+      {/* ── Section 1: Cart header — gradient surface, icon tile + title + count + actions ── */}
+      <div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-white/[0.05] shrink-0 bg-gradient-to-r from-white/[0.03] to-transparent">
         <div className="flex items-center gap-2 min-w-0">
-          <div className="h-7 w-7 rounded-lg bg-white/[0.04] border border-white/[0.05] flex items-center justify-center shrink-0">
-            <ShoppingBag className="h-3.5 w-3.5 text-slate-300" />
+          <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-cyan-500/20 to-cyan-500/5 ring-1 ring-cyan-500/20 flex items-center justify-center shrink-0 shadow-sm">
+            <ShoppingBag className="h-4 w-4 text-cyan-300" />
           </div>
           <div className="flex items-center gap-1.5 min-w-0">
-            <span className="text-sm font-semibold text-slate-100">Keranjang</span>
+            <span className="text-sm font-bold text-slate-100">Keranjang</span>
             {cart.cart.length > 0 && (
               <span className="bg-cyan-500/15 text-cyan-300 text-[10px] font-semibold px-1.5 py-0.5 rounded-md tabular-nums ring-1 ring-cyan-500/20">{cart.cart.length}</span>
             )}
@@ -1037,9 +1037,9 @@ function CartPanel({ cart, customers, settings, selectedPromo, onSelectPromo, po
       {/* ── Section 2: Customer (compact, p-2.5, border-b) ── */}
       <CustomerSelector customers={customers} />
 
-      {/* ── Section 3: Items (flex-1, scroll) ── */}
+      {/* ── Section 3: Items (flex-1, scroll) — card-based, not flat list ── */}
       <ScrollArea className="flex-1 min-h-0">
-        <div className="px-2.5">
+        <div className="px-2.5 py-2.5 space-y-2">
           {cart.cart.length === 0 ? (
             /* V4 — purposeful empty cart state */
             <div className="flex flex-col items-center justify-center py-10 px-3 gap-3 text-center">
@@ -1090,60 +1090,77 @@ function CartPanel({ cart, customers, settings, selectedPromo, onSelectPromo, po
         </div>
       </ScrollArea>
 
-      {/* ── Section 4: Discount / Promo (p-2.5, border-t, compact) ── */}
-      <div className="border-t border-white/[0.05] p-2.5 space-y-2 shrink-0">
-        <PromoSelector
-          promos={settings.availablePromos}
-          selected={selectedPromo}
-          onSelect={onSelectPromo}
-          subtotal={cart.subtotal}
-        />
+      {/* ── Section 4: Discount / Promo — elevated inner card ── */}
+      <div className="border-t border-white/[0.05] px-2.5 pt-2.5 pb-2 shrink-0">
+        <div className="rounded-lg bg-white/[0.02] border border-white/[0.04] p-2 space-y-2">
+          <PromoSelector
+            promos={settings.availablePromos}
+            selected={selectedPromo}
+            onSelect={onSelectPromo}
+            subtotal={cart.subtotal}
+          />
 
-        {customers.selectedCustomer && settings.settings.loyaltyEnabled && (
-          <div className="flex items-center gap-2">
-            <Coins className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-            <Label className="text-xs text-slate-400 shrink-0">Points ({customers.selectedCustomer.points})</Label>
-            <Input type="number" value={pointsToUse} onChange={(e) => onPointsChange(e.target.value)} className="h-7 flex-1 text-xs bg-white/[0.03] border-white/[0.06] text-white rounded-md min-w-0" max={cart.maxPointsToUse} />
-            <span className="text-xs text-slate-300 shrink-0 tabular-nums">-{formatCurrency(cart.pointsDiscount)}</span>
-          </div>
-        )}
+          {customers.selectedCustomer && settings.settings.loyaltyEnabled && (
+            <div className="flex items-center gap-2 pt-1.5 border-t border-white/[0.04]">
+              <span className="h-6 w-6 rounded-md bg-amber-500/10 ring-1 ring-amber-500/15 flex items-center justify-center shrink-0">
+                <Coins className="h-3 w-3 text-amber-400" />
+              </span>
+              <Label className="text-[10px] text-slate-400 shrink-0 uppercase tracking-wide">Points ({customers.selectedCustomer.points})</Label>
+              <Input type="number" value={pointsToUse} onChange={(e) => onPointsChange(e.target.value)} className="h-7 flex-1 text-xs bg-white/[0.04] border-white/[0.06] text-white rounded-md min-w-0 tabular-nums" max={cart.maxPointsToUse} />
+              <span className="text-xs text-amber-300 shrink-0 tabular-nums font-medium">-{formatCurrency(cart.pointsDiscount)}</span>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* ── Section 5: Summary + Action (p-2.5, border-t) ── */}
-      <div className="border-t border-white/[0.05] p-2.5 space-y-1 text-xs shrink-0">
-        {/* Summary — dense rows, minimal */}
-        <div className="flex justify-between">
-          <span className="text-slate-400">Subtotal</span>
-          <span className="text-slate-200 tabular-nums">{formatCurrency(cart.subtotal)}</span>
-        </div>
-        {cart.manualDiscountTotal > 0 && (
-          <div className="flex justify-between text-slate-300">
-            <span>Diskon Manual</span>
-            <span className="tabular-nums">-{formatCurrency(cart.manualDiscountTotal)}</span>
-          </div>
-        )}
-        {cart.pointsDiscount > 0 && (
-          <div className="flex justify-between text-slate-300">
-            <span>Points</span>
-            <span className="tabular-nums">-{formatCurrency(cart.pointsDiscount)}</span>
-          </div>
-        )}
-        {selectedPromo && cart.promoDiscount > 0 && (
-          <div className="flex justify-between text-slate-300">
-            <span>Promo ({selectedPromo.name})</span>
-            <span className="tabular-nums">-{formatCurrency(cart.promoDiscount)}</span>
-          </div>
-        )}
-        {cart.ppnAmount > 0 && (
+      {/* ── Section 5: Summary + Action — receipt-style elevated card with accent total ── */}
+      <div className="border-t border-white/[0.05] p-2.5 shrink-0">
+        {/* Summary card — elevated surface */}
+        <div className="rounded-xl bg-gradient-to-b from-white/[0.04] to-white/[0.02] border border-white/[0.06] p-2.5 space-y-1 text-xs shadow-md">
+          {/* Subtotal row */}
           <div className="flex justify-between">
-            <span className="text-slate-400">Pajak ({settings.settings.ppnRate}%)</span>
-            <span className="text-slate-200 tabular-nums">{formatCurrency(cart.ppnAmount)}</span>
+            <span className="text-slate-400">Subtotal</span>
+            <span className="text-slate-200 tabular-nums">{formatCurrency(cart.subtotal)}</span>
           </div>
-        )}
-        <Separator className="bg-white/[0.05] my-2" />
-        <div className="flex justify-between items-baseline">
-          <span className="text-sm font-bold text-slate-100">Total</span>
-          <span className="text-base font-bold text-white tabular-nums">{formatCurrency(cart.total)}</span>
+          {cart.manualDiscountTotal > 0 && (
+            <div className="flex justify-between text-amber-300">
+              <span className="flex items-center gap-1">
+                <span className="h-1 w-1 rounded-full bg-amber-400" />
+                Diskon Manual
+              </span>
+              <span className="tabular-nums">-{formatCurrency(cart.manualDiscountTotal)}</span>
+            </div>
+          )}
+          {cart.pointsDiscount > 0 && (
+            <div className="flex justify-between text-amber-300">
+              <span className="flex items-center gap-1">
+                <Coins className="h-2.5 w-2.5" />
+                Points
+              </span>
+              <span className="tabular-nums">-{formatCurrency(cart.pointsDiscount)}</span>
+            </div>
+          )}
+          {selectedPromo && cart.promoDiscount > 0 && (
+            <div className="flex justify-between text-amber-300">
+              <span className="flex items-center gap-1">
+                <Tag className="h-2.5 w-2.5" />
+                {selectedPromo.name}
+              </span>
+              <span className="tabular-nums">-{formatCurrency(cart.promoDiscount)}</span>
+            </div>
+          )}
+          {cart.ppnAmount > 0 && (
+            <div className="flex justify-between">
+              <span className="text-slate-400">Pajak ({settings.settings.ppnRate}%)</span>
+              <span className="text-slate-200 tabular-nums">{formatCurrency(cart.ppnAmount)}</span>
+            </div>
+          )}
+
+          {/* Total row — accent stripe + bold */}
+          <div className="flex justify-between items-baseline mt-2 pt-2 border-t border-white/[0.06]">
+            <span className="text-sm font-bold text-slate-100">Total</span>
+            <span className="text-lg font-bold text-white tabular-nums tracking-tight">{formatCurrency(cart.total)}</span>
+          </div>
         </div>
 
         {/* Action row — Tunda (secondary) + Bayar (dominant solid amber, 3 explicit states) */}
@@ -1195,7 +1212,7 @@ function CartPanel({ cart, customers, settings, selectedPromo, onSelectPromo, po
   )
 }
 
-// ==================== CART ITEM ROW (2-row layout: name+total | details+controls) ====================
+// ==================== CART ITEM ROW (card with thumbnail + depth, not flat) ====================
 
 function CartItemRow({ item, cart, manualDiscountEnabled }: { item: CartItem; cart: ReturnType<typeof usePosCart>; manualDiscountEnabled: boolean }) {
   const key = cart.getCartKey(item.product.id, item.variant?.id || null)
@@ -1205,111 +1222,138 @@ function CartItemRow({ item, cart, manualDiscountEnabled }: { item: CartItem; ca
   const effPrice = item.customPrice != null ? item.customPrice : price
   const stock = cart.getItemStock(item)
   const hasCustomPrice = item.customPrice != null && item.customPrice < price
+  const lineTotal = effPrice * item.qty
 
   return (
-    <div className="group py-2 border-b border-white/[0.04] last:border-b-0 transition-colors hover:bg-white/[0.015] -mx-1 px-1 rounded-md">
-      {/* Row 1 — product name (left) + line total (right); primary info */}
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-xs font-medium text-slate-100 truncate leading-tight min-w-0" title={cart.getItemDisplayName(item)}>
-          {cart.getItemDisplayName(item)}
-        </p>
-        <span className="text-xs font-semibold text-white tabular-nums leading-tight shrink-0">
-          {formatCurrency(effPrice * item.qty)}
-        </span>
+    <div
+      className={cn(
+        'group relative flex gap-2.5 p-2 rounded-lg border transition-all',
+        'bg-white/[0.025] border-white/[0.05] shadow-sm',
+        'hover:bg-white/[0.04] hover:border-white/[0.1] hover:shadow-md hover:-translate-y-px',
+        hasCustomPrice && 'border-amber-500/20 bg-amber-500/[0.03] hover:border-amber-500/30 hover:bg-amber-500/[0.05]'
+      )}
+    >
+      {/* Custom price accent stripe — left edge when discount applied */}
+      {hasCustomPrice && (
+        <span className="absolute left-0 top-2 bottom-2 w-[2px] rounded-r bg-amber-400/80" title="Harga custom" />
+      )}
+
+      {/* Thumbnail — product image or icon fallback, 1:1 square */}
+      <div className="h-11 w-11 rounded-md overflow-hidden bg-white/[0.03] ring-1 ring-white/[0.05] flex items-center justify-center shrink-0">
+        {item.product.image ? (
+          <img src={item.product.image} alt={item.product.name} className="h-full w-full object-cover" />
+        ) : (
+          <div className="h-full w-full bg-gradient-to-br from-white/[0.06] to-white/[0.01] flex items-center justify-center">
+            <PackageSearch className="h-4 w-4 text-slate-500" />
+          </div>
+        )}
       </div>
 
-      {/* Row 2 — variant + price/pc (left) + qty stepper + delete (right) */}
-      <div className="flex items-center justify-between gap-2 mt-1.5">
-        <div className="flex items-center gap-1 min-w-0">
-          {item.variant && (
-            <>
-              <span className="text-[10px] text-slate-500 truncate max-w-[80px]" title={item.variant.name}>{item.variant.name}</span>
-              <span className="text-slate-700 text-[10px] shrink-0">·</span>
-            </>
-          )}
-          {/* SETTINGS CONTRACT: price-edit gated by outlet setting `manualDiscountEnabled`.
-              When disabled, the per-item manual discount (customPrice) cannot be started.
-              An in-progress edit (isEditingPrice) is still rendered so it can be confirmed/cancelled cleanly. */}
-          {isEditingPrice ? (
-            <Input
-              ref={cart.priceInputRef}
-              type="number"
-              value={cart.editingPriceValue}
-              onChange={(e) => cart.setEditingPriceValue(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') cart.confirmEditPrice(); if (e.key === 'Escape') cart.cancelEditPrice() }}
-              onBlur={cart.confirmEditPrice}
-              className="h-5 w-20 text-[10px] bg-white/[0.04] border-white/[0.06] text-white rounded px-1"
-            />
-          ) : manualDiscountEnabled ? (
-            <button
-              onClick={() => cart.startEditPrice(key, effPrice)}
-              className={cn(
-                'inline-flex items-center gap-0.5 text-[10px] transition-colors hover:text-slate-200',
-                hasCustomPrice ? 'text-amber-400 font-medium' : 'text-slate-500'
-              )}
-              title="Edit harga"
-            >
-              {formatCurrency(effPrice)}/pc
-              {hasCustomPrice && <span className="text-[9px]">●</span>}
-              <Pencil className="h-2.5 w-2.5 opacity-40" />
-            </button>
-          ) : (
-            <span className={cn('text-[10px]', hasCustomPrice ? 'text-amber-400 font-medium' : 'text-slate-500')} title="Diskon manual dinonaktifkan di Pengaturan">
-              {formatCurrency(effPrice)}/pc
-            </span>
-          )}
+      {/* Content — name/total row + details/controls row */}
+      <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+        {/* Row 1 — product name (left) + line total (right) */}
+        <div className="flex items-start justify-between gap-2">
+          <p className="text-xs font-semibold text-slate-100 truncate leading-tight min-w-0" title={cart.getItemDisplayName(item)}>
+            {cart.getItemDisplayName(item)}
+          </p>
+          <span className="text-xs font-bold text-white tabular-nums leading-tight shrink-0">
+            {formatCurrency(lineTotal)}
+          </span>
         </div>
 
-        <div className="flex items-center gap-1 shrink-0">
-          {/* Qty stepper [− h-5] N [+ h-5] */}
-          {isEditingQty ? (
-            <Input
-              ref={cart.qtyInputRef}
-              type="number"
-              value={cart.editingQtyValue}
-              onChange={(e) => cart.setEditingQtyValue(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') cart.confirmEditQty(); if (e.key === 'Escape') cart.cancelEditQty() }}
-              onBlur={cart.confirmEditQty}
-              className="h-5 w-12 text-xs bg-white/[0.04] border-white/[0.06] text-white rounded-md text-center"
-            />
-          ) : (
-            <div className="flex items-center gap-0.5">
+        {/* Row 2 — variant + price/pc (left) + qty stepper + delete (right) */}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1 min-w-0">
+            {item.variant && (
+              <>
+                <span className="text-[10px] text-slate-500 truncate max-w-[70px]" title={item.variant.name}>{item.variant.name}</span>
+                <span className="text-slate-700 text-[10px] shrink-0">·</span>
+              </>
+            )}
+            {/* SETTINGS CONTRACT: price-edit gated by outlet setting `manualDiscountEnabled`.
+                When disabled, the per-item manual discount (customPrice) cannot be started.
+                An in-progress edit (isEditingPrice) is still rendered so it can be confirmed/cancelled cleanly. */}
+            {isEditingPrice ? (
+              <Input
+                ref={cart.priceInputRef}
+                type="number"
+                value={cart.editingPriceValue}
+                onChange={(e) => cart.setEditingPriceValue(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') cart.confirmEditPrice(); if (e.key === 'Escape') cart.cancelEditPrice() }}
+                onBlur={cart.confirmEditPrice}
+                className="h-5 w-20 text-[10px] bg-white/[0.04] border-white/[0.06] text-white rounded px-1"
+              />
+            ) : manualDiscountEnabled ? (
               <button
-                type="button"
-                onClick={() => cart.updateQty(item.product.id, Math.max(1, item.qty - 1), item.variant?.id || undefined)}
-                disabled={item.qty <= 1}
-                className="h-5 w-5 rounded bg-white/[0.06] hover:bg-white/[0.12] text-slate-300 hover:text-white flex items-center justify-center transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                title="Kurangi"
+                onClick={() => cart.startEditPrice(key, effPrice)}
+                className={cn(
+                  'inline-flex items-center gap-0.5 text-[10px] transition-colors hover:text-slate-200',
+                  hasCustomPrice ? 'text-amber-400 font-medium' : 'text-slate-500'
+                )}
+                title="Edit harga"
               >
-                <Minus className="h-2.5 w-2.5" />
+                {formatCurrency(effPrice)}/pc
+                {hasCustomPrice && <span className="text-[9px] leading-none">●</span>}
+                <Pencil className="h-2.5 w-2.5 opacity-40" />
               </button>
-              <button
-                onClick={() => cart.startEditQty(item.product.id, item.qty)}
-                className="text-xs font-semibold text-white w-6 text-center tabular-nums hover:text-cyan-400 transition-colors rounded"
-                title="Edit qty"
-              >
-                {item.qty}
-              </button>
-              <button
-                type="button"
-                onClick={() => cart.updateQty(item.product.id, Math.min(stock, item.qty + 1), item.variant?.id || undefined)}
-                disabled={item.qty >= stock}
-                className="h-5 w-5 rounded bg-white/[0.06] hover:bg-white/[0.12] text-slate-300 hover:text-white flex items-center justify-center transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                title="Tambah"
-              >
-                <Plus className="h-2.5 w-2.5" />
-              </button>
-            </div>
-          )}
-          {/* Delete — subtle by default, prominent on hover */}
-          <button
-            onClick={() => cart.removeFromCart(item.product.id, item.variant?.id || undefined)}
-            className="h-5 w-5 rounded text-slate-600 hover:text-red-400 hover:bg-red-500/10 flex items-center justify-center transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
-            title="Hapus item"
-            aria-label={`Hapus ${cart.getItemDisplayName(item)}`}
-          >
-            <Trash2 className="h-3 w-3" />
-          </button>
+            ) : (
+              <span className={cn('text-[10px]', hasCustomPrice ? 'text-amber-400 font-medium' : 'text-slate-500')} title="Diskon manual dinonaktifkan di Pengaturan">
+                {formatCurrency(effPrice)}/pc
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1 shrink-0">
+            {/* Qty stepper [− h-5] N [+ h-5] */}
+            {isEditingQty ? (
+              <Input
+                ref={cart.qtyInputRef}
+                type="number"
+                value={cart.editingQtyValue}
+                onChange={(e) => cart.setEditingQtyValue(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') cart.confirmEditQty(); if (e.key === 'Escape') cart.cancelEditQty() }}
+                onBlur={cart.confirmEditQty}
+                className="h-5 w-12 text-xs bg-white/[0.04] border-white/[0.06] text-white rounded-md text-center"
+              />
+            ) : (
+              <div className="flex items-center gap-0.5 bg-white/[0.04] rounded-md p-0.5 ring-1 ring-white/[0.04]">
+                <button
+                  type="button"
+                  onClick={() => cart.updateQty(item.product.id, Math.max(1, item.qty - 1), item.variant?.id || undefined)}
+                  disabled={item.qty <= 1}
+                  className="h-4 w-4 rounded-sm bg-white/[0.06] hover:bg-white/[0.14] text-slate-300 hover:text-white flex items-center justify-center transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                  title="Kurangi"
+                >
+                  <Minus className="h-2.5 w-2.5" />
+                </button>
+                <button
+                  onClick={() => cart.startEditQty(item.product.id, item.qty)}
+                  className="text-[11px] font-bold text-white w-5 text-center tabular-nums hover:text-cyan-400 transition-colors rounded-sm"
+                  title="Edit qty"
+                >
+                  {item.qty}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => cart.updateQty(item.product.id, Math.min(stock, item.qty + 1), item.variant?.id || undefined)}
+                  disabled={item.qty >= stock}
+                  className="h-4 w-4 rounded-sm bg-white/[0.06] hover:bg-white/[0.14] text-slate-300 hover:text-white flex items-center justify-center transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                  title="Tambah"
+                >
+                  <Plus className="h-2.5 w-2.5" />
+                </button>
+              </div>
+            )}
+            {/* Delete — subtle by default, prominent on hover */}
+            <button
+              onClick={() => cart.removeFromCart(item.product.id, item.variant?.id || undefined)}
+              className="h-5 w-5 rounded text-slate-600 hover:text-red-400 hover:bg-red-500/10 flex items-center justify-center transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+              title="Hapus item"
+              aria-label={`Hapus ${cart.getItemDisplayName(item)}`}
+            >
+              <Trash2 className="h-3 w-3" />
+            </button>
+          </div>
         </div>
       </div>
     </div>
