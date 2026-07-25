@@ -678,7 +678,7 @@ function CartPanel({ cart, customers, settings, selectedPromo, onSelectPromo, po
             </div>
           ) : (
             cart.cart.map((item) => (
-              <CartItemRow key={cart.getCartKey(item.product.id, item.variant?.id || null)} item={item} cart={cart} />
+              <CartItemRow key={cart.getCartKey(item.product.id, item.variant?.id || null)} item={item} cart={cart} manualDiscountEnabled={settings.settings.manualDiscountEnabled} />
             ))
           )}
         </div>
@@ -775,7 +775,7 @@ function CartPanel({ cart, customers, settings, selectedPromo, onSelectPromo, po
 
 // ==================== CART ITEM ROW (tight py-1.5, h-5 stepper, white line total) ====================
 
-function CartItemRow({ item, cart }: { item: CartItem; cart: ReturnType<typeof usePosCart> }) {
+function CartItemRow({ item, cart, manualDiscountEnabled }: { item: CartItem; cart: ReturnType<typeof usePosCart>; manualDiscountEnabled: boolean }) {
   const key = cart.getCartKey(item.product.id, item.variant?.id || null)
   const isEditingQty = cart.editingQtyId === item.product.id
   const isEditingPrice = cart.editingPriceId === key
@@ -795,6 +795,9 @@ function CartItemRow({ item, cart }: { item: CartItem; cart: ReturnType<typeof u
               <span className="text-slate-600 text-[10px]">·</span>
             </>
           )}
+          {/* SETTINGS CONTRACT: price-edit gated by outlet setting `manualDiscountEnabled`.
+              When disabled, the per-item manual discount (customPrice) cannot be started.
+              An in-progress edit (isEditingPrice) is still rendered so it can be confirmed/cancelled cleanly. */}
           {isEditingPrice ? (
             <Input
               ref={cart.priceInputRef}
@@ -805,7 +808,7 @@ function CartItemRow({ item, cart }: { item: CartItem; cart: ReturnType<typeof u
               onBlur={cart.confirmEditPrice}
               className="h-5 w-20 text-[10px] bg-white/[0.04] border-white/[0.06] text-white rounded px-1"
             />
-          ) : (
+          ) : manualDiscountEnabled ? (
             <button
               onClick={() => cart.startEditPrice(key, effPrice)}
               className="inline-flex items-center gap-0.5 text-[10px] text-slate-500 hover:text-slate-300 transition-colors"
@@ -813,6 +816,10 @@ function CartItemRow({ item, cart }: { item: CartItem; cart: ReturnType<typeof u
             >
               {formatCurrency(effPrice)}/pc <Pencil className="h-2.5 w-2.5 opacity-50" />
             </button>
+          ) : (
+            <span className="text-[10px] text-slate-500" title="Diskon manual dinonaktifkan di Pengaturan">
+              {formatCurrency(effPrice)}/pc
+            </span>
           )}
         </div>
       </div>
