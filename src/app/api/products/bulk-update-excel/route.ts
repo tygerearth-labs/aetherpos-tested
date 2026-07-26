@@ -75,6 +75,9 @@ export async function POST(request: NextRequest) {
     console.log('[Bulk Update Excel] Headers:', Object.keys(rows[0]))
 
     // WRAP IN TRANSACTION for atomicity (Fix Bug #1)
+    // V15.1 FIX: Add explicit timeout — default Prisma interactive tx timeout is 5s,
+    // which is way too short for 500 rows × multiple DB ops each. After timeout,
+    // Prisma closes the tx and any subsequent tx.* call throws "Transaction not found".
     await db.$transaction(async (tx) => {
       const categoryCache = new Map<string, string | null>()
 
@@ -526,6 +529,9 @@ export async function POST(request: NextRequest) {
           }
         }
       }
+    }, {
+      timeout: 55_000,  // 55s — well above default 5s, under maxDuration=60
+      maxWait: 5_000,   // 5s to acquire a connection from the pool
     }) // End transaction
 
     // Audit log (Fix Bug #14)

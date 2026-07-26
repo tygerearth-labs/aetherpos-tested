@@ -337,6 +337,9 @@ export async function POST(request: NextRequest) {
           })
           categoryCache.set(catKey, newCat.id)
         }
+      }, {
+        timeout: 15_000,  // V15.1 FIX: 15s for category creation (short operation)
+        maxWait: 5_000,
       })
 
       // Resolve temporary category IDs

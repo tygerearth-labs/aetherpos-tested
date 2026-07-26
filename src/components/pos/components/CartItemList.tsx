@@ -136,13 +136,18 @@ function MobileCartItem({
   return (
     <div key={itemKey} className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
       {/* Top: Image + Name + Delete */}
-      <div className="flex items-center gap-3 mb-3">
+      <div className="flex items-start gap-3 mb-3">
         <ProductImage src={item.product.image} alt={item.product.name} size="mobile" />
         <div className="flex-1 min-w-0">
-          <p className="text-[14px] font-semibold text-white truncate">{item.product.name}</p>
+          <p
+            className="text-[14px] font-semibold text-white leading-tight break-words line-clamp-2"
+            title={item.product.name}
+          >
+            {item.product.name}
+          </p>
           {item.variant && (
-            <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-violet-500/10 border border-violet-500/15 mt-1">
-              <span className="text-[10px] font-medium text-violet-400">{item.variant.name}</span>
+            <span className="inline-flex max-w-full items-center px-1.5 py-0.5 rounded-md bg-violet-500/10 border border-violet-500/15 mt-1">
+              <span className="text-[10px] font-medium text-violet-400 truncate">{item.variant.name}</span>
             </span>
           )}
           <BatchExpiryBadge
@@ -153,7 +158,7 @@ function MobileCartItem({
         </div>
         <button
           onClick={() => props.onRemoveFromCart(item.product.id, item.variant?.id)}
-          className="h-9 w-9 flex items-center justify-center rounded-xl text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-all active:scale-95"
+          className="h-9 w-9 flex items-center justify-center rounded-xl text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-all active:scale-95 shrink-0"
         >
           <Trash2 className="h-4 w-4" strokeWidth={1.5} />
         </button>
@@ -271,12 +276,15 @@ function CompactCartItem({
 
       {/* Product Info */}
       <div className="flex-1 min-w-0">
-        <p className={cn('font-semibold text-white truncate leading-tight', props.compact ? 'text-[13px]' : 'text-xs')}>
+        <p
+          className={cn('font-semibold text-white leading-tight break-words line-clamp-2', props.compact ? 'text-[13px]' : 'text-xs')}
+          title={item.product.name}
+        >
           {item.product.name}
         </p>
         {item.variant && (
-          <span className="inline-flex items-center gap-1 mt-0.5 px-1.5 py-0.5 rounded-md bg-violet-500/10 border border-violet-500/15">
-            <span className="text-[9px] font-medium text-violet-400 leading-tight">{item.variant.name}</span>
+          <span className="inline-flex max-w-full items-center gap-1 mt-0.5 px-1.5 py-0.5 rounded-md bg-violet-500/10 border border-violet-500/15">
+            <span className="text-[9px] font-medium text-violet-400 leading-tight truncate">{item.variant.name}</span>
           </span>
         )}
         <BatchExpiryBadge

@@ -187,6 +187,9 @@ export async function POST(request: NextRequest) {
 
         result.updated++
       }
+    }, {
+      timeout: 55_000,  // V15.1 FIX: 55s — default 5s too short for 500 rows
+      maxWait: 5_000,
     }) // End of transaction
 
     // Audit log summary (Fix Bug #14)

@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server'
+import { Prisma } from '@prisma/client'
 import { db } from '@/lib/db'
 import { parsePagination, withInsensitiveMode } from '@/lib/api/api-helpers'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
@@ -147,6 +148,21 @@ export async function POST(request: NextRequest) {
 
     return safeJsonCreated(customer)
   } catch (error) {
+    // V15 P1-2 FIX: Race condition — two parallel POSTs both pass the
+    // findFirst check (line 104), the second one throws P2002 unique
+    // constraint violation when the partial unique index
+    // `customer_whatsapp_outlet_active_uidx` (created by ensureMigrated)
+    // rejects the duplicate insert. Catch it specifically and return a
+    // friendly 400 instead of a generic 500.
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2002'
+    ) {
+      const target = (error.meta?.target as string[] | string | undefined)
+      const targetStr = Array.isArray(target) ? target.join(', ') : (target || 'unknown')
+      console.warn('[customers POST] unique constraint violation:', targetStr)
+      return safeJsonError('WhatsApp number already registered in this outlet', 400)
+    }
     console.error('Customers POST error:', error)
     return safeJsonError('Failed to create customer', 500)
   }

@@ -94,6 +94,9 @@ export async function POST(request: NextRequest) {
       })
 
       return { count: result.count, productsForAudit, variantIds: variantInfo }
+    }, {
+      timeout: 30_000,  // V15.1 FIX: 30s — default 5s too short for large batch deletes
+      maxWait: 5_000,
     })
 
     // Store deletedCount IMMEDIATELY after successful transaction
