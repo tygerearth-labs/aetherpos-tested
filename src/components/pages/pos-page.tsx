@@ -1263,7 +1263,7 @@ function CartItemRow({ item, cart, manualDiscountEnabled }: { item: CartItem; ca
   return (
     <div
       className={cn(
-        'group relative flex gap-2.5 p-2 rounded-lg border transition-all',
+        'group relative flex gap-2.5 p-2 rounded-lg border transition-all overflow-hidden min-w-0',
         'bg-white/[0.025] border-white/[0.05] shadow-sm',
         'hover:bg-white/[0.04] hover:border-white/[0.1] hover:shadow-md hover:-translate-y-px',
         hasCustomPrice && 'border-amber-500/20 bg-amber-500/[0.03] hover:border-amber-500/30 hover:bg-amber-500/[0.05]'
@@ -1285,25 +1285,24 @@ function CartItemRow({ item, cart, manualDiscountEnabled }: { item: CartItem; ca
         )}
       </div>
 
-      {/* Content — name/total (row 1) + variant/price (row 2), vertically centered */}
-      <div className="flex-1 min-w-0 flex flex-col gap-1 justify-center">
-        {/* Row 1 — product name (left) + line total (right) */}
-        <div className="flex items-start justify-between gap-2">
-          <p className="text-xs font-semibold text-slate-100 truncate leading-tight min-w-0" title={cart.getItemDisplayName(item)}>
-            {cart.getItemDisplayName(item)}
+      {/* Content — name (row 1) + variant/price (row 2), vertically centered */}
+      <div className="flex-1 min-w-0 flex flex-col gap-1 justify-center overflow-hidden">
+        {/* Row 1 — product name (left, truncate) + line total (right) */}
+        <div className="flex items-start justify-between gap-2 min-w-0">
+          <p className="text-xs font-semibold text-slate-100 truncate leading-tight min-w-0" title={item.product.name}>
+            {item.product.name}
           </p>
           <span className="text-xs font-bold text-white tabular-nums leading-tight shrink-0">
             {formatCurrency(lineTotal)}
           </span>
         </div>
 
-        {/* Row 2 — variant + price/pc (full width; qty lives in its own centered column) */}
+        {/* Row 2 — variant (own block, truncate) + price/pc */}
         <div className="flex items-center gap-1 min-w-0">
           {item.variant && (
-            <>
-              <span className="text-[10px] text-slate-500 truncate max-w-[70px]" title={item.variant.name}>{item.variant.name}</span>
-              <span className="text-slate-700 text-[10px] shrink-0">·</span>
-            </>
+            <span className="inline-flex max-w-full items-center px-1 py-0 rounded bg-violet-500/10 border border-violet-500/15 shrink-0 min-w-0">
+              <span className="text-[9px] font-medium text-violet-400 truncate max-w-[90px] leading-tight" title={item.variant.name}>{item.variant.name}</span>
+            </span>
           )}
           {/* SETTINGS CONTRACT: price-edit gated by outlet setting `manualDiscountEnabled`.
               When disabled, the per-item manual discount (customPrice) cannot be started.
@@ -1386,7 +1385,7 @@ function CartItemRow({ item, cart, manualDiscountEnabled }: { item: CartItem; ca
           onClick={() => cart.removeFromCart(item.product.id, item.variant?.id || undefined)}
           className="h-5 w-5 rounded text-slate-600 hover:text-red-400 hover:bg-red-500/10 flex items-center justify-center transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
           title="Hapus item"
-          aria-label={`Hapus ${cart.getItemDisplayName(item)}`}
+          aria-label={`Hapus ${item.product.name}${item.variant ? ' - ' + item.variant.name : ''}`}
         >
           <Trash2 className="h-3 w-3" />
         </button>
