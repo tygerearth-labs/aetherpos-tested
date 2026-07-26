@@ -51,7 +51,7 @@ import {
   User, UserPlus, Coins, Wifi, WifiOff, RefreshCw, RefreshCcw, CloudOff, Tag, AlertTriangle,
   ChevronLeft, ChevronRight, Pencil, History, Clock, Printer,
   LayoutGrid, Layers, Banknote, HandCoins, QrCode, CreditCard, ArrowLeftRight,
-  ChevronDown, Store, Calendar, TrendingUp, ScanLine, Database, Eraser, Phone,
+  ChevronDown, Store, Calendar, TrendingUp, ScanLine, Database, Eraser, Phone, PackageX,
 } from 'lucide-react'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
@@ -281,10 +281,34 @@ export default function PosPage() {
                     <ProductCard key={product.id} product={product} onClick={() => handleProductClick(product)} />
                   ))}
                 </div>
+
+                {/* Stok Habis section — out-of-stock products moved here from main list */}
+                {products.outOfStockProducts.length > 0 && (
+                  <div className="px-3 pb-40 md:pb-3">
+                    <div className="flex items-center gap-2 mb-2.5 mt-1">
+                      <span className="h-px flex-1 bg-red-500/15" />
+                      <PackageX className="h-3.5 w-3.5 text-red-400/70" strokeWidth={1.5} />
+                      <span className="text-[11px] font-semibold text-red-400/80 uppercase tracking-wider">Stok Habis</span>
+                      <span className="text-[10px] text-slate-600 tabular-nums">({products.outOfStockProducts.length})</span>
+                      <span className="h-px flex-1 bg-red-500/15" />
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5">
+                      {products.outOfStockProducts.map((product) => (
+                        <ProductCard key={product.id} product={product} onClick={() => handleProductClick(product)} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div className="px-3 py-3 flex items-center justify-center gap-2 text-[10px] text-slate-600">
                   <span className="h-px flex-1 max-w-12 bg-white/[0.04]" />
                   <Package className="h-3 w-3" />
-                  <span className="tabular-nums">{products.products.length} produk ditampilkan</span>
+                  <span className="tabular-nums">
+                    {products.products.length} produk ditampilkan
+                    {products.outOfStockProducts.length > 0 && (
+                      <span className="text-red-400/60"> · {products.outOfStockProducts.length} stok habis</span>
+                    )}
+                  </span>
                   <span className="h-px flex-1 max-w-12 bg-white/[0.04]" />
                 </div>
               </>
@@ -412,7 +436,7 @@ export default function PosPage() {
 
       {/* ── Payment dialog ── */}
       <ResponsiveDialog open={checkout.paymentDialogOpen} onOpenChange={checkout.setPaymentDialogOpen}>
-        <ResponsiveDialogContent>
+        <ResponsiveDialogContent className="p-4 sm:p-6 max-h-[92vh] sm:max-h-[85vh]">
           <ResponsiveDialogHeader>
             <ResponsiveDialogTitle>Pembayaran</ResponsiveDialogTitle>
           </ResponsiveDialogHeader>
@@ -1573,14 +1597,14 @@ function PaymentDialogBody({ total, paymentMethod, paidAmount, availableMethods,
   const selectedCfg = methodConfig[paymentMethod]
   const SelectedIcon = selectedCfg?.icon || HandCoins
   return (
-    <div className="space-y-4">
+    <div className="space-y-3 sm:space-y-4">
       {/* Unified Total + Method preview — icon + total amount + label/instruction */}
-      <div className="flex flex-col items-center py-4 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-        <div className="h-14 w-14 rounded-2xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center mb-2">
-          <SelectedIcon className="h-7 w-7 text-slate-100" />
+      <div className="flex flex-col items-center py-3 sm:py-4 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+        <div className="h-12 w-12 sm:h-14 sm:w-14 rounded-2xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center mb-2">
+          <SelectedIcon className="h-6 w-6 sm:h-7 sm:w-7 text-slate-100" />
         </div>
         <p className="text-[10px] text-slate-400 uppercase tracking-wide">{selectedCfg?.label || paymentMethod}</p>
-        <p className="text-2xl font-bold text-white mt-1 tabular-nums">{formatCurrency(total)}</p>
+        <p className="text-xl sm:text-2xl font-bold text-white mt-1 tabular-nums">{formatCurrency(total)}</p>
         <p className="text-[11px] text-slate-500 mt-1.5 text-center max-w-[240px] leading-relaxed">{selectedCfg?.instruction}</p>
       </div>
 
@@ -1633,27 +1657,28 @@ function PaymentDialogBody({ total, paymentMethod, paidAmount, availableMethods,
             onChange={(e) => onSetPaidAmount(e.target.value)}
             placeholder="0"
             autoFocus
+            inputMode="numeric"
             className={cn(
-              'bg-white/[0.03] border-white/[0.06] text-white text-base h-10 rounded-lg tabular-nums',
+              'bg-white/[0.03] border-white/[0.06] text-white text-base sm:text-base h-12 rounded-lg tabular-nums',
               cashInsufficient && Number(paidAmount) > 0 && 'border-amber-500/40 focus-visible:border-amber-500/60'
             )}
           />
-          <div className="flex gap-1.5 flex-wrap">
+          <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
             {[total, 50000, 100000, 150000].filter((v, i, a) => a.indexOf(v) === i).map((amt) => (
               <Button
                 key={amt}
                 variant="outline"
                 size="sm"
-                className="text-xs bg-white/[0.03] hover:bg-white/[0.06] border-white/[0.06] text-slate-300 rounded-md h-7"
+                className="text-xs bg-white/[0.03] hover:bg-white/[0.06] border-white/[0.06] text-slate-300 rounded-md h-9 sm:h-8"
                 onClick={() => onSetPaidAmount(String(amt))}
               >
-                {formatCurrency(amt)}
+                {amt >= 1000 && amt % 1000 === 0 ? `${amt / 1000}K` : formatCurrency(amt)}
               </Button>
             ))}
           </div>
           {Number(paidAmount) > 0 && (
             <div className={cn(
-              'flex justify-between items-center mt-2 px-3 py-2 rounded-md',
+              'flex justify-between items-center mt-2 px-3.5 py-2.5 rounded-md',
               cashInsufficient ? 'bg-amber-500/10' : 'bg-emerald-500/10'
             )}>
               <span className={cn('text-xs', cashInsufficient ? 'text-amber-300' : 'text-emerald-300')}>
@@ -1670,7 +1695,7 @@ function PaymentDialogBody({ total, paymentMethod, paidAmount, availableMethods,
       {/* Proses Pembayaran — 3 states: disabled muted / ready amber / processing darker amber */}
       <Button
         className={cn(
-          'w-full font-semibold rounded-lg h-11 transition-all',
+          'w-full font-semibold rounded-lg h-12 transition-all mb-[env(safe-area-inset-bottom)]',
           checkingOut
             ? 'bg-amber-600 hover:bg-amber-600 text-white cursor-wait'
             : 'bg-amber-500 hover:bg-amber-400 text-white hover:shadow-[0_2px_12px_rgba(245,158,11,0.35)] hover:-translate-y-px',

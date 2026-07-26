@@ -53,11 +53,18 @@ export async function GET(request: NextRequest) {
       .map((t) => t.productId)
       .filter((id): id is string => id !== null)
 
+    // Stock filter: keep variant parents (stock unknown until variants loaded)
+    // + non-variant products with stock > 0. Stock-0 non-variant products are
+    // excluded from the main list so the 24 slots are filled with sellable items.
+    const inStockFilter = {
+      OR: [{ hasVariants: true }, { stock: { gt: 0 } }],
+    }
+
     // Fetch the Product rows for the top best-sellers (parent-only, no variants)
     let products: PosProductParentRaw[] = []
     if (topIds.length > 0) {
       products = await db.product.findMany({
-        where: { id: { in: topIds }, outletId: user.outletId },
+        where: { id: { in: topIds }, outletId: user.outletId, ...inStockFilter },
         select: POS_PRODUCT_PARENT_SELECT,
       }) as unknown as PosProductParentRaw[]
       // Re-sort to match the best-seller order
@@ -65,13 +72,14 @@ export async function GET(request: NextRequest) {
       products.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))
     }
 
-    // ── 2. Pad with newest products if best-sellers < limit ──
+    // ── 2. Pad with newest in-stock products if best-sellers < limit ──
     if (products.length < limit) {
       const existingIds = new Set(products.map((p) => p.id))
       const pad = await db.product.findMany({
         where: {
           outletId: user.outletId,
           id: { notIn: [...existingIds] },
+          ...inStockFilter,
         },
         select: POS_PRODUCT_PARENT_SELECT,
         orderBy: { createdAt: 'desc' },
@@ -80,8 +88,44 @@ export async function GET(request: NextRequest) {
       products = [...products, ...pad]
     }
 
+    // ── 3. Fetch out-of-stock products for the "Stok Habis" section ──
+    // Non-variant products with stock <= 0, limited to 8, best-sellers first.
+    const outOfStockIds = topIds.length > 0
+      ? await db.product.findMany({
+          where: { id: { in: topIds }, outletId: user.outletId, hasVariants: false, stock: { lte: 0 } },
+          select: { id: true },
+        })
+      : []
+    const oosOrder = new Map(outOfStockIds.map((p, i) => [p.id, i]))
+    let outOfStock: PosProductParentRaw[] = []
+    if (outOfStockIds.length > 0) {
+      outOfStock = await db.product.findMany({
+        where: { id: { in: outOfStockIds.map((p) => p.id) }, outletId: user.outletId },
+        select: POS_PRODUCT_PARENT_SELECT,
+      }) as unknown as PosProductParentRaw[]
+      outOfStock.sort((a, b) => (oosOrder.get(a.id) ?? 999) - (oosOrder.get(b.id) ?? 999))
+      outOfStock = outOfStock.slice(0, 8)
+    }
+    // Pad out-of-stock with newest stock-0 products if best-sellers < 8
+    if (outOfStock.length < 8) {
+      const oosExisting = new Set(outOfStock.map((p) => p.id))
+      const oosPad = await db.product.findMany({
+        where: {
+          outletId: user.outletId,
+          id: { notIn: [...oosExisting] },
+          hasVariants: false,
+          stock: { lte: 0 },
+        },
+        select: POS_PRODUCT_PARENT_SELECT,
+        orderBy: { createdAt: 'desc' },
+        take: 8 - outOfStock.length,
+      }) as unknown as PosProductParentRaw[]
+      outOfStock = [...outOfStock, ...oosPad]
+    }
+
     const mapped = products.map(mapPosProductParent)
-    return safeJson({ products: mapped }, 200, CACHE.SHORT)
+    const oosMapped = outOfStock.map(mapPosProductParent)
+    return safeJson({ products: mapped, outOfStockProducts: oosMapped }, 200, CACHE.SHORT)
   } catch (error) {
     console.error('[/api/pos/products/featured] GET error:', error)
     return safeJsonError('Failed to load featured products')

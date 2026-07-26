@@ -177,13 +177,13 @@ export function PaymentDialog({
         className="!p-0"
         showCloseButton={false}
       >
-        <div className="flex flex-col max-h-[90vh] sm:max-h-[85vh]">
+        <div className="flex flex-col max-h-[92vh] sm:max-h-[85vh]">
           {/* Header */}
-          <div className="shrink-0 px-5 pt-5 pb-4 bg-gradient-to-b from-white/[0.03] to-transparent">
-            <div className="flex items-center justify-between mb-3">
-              <ResponsiveDialogHeader className="space-y-0 !p-0">
-                <ResponsiveDialogTitle className="text-base font-bold text-white flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-lg theme-bg-subtle flex items-center justify-center">
+          <div className="shrink-0 px-4 sm:px-5 pt-4 sm:pt-5 pb-3 sm:pb-4 bg-gradient-to-b from-white/[0.03] to-transparent">
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <ResponsiveDialogHeader className="space-y-0 !p-0 min-w-0">
+                <ResponsiveDialogTitle className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg theme-bg-subtle flex items-center justify-center shrink-0">
                     <Banknote className="h-3.5 w-3.5 theme-text" strokeWidth={1.5} />
                   </div>
                   Pembayaran
@@ -192,20 +192,20 @@ export function PaymentDialog({
                   {totalItems} item dalam keranjang
                 </ResponsiveDialogDescription>
               </ResponsiveDialogHeader>
-              <div className="text-right">
+              <div className="text-right shrink-0">
                 <p className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">Total</p>
-                <p className="text-xl font-black text-white tabular-nums">{formatCurrency(total)}</p>
+                <p className="text-lg sm:text-xl font-black text-white tabular-nums leading-tight">{formatCurrency(total)}</p>
               </div>
             </div>
           </div>
 
           {/* Scrollable body */}
           <ScrollArea className="flex-1 min-h-0">
-            <div className="px-5 pb-5 space-y-4">
+            <div className="px-4 sm:px-5 pb-4 sm:pb-5 space-y-3 sm:space-y-4">
               {/* Order Summary */}
-              <div className="aether-card p-3.5 space-y-2">
+              <div className="aether-card p-3 sm:p-3.5 space-y-2">
                 <p className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">Ringkasan Pesanan</p>
-                <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                <div className="space-y-1.5 max-h-32 sm:max-h-40 overflow-y-auto">
                   {cart.map((item) => {
                     const itemSubtotal = getItemPrice(item) * item.qty
                     const effSubtotal = getItemEffectivePrice(item) * item.qty
@@ -265,7 +265,7 @@ export function PaymentDialog({
 
               {/* Points (if applicable) */}
               {maxPointsToUse > 0 && selectedCustomer && (
-                <div className="aether-card p-3.5">
+                <div className="aether-card p-3 sm:p-3.5">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5 shrink-0">
                       <Coins className="h-3.5 w-3.5 text-amber-400" strokeWidth={1.5} />
@@ -287,7 +287,7 @@ export function PaymentDialog({
 
               {/* Customer info */}
               {selectedCustomer && (
-                <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl aether-card">
+                <div className="flex items-center gap-2 px-3 sm:px-3.5 py-2.5 rounded-xl aether-card">
                   <User className="h-3.5 w-3.5 text-slate-500 shrink-0" strokeWidth={1.5} />
                   <span className="text-xs text-slate-300 font-medium truncate">{selectedCustomer.name}</span>
                   {selectedCustomer.whatsapp && (
@@ -309,21 +309,21 @@ export function PaymentDialog({
                         key={method}
                         onClick={() => onPaymentMethodChange(method)}
                         className={cn(
-                          'relative flex flex-col items-center gap-1.5 p-4 rounded-2xl border text-center transition-all duration-200',
+                          'relative flex flex-col items-center gap-1.5 p-3 sm:p-4 rounded-2xl border text-center transition-all duration-200',
                           isActive
                             ? 'theme-bg-very-light border-theme-border-light shadow-sm'
                             : 'aether-card hover:border-white/[0.1] active:scale-[0.98]'
                         )}
                       >
                         <div className={cn(
-                          'w-10 h-10 rounded-xl flex items-center justify-center transition-colors',
+                          'w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center transition-colors',
                           isActive ? 'theme-bg-subtle' : 'bg-white/[0.06]'
                         )}>
-                          <Icon className={cn('h-5 w-5', isActive ? 'theme-text' : 'text-slate-500')} strokeWidth={1.5} />
+                          <Icon className={cn('h-4 w-4 sm:h-5 sm:w-5', isActive ? 'theme-text' : 'text-slate-500')} strokeWidth={1.5} />
                         </div>
                         <div>
                           <p className={cn('text-xs font-bold', isActive ? 'text-white' : 'text-slate-300')}>{config.label}</p>
-                          <p className="text-[10px] text-slate-500 mt-0.5">{config.description}</p>
+                          <p className="hidden sm:block text-[10px] text-slate-500 mt-0.5">{config.description}</p>
                         </div>
                         {isActive && (
                           <motion.div
@@ -364,7 +364,8 @@ export function PaymentDialog({
                           value={paidAmount}
                           onChange={(e) => onPaidAmountChange(e.target.value)}
                           placeholder="0"
-                          className="h-12 text-base font-bold bg-white/[0.03] border-white/[0.08] text-white placeholder:text-slate-600 rounded-xl text-right pr-14 tabular-nums"
+                          inputMode="numeric"
+                          className="h-14 sm:h-12 text-lg sm:text-base font-bold bg-white/[0.03] border-white/[0.08] text-white placeholder:text-slate-600 rounded-xl text-right pr-14 tabular-nums"
                         />
                         <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs text-slate-500 font-medium">Rp</span>
                       </div>
@@ -375,10 +376,10 @@ export function PaymentDialog({
                       <motion.div
                         initial={{ opacity: 0, scale: 0.95 }}
                         animate={{ opacity: 1, scale: 1 }}
-                        className="flex items-center justify-between theme-bg-very-light border theme-border-light rounded-xl px-4 py-3"
+                        className="flex items-center justify-between theme-bg-very-light border theme-border-light rounded-xl px-3.5 sm:px-4 py-2.5 sm:py-3"
                       >
                         <span className="theme-text font-medium text-sm">Kembalian</span>
-                        <span className="theme-text font-black text-lg tabular-nums">{formatCurrency(change)}</span>
+                        <span className="theme-text font-black text-base sm:text-lg tabular-nums">{formatCurrency(change)}</span>
                       </motion.div>
                     )}
 
@@ -400,15 +401,15 @@ export function PaymentDialog({
                             {nom >= 1000 ? `${nom / 1000}K` : nom}
                           </button>
                         ))}
-                        {total > 0 && (
-                          <button
-                            onClick={() => onPaidAmountChange(String(Math.ceil(total / 1000) * 1000))}
-                            className="py-2.5 rounded-xl text-xs font-bold border bg-amber-500/5 border-amber-500/20 text-amber-400 hover:bg-amber-500/10 transition-all active:scale-95"
-                          >
-                            Uang Pas
-                          </button>
-                        )}
                       </div>
+                      {total > 0 && (
+                        <button
+                          onClick={() => onPaidAmountChange(String(Math.ceil(total / 1000) * 1000))}
+                          className="w-full py-2.5 rounded-xl text-xs font-bold border bg-amber-500/5 border-amber-500/20 text-amber-400 hover:bg-amber-500/10 transition-all active:scale-[0.98]"
+                        >
+                          Uang Pas · {formatCurrency(Math.ceil(total / 1000) * 1000)}
+                        </button>
+                      )}
                     </div>
                   </motion.div>
                 )}
@@ -416,23 +417,23 @@ export function PaymentDialog({
 
               {/* Non-cash confirmation */}
               {paymentMethod !== 'CASH' && (
-                <div className="aether-card p-5 text-center">
+                <div className="aether-card p-4 sm:p-5 text-center">
                   <p className="text-xs text-slate-400">
                     Pembayaran <span className="font-bold text-slate-200 uppercase">{paymentMethod}</span>
                   </p>
-                  <p className="text-2xl font-black text-white mt-2 tabular-nums">{formatCurrency(total)}</p>
+                  <p className="text-xl sm:text-2xl font-black text-white mt-2 tabular-nums">{formatCurrency(total)}</p>
                 </div>
               )}
             </div>
           </ScrollArea>
 
           {/* Footer — sticky */}
-          <div className="shrink-0 border-t border-white/[0.06] bg-deep-space/95 backdrop-blur-sm px-5 pt-3.5 pb-5 sm:pb-5">
+          <div className="shrink-0 border-t border-white/[0.06] bg-deep-space/95 backdrop-blur-sm px-4 sm:px-5 pt-3 sm:pt-3.5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:pb-5">
             <Button
               onClick={onCheckout}
               disabled={!canPay}
               className={cn(
-                'w-full h-12 font-bold text-sm rounded-2xl transition-all active:scale-[0.99]',
+                'w-full h-12 sm:h-12 font-bold text-sm rounded-2xl transition-all active:scale-[0.99]',
                 canPay
                   ? 'theme-gradient hover:theme-hover text-white shadow-lg theme-shadow'
                   : 'bg-white/[0.04] text-slate-500 cursor-not-allowed'
@@ -444,7 +445,7 @@ export function PaymentDialog({
                   Memproses...
                 </>
               ) : (
-                `Bayar Sekarang · ${formatCurrency(total)}`
+                <span className="truncate">Bayar Sekarang · {formatCurrency(total)}</span>
               )}
             </Button>
           </div>

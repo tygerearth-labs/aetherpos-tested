@@ -90,6 +90,7 @@ interface UsePosProductsOptions {
 
 interface UsePosProductsReturn {
   products: Product[]
+  outOfStockProducts: Product[]
   categories: Category[]
   productSearch: string
   productsLoading: boolean
@@ -120,6 +121,7 @@ export function usePosProducts(options: UsePosProductsOptions): UsePosProductsRe
   const pageSize = options.pageSize ?? PRODUCTS_PER_PAGE
 
   const [products, setProducts] = useState<Product[]>([])
+  const [outOfStockProducts, setOutOfStockProducts] = useState<Product[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [productSearch, setProductSearch] = useState('')
   const [productsLoading, setProductsLoading] = useState(true)
@@ -175,6 +177,9 @@ export function usePosProducts(options: UsePosProductsOptions): UsePosProductsRe
           const data = await res.json()
           const prods: Product[] = (data.products || []).map(mapApiProduct)
           setProducts(prods.slice(0, pageSize))
+          // Out-of-stock products (from backend) for the "Stok Habis" section
+          const oos: Product[] = (data.outOfStockProducts || []).map(mapApiProduct)
+          setOutOfStockProducts(oos.slice(0, 8))
           setTotalProductPages(1)
           // PR 3: cache working set to Dexie
           await cacheProducts(prods.map(toCachedPosProduct), 'featured')
@@ -185,14 +190,13 @@ export function usePosProducts(options: UsePosProductsOptions): UsePosProductsRe
         if (db) {
           const cached = await db.posProducts.toArray()
           const prods = cached.map(fromCachedPosProduct)
-          // Sort: in-stock first
-          prods.sort((a, b) => {
-            const aIn = (a.hasVariants ? a._variantCount : a.stock) > 0
-            const bIn = (b.hasVariants ? b._variantCount : b.stock) > 0
-            if (aIn !== bIn) return aIn ? -1 : 1
-            return a.name.localeCompare(b.name)
-          })
-          setProducts(prods.slice(0, pageSize))
+          // Split: in-stock in main list, out-of-stock separately
+          const inStock = prods.filter(p => p.hasVariants || p.stock > 0)
+          const oos = prods.filter(p => !p.hasVariants && p.stock <= 0)
+          inStock.sort((a, b) => a.name.localeCompare(b.name))
+          oos.sort((a, b) => a.name.localeCompare(b.name))
+          setProducts(inStock.slice(0, pageSize))
+          setOutOfStockProducts(oos.slice(0, 8))
           setTotalProductPages(1)
         }
       }
@@ -217,7 +221,11 @@ export function usePosProducts(options: UsePosProductsOptions): UsePosProductsRe
         if (res.ok) {
           const data = await res.json()
           const prods: Product[] = (data.products || []).map(mapApiProduct)
-          setProducts(prods)
+          // Split search results: in-stock in main list, out-of-stock separately
+          const inStock = prods.filter(p => p.hasVariants || p.stock > 0)
+          const oos = prods.filter(p => !p.hasVariants && p.stock <= 0)
+          setProducts(inStock)
+          setOutOfStockProducts(oos.slice(0, 8))
           setTotalProductPages(data.totalPages || 1)
           // PR 3: cache search results to Dexie
           await cacheProducts(prods.map(toCachedPosProduct), 'search')
@@ -240,7 +248,11 @@ export function usePosProducts(options: UsePosProductsOptions): UsePosProductsRe
           const total = cached.length
           const totalPages = Math.max(1, Math.ceil(total / pageSize))
           const skip = (page - 1) * pageSize
-          setProducts(cached.slice(skip, skip + pageSize).map(fromCachedPosProduct))
+          const pageItems = cached.slice(skip, skip + pageSize).map(fromCachedPosProduct)
+          const inStock = pageItems.filter(p => p.hasVariants || p.stock > 0)
+          const oos = pageItems.filter(p => !p.hasVariants && p.stock <= 0)
+          setProducts(inStock)
+          setOutOfStockProducts(oos.slice(0, 8))
           setTotalProductPages(totalPages)
         }
       }
@@ -471,7 +483,7 @@ export function usePosProducts(options: UsePosProductsOptions): UsePosProductsRe
   }, [productSearch, productPage, selectedCategoryId, fetchFeatured, fetchSearch])
 
   return {
-    products, categories, productSearch, productsLoading, productPage, totalProductPages,
+    products, outOfStockProducts, categories, productSearch, productsLoading, productPage, totalProductPages,
     selectedCategoryId, variantPicker,
     lastInputTimeRef, inputCharCountRef, barcodeDetectedRef,
     setProductSearch, setProductPage, setSelectedCategoryId, setVariantPicker,
