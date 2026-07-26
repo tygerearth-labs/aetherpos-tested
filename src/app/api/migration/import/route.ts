@@ -987,6 +987,10 @@ export async function POST(request: NextRequest) {
           // Inventory items to update (per-row — different values per row)
           const invItemsToUpdate: Array<{ id: string; name: string; data: Prisma.InventoryItemUpdateInput }> = []
 
+          // Inventory items with real history: partial update for lowStockAlert only
+          // (lowStockAlert is NOT part of the authoritative ledger, safe to update)
+          const invItemsPartialAlertUpdate: Array<{ id: string; name: string; lowStockAlert: number }> = []
+
           // Inventory item IDs needing batch cleanup (re-migration: delete old MIGRATION movements + auto compositions)
           const invIdsToCleanup: string[] = []
           const cleanupWarningData: Map<string, { name: string; analysis: RemigrationAnalysis }> = new Map()
@@ -1122,7 +1126,7 @@ export async function POST(request: NextRequest) {
               unit,
               categoryId,
               outletId,
-              lowStockAlert: lowStockAlert > 0 ? lowStockAlert : 10,
+              lowStockAlert: lowStockAlert > 0 ? lowStockAlert : 1,
               hasComposition,
             })
 
@@ -1180,7 +1184,7 @@ export async function POST(request: NextRequest) {
                   baseUnit: unit,
                   stock,
                   avgCost: hpp > 0 ? hpp : 0,
-                  lowStockAlert: lowStockAlert > 0 ? lowStockAlert : 0,
+                  lowStockAlert: lowStockAlert > 0 ? lowStockAlert : 1,
                   status: 'ACTIVE',
                   outletId,
                   categoryId: null,
@@ -1227,7 +1231,7 @@ export async function POST(request: NextRequest) {
                       baseUnit: unit,
                       stock,
                       avgCost: hpp > 0 ? hpp : 0,
-                      lowStockAlert: lowStockAlert > 0 ? lowStockAlert : 0,
+                      lowStockAlert: lowStockAlert > 0 ? lowStockAlert : 1,
                       status: 'ACTIVE',
                     },
                   })
@@ -1258,10 +1262,16 @@ export async function POST(request: NextRequest) {
                   })
                   compositionsCreated++
                 } else {
-                  // Has real history: use existing, skip update, warn
+                  // Has real history: use existing, skip full update, warn
                   inventoryItemCache.set(name, existingInv.id)
                   inventoryItemsSkipped++
                   warnings.push(`⚠️ "${name}" menggunakan data existing: ${analysis.reason}`)
+
+                  // Partial update: lowStockAlert is NOT part of the authoritative ledger,
+                  // safe to update even for items with real history (fixes "alert = 0" bug)
+                  if (lowStockAlert > 0) {
+                    invItemsPartialAlertUpdate.push({ id: existingInv.id, name, lowStockAlert })
+                  }
 
                   // Still create 1:1 composition link (product is new, needs link)
                   compositionsToCreate.push({
@@ -1324,6 +1334,17 @@ export async function POST(request: NextRequest) {
             inventoryItemCache.set(update.name, update.id)
           }
 
+          // 4b2. Partial update: lowStockAlert for skipped items (has real history).
+          // lowStockAlert is NOT part of the authoritative ledger (Section 1 LOCK),
+          // so updating it does not violate any invariant. Fixes "alert = 0" bug
+          // where skipped items keep lowStockAlert=0 even when migration data specifies a value.
+          for (const partial of invItemsPartialAlertUpdate) {
+            await tx.inventoryItem.update({
+              where: { id: partial.id },
+              data: { lowStockAlert: partial.lowStockAlert },
+            })
+          }
+
           // 4c. Create products (batched via createMany + re-query for IDs)
           // createMany doesn't return created records, so we re-query by name.
           // In-batch uniqueness is enforced by `batchProductNamesSeen` (see guard
@@ -1383,17 +1404,46 @@ export async function POST(request: NextRequest) {
           // tx rolls back → Mode 2 atomic invariant preserved.
           if (compositionsToCreate.length > 0) {
             const compData = compositionsToCreate.map(c => ({
-              productId: createdProductMap.get(c.productName)!,
+              productName: c.productName,
+              productId: createdProductMap.get(c.productName) || productCache.get(c.productName) || null,
               variantId: null,
-              inventoryItemId: c.invIdOrName.length > 20
-                ? c.invIdOrName  // already an ID (existing inventory, 24-char cuid)
-                : (createdInvMap.get(c.invIdOrName) || c.invIdOrName),  // name → resolve
+              inventoryItemId: (createdInvMap.get(c.invIdOrName) ?? inventoryItemCache.get(c.invIdOrName))
+                ?? (/^c[a-z0-9]{24}$/.test(c.invIdOrName) ? c.invIdOrName : null),  // resolve name from maps first; only use directly if cuid pattern
               qty: 1,
               baseUnit: c.unit,
             })).filter(c => c.productId && c.inventoryItemId) // safety: skip if IDs not resolved
 
+            // FK-VALIDATION: Verify all resolved inventoryItemId values actually exist in DB.
+            // This prevents FK constraint violations from stale cache entries, timing issues,
+            // or edge cases where a resolved ID doesn't match any InventoryItem row.
             if (compData.length > 0) {
-              await tx.productComposition.createMany({ data: compData })
+              const invIds = compData.map(c => c.inventoryItemId)
+              const existingInvIds = await tx.inventoryItem.findMany({
+                where: { id: { in: invIds }, outletId },
+                select: { id: true, name: true },
+              })
+              const validInvIdSet = new Set(existingInvIds.map(i => i.id))
+
+              const validCompData = compData.filter(c => {
+                if (!validInvIdSet.has(c.inventoryItemId)) {
+                  console.warn(`[migration] FK skip: composition for product "${c.productName}" references inventoryItemId "${c.inventoryItemId}" which does not exist in DB. Skipping.`)
+                  warnings.push(`⚠️ Komposisi produk "${c.productName}" dilewati: bahan inventori tidak ditemukan di database`)
+                  return false
+                }
+                return true
+              })
+
+              if (validCompData.length > 0) {
+                // Remove productName from data before createMany (it's not a Prisma field)
+                const createData = validCompData.map(c => ({
+                  productId: c.productId,
+                  variantId: c.variantId,
+                  inventoryItemId: c.inventoryItemId,
+                  qty: c.qty,
+                  baseUnit: c.baseUnit,
+                }))
+                await tx.productComposition.createMany({ data: createData })
+              }
             }
           }
 
@@ -1406,6 +1456,7 @@ export async function POST(request: NextRequest) {
           // performance gain (1 query vs 50).
           if (movementsToCreate.length > 0) {
             const movData = movementsToCreate.map(m => ({
+              invIdOrName: m.invIdOrName,
               type: m.type as 'PURCHASE',
               quantity: m.quantity,
               previousStock: m.previousStock,
@@ -1413,17 +1464,44 @@ export async function POST(request: NextRequest) {
               referenceType: m.referenceType as 'MIGRATION',
               notes: m.notes,
               outletId: m.outletId,
-              inventoryItemId: m.invIdOrName.length > 20
-                ? m.invIdOrName  // already an ID (existing inventory)
-                : (createdInvMap.get(m.invIdOrName) || m.invIdOrName),  // name → resolve
+              inventoryItemId: (createdInvMap.get(m.invIdOrName) ?? inventoryItemCache.get(m.invIdOrName))
+                ?? (/^c[a-z0-9]{24}$/.test(m.invIdOrName) ? m.invIdOrName : null),  // resolve name from maps first; only use directly if cuid pattern
               userId: m.userId,
             })).filter(m => m.inventoryItemId) // safety: skip if ID not resolved
 
+            // FK-VALIDATION: Verify all inventoryItemId values exist before createMany
             if (movData.length > 0) {
-              try {
-                await tx.inventoryMovement.createMany({ data: movData })
-              } catch (movErr) {
-                console.warn('[migration] Failed to batch-create opening balance movements:', movErr)
+              const invIds = movData.map(m => m.inventoryItemId)
+              const existingInvIds = await tx.inventoryItem.findMany({
+                where: { id: { in: invIds }, outletId },
+                select: { id: true },
+              })
+              const validInvIdSet = new Set(existingInvIds.map(i => i.id))
+
+              const validMovData = movData.filter(m => {
+                if (!validInvIdSet.has(m.inventoryItemId)) {
+                  console.warn(`[migration] FK skip: movement for inv "${m.invIdOrName}" references inventoryItemId "${m.inventoryItemId}" which does not exist in DB. Skipping.`)
+                  return false
+                }
+                return true
+              }).map(m => ({
+                type: m.type,
+                quantity: m.quantity,
+                previousStock: m.previousStock,
+                newStock: m.newStock,
+                referenceType: m.referenceType,
+                notes: m.notes,
+                outletId: m.outletId,
+                inventoryItemId: m.inventoryItemId,
+                userId: m.userId,
+              }))
+
+              if (validMovData.length > 0) {
+                try {
+                  await tx.inventoryMovement.createMany({ data: validMovData })
+                } catch (movErr) {
+                  console.warn('[migration] Failed to batch-create opening balance movements:', movErr)
+                }
               }
             }
           }
@@ -1883,7 +1961,7 @@ export async function POST(request: NextRequest) {
                         baseUnit: variantInvUnit,
                         stock: r.variantStock,
                         avgCost: r.variantHpp > 0 ? r.variantHpp : 0,
-                        lowStockAlert: 0,
+                        lowStockAlert: 10,
                         status: 'ACTIVE',
                         outletId,
                         categoryId: null,
@@ -1931,7 +2009,7 @@ export async function POST(request: NextRequest) {
                             baseUnit: variantInvUnit,
                             stock: r.variantStock,
                             avgCost: r.variantHpp > 0 ? r.variantHpp : 0,
-                            lowStockAlert: 0,
+                            lowStockAlert: 10,
                             status: 'ACTIVE',
                           },
                         })
@@ -1964,10 +2042,14 @@ export async function POST(request: NextRequest) {
                         })
                         compositionsCreated++
                       } else {
-                        // Has real history: use existing, skip update, warn
+                        // Has real history: use existing, skip full update, warn
                         inventoryItemCache.set(variantInvName, existingVariantInv.id)
                         inventoryItemsSkipped++
                         warnings.push(`⚠️ "${variantInvName}" menggunakan data existing: ${variantAnalysis.reason}`)
+
+                        // Partial update: lowStockAlert is NOT part of the authoritative ledger,
+                        // safe to update even for items with real history (fixes "alert = 0" bug)
+                        invItemsPartialAlertUpdate.push({ id: existingVariantInv.id, name: variantInvName, lowStockAlert: 10 })
 
                         // Still create 1:1 composition link (variant is new, needs link)
                         variantCompositionsToCreate.push({
@@ -2151,17 +2233,43 @@ export async function POST(request: NextRequest) {
               // tx rolls back → Mode 2 atomic invariant preserved.
               if (variantCompositionsToCreate.length > 0) {
                 const compData = variantCompositionsToCreate.map(c => ({
-                  productId: allParentIdMap.get(c.parentName)!,
-                  variantId: createdVariantMap.get(`${c.parentName}||${c.variantName}`)!,
-                  inventoryItemId: c.invIdOrName.length > 20
-                    ? c.invIdOrName  // already an ID (existing inventory, 24-char cuid)
-                    : (createdVariantInvMap.get(c.invIdOrName) || c.invIdOrName),  // name → resolve
+                  parentName: c.parentName,
+                  variantName: c.variantName,
+                  productId: allParentIdMap.get(c.parentName) || null,
+                  variantId: createdVariantMap.get(`${c.parentName}||${c.variantName}`) || null,
+                  inventoryItemId: (createdVariantInvMap.get(c.invIdOrName) ?? inventoryItemCache.get(c.invIdOrName))
+                    ?? (/^c[a-z0-9]{24}$/.test(c.invIdOrName) ? c.invIdOrName : null),  // resolve name from maps first; only use directly if cuid pattern
                   qty: 1,
                   baseUnit: c.unit,
-                })).filter(c => c.productId && c.variantId && c.inventoryItemId)  // safety
+                })).filter(c => c.productId && c.variantId && c.inventoryItemId)  // safety: skip if IDs not resolved
 
+                // FK-VALIDATION: Verify all inventoryItemId values exist in DB before createMany
                 if (compData.length > 0) {
-                  await tx.productComposition.createMany({ data: compData })
+                  const invIds = compData.map(c => c.inventoryItemId)
+                  const existingInvIds = await tx.inventoryItem.findMany({
+                    where: { id: { in: invIds }, outletId },
+                    select: { id: true, name: true },
+                  })
+                  const validInvIdSet = new Set(existingInvIds.map(i => i.id))
+
+                  const validCompData = compData.filter(c => {
+                    if (!validInvIdSet.has(c.inventoryItemId)) {
+                      console.warn(`[migration] FK skip: variant composition for "${c.parentName}"/"${c.variantName}" references inventoryItemId "${c.inventoryItemId}" which does not exist in DB. Skipping.`)
+                      return false
+                    }
+                    return true
+                  })
+
+                  if (validCompData.length > 0) {
+                    const createData = validCompData.map(c => ({
+                      productId: c.productId,
+                      variantId: c.variantId,
+                      inventoryItemId: c.inventoryItemId,
+                      qty: c.qty,
+                      baseUnit: c.baseUnit,
+                    }))
+                    await tx.productComposition.createMany({ data: createData })
+                  }
                 }
               }
 
@@ -2170,6 +2278,7 @@ export async function POST(request: NextRequest) {
               // per-item try/catch behavior).
               if (variantMovementsToCreate.length > 0) {
                 const movData = variantMovementsToCreate.map(m => ({
+                  invIdOrName: m.invIdOrName,
                   type: m.type as 'PURCHASE',
                   quantity: m.quantity,
                   previousStock: m.previousStock,
@@ -2177,17 +2286,44 @@ export async function POST(request: NextRequest) {
                   referenceType: m.referenceType as 'MIGRATION',
                   notes: m.notes,
                   outletId: m.outletId,
-                  inventoryItemId: m.invIdOrName.length > 20
-                    ? m.invIdOrName  // already an ID (existing inventory)
-                    : (createdVariantInvMap.get(m.invIdOrName) || m.invIdOrName),  // name → resolve
+                  inventoryItemId: (createdVariantInvMap.get(m.invIdOrName) ?? inventoryItemCache.get(m.invIdOrName))
+                    ?? (/^c[a-z0-9]{24}$/.test(m.invIdOrName) ? m.invIdOrName : null),  // resolve name from maps first; only use directly if cuid pattern
                   userId: m.userId,
-                })).filter(m => m.inventoryItemId)  // safety
+                })).filter(m => m.inventoryItemId)  // safety: skip if ID not resolved
 
+                // FK-VALIDATION: Verify all inventoryItemId values exist before createMany
                 if (movData.length > 0) {
-                  try {
-                    await tx.inventoryMovement.createMany({ data: movData })
-                  } catch (movErr) {
-                    console.warn('[migration] Failed to batch-create variant opening balance movements:', movErr)
+                  const invIds = movData.map(m => m.inventoryItemId)
+                  const existingInvIds = await tx.inventoryItem.findMany({
+                    where: { id: { in: invIds }, outletId },
+                    select: { id: true },
+                  })
+                  const validInvIdSet = new Set(existingInvIds.map(i => i.id))
+
+                  const validMovData = movData.filter(m => {
+                    if (!validInvIdSet.has(m.inventoryItemId)) {
+                      console.warn(`[migration] FK skip: variant movement for inv "${m.invIdOrName}" references inventoryItemId "${m.inventoryItemId}" which does not exist in DB. Skipping.`)
+                      return false
+                    }
+                    return true
+                  }).map(m => ({
+                    type: m.type,
+                    quantity: m.quantity,
+                    previousStock: m.previousStock,
+                    newStock: m.newStock,
+                    referenceType: m.referenceType,
+                    notes: m.notes,
+                    outletId: m.outletId,
+                    inventoryItemId: m.inventoryItemId,
+                    userId: m.userId,
+                  }))
+
+                  if (validMovData.length > 0) {
+                    try {
+                      await tx.inventoryMovement.createMany({ data: validMovData })
+                    } catch (movErr) {
+                      console.warn('[migration] Failed to batch-create variant opening balance movements:', movErr)
+                    }
                   }
                 }
               }
