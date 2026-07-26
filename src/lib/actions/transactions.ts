@@ -3,6 +3,7 @@
 import { db } from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth/auth-utils';
 import type { PaginatedResult, CheckoutInput } from '@/lib/types';
+import { withInsensitiveMode } from '@/lib/api/api-helpers';
 
 const PAGE_SIZE = 20;
 
@@ -37,10 +38,10 @@ export async function getTransactions(
     outletId: user.outletId,
     ...(search
       ? {
-          OR: [
+          OR: withInsensitiveMode([
             { invoiceNumber: { contains: search } },
             { customer: { name: { contains: search } } },
-          ],
+          ]) as Record<string, unknown>[],
         }
       : {}),
   };

@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
-import { parseTzOffset, buildDateFilterTz, getTodayRangeTz, getVoidedTxIds } from '@/lib/api/api-helpers'
+import { parseTzOffset, buildDateFilterTz, getTodayRangeTz, getVoidedTxIds, withInsensitiveMode, ciContains } from '@/lib/api/api-helpers'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 
 /**
@@ -139,7 +139,7 @@ export async function GET(request: NextRequest) {
           outletId: targetOutletId,
           createdAt: dateFilter,
           ...voidExclude,
-          ...(search ? { invoiceNumber: { contains: search } } : {}),
+          ...(search ? ciContains('invoiceNumber', search) : {}),
         }
 
         [data, totalRecords] = await Promise.all([
@@ -169,10 +169,10 @@ export async function GET(request: NextRequest) {
       try {
         const whereClause: Record<string, unknown> = { outletId: targetOutletId }
         if (search) {
-          whereClause.OR = [
+          whereClause.OR = withInsensitiveMode([
             { name: { contains: search } },
             { whatsapp: { contains: search } },
-          ]
+          ]) as Record<string, unknown>[]
         }
 
         [data, totalRecords] = await Promise.all([
@@ -202,11 +202,11 @@ export async function GET(request: NextRequest) {
       try {
         const whereClause: Record<string, unknown> = { outletId: targetOutletId }
         if (search) {
-          whereClause.OR = [
+          whereClause.OR = withInsensitiveMode([
             { name: { contains: search } },
             { sku: { contains: search } },
             { barcode: { contains: search } },
-          ]
+          ]) as Record<string, unknown>[]
         }
 
         [data, totalRecords] = await Promise.all([

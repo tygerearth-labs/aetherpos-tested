@@ -56,7 +56,7 @@ export async function GET(
       const batches = await db.inventoryBatch.findMany({
         where: { inventoryItemId: id, outletId: user.outletId },
         select: { status: true, remainingQty: true, expiredDate: true },
-        orderBy: { expiredDate: 'asc' },
+        orderBy: [{ expiredDate: { sort: 'asc', nulls: 'last' } }],
       })
       const now = new Date()
       const available = batches.filter(b => b.status === 'AVAILABLE')

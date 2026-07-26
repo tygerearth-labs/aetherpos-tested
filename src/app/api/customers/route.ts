@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
-import { parsePagination } from '@/lib/api/api-helpers'
+import { parsePagination, withInsensitiveMode } from '@/lib/api/api-helpers'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { getFeaturesForOutlet, isUnlimited } from '@/lib/config/plan-config'
 import { assertOutletWithinLimits } from '@/lib/api/plan-enforcement'
@@ -21,10 +21,10 @@ export async function GET(request: NextRequest) {
 
     const where: Record<string, unknown> = { outletId, deletedAt: null }
     if (search) {
-      where.OR = [
+      where.OR = withInsensitiveMode([
         { name: { contains: search } },
         { whatsapp: { contains: search } },
-      ]
+      ]) as Record<string, unknown>[]
     }
 
     // CUST-002 FIX: All customer queries filter `deletedAt: null` so that

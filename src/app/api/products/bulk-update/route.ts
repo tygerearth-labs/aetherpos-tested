@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
+import { withInsensitiveMode } from '@/lib/api/api-helpers'
 
 export async function POST(request: NextRequest) {
   try {
@@ -68,7 +69,7 @@ export async function POST(request: NextRequest) {
     // If selectAllMode, fetch products matching the current filter
     const selectAllWhere: Record<string, unknown> = { outletId }
     if (filter?.search) {
-      selectAllWhere.OR = [
+      selectAllWhere.OR = withInsensitiveMode([
         { name: { contains: filter.search } },
         { sku: { contains: filter.search } },
         { barcode: { contains: filter.search } },
@@ -77,7 +78,7 @@ export async function POST(request: NextRequest) {
         { variants: { some: { name: { contains: filter.search } } } },
         { variants: { some: { sku: { contains: filter.search } } } },
         { variants: { some: { barcode: { contains: filter.search } } } },
-      ]
+      ]) as Record<string, unknown>[]
     }
     if (filter?.categoryId) {
       selectAllWhere.categoryId = filter.categoryId

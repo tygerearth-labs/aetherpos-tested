@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
-import { parsePagination, buildDateFilter, buildDateFilterTz, buildVoidMap, getVoidedTxIds } from '@/lib/api/api-helpers'
+import { parsePagination, buildDateFilter, buildDateFilterTz, buildVoidMap, getVoidedTxIds, withInsensitiveMode } from '@/lib/api/api-helpers'
 import { safeJson, safeJsonError, CACHE } from '@/lib/api/safe-response'
 
 export async function GET(request: NextRequest) {
@@ -28,10 +28,10 @@ export async function GET(request: NextRequest) {
 
     const where: Record<string, unknown> = { outletId }
     if (search) {
-      where.OR = [
+      where.OR = withInsensitiveMode([
         { invoiceNumber: { contains: search } },
         { customer: { name: { contains: search } } },
-      ]
+      ]) as Record<string, unknown>[]
     }
 
     // Use timezone-aware filter if tzOffset is provided, else fall back to legacy

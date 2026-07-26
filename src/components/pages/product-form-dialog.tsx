@@ -672,7 +672,15 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
         // Previously the response was discarded, so any failure (validation,
         // inventory item not found, etc.) was silently swallowed → user saw
         // success toast but composition was actually not saved ("unlink").
-        const syncComposition = async (payload: Record<string, unknown>): Promise<void> => {
+        //
+        // V14 FIX: Composition route sekarang return `stockCapInfo` /
+        // `variantStockCapInfo` ketika stock produk di-cap ke maxStock
+        // (karena bahan baku habis/berubah). Helper ini me-return info
+        // tersebut ke caller agar bisa ditampilkan sebagai toast warning.
+        const syncComposition = async (payload: Record<string, unknown>): Promise<{
+          stockCapInfo?: { stockCapped: boolean; oldStock: number; newStock: number; maxStock: number; limitingItemName: string | null } | null
+          variantStockCapInfo?: Array<{ variantId: string; variantName: string; oldStock: number; newStock: number; maxStock: number; limitingItemName: string | null }>
+        }> => {
           const compRes = await fetch(`/api/products/${productId}/composition`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
@@ -682,9 +690,16 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
             const err = await compRes.json().catch(() => ({}))
             throw new Error(err?.error || `Gagal menyimpan komposisi (status ${compRes.status})`)
           }
+          return await compRes.json().catch(() => ({}))
         }
 
         try {
+          // V14 FIX: capture composition response untuk deteksi stock-cap
+          let compResult: {
+            stockCapInfo?: { stockCapped: boolean; oldStock: number; newStock: number; maxStock: number; limitingItemName: string | null } | null
+            variantStockCapInfo?: Array<{ variantId: string; variantName: string; oldStock: number; newStock: number; maxStock: number; limitingItemName: string | null }>
+          } = {}
+
           if (shouldSync && hasComposition && hasVariants) {
             // Per-variant composition mode
             // Fetch saved variants to get their IDs.
@@ -724,7 +739,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
             // Old code: hasComposition: Object.keys(vcMap).length > 0 — if user toggled
             // composition ON but no variants had items yet, hasComposition was silently
             // downgraded to false. Now: pass through user's toggle state.
-            await syncComposition({
+            compResult = await syncComposition({
               hasComposition: true,
               variantCompositions: vcMap,
             })
@@ -739,7 +754,7 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
               }))
 
             // FIX-COMP-G: preserve user's toggle state (see above).
-            await syncComposition({
+            compResult = await syncComposition({
               hasComposition: true,
               compositions: compData,
             })
@@ -749,6 +764,24 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
               hasComposition: false,
               compositions: [],
             })
+          }
+
+          // V14 FIX: Tampilkan toast warning kalau stock di-cap karena komposisi
+          // (sebelumnya silent — user lihat toast sukses padahal stock jadi 0)
+          if (compResult.stockCapInfo?.stockCapped) {
+            const info = compResult.stockCapInfo
+            const itemHint = info.limitingItemName ? ` (bahan pembatas: "${info.limitingItemName}")` : ''
+            toast.warning(
+              `Stok produk di-cap dari ${info.oldStock} → ${info.newStock} karena kapasitas bahan baku${itemHint}. Maksimal: ${info.maxStock} unit.`
+            )
+          }
+          if (compResult.variantStockCapInfo && compResult.variantStockCapInfo.length > 0) {
+            for (const v of compResult.variantStockCapInfo) {
+              const itemHint = v.limitingItemName ? ` (bahan pembatas: "${v.limitingItemName}")` : ''
+              toast.warning(
+                `Stok varian "${v.variantName}" di-cap dari ${v.oldStock} → ${v.newStock}${itemHint}. Maksimal: ${v.maxStock} unit.`
+              )
+            }
           }
         } catch (compError) {
           // Composition sync failed — surface to user. The product itself was saved,

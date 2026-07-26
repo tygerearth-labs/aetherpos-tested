@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
             status: true,
             supplierName: true,
           },
-          orderBy: { expiredDate: 'asc' },
+          orderBy: [{ expiredDate: { sort: 'asc', nulls: 'last' } }],
         },
       },
       orderBy: { name: 'asc' },

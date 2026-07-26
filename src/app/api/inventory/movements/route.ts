@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonError, CACHE } from '@/lib/api/safe-response'
-import { parsePagination } from '@/lib/api/api-helpers'
+import { parsePagination, withInsensitiveMode } from '@/lib/api/api-helpers'
 
 // GET /api/inventory/movements — paginated inventory movement history
 export async function GET(request: NextRequest) {
@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
       where.inventoryItemId = itemId
     }
     if (search) {
-      where.inventoryItem = { name: { contains: search } }
+      where.inventoryItem = withInsensitiveMode({ name: { contains: search } })
     }
 
     // Run count, sum queries, and data fetch in parallel

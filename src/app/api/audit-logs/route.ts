@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
-import { parsePagination, buildDateFilter } from '@/lib/api/api-helpers'
+import { parsePagination, buildDateFilter, withInsensitiveMode } from '@/lib/api/api-helpers'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 
 export async function GET(request: NextRequest) {
@@ -44,12 +44,12 @@ export async function GET(request: NextRequest) {
       where.createdAt = dateFilter
     }
     if (search) {
-      where.OR = [
+      where.OR = withInsensitiveMode([
         { details: { contains: search } },
         { user: { name: { contains: search } } },
         { entityType: { contains: search } },
         { action: { contains: search } },
-      ]
+      ]) as Record<string, unknown>[]
     }
 
     const [data, total] = await Promise.all([

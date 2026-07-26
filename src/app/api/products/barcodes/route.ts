@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
+import { withInsensitiveMode } from '@/lib/api/api-helpers'
 
 export async function GET(request: NextRequest) {
   try {
@@ -15,11 +16,11 @@ export async function GET(request: NextRequest) {
     const where: Record<string, unknown> = { outletId }
     if (categoryId) where.categoryId = categoryId
     if (search) {
-      where.OR = [
+      where.OR = withInsensitiveMode([
         { name: { contains: search } },
         { sku: { contains: search } },
         { barcode: { contains: search } },
-      ]
+      ]) as Record<string, unknown>[]
     }
 
     const products = await db.product.findMany({

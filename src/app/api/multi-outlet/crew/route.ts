@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { getOutletPlan } from '@/lib/config/plan-config'
-import { validateEmail, validatePassword, parsePagination } from '@/lib/api/api-helpers'
+import { validateEmail, validatePassword, parsePagination, withInsensitiveMode } from '@/lib/api/api-helpers'
 import { safeAuditLog } from '@/lib/safe-audit'
 import { safeJson, safeJsonCreated, safeJsonError } from '@/lib/api/safe-response'
 
@@ -48,10 +48,10 @@ export async function GET(request: NextRequest) {
     }
 
     if (search) {
-      whereClause.OR = [
+      whereClause.OR = withInsensitiveMode([
         { name: { contains: search } },
         { email: { contains: search } },
-      ]
+      ]) as Record<string, unknown>[]
     }
 
     const [crew, total] = await Promise.all([

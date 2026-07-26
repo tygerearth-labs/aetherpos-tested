@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { getOutletPlan } from '@/lib/config/plan-config'
-import { buildDateFilter, resolvePlanType, parsePagination } from '@/lib/api/api-helpers'
+import { buildDateFilter, resolvePlanType, parsePagination, withInsensitiveMode } from '@/lib/api/api-helpers'
 import * as XLSX from 'xlsx'
 import { safeAuditLog } from '@/lib/safe-audit'
 import { safeJsonError } from '@/lib/api/safe-response'
@@ -45,11 +45,11 @@ export async function GET(request: NextRequest) {
       where.createdAt = dateFilter
     }
     if (search) {
-      where.OR = [
+      where.OR = withInsensitiveMode([
         { orderNumber: { contains: search } },
         { supplier: { name: { contains: search } } },
         { notes: { contains: search } },
-      ]
+      ]) as Record<string, unknown>[]
     }
 
     // Fetch all POs with items (no pagination for export, limit to 10000)

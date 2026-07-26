@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { requireWebmaster, webmasterUnauthorized } from '@/lib/api/webmaster-auth'
-import { parsePagination } from '@/lib/api/api-helpers'
+import { parsePagination, withInsensitiveMode } from '@/lib/api/api-helpers'
 
 /**
  * GET /api/webmaster/users
@@ -27,10 +27,10 @@ export async function GET(request: NextRequest) {
 
     const where: Record<string, unknown> = {}
     if (search) {
-      where.OR = [
+      where.OR = withInsensitiveMode([
         { name: { contains: search } },
         { email: { contains: search } },
-      ]
+      ]) as Record<string, unknown>[]
     }
     if (outletId) where.outletId = outletId
     if (role) where.role = role

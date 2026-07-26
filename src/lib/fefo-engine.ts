@@ -1337,7 +1337,7 @@ export class FEFOEngine {
           select: { name: true, baseUnit: true },
         },
       },
-      orderBy: { expiredDate: 'asc' },
+      orderBy: [{ expiredDate: { sort: 'asc', nulls: 'last' } }],
     })
 
     const expired: Array<Record<string, unknown>> = []
@@ -1442,7 +1442,7 @@ export class FEFOEngine {
           select: { name: true, baseUnit: true },
         },
       },
-      orderBy: { expiredDate: 'desc' },
+      orderBy: [{ expiredDate: { sort: 'desc', nulls: 'last' } }],
     })
 
     // Return flat list of expired batches (one row per batch), matching the

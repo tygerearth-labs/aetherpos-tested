@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth/auth-utils';
 import { getPlanFeatures, isUnlimited } from '@/lib/config/plan-config';
 import type { PaginatedResult } from '@/lib/types';
+import { withInsensitiveMode } from '@/lib/api/api-helpers';
 
 const PAGE_SIZE = 20;
 
@@ -31,10 +32,10 @@ export async function getProducts(
     outletId: user.outletId,
     ...(search
       ? {
-          OR: [
+          OR: withInsensitiveMode([
             { name: { contains: search } },
             { sku: { contains: search } },
-          ],
+          ]) as Record<string, unknown>[],
         }
       : {}),
   };

@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 import { safeAuditLogMany } from '@/lib/safe-audit'
+import { withInsensitiveMode } from '@/lib/api/api-helpers'
 
 export async function POST(request: NextRequest) {
   // We track deletedCount outside the try/catch so we can return
@@ -40,7 +41,7 @@ export async function POST(request: NextRequest) {
     // as the products list API, so we only delete what the user sees.
     const selectAllWhere: Record<string, unknown> = { outletId }
     if (filter?.search) {
-      selectAllWhere.OR = [
+      selectAllWhere.OR = withInsensitiveMode([
         { name: { contains: filter.search } },
         { sku: { contains: filter.search } },
         { barcode: { contains: filter.search } },
@@ -49,7 +50,7 @@ export async function POST(request: NextRequest) {
         { variants: { some: { name: { contains: filter.search } } } },
         { variants: { some: { sku: { contains: filter.search } } } },
         { variants: { some: { barcode: { contains: filter.search } } } },
-      ]
+      ]) as Record<string, unknown>[]
     }
     if (filter?.categoryId) {
       selectAllWhere.categoryId = filter.categoryId

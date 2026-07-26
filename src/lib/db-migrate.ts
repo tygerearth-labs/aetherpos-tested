@@ -28,6 +28,20 @@ export async function ensureMigrated(): Promise<void> {
        ON "AuditLog" ("entityId") WHERE action = 'SYNC_DEDUP'`
     )
     console.log('[db-migrate] ✅ Sync dedup unique index ensured')
+
+    // CUST-002 (V14 fix): Partial unique index on Customer(whatsapp, outletId)
+    // WHERE deletedAt IS NULL. This replaces the former @@unique([whatsapp, outletId])
+    // in the Prisma schema, which was a FULL unique constraint and would throw
+    // a unique-violation when re-creating a customer whose WhatsApp number was
+    // previously soft-deleted. The partial index only enforces uniqueness among
+    // ACTIVE (non-deleted) customers, matching the app-level check in
+    // customers/route.ts (findFirst({ whatsapp, outletId, deletedAt: null })).
+    // Works on both SQLite and PostgreSQL (both support partial unique indexes).
+    await db.$executeRawUnsafe(
+      `CREATE UNIQUE INDEX IF NOT EXISTS "customer_whatsapp_outlet_active_uidx"
+       ON "Customer" (whatsapp, "outletId") WHERE "deletedAt" IS NULL`
+    )
+    console.log('[db-migrate] ✅ Customer whatsapp partial unique index ensured')
   } catch (err) {
     // Non-fatal: if the index can't be created (e.g. duplicates already exist),
     // log and continue — the app still works, just without atomic dedup.
