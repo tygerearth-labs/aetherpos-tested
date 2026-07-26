@@ -48,7 +48,7 @@ import {
 import { ReceiptDialog } from '@/components/pos/receipt-dialog'
 import {
   Search, Plus, Minus, Trash2, ShoppingCart, ShoppingBag, Package, PackageSearch, Loader2, Check, X,
-  User, UserPlus, Coins, Wifi, WifiOff, RefreshCw, CloudOff, Tag, AlertTriangle,
+  User, UserPlus, Coins, Wifi, WifiOff, RefreshCw, RefreshCcw, CloudOff, Tag, AlertTriangle,
   ChevronLeft, ChevronRight, Pencil, History, Clock, Printer,
   LayoutGrid, Layers, Banknote, HandCoins, QrCode, CreditCard, ArrowLeftRight,
   ChevronDown, Store, Calendar, TrendingUp, ScanLine, Database, Eraser, Phone,
@@ -204,7 +204,7 @@ export default function PosPage() {
                 value={products.productSearch}
                 onChange={(e) => products.handleSearchChange(e.target.value)}
                 onKeyDown={products.handleSearchKeyDown}
-                className="pl-9 pr-9 h-9 bg-white/[0.03] border-white/[0.06] text-sm text-slate-100 placeholder:text-slate-500 rounded-lg focus-visible:border-cyan-400/30 focus-visible:bg-white/[0.05] transition-colors"
+                className="pl-9 pr-9 h-9 bg-white/[0.03] border-white/[0.06] text-sm text-slate-100 placeholder:text-slate-500 rounded-lg focus-visible:border-[var(--theme-400)]/40 focus-visible:bg-white/[0.05] transition-colors"
               />
               {products.productSearch ? (
                 <button
@@ -367,7 +367,7 @@ export default function PosPage() {
         <ResponsiveDialogContent>
           <ResponsiveDialogHeader>
             <ResponsiveDialogTitle className="flex items-center gap-2">
-              <Layers className="h-4 w-4 text-cyan-400" />
+              <Layers className="h-4 w-4 text-[var(--theme-400)]" />
               Pilih Varian
             </ResponsiveDialogTitle>
             <ResponsiveDialogDescription>{products.variantPicker.product?.name}</ResponsiveDialogDescription>
@@ -573,8 +573,8 @@ function PosInfoStrip({ outletName, cashierName, now, todaySummary, isOnline }: 
     <div className="flex items-center gap-2 sm:gap-2.5 h-9 px-3 border-b border-white/[0.04] bg-deep-space/40 text-[11px]">
       {/* Outlet name — primary identity with subtle accent (always visible) */}
       <div className="flex items-center gap-1.5 min-w-0 shrink-0">
-        <span className="h-4 w-4 rounded-md bg-cyan-500/10 ring-1 ring-cyan-500/15 flex items-center justify-center shrink-0">
-          <Store className="h-2.5 w-2.5 text-cyan-300" />
+        <span className="h-4 w-4 rounded-md bg-[var(--theme-500)]/10 ring-1 ring-[var(--theme-500)]/15 flex items-center justify-center shrink-0">
+          <Store className="h-2.5 w-2.5 text-[var(--theme-300)]" />
         </span>
         <span className="text-slate-100 font-semibold truncate max-w-[140px]" title={outletName ?? 'Outlet'}>
           {outletName ?? 'Outlet'}
@@ -645,15 +645,15 @@ function PosInfoStrip({ outletName, cashierName, now, todaySummary, isOnline }: 
           <PopoverTrigger asChild>
             <button
               type="button"
-              className="sm:hidden flex items-center text-cyan-400/80 hover:text-cyan-300 active:scale-95 transition"
+              className="sm:hidden flex items-center text-[var(--theme-400)]/80 hover:text-[var(--theme-300)] active:scale-95 transition"
               aria-label={todayTitle}
             >
-              <TrendingUp className="h-3 w-3 text-cyan-400/70" />
+              <TrendingUp className="h-3 w-3 text-[var(--theme-400)]/70" />
             </button>
           </PopoverTrigger>
           <PopoverContent className="w-56 p-2.5 bg-nebula border-white/[0.08] text-slate-200" align="end">
             <div className="flex items-center gap-1.5 text-[10px] text-slate-500 mb-1">
-              <TrendingUp className="h-2.5 w-2.5 text-cyan-400/70" />
+              <TrendingUp className="h-2.5 w-2.5 text-[var(--theme-400)]/70" />
               <span>Transaksi Hari Ini</span>
             </div>
             <div className="flex items-baseline justify-between gap-2">
@@ -664,20 +664,20 @@ function PosInfoStrip({ outletName, cashierName, now, todaySummary, isOnline }: 
             </div>
             <div className="flex items-baseline justify-between gap-2 mt-0.5">
               <span className="text-xs text-slate-400">Total</span>
-              <span className="text-sm text-cyan-300 font-semibold tabular-nums">
+              <span className="text-sm text-[var(--theme-300)] font-semibold tabular-nums">
                 {todaySummary ? formatCurrency(todaySummary.total) : '—'}
               </span>
             </div>
           </PopoverContent>
         </Popover>
         {/* Desktop: pill-style summary with subtle accent bg */}
-        <div className="hidden sm:flex items-center gap-1.5 h-6 px-2 rounded-full bg-cyan-500/[0.07] ring-1 ring-cyan-500/10" title={todayTitle}>
-          <TrendingUp className="h-3 w-3 text-cyan-400/80 shrink-0" />
+        <div className="hidden sm:flex items-center gap-1.5 h-6 px-2 rounded-full bg-[var(--theme-500)]/[0.07] ring-1 ring-[var(--theme-500)]/10" title={todayTitle}>
+          <TrendingUp className="h-3 w-3 text-[var(--theme-400)]/80 shrink-0" />
           {todaySummary ? (
             <>
               <span className="text-slate-300 tabular-nums font-medium">{todaySummary.count} tx</span>
               <span className="text-slate-700">·</span>
-              <span className="text-cyan-300 tabular-nums font-semibold">{formatCurrency(todaySummary.total)}</span>
+              <span className="text-[var(--theme-300)] tabular-nums font-semibold">{formatCurrency(todaySummary.total)}</span>
             </>
           ) : (
             <span className="text-slate-500 tabular-nums">Belum ada transaksi</span>
@@ -693,13 +693,22 @@ function PosInfoStrip({ outletName, cashierName, now, todaySummary, isOnline }: 
 // ==================== SYNC BUTTON (popover with rich offline context) ====================
 
 function SyncButton({ sync }: { sync: ReturnType<typeof usePosSync> }) {
-  // V4 color discipline: cyan=synced, blue-pulse=syncing, red=offline, amber=pending/failed/conflict
+  // V4 color discipline: theme=synced, blue-pulse=syncing, red=offline, amber=pending/failed/conflict
   const config = {
-    synced:   { dot: 'bg-cyan-400',                label: 'Synced',  },
+    synced:   { dot: 'bg-[var(--theme-400)]',         label: 'Synced',  },
     syncing:  { dot: 'bg-blue-400 animate-pulse',  label: 'Sync…',   },
     offline:  { dot: 'bg-red-400',                 label: 'Offline', },
     failed:   { dot: 'bg-amber-400',               label: `${sync.unsyncedCount} pending`, },
     conflict: { dot: 'bg-amber-400',               label: 'Conflict', },
+  }[sync.syncStatus]
+
+  // Mobile trigger icon color — mirrors the dot semantics (theme when synced)
+  const iconColor = {
+    synced:   'text-[var(--theme-400)]',
+    syncing:  'text-blue-400 animate-spin',
+    offline:  'text-red-400',
+    failed:   'text-amber-400',
+    conflict: 'text-amber-400',
   }[sync.syncStatus]
 
   const lastSyncLabel = sync.lastSyncAt ? sync.timeAgo(sync.lastSyncAt) : null
@@ -710,10 +719,13 @@ function SyncButton({ sync }: { sync: ReturnType<typeof usePosSync> }) {
         <Button
           variant="ghost"
           size="sm"
-          className="h-8 px-2.5 gap-1.5 rounded-md hover:bg-white/[0.06] text-slate-300 hover:text-slate-100 shrink-0 border border-white/[0.05]"
+          className="h-8 px-2 sm:px-2.5 gap-1.5 rounded-md hover:bg-white/[0.06] text-slate-300 hover:text-slate-100 shrink-0 border border-white/[0.05]"
           title="Status sinkronisasi"
         >
-          <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', config.dot)} />
+          {/* Mobile: RefreshCcw icon (status-colored, spins while syncing) */}
+          <RefreshCcw className={cn('h-3.5 w-3.5 shrink-0 sm:hidden', iconColor)} />
+          {/* Desktop: status dot */}
+          <span className={cn('h-1.5 w-1.5 rounded-full shrink-0 hidden sm:block', config.dot)} />
           <span className="text-[10px] font-medium hidden sm:inline">{config.label}</span>
           <ChevronDown className="h-2.5 w-2.5 text-slate-500 hidden sm:inline" />
         </Button>
@@ -723,7 +735,7 @@ function SyncButton({ sync }: { sync: ReturnType<typeof usePosSync> }) {
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-slate-300">Status Sinkronisasi</span>
             <span className={cn('inline-flex items-center gap-1 text-[10px] font-medium',
-              sync.syncStatus === 'synced' && 'text-cyan-400',
+              sync.syncStatus === 'synced' && 'text-[var(--theme-400)]',
               sync.syncStatus === 'syncing' && 'text-blue-400',
               sync.syncStatus === 'offline' && 'text-red-400',
               (sync.syncStatus === 'failed' || sync.syncStatus === 'conflict') && 'text-amber-400',
@@ -830,7 +842,7 @@ function CategoryFilter({ categories, selected, onSelect }: {
         <LayoutGrid className="h-3 w-3" />
         Semua
         {selected === null && (
-          <span className="absolute -bottom-px left-2 right-2 h-px bg-cyan-400/70 rounded-full" />
+          <span className="absolute -bottom-px left-2 right-2 h-px bg-[var(--theme-400)]/70 rounded-full" />
         )}
       </button>
       {categories.map((c) => {
@@ -853,7 +865,7 @@ function CategoryFilter({ categories, selected, onSelect }: {
             />
             {c.name}
             {isActive && (
-              <span className="absolute -bottom-px left-2 right-2 h-px bg-cyan-400/70 rounded-full" />
+              <span className="absolute -bottom-px left-2 right-2 h-px bg-[var(--theme-400)]/70 rounded-full" />
             )}
           </button>
         )
@@ -885,7 +897,7 @@ function ProductCard({ product, onClick }: { product: Product; onClick: () => vo
         'group flex flex-col gap-1 p-2 rounded-lg border text-left transition-all w-full',
         'border-white/[0.05] bg-white/[0.02]',
         'hover:bg-white/[0.05] hover:border-white/[0.1] hover:-translate-y-px hover:shadow-[0_4px_12px_rgba(0,0,0,0.25)]',
-        'focus-visible:outline-none focus-visible:border-cyan-400/40 focus-visible:bg-white/[0.05]',
+        'focus-visible:outline-none focus-visible:border-[var(--theme-400)]/40 focus-visible:bg-white/[0.05]',
         outOfStock && 'opacity-45 cursor-not-allowed hover:bg-white/[0.02] hover:border-white/[0.05] hover:translate-y-0 hover:shadow-none'
       )}
     >
@@ -900,7 +912,7 @@ function ProductCard({ product, onClick }: { product: Product; onClick: () => vo
         )}
         {/* Variant badge — overlaid top-right on image */}
         {product.hasVariants && (
-          <span className="absolute top-1 right-1 inline-flex items-center gap-0.5 text-[9px] font-medium text-cyan-300 bg-cyan-500/15 backdrop-blur-sm px-1.5 py-0.5 rounded-md ring-1 ring-cyan-500/20">
+          <span className="absolute top-1 right-1 inline-flex items-center gap-0.5 text-[9px] font-medium text-[var(--theme-300)] bg-[var(--theme-500)]/15 backdrop-blur-sm px-1.5 py-0.5 rounded-md ring-1 ring-[var(--theme-500)]/20">
             <Layers className="h-2.5 w-2.5" />
             {product._variantCount} Varian
           </span>
@@ -958,13 +970,13 @@ function CartPanel({ cart, customers, settings, selectedPromo, onSelectPromo, po
       {/* ── Section 1: Cart header — gradient surface, icon tile + title + count + actions ── */}
       <div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-white/[0.05] shrink-0 bg-gradient-to-r from-white/[0.03] to-transparent">
         <div className="flex items-center gap-2 min-w-0">
-          <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-cyan-500/20 to-cyan-500/5 ring-1 ring-cyan-500/20 flex items-center justify-center shrink-0 shadow-sm">
-            <ShoppingBag className="h-4 w-4 text-cyan-300" />
+          <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-[var(--theme-500)]/20 to-[var(--theme-500)]/5 ring-1 ring-[var(--theme-500)]/20 flex items-center justify-center shrink-0 shadow-sm">
+            <ShoppingBag className="h-4 w-4 text-[var(--theme-300)]" />
           </div>
           <div className="flex items-center gap-1.5 min-w-0">
             <span className="text-sm font-bold text-slate-100">Keranjang</span>
             {cart.cart.length > 0 && (
-              <span className="bg-cyan-500/15 text-cyan-300 text-[10px] font-semibold px-1.5 py-0.5 rounded-md tabular-nums ring-1 ring-cyan-500/20">{cart.cart.length}</span>
+              <span className="bg-[var(--theme-500)]/15 text-[var(--theme-300)] text-[10px] font-semibold px-1.5 py-0.5 rounded-md tabular-nums ring-1 ring-[var(--theme-500)]/20">{cart.cart.length}</span>
             )}
           </div>
         </div>
@@ -1249,8 +1261,8 @@ function CartItemRow({ item, cart, manualDiscountEnabled }: { item: CartItem; ca
         )}
       </div>
 
-      {/* Content — name/total row + details/controls row */}
-      <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+      {/* Content — name/total (row 1) + variant/price (row 2), vertically centered */}
+      <div className="flex-1 min-w-0 flex flex-col gap-1 justify-center">
         {/* Row 1 — product name (left) + line total (right) */}
         <div className="flex items-start justify-between gap-2">
           <p className="text-xs font-semibold text-slate-100 truncate leading-tight min-w-0" title={cart.getItemDisplayName(item)}>
@@ -1261,100 +1273,99 @@ function CartItemRow({ item, cart, manualDiscountEnabled }: { item: CartItem; ca
           </span>
         </div>
 
-        {/* Row 2 — variant + price/pc (left) + qty stepper + delete (right) */}
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1 min-w-0">
-            {item.variant && (
-              <>
-                <span className="text-[10px] text-slate-500 truncate max-w-[70px]" title={item.variant.name}>{item.variant.name}</span>
-                <span className="text-slate-700 text-[10px] shrink-0">·</span>
-              </>
-            )}
-            {/* SETTINGS CONTRACT: price-edit gated by outlet setting `manualDiscountEnabled`.
-                When disabled, the per-item manual discount (customPrice) cannot be started.
-                An in-progress edit (isEditingPrice) is still rendered so it can be confirmed/cancelled cleanly. */}
-            {isEditingPrice ? (
-              <Input
-                ref={cart.priceInputRef}
-                type="number"
-                value={cart.editingPriceValue}
-                onChange={(e) => cart.setEditingPriceValue(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') cart.confirmEditPrice(); if (e.key === 'Escape') cart.cancelEditPrice() }}
-                onBlur={cart.confirmEditPrice}
-                className="h-5 w-20 text-[10px] bg-white/[0.04] border-white/[0.06] text-white rounded px-1"
-              />
-            ) : manualDiscountEnabled ? (
-              <button
-                onClick={() => cart.startEditPrice(key, effPrice)}
-                className={cn(
-                  'inline-flex items-center gap-0.5 text-[10px] transition-colors hover:text-slate-200',
-                  hasCustomPrice ? 'text-amber-400 font-medium' : 'text-slate-500'
-                )}
-                title="Edit harga"
-              >
-                {formatCurrency(effPrice)}/pc
-                {hasCustomPrice && <span className="text-[9px] leading-none">●</span>}
-                <Pencil className="h-2.5 w-2.5 opacity-40" />
-              </button>
-            ) : (
-              <span className={cn('text-[10px]', hasCustomPrice ? 'text-amber-400 font-medium' : 'text-slate-500')} title="Diskon manual dinonaktifkan di Pengaturan">
-                {formatCurrency(effPrice)}/pc
-              </span>
-            )}
-          </div>
-
-          <div className="flex items-center gap-1 shrink-0">
-            {/* Qty stepper [− h-5] N [+ h-5] */}
-            {isEditingQty ? (
-              <Input
-                ref={cart.qtyInputRef}
-                type="number"
-                value={cart.editingQtyValue}
-                onChange={(e) => cart.setEditingQtyValue(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') cart.confirmEditQty(); if (e.key === 'Escape') cart.cancelEditQty() }}
-                onBlur={cart.confirmEditQty}
-                className="h-5 w-12 text-xs bg-white/[0.04] border-white/[0.06] text-white rounded-md text-center"
-              />
-            ) : (
-              <div className="flex items-center gap-0.5 bg-white/[0.04] rounded-md p-0.5 ring-1 ring-white/[0.04]">
-                <button
-                  type="button"
-                  onClick={() => cart.updateQty(item.product.id, Math.max(1, item.qty - 1), item.variant?.id || undefined)}
-                  disabled={item.qty <= 1}
-                  className="h-4 w-4 rounded-sm bg-white/[0.06] hover:bg-white/[0.14] text-slate-300 hover:text-white flex items-center justify-center transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                  title="Kurangi"
-                >
-                  <Minus className="h-2.5 w-2.5" />
-                </button>
-                <button
-                  onClick={() => cart.startEditQty(item.product.id, item.qty)}
-                  className="text-[11px] font-bold text-white w-5 text-center tabular-nums hover:text-cyan-400 transition-colors rounded-sm"
-                  title="Edit qty"
-                >
-                  {item.qty}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => cart.updateQty(item.product.id, Math.min(stock, item.qty + 1), item.variant?.id || undefined)}
-                  disabled={item.qty >= stock}
-                  className="h-4 w-4 rounded-sm bg-white/[0.06] hover:bg-white/[0.14] text-slate-300 hover:text-white flex items-center justify-center transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                  title="Tambah"
-                >
-                  <Plus className="h-2.5 w-2.5" />
-                </button>
-              </div>
-            )}
-            {/* Delete — subtle by default, prominent on hover */}
+        {/* Row 2 — variant + price/pc (full width; qty lives in its own centered column) */}
+        <div className="flex items-center gap-1 min-w-0">
+          {item.variant && (
+            <>
+              <span className="text-[10px] text-slate-500 truncate max-w-[70px]" title={item.variant.name}>{item.variant.name}</span>
+              <span className="text-slate-700 text-[10px] shrink-0">·</span>
+            </>
+          )}
+          {/* SETTINGS CONTRACT: price-edit gated by outlet setting `manualDiscountEnabled`.
+              When disabled, the per-item manual discount (customPrice) cannot be started.
+              An in-progress edit (isEditingPrice) is still rendered so it can be confirmed/cancelled cleanly. */}
+          {isEditingPrice ? (
+            <Input
+              ref={cart.priceInputRef}
+              type="number"
+              value={cart.editingPriceValue}
+              onChange={(e) => cart.setEditingPriceValue(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') cart.confirmEditPrice(); if (e.key === 'Escape') cart.cancelEditPrice() }}
+              onBlur={cart.confirmEditPrice}
+              className="h-5 w-20 text-[10px] bg-white/[0.04] border-white/[0.06] text-white rounded px-1"
+            />
+          ) : manualDiscountEnabled ? (
             <button
-              onClick={() => cart.removeFromCart(item.product.id, item.variant?.id || undefined)}
-              className="h-5 w-5 rounded text-slate-600 hover:text-red-400 hover:bg-red-500/10 flex items-center justify-center transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
-              title="Hapus item"
-              aria-label={`Hapus ${cart.getItemDisplayName(item)}`}
+              onClick={() => cart.startEditPrice(key, effPrice)}
+              className={cn(
+                'inline-flex items-center gap-0.5 text-[10px] transition-colors hover:text-slate-200',
+                hasCustomPrice ? 'text-amber-400 font-medium' : 'text-slate-500'
+              )}
+              title="Edit harga"
             >
-              <Trash2 className="h-3 w-3" />
+              {formatCurrency(effPrice)}/pc
+              {hasCustomPrice && <span className="text-[9px] leading-none">●</span>}
+              <Pencil className="h-2.5 w-2.5 opacity-40" />
+            </button>
+          ) : (
+            <span className={cn('text-[10px]', hasCustomPrice ? 'text-amber-400 font-medium' : 'text-slate-500')} title="Diskon manual dinonaktifkan di Pengaturan">
+              {formatCurrency(effPrice)}/pc
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Right column — qty stepper + delete, vertically centered in the card */}
+      <div className="flex items-center justify-center gap-1 shrink-0">
+        {/* Qty stepper [− h-5] N [+ h-5] */}
+        {isEditingQty ? (
+          <Input
+            ref={cart.qtyInputRef}
+            type="number"
+            value={cart.editingQtyValue}
+            onChange={(e) => cart.setEditingQtyValue(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') cart.confirmEditQty(); if (e.key === 'Escape') cart.cancelEditQty() }}
+            onBlur={cart.confirmEditQty}
+            className="h-5 w-12 text-xs bg-white/[0.04] border-white/[0.06] text-white rounded-md text-center"
+          />
+        ) : (
+          <div className="flex items-center gap-0.5 bg-white/[0.04] rounded-md p-0.5 ring-1 ring-white/[0.04]">
+            <button
+              type="button"
+              onClick={() => cart.updateQty(item.product.id, Math.max(1, item.qty - 1), item.variant?.id || undefined)}
+              disabled={item.qty <= 1}
+              className="h-4 w-4 rounded-sm bg-white/[0.06] hover:bg-white/[0.14] text-slate-300 hover:text-white flex items-center justify-center transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              title="Kurangi"
+            >
+              <Minus className="h-2.5 w-2.5" />
+            </button>
+            <button
+              onClick={() => cart.startEditQty(item.product.id, item.qty)}
+              className="text-[11px] font-bold text-white w-5 text-center tabular-nums hover:text-[var(--theme-400)] transition-colors rounded-sm"
+              title="Edit qty"
+            >
+              {item.qty}
+            </button>
+            <button
+              type="button"
+              onClick={() => cart.updateQty(item.product.id, Math.min(stock, item.qty + 1), item.variant?.id || undefined)}
+              disabled={item.qty >= stock}
+              className="h-4 w-4 rounded-sm bg-white/[0.06] hover:bg-white/[0.14] text-slate-300 hover:text-white flex items-center justify-center transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              title="Tambah"
+            >
+              <Plus className="h-2.5 w-2.5" />
             </button>
           </div>
-        </div>
+        )}
+        {/* Delete — subtle by default, prominent on hover */}
+        <button
+          onClick={() => cart.removeFromCart(item.product.id, item.variant?.id || undefined)}
+          className="h-5 w-5 rounded text-slate-600 hover:text-red-400 hover:bg-red-500/10 flex items-center justify-center transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+          title="Hapus item"
+          aria-label={`Hapus ${cart.getItemDisplayName(item)}`}
+        >
+          <Trash2 className="h-3 w-3" />
+        </button>
       </div>
     </div>
   )
@@ -1370,8 +1381,8 @@ function CustomerSelector({ customers }: { customers: ReturnType<typeof usePosCu
         <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-white/[0.03] border border-white/[0.05]">
           <div className="flex items-center gap-2 min-w-0">
             {/* Avatar with initial — primary identity */}
-            <div className="h-8 w-8 rounded-full bg-gradient-to-br from-cyan-500/20 to-cyan-500/5 ring-1 ring-cyan-500/20 flex items-center justify-center shrink-0">
-              <span className="text-xs font-semibold text-cyan-200">
+            <div className="h-8 w-8 rounded-full bg-gradient-to-br from-[var(--theme-500)]/20 to-[var(--theme-500)]/5 ring-1 ring-[var(--theme-500)]/20 flex items-center justify-center shrink-0">
+              <span className="text-xs font-semibold text-[var(--theme-200)]">
                 {customers.selectedCustomer.name.charAt(0).toUpperCase()}
               </span>
             </div>
@@ -1412,10 +1423,10 @@ function CustomerSelector({ customers }: { customers: ReturnType<typeof usePosCu
               placeholder="Cari pelanggan…"
               value={customers.customerSearch}
               onChange={(e) => { customers.setCustomerSearch(e.target.value); customers.setCustomerDropdownOpen(true) }}
-              className="h-8 pl-8 text-xs bg-white/[0.03] border-white/[0.06] text-white placeholder:text-slate-500 rounded-md focus-visible:border-cyan-400/30"
+              className="h-8 pl-8 text-xs bg-white/[0.03] border-white/[0.06] text-white placeholder:text-slate-500 rounded-md focus-visible:border-[var(--theme-400)]/40"
             />
           </div>
-          <Button variant="outline" size="icon" className="h-8 w-8 bg-white/[0.04] hover:bg-white/[0.08] border-white/[0.06] text-slate-300 hover:text-cyan-300 shrink-0" onClick={() => customers.setAddCustomerOpen(true)} title="Tambah pelanggan">
+          <Button variant="outline" size="icon" className="h-8 w-8 bg-white/[0.04] hover:bg-white/[0.08] border-white/[0.06] text-slate-300 hover:text-[var(--theme-300)] shrink-0" onClick={() => customers.setAddCustomerOpen(true)} title="Tambah pelanggan">
             <UserPlus className="h-3.5 w-3.5" />
           </Button>
         </div>
@@ -1457,7 +1468,7 @@ function CustomerSelector({ customers }: { customers: ReturnType<typeof usePosCu
         <ResponsiveDialogContent>
           <ResponsiveDialogHeader>
             <ResponsiveDialogTitle className="flex items-center gap-2">
-              <UserPlus className="h-4 w-4 text-cyan-400" />
+              <UserPlus className="h-4 w-4 text-[var(--theme-400)]" />
               Tambah Pelanggan
             </ResponsiveDialogTitle>
             <ResponsiveDialogDescription>Pelanggan baru akan tersinkron ke server saat online.</ResponsiveDialogDescription>
@@ -1466,7 +1477,7 @@ function CustomerSelector({ customers }: { customers: ReturnType<typeof usePosCu
             <div className="space-y-1.5">
               <Label className="text-slate-300 text-xs">Nama <span className="text-red-400">*</span></Label>
               <Input
-                className="bg-white/[0.03] border-white/[0.06] text-white rounded-lg h-10 focus-visible:border-cyan-400/40 focus-visible:bg-white/[0.05] transition-colors"
+                className="bg-white/[0.03] border-white/[0.06] text-white rounded-lg h-10 focus-visible:border-[var(--theme-400)]/40 focus-visible:bg-white/[0.05] transition-colors"
                 placeholder="Nama pelanggan"
                 value={customers.newCustomer.name}
                 onChange={(e) => customers.setNewCustomer({ ...customers.newCustomer, name: e.target.value })}
@@ -1476,7 +1487,7 @@ function CustomerSelector({ customers }: { customers: ReturnType<typeof usePosCu
             <div className="space-y-1.5">
               <Label className="text-slate-300 text-xs">WhatsApp <span className="text-slate-500 font-normal">(opsional)</span></Label>
               <Input
-                className="bg-white/[0.03] border-white/[0.06] text-white rounded-lg h-10 focus-visible:border-cyan-400/40 focus-visible:bg-white/[0.05] transition-colors tabular-nums"
+                className="bg-white/[0.03] border-white/[0.06] text-white rounded-lg h-10 focus-visible:border-[var(--theme-400)]/40 focus-visible:bg-white/[0.05] transition-colors tabular-nums"
                 placeholder="08xxxxxxxxxx"
                 value={customers.newCustomer.whatsapp}
                 onChange={(e) => customers.setNewCustomer({ ...customers.newCustomer, whatsapp: e.target.value })}
@@ -1489,8 +1500,8 @@ function CustomerSelector({ customers }: { customers: ReturnType<typeof usePosCu
               className={cn(
                 'rounded-lg h-10 font-medium transition-all',
                 customers.addingCustomer
-                  ? 'bg-cyan-600 hover:bg-cyan-600 text-white cursor-wait'
-                  : 'bg-cyan-500 hover:bg-cyan-400 text-white hover:shadow-[0_2px_12px_rgba(34,211,238,0.3)] hover:-translate-y-px'
+                  ? 'bg-[var(--theme-600)] hover:bg-[var(--theme-600)] text-white cursor-wait'
+                  : 'bg-[var(--theme-500)] hover:bg-[var(--theme-400)] text-white hover:shadow-[0_2px_12px_color-mix(in_srgb,var(--theme-500)_30%,transparent)] hover:-translate-y-px'
               )}
               onClick={customers.handleAddCustomer}
               disabled={customers.addingCustomer}
@@ -1519,7 +1530,7 @@ function PromoSelector({ promos, selected, onSelect, subtotal }: {
       <Tag className="h-3.5 w-3.5 text-slate-400 shrink-0" />
       <div className="relative flex-1 min-w-0">
         <select
-          className="h-8 w-full text-xs rounded-md border border-white/[0.06] bg-white/[0.03] text-white pl-3 pr-8 appearance-none cursor-pointer focus:outline-none focus-visible:border-cyan-400/30"
+          className="h-8 w-full text-xs rounded-md border border-white/[0.06] bg-white/[0.03] text-white pl-3 pr-8 appearance-none cursor-pointer focus:outline-none focus-visible:border-[var(--theme-400)]/40"
           value={selected?.id || ''}
           onChange={(e) => {
             const p = promos.find(pp => pp.id === e.target.value)
