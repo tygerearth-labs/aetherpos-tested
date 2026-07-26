@@ -321,7 +321,9 @@ export async function PUT(
         const { maxStock } = await getMaxStockFromComposition(id, outletId)
         if (maxStock !== Infinity) {
           await tx.$executeRaw`
-            UPDATE "Product" SET stock = MIN(stock, ${maxStock}) WHERE id = ${id}
+            UPDATE "Product"
+            SET stock = CASE WHEN stock < ${maxStock} THEN stock ELSE ${maxStock} END
+            WHERE id = ${id}
           `
         }
       }

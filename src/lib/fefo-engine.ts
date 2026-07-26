@@ -155,7 +155,8 @@ export class FEFOEngine {
 
       const totalExpiredQty = expiringBatches.reduce((sum, b) => sum + b.remainingQty, 0)
       await tx.$executeRaw`
-        UPDATE "InventoryItem" SET stock = MAX(0, stock - ${totalExpiredQty})
+        UPDATE "InventoryItem"
+        SET stock = CASE WHEN stock - ${totalExpiredQty} < 0 THEN 0 ELSE stock - ${totalExpiredQty} END
         WHERE id = ${inventoryItemId} AND "outletId" = ${outletId}
       `
 
@@ -591,7 +592,8 @@ export class FEFOEngine {
       // Decrement InventoryItem.stock by total expired qty (atomic SQL)
       const totalExpiredQty = expiringBatches.reduce((sum, b) => sum + b.remainingQty, 0)
       await tx.$executeRaw`
-        UPDATE "InventoryItem" SET stock = MAX(0, stock - ${totalExpiredQty})
+        UPDATE "InventoryItem"
+        SET stock = CASE WHEN stock - ${totalExpiredQty} < 0 THEN 0 ELSE stock - ${totalExpiredQty} END
         WHERE id = ${inventoryItemId} AND "outletId" = ${outletId}
       `
 
@@ -1186,7 +1188,8 @@ export class FEFOEngine {
         // Decrement stock but never below 0 (defensive — stock should already
         // be >= expiredQty if the invariant held before).
         await tx.$executeRaw`
-          UPDATE "InventoryItem" SET stock = MAX(0, stock - ${expiredQty})
+          UPDATE "InventoryItem"
+          SET stock = CASE WHEN stock - ${expiredQty} < 0 THEN 0 ELSE stock - ${expiredQty} END
           WHERE id = ${itemId} AND "outletId" = ${outletId}
         `
         // Record an inventory movement so the expiry write-off is auditable.
