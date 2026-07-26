@@ -245,6 +245,32 @@ export async function POST(request: NextRequest) {
           if (Math.round(lsa) !== existing.lowStockAlert) changes.lowStockAlert = { from: existing.lowStockAlert, to: Math.round(lsa) }
         }
 
+        // Image URL — V14.3: support image URL update via bulk edit.
+        // Konvensi:
+        //   - Kosong / tidak ada kolom → skip (jangan ubah)
+        //   - Isi dengan "-" (strip) → hapus gambar (set null)
+        //   - Isi dengan URL valid (http/https) → update gambar
+        //   - Isi dengan string lain → error (validasi)
+        const imageRaw = String(findColumn(row, ['IMAGE URL', 'Image URL', 'URL Gambar', 'Gambar', 'Image', 'image', 'image_url', 'imageUrl']) || '').trim()
+        if (isNonEmpty(imageRaw)) {
+          if (imageRaw === '-') {
+            // Hapus gambar
+            if (existing.image) {
+              updateData.image = null
+              changes.image = { from: existing.image, to: '' }
+            }
+          } else if (/^https?:\/\//i.test(imageRaw)) {
+            // URL valid
+            if (imageRaw !== (existing.image || '')) {
+              updateData.image = imageRaw
+              changes.image = { from: existing.image || '', to: imageRaw }
+            }
+          } else {
+            result.errors.push(`Baris ${rowNum}: Image URL harus diawali http:// atau https:// (Nama: ${existing.name}). Untuk hapus gambar, isi dengan tanda "-"`)
+            continue
+          }
+        }
+
         if (Object.keys(updateData).length === 0) continue
 
         await tx.product.update({ where: { id: productId }, data: updateData })

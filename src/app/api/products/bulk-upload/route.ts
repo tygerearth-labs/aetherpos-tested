@@ -142,6 +142,7 @@ interface ProductToCreate {
   hasVariants: boolean
   outletId: string
   rowNum: number
+  image: string | null
 }
 
 interface VariantToCreate {
@@ -405,6 +406,9 @@ export async function POST(request: NextRequest) {
       const categoryRaw = String(findColumn(row, ['KATEGORI', 'Kategori', 'kategori', 'Category', 'category', 'Kat']) || '').trim()
       const hasVariantsRaw = String(findColumn(row, ['PUNYA VARIAN', 'Punya Varian', 'Has Variants', 'hasVariants', 'Varians', 'Varian']) || '').trim().toLowerCase()
       const hasVariants = hasVariantsRaw === 'ya' || hasVariantsRaw === 'yes' || hasVariantsRaw === 'true'
+      // V14.3: Image URL — extracted here, validated AFTER required field checks
+      // (so user sees name/price errors first, not image error first)
+      const imageRaw = String(findColumn(row, ['IMAGE URL', 'Image URL', 'URL Gambar', 'Gambar', 'Image', 'image', 'image_url', 'imageUrl']) || '').trim()
 
       // ── SAFETY NET: Validate required fields ──
       if (!name) {
@@ -511,6 +515,18 @@ export async function POST(request: NextRequest) {
       }
       newlyGeneratedBarcodes.add(finalBarcode)
 
+      // V14.3: Validate image URL (after all required field checks passed).
+      // Convention: empty / "-" → null (no image). Otherwise must start with http:// or https://
+      let image: string | null = null
+      if (imageRaw && imageRaw !== '-') {
+        if (/^https?:\/\//i.test(imageRaw)) {
+          image = imageRaw
+        } else {
+          result.errors.push(`Baris ${rowNum}: Image URL harus diawali http:// atau https:// (Nama: ${name})`)
+          continue
+        }
+      }
+
       // Collect product
       // FIX-P0-6 (AUDIT-1): Math.round stock to Int (schema is Int, sanitizeNumber returns Float)
       productsToCreate.push({
@@ -525,6 +541,7 @@ export async function POST(request: NextRequest) {
         hasVariants,
         outletId,
         rowNum,
+        image,
       })
 
       batchCreatedProducts.set(nameLower, `pending-${productsToCreate.length}`)
@@ -949,6 +966,7 @@ export async function POST(request: NextRequest) {
               categoryId: prodData.categoryId,
               hasVariants: prodData.hasVariants,
               outletId: prodData.outletId,
+              image: prodData.image, // V14.3: optional image URL
             },
           })
 

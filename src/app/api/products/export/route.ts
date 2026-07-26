@@ -68,7 +68,7 @@ export async function GET(request: NextRequest) {
 
     // === Sheet 1: Produk ===
     const productHeader = [
-      'ID', 'Nama Produk', 'SKU', 'BARCODE', 'HPP', 'Harga Jual', 'Stok', 'Satuan', 'Kategori', 'Punya Varian', 'Punya Komposisi', 'Low Stock Alert',
+      'ID', 'Nama Produk', 'SKU', 'BARCODE', 'HPP', 'Harga Jual', 'Stok', 'Satuan', 'Kategori', 'Punya Varian', 'Punya Komposisi', 'Low Stock Alert', 'Image URL',
     ]
     const productRows = products.map((p) => [
       p.id,
@@ -83,6 +83,7 @@ export async function GET(request: NextRequest) {
       p.hasVariants ? 'ya' : 'tidak',
       p.compositions && p.compositions.length > 0 ? 'ya' : 'tidak',
       p.lowStockAlert,
+      p.image || '',
     ])
 
     const ws = XLSX.utils.aoa_to_sheet([productHeader, ...productRows])
@@ -98,6 +99,7 @@ export async function GET(request: NextRequest) {
       { wch: 18 }, // Kategori
       { wch: 14 }, // Punya Varian
       { wch: 16 }, // Low Stock Alert
+      { wch: 40 }, // Image URL
     ]
     XLSX.utils.book_append_sheet(wb, ws, 'Produk')
 
@@ -197,6 +199,7 @@ export async function GET(request: NextRequest) {
       ['Kategori', 'Nama kategori (auto-create jika belum ada)', 'Tidak'],
       ['Punya Varian', 'Isi "ya" jika punya varian', 'Tidak'],
       ['Low Stock Alert', 'Batas peringatan stok rendah', 'Tidak'],
+      ['Image URL', 'URL gambar produk (http/https). Kosongkan untuk hapus gambar.', 'Tidak'],
       [''],
       ['KOLOM SHEET VARIAN PRODUK:', 'DESKRIPSI', 'WAJIB?'],
       ['ID Produk', 'ID produk induk (jangan diubah)', 'Ya'],
@@ -221,6 +224,8 @@ export async function GET(request: NextRequest) {
       ['• Harga harus dalam format angka tanpa titik/koma (contoh: 25000)'],
       ['• Jika terjadi error pada suatu baris, baris tersebut akan dilewati'],
       ['• Untuk produk virtual (pulsa, voucher, token) isi stok 999'],
+      ['• Image URL harus diawali http:// atau https:// (contoh: https://example.com/nasi-goreng.jpg)'],
+      ['• Untuk MENGHAPUS gambar produk: isi kolom Image URL dengan tanda strip "-" (minus)'],
     ]
 
     const wsGuide = XLSX.utils.aoa_to_sheet(guideData)
