@@ -11,9 +11,24 @@
  *   Contoh: 1kg kopi → 55 cup → qty=1, yieldPerBatch=55
  *   maxStock dari kopi = floor(availableKopi_kg / qty) * yieldPerBatch
  *     = floor(2 / 1) * 55 = 110 cup
+ *
+ * V14.1 FIX (transaction isolation):
+ *   Semua fungsi getMaxStockFrom* sekarang menerima parameter `tx` opsional.
+ *   Jika dipanggil di dalam $transaction, WAJIB pass `tx` agar query melihat
+ *   data yang baru di-create/delete di dalam transaksi yang sama. Sebelumnya
+ *   semua fungsi pakai `db` (separate connection) → di PostgreSQL Read
+ *   Committed, writes di dalam transaksi TIDAK terlihat oleh `db` query,
+ *   sehingga maxStock dihitung dari data STALE (komposisi LAMA sebelum delete,
+ *   atau kosong untuk first-time create). Ini penyebab bug "stock return 0
+ *   padahal toast sukses" — komposisi baru tidak terlihat, maxStock jadi 0
+ *   (karena salah satu inventory item di komposisi LAMA sudah habis),
+ *   lalu produk di-cap ke 0 secara silent.
  */
 
+import { Prisma } from '@prisma/client'
 import { db } from '@/lib/db'
+
+type TxClient = Prisma.TransactionClient
 
 interface MaxStockResult {
   maxStock: number
@@ -51,12 +66,17 @@ function calcMaxFromComp(
  *
  * Tanpa yield (yieldPerBatch=1, backward compat):
  *   maxStock = min across all items of: floor(available / qty)
+ *
+ * V14.1: Jika dipanggil di dalam $transaction, pass `tx` agar query melihat
+ * writes yang baru dilakukan di transaksi tersebut.
  */
 export async function getMaxStockFromComposition(
   productId: string,
-  outletId: string
+  outletId: string,
+  tx?: TxClient
 ): Promise<MaxStockResult> {
-  const compositions = await db.productComposition.findMany({
+  const client = tx ?? db
+  const compositions = await client.productComposition.findMany({
     where: { productId, variantId: null },
     include: {
       inventoryItem: {
@@ -90,11 +110,16 @@ export async function getMaxStockFromComposition(
 
 /**
  * Get max possible stock for a VARIANT based on its own composition.
+ *
+ * V14.1: Jika dipanggil di dalam $transaction, pass `tx` agar query melihat
+ * writes yang baru dilakukan di transaksi tersebut.
  */
 export async function getMaxStockFromVariantComposition(
-  variantId: string
+  variantId: string,
+  tx?: TxClient
 ): Promise<MaxStockResult> {
-  const compositions = await db.productComposition.findMany({
+  const client = tx ?? db
+  const compositions = await client.productComposition.findMany({
     where: { variantId },
     include: {
       inventoryItem: {

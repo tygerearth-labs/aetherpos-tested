@@ -317,10 +317,25 @@ export async function PUT(
       })
 
       // 4. Cap stock for non-variant products (within transaction)
-      // V14 FIX: Sebelumnya, cap stock silently ke maxStock tanpa feedback ke user.
-      // Bug: user edit komposisi (bahan baku habis/berubah) → stock produk ke-cap ke 0
-      // padahal toast bilang "produk berhasil diubah". Sekarang, baca stock sebelum &
-      // sesudah cap, return info ke frontend untuk ditampilkan sebagai toast warning.
+      // V14.1 FIX (REAL ROOT CAUSE of "stock return 0 padahal toast sukses"):
+      //   Bug sebelumnya: getMaxStockFromComposition pakai `db` (separate connection),
+      //   di PostgreSQL Read Committed TIDAK melihat writes yang baru dilakukan di
+      //   transaksi ini (delete komposisi lama + create komposisi baru). Akibatnya:
+      //     - maxStock dihitung dari komposisi STALE (LAMA, sebelum delete)
+      //     - jika salah satu inventory item di komposisi LAMA punya stock=0
+      //       (misal sudah habis dipakai transaksi penjualan), maxStock = 0
+      //     - UPDATE "Product" SET stock = CASE WHEN stock < 0 THEN stock ELSE 0 END
+      //       → stock jadi 0 (karena stock < 0 selalu FALSE)
+      //     - frontend terima 200 OK → toast "produk berhasil diperbarui"
+      //     - PADAHAL stock diam-diam di-nol-kan berdasarkan data STALE
+      //   Fix:
+      //     (a) Pass `tx` ke getMaxStockFromComposition agar baca komposisi BARU
+      //         yang baru di-create di transaksi ini
+      //     (b) Jangan pernah cap ke 0 — jika maxStock = 0, berarti bahan baku
+      //         tidak cukup untuk 1 batch baru, TAPI stok produk yang ada mungkin
+      //         dibuat sebelumnya saat bahan masih ada. Biarkan stok apa adanya,
+      //         hanya warning ke user.
+      //     (c) Hanya cap jika maxStock > 0 DAN maxStock < current stock.
       let stockCapInfo: {
         stockCapped: boolean
         oldStock: number
@@ -330,36 +345,52 @@ export async function PUT(
       } | null = null
 
       if (!product.hasVariants && compositions && compositions.length > 0) {
-        const { maxStock, limitingItem } = await getMaxStockFromComposition(id, outletId)
+        // V14.1 FIX (a): pass `tx` so we read the FRESHLY-CREATED compositions
+        // within this transaction, not the stale OLD ones outside.
+        const { maxStock, limitingItem } = await getMaxStockFromComposition(id, outletId, tx)
         if (maxStock !== Infinity) {
-          // V14 FIX: baca stock saat ini SEBELUM cap untuk dilaporkan ke frontend
           const beforeCap = await tx.product.findUnique({
             where: { id },
             select: { stock: true },
           })
           const oldStock = beforeCap?.stock ?? 0
 
-          await tx.$executeRaw`
-            UPDATE "Product"
-            SET stock = CASE WHEN stock < ${maxStock} THEN stock ELSE ${maxStock} END
-            WHERE id = ${id}
-          `
-
-          const newStock = Math.min(oldStock, maxStock)
-          // Hanya flag sebagai capped kalau stock benar-benar berubah
-          if (newStock < oldStock) {
+          if (maxStock <= 0) {
+            // V14.1 FIX (b): jangan cap ke 0. Stok produk yang ada mungkin
+            // dibuat sebelumnya saat bahan masih cukup. Cukup warning ke user
+            // bahwa mereka tidak bisa membuat produk baru sampai bahan di-restock.
+            // (Tidak update stock di DB.)
+            stockCapInfo = {
+              stockCapped: false,
+              oldStock,
+              newStock: oldStock, // tidak berubah
+              maxStock,
+              limitingItemName: limitingItem?.name ?? null,
+            }
+          } else if (oldStock > maxStock) {
+            // V14.1 FIX (c): hanya cap jika maxStock > 0 DAN oldStock > maxStock.
+            // oldStock > maxStock berarti produk lebih banyak dari yang bisa
+            // dibuat dari bahan tersedia → wajar untuk cap.
+            await tx.$executeRaw`
+              UPDATE "Product"
+              SET stock = ${maxStock}
+              WHERE id = ${id}
+            `
             stockCapInfo = {
               stockCapped: true,
               oldStock,
-              newStock,
+              newStock: maxStock,
               maxStock,
               limitingItemName: limitingItem?.name ?? null,
             }
           }
+          // else: maxStock > 0 dan oldStock <= maxStock → tidak perlu cap,
+          // stockCapInfo tetap null (tidak ada perubahan)
         }
       }
 
       // 5. Cap stock for variant products (within transaction)
+      // V14.1 FIX: sama dengan non-variant — pass `tx` & jangan cap ke 0.
       let variantStockCapInfo: Array<{
         variantId: string
         variantName: string
@@ -374,13 +405,29 @@ export async function PUT(
           select: { id: true, name: true, stock: true },
         })
         for (const v of variants) {
-          const { maxStock, limitingItem } = await getMaxStockFromVariantComposition(v.id)
-          if (maxStock !== Infinity && v.stock > maxStock) {
+          // V14.1 FIX (a): pass `tx`
+          const { maxStock, limitingItem } = await getMaxStockFromVariantComposition(v.id, tx)
+          if (maxStock === Infinity) continue
+
+          if (maxStock <= 0) {
+            // V14.1 FIX (b): jangan cap ke 0, cukup catat untuk warning
+            variantStockCapInfo.push({
+              variantId: v.id,
+              variantName: v.name,
+              oldStock: v.stock,
+              newStock: v.stock, // tidak berubah
+              maxStock,
+              limitingItemName: limitingItem?.name ?? null,
+            })
+            continue
+          }
+
+          if (v.stock > maxStock) {
+            // V14.1 FIX (c): hanya cap jika maxStock > 0 DAN v.stock > maxStock
             await tx.productVariant.update({
               where: { id: v.id },
               data: { stock: maxStock },
             })
-            // V14 FIX: catat variant yang di-cap untuk feedback frontend
             variantStockCapInfo.push({
               variantId: v.id,
               variantName: v.name,
