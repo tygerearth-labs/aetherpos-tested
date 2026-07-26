@@ -328,13 +328,29 @@ export async function PUT(
         // enforced by the old full-replace pattern either, leaving parent.stock stale
         // after variant edits. Backported from bulk-update-excel route (AUDIT-2 fix).
         // Atomic raw SQL avoids TOCTOU race with concurrent sales/syncs.
-        await tx.$executeRaw`
-          UPDATE "Product" SET stock = (
-            SELECT COALESCE(SUM(stock), 0) FROM "ProductVariant"
-            WHERE "productId" = ${id} AND "outletId" = ${outletId}
-          )
-          WHERE id = ${id}
-        `
+        //
+        // V14.2 FIX (bug "edit stock non-komposisi juga return 0"):
+        //   Sebelumnya, recalc ini SELALU jalan karena frontend selalu kirim
+        //   `variants: []` (bahkan untuk produk non-variant), yang trigger block
+        //   `if (variants !== undefined)` di atas. Untuk produk non-variant
+        //   (tidak ada variant di DB), `SUM(stock)` return NULL → COALESCE(NULL, 0)
+        //   = 0 → parent.stock diam-diam di-overwrite ke 0, padahal `updateData.stock`
+        //   sudah set ke nilai manual user. Ini penyebab "edit stock return 0"
+        //   untuk produk non-komposisi (dan juga produk komposisi non-variant).
+        //   Fix: hanya recalc kalau produk benar-benar dalam mode variant
+        //   (`hasVariants` true di body ATAU existing.hasVariants true dan body
+        //   tidak eksplisit set false). Untuk mode non-variant, manual stock dari
+        //   form adalah source of truth.
+        const effectiveHasVariants = hasVariants ?? existing.hasVariants
+        if (effectiveHasVariants) {
+          await tx.$executeRaw`
+            UPDATE "Product" SET stock = (
+              SELECT COALESCE(SUM(stock), 0) FROM "ProductVariant"
+              WHERE "productId" = ${id} AND "outletId" = ${outletId}
+            )
+            WHERE id = ${id}
+          `
+        }
 
         changes.variants = {
           from: {
