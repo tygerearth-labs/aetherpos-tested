@@ -112,8 +112,7 @@ import {
 } from 'lucide-react'
 // Collapsible removed — analytics section removed in redesign
 import { ProGate } from '@/components/shared/pro-gate'
-import { LockedDropdownItem } from '@/components/shared/locked-dropdown-item'
-import { BulkEngineTrigger } from '@/components/bulk-engine/bulk-engine-trigger'
+import { useBulkWorker } from '@/components/bulk-engine/bulk-worker-context'
 
 import ProductFormDialog from './product-form-dialog'
 import dynamic from 'next/dynamic'
@@ -468,6 +467,7 @@ export default function ProductsPage() {
   const isOwner = session?.user?.role === 'OWNER'
   const { plan } = usePlan()
   const isPro = plan?.type === 'pro' || plan?.type === 'enterprise'
+  const { openDialog: openBulkDialog } = useBulkWorker()
 
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
@@ -1466,12 +1466,12 @@ export default function ProductsPage() {
               <Printer className="mr-1.5 h-3.5 w-3.5" />
               Cetak Barcode
             </Button>
-          {/* Excel Actions Dropdown */}
+          {/* Excel Actions Dropdown — Export + Bulk Engine V2 items */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
                 variant="outline"
-                className="bg-emerald-500/[0.08] border-emerald-500/20 text-emerald-300 hover:text-emerald-200 hover:bg-emerald-500/[0.12] hover:border-emerald-500/30 h-9 text-xs font-medium gap-1.5 transition-all"
+                className="bg-emerald-500/[0.08] border-emerald-500/20 text-emerald-300 hover:text-emerald-200 hover:bg-emerald-500/[0.12] hover:border-emerald-500/30 h-9 text-xs font-medium gap-1.5 transition-all shrink-0"
               >
                 <FileSpreadsheet className="h-3.5 w-3.5" />
                 Excel
@@ -1494,29 +1494,29 @@ export default function ProductsPage() {
                 </div>
               </DropdownMenuItem>
               <DropdownMenuSeparator className="bg-white/[0.06] my-1" />
-              <LockedDropdownItem
-                feature="bulkUpload"
-                icon={<Upload className="h-4 w-4" />}
-                iconColor="text-slate-500"
-                iconHoverColor="group-hover:text-amber-400"
-                title="Upload Excel"
-                subtitle="Tambah produk baru massal"
-                onClick={() => { setUploadOpen(true); setUploadFile(null); setUploadResult(null) }}
-              />
+              <DropdownMenuItem
+                onClick={() => openBulkDialog('product:add')}
+                className="flex items-center gap-3 px-2.5 py-2.5 text-xs text-slate-300 hover:bg-white/[0.05] hover:text-white rounded-lg cursor-pointer focus:bg-white/[0.05] focus:text-white group"
+              >
+                <Upload className="h-4 w-4 text-slate-500 group-hover:text-amber-400 transition-colors" />
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium">Tambah Excel</p>
+                  <p className="text-[10px] text-slate-500 group-hover:text-slate-400 transition-colors">Bulk Engine V2 — tambah produk massal</p>
+                </div>
+              </DropdownMenuItem>
               <DropdownMenuSeparator className="bg-white/[0.06] my-1" />
-              <LockedDropdownItem
-                feature="bulkUpload"
-                icon={<FilePenLine className="h-4 w-4" />}
-                iconColor="text-slate-500"
-                iconHoverColor="group-hover:text-cyan-400"
-                title="Edit Excel"
-                subtitle="Update produk yang sudah ada"
-                onClick={() => { setEditExcelOpen(true); setEditExcelFile(null); setEditExcelResult(null); setEditExcelProgress(0); setEditExcelPhase('') }}
-              />
+              <DropdownMenuItem
+                onClick={() => openBulkDialog('product:edit')}
+                className="flex items-center gap-3 px-2.5 py-2.5 text-xs text-slate-300 hover:bg-white/[0.05] hover:text-white rounded-lg cursor-pointer focus:bg-white/[0.05] focus:text-white group"
+              >
+                <FilePenLine className="h-4 w-4 text-slate-500 group-hover:text-cyan-400 transition-colors" />
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium">Edit Excel</p>
+                  <p className="text-[10px] text-slate-500 group-hover:text-slate-400 transition-colors">Bulk Engine V2 — update produk yang sudah ada</p>
+                </div>
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          <BulkEngineTrigger kind="product:add" label="Tambah Excel" variant="compact" />
-          <BulkEngineTrigger kind="product:edit" label="Edit Excel" variant="compact" />
           <Button onClick={handleAdd} className="theme-bg theme-hover text-white h-9 text-xs font-medium shadow-lg theme-shadow shrink-0">
             <Plus className="mr-1.5 h-3.5 w-3.5" />
             Tambah Produk

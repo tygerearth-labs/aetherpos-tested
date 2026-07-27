@@ -23,14 +23,17 @@
  *  7. Return BatchResult.
  *
  * Max 50 rows per request (enforced). Concurrency = 1 (the client worker sends
- * batches sequentially), so concurrent duplicates are extremely rare — the
- * single AuditLog marker row written inside the tx is sufficient. If a
- * duplicate slips through (e.g. two browser tabs submitting the same opId),
- * domain-level natural-key uniqueness (customer whatsapp, product sku,
- * inventory name+outletId) catches it at the entity level.
+ * batches sequentially). Race-safety on concurrent duplicates (e.g. two browser
+ * tabs submitting the same opId) is enforced by a PARTIAL UNIQUE INDEX on
+ * AuditLog(entityId) WHERE action='BULK_BATCH' (created in db-migrate.ts) —
+ * the second concurrent insert throws P2002, which is caught and treated as
+ * "already processed" (returning the cached result). This works on both SQLite
+ * and PostgreSQL. Domain-level natural-key uniqueness (customer whatsapp,
+ * product sku, inventory name+outletId) is the final safety net.
  */
 
 import { NextRequest } from 'next/server'
+import { Prisma } from '@prisma/client'
 import { createHash } from 'crypto'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
@@ -233,6 +236,23 @@ export async function POST(request: NextRequest) {
     )
     return safeJson(result)
   } catch (err) {
+    // P2002 on AuditLog(entityId) WHERE action='BULK_BATCH' → another
+    // concurrent request already completed this batch (the partial unique
+    // index in db-migrate.ts enforces this on both SQLite and PostgreSQL).
+    // Treat as success: re-read the marker and return the cached result.
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+      const cached = await findMarker(operationId, context.outletId)
+      if (cached) {
+        // If payload differs, this was a conflict that lost the race — reject.
+        if (cached.payloadHash !== payloadHash) {
+          return safeJsonError(
+            `Konflik idempotensi: operationId "${operationId}" sudah diproses dengan payload berbeda.`,
+            409,
+          )
+        }
+        return safeJson({ ...cachedResultFromMarker(cached), cached: true, operationId })
+      }
+    }
     console.error(`[bulk-engine] executeBatch failed for ${kind} (op=${operationId}):`, err)
     const message = err instanceof Error ? err.message : String(err)
     return safeJsonError(`Batch gagal: ${message}`, 500)

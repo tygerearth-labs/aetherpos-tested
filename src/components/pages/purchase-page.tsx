@@ -48,7 +48,6 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Pagination } from '@/components/shared/pagination'
-import { LockedDropdownItem } from '@/components/shared/locked-dropdown-item'
 import { Switch } from '@/components/ui/switch'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -125,7 +124,7 @@ import {
   Settings2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { BulkEngineTrigger } from '@/components/bulk-engine/bulk-engine-trigger'
+import { useBulkWorker } from '@/components/bulk-engine/bulk-worker-context'
 import SupplierSearchInput from '@/components/purchase/supplier-search-input'
 
 // ════════════════════════════════════════════════════════════
@@ -628,6 +627,7 @@ const itemVariants = {
 export default function PurchasePage() {
   const { data: session } = useSession()
   const isOwner = session?.user?.role === 'OWNER'
+  const { openDialog: openBulkDialog } = useBulkWorker()
 
   // ── Tab ──
   const [tab, setTab] = useState<string>('purchase')
@@ -3230,11 +3230,6 @@ export default function PurchasePage() {
           </h1>
           <p className="text-sm text-slate-500">Kelola pembelian stok item dan inventory</p>
         </div>
-        <div className="flex items-center gap-2">
-          <BulkEngineTrigger kind="purchase:add" label="Tambah PO Excel" variant="compact" />
-          <BulkEngineTrigger kind="purchase:edit" label="Edit PO Excel" variant="compact" />
-          <BulkEngineTrigger kind="inventory:edit" label="Edit Bahan Excel" variant="compact" />
-        </div>
       </motion.div>
 
       {/* Tabs */}
@@ -3310,19 +3305,24 @@ export default function PurchasePage() {
                     {poExporting ? <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" /> : <Download className="h-3.5 w-3.5 text-slate-500" />}
                     <div className="flex-1">
                       <span>Export Excel</span>
-                      <p className="text-[10px] text-slate-600">{poExporting ? 'Mengunduh...' : 'Download data'}</p>
+                      <p className="text-[10px] text-slate-600">{poExporting ? 'Mengunduh...' : 'Download data PO'}</p>
                     </div>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator className="bg-white/[0.06] my-1" />
-                  <LockedDropdownItem
-                    feature="bulkUpload"
-                    icon={<FilePenLine className="h-3.5 w-3.5" />}
-                    iconColor="text-slate-500"
-                    iconHoverColor="group-hover:text-cyan-400"
-                    title="Edit Excel"
-                    subtitle="Update massal"
-                    onClick={() => { setEditExcelOpen(true); setEditExcelFile(null); setEditExcelResult(null) }}
-                  />
+                  <DropdownMenuItem onClick={() => openBulkDialog('purchase:add')} className="flex items-center gap-2.5 px-3 py-2.5 text-xs text-slate-300 hover:bg-white/[0.04] hover:text-white rounded-lg cursor-pointer focus:bg-white/[0.04] focus:text-white group">
+                    <Upload className="h-3.5 w-3.5 text-slate-500 group-hover:text-emerald-400 transition-colors" />
+                    <div className="flex-1">
+                      <span>Tambah PO Excel</span>
+                      <p className="text-[10px] text-slate-600">Bulk Engine V2 — upload massal</p>
+                    </div>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => openBulkDialog('purchase:edit')} className="flex items-center gap-2.5 px-3 py-2.5 text-xs text-slate-300 hover:bg-white/[0.04] hover:text-white rounded-lg cursor-pointer focus:bg-white/[0.04] focus:text-white group">
+                    <FilePenLine className="h-3.5 w-3.5 text-slate-500 group-hover:text-cyan-400 transition-colors" />
+                    <div className="flex-1">
+                      <span>Edit PO Excel</span>
+                      <p className="text-[10px] text-slate-600">Bulk Engine V2 — update massal</p>
+                    </div>
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
@@ -3894,7 +3894,7 @@ export default function PurchasePage() {
                         <ChevronDown className="h-3 w-3" />
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-[200px] rounded-xl border-white/[0.08] bg-nebula p-1 shadow-2xl shadow-black/60">
+                    <DropdownMenuContent align="end" className="w-[220px] rounded-xl border-white/[0.08] bg-nebula p-1 shadow-2xl shadow-black/60">
                       <DropdownMenuItem onClick={handleInvExport} disabled={invExporting} className="flex items-center gap-2.5 px-3 py-2.5 text-xs text-slate-300 hover:bg-white/[0.04] hover:text-white rounded-lg cursor-pointer focus:bg-white/[0.04] focus:text-white">
                         {invExporting ? <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" /> : <Download className="h-3.5 w-3.5 text-emerald-500" />}
                         <div className="flex-1">
@@ -3903,15 +3903,13 @@ export default function PurchasePage() {
                         </div>
                       </DropdownMenuItem>
                       <DropdownMenuSeparator className="bg-white/[0.06] my-1" />
-                      <LockedDropdownItem
-                        feature="bulkUpload"
-                        icon={<FilePenLine className="h-3.5 w-3.5" />}
-                        iconColor="text-slate-500"
-                        iconHoverColor="group-hover:text-cyan-400"
-                        title="Edit Excel"
-                        subtitle="Update massal via upload"
-                        onClick={() => { setInvEditExcelOpen(true); setInvEditExcelFile(null); setInvEditExcelResult(null) }}
-                      />
+                      <DropdownMenuItem onClick={() => openBulkDialog('inventory:edit')} className="flex items-center gap-2.5 px-3 py-2.5 text-xs text-slate-300 hover:bg-white/[0.04] hover:text-white rounded-lg cursor-pointer focus:bg-white/[0.04] focus:text-white group">
+                        <FilePenLine className="h-3.5 w-3.5 text-slate-500 group-hover:text-cyan-400 transition-colors" />
+                        <div className="flex-1">
+                          <span>Edit Bahan Excel</span>
+                          <p className="text-[10px] text-slate-600">Bulk Engine V2 — update massal</p>
+                        </div>
+                      </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>

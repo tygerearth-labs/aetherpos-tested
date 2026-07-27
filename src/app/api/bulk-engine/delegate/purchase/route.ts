@@ -223,16 +223,41 @@ async function parseAndGroup(
   }
 }
 
-/** Look up supplierId by name + outletId (case-insensitive). Returns null if not found. */
-async function resolveSupplierByName(
-  name: string,
-  outletId: string,
-): Promise<string | null> {
-  const supplier = await db.supplier.findFirst({
-    where: { outletId, name: { equals: name } },
-    select: { id: true },
-  })
-  return supplier?.id ?? null
+/**
+ * Pre-fetch ALL outlet inventory items + suppliers into lowercased Maps.
+ *
+ * WHY PRE-FETCH: the per-PO-group `name: { in: [...] }` query relied on
+ * SQLite's default case-insensitive `=`. On PostgreSQL, `=` is
+ * case-sensitive — an Excel item name whose case differs from the DB would
+ * silently miss, causing duplicate item creation (add mode) or
+ * ITEM_NOT_FOUND errors (edit mode). Pre-fetching all outlet items +
+ * suppliers ONCE and matching via lowercased Maps makes lookups
+ * case-insensitive on BOTH databases, and eliminates N+1 per-PO-group
+ * queries (one query per outlet instead of one per PO group).
+ */
+interface DelegatePreload {
+  /** lowercased item name → { id, name } */
+  itemByNameLower: Map<string, { id: string; name: string }>
+  /** lowercased supplier name → supplierId */
+  supplierByNameLower: Map<string, string>
+}
+
+async function preloadOutletData(outletId: string): Promise<DelegatePreload> {
+  const [items, suppliers] = await Promise.all([
+    db.inventoryItem.findMany({
+      where: { outletId },
+      select: { id: true, name: true },
+    }),
+    db.supplier.findMany({
+      where: { outletId },
+      select: { id: true, name: true },
+    }),
+  ])
+  const itemByNameLower = new Map<string, { id: string; name: string }>()
+  for (const it of items) itemByNameLower.set(it.name.toLowerCase(), { id: it.id, name: it.name })
+  const supplierByNameLower = new Map<string, string>()
+  for (const s of suppliers) supplierByNameLower.set(s.name.toLowerCase(), s.id)
+  return { itemByNameLower, supplierByNameLower }
 }
 
 /**
@@ -248,6 +273,7 @@ async function resolveSupplierByName(
 async function buildCreatePayload(
   group: PoGroup,
   outletId: string,
+  preload: DelegatePreload,
 ): Promise<{
   payload: Record<string, unknown>
   errors: BatchError[]
@@ -291,19 +317,13 @@ async function buildCreatePayload(
   }
   if (errors.length > 0) return { payload: {}, errors }
 
-  // Resolve existing inventory items by name (single query).
-  const existing = await db.inventoryItem.findMany({
-    where: { outletId, name: { in: group.items.map((r) => r.itemName) } },
-    select: { id: true, name: true },
-  })
-  const existingByName = new Map(
-    existing.map((e) => [e.name.toLowerCase(), e.id]),
-  )
-
-  // Resolve supplier. If supplierName is provided but not found, proceed
-  // without a supplier (the POST /api/purchases route accepts supplierId=null).
+  // Resolve existing inventory items by name via the pre-fetched lowercased
+  // Map (case-insensitive on both SQLite and PostgreSQL).
+  // Resolve supplier via the pre-fetched lowercased Map. If supplierName is
+  // provided but not found, proceed without a supplier (the POST /api/purchases
+  // route accepts supplierId=null).
   const supplierId = group.supplierName
-    ? await resolveSupplierByName(group.supplierName, outletId)
+    ? preload.supplierByNameLower.get(group.supplierName.toLowerCase()) ?? null
     : null
 
   const items: Array<Record<string, unknown>> = []
@@ -312,7 +332,7 @@ async function buildCreatePayload(
   const usedKeys = new Set<string>()
 
   for (const row of group.items) {
-    const existingId = existingByName.get(row.itemName.toLowerCase())
+    const existingId = preload.itemByNameLower.get(row.itemName.toLowerCase())?.id
     const totalCost = row.baseQty * row.unitCost
     const itemFields = {
       purchaseQty: row.purchaseQty,
@@ -435,18 +455,12 @@ async function buildEditPayload(
     return { payload: null, poId: existingPo.id, supplierUpdate: null, errors }
   }
 
-  // Resolve all item names → IDs (edit mode requires existing items).
-  const existing = await db.inventoryItem.findMany({
-    where: { outletId, name: { in: group.items.map((r) => r.itemName) } },
-    select: { id: true, name: true },
-  })
-  const existingByName = new Map(
-    existing.map((e) => [e.name.toLowerCase(), e.id]),
-  )
-
+  // Resolve all item names → IDs via the pre-fetched lowercased Map
+  // (case-insensitive on both SQLite and PostgreSQL). Edit mode requires
+  // existing items — items not in the Map are errors.
   const items: Array<Record<string, unknown>> = []
   for (const row of group.items) {
-    const existingId = existingByName.get(row.itemName.toLowerCase())
+    const existingId = preload.itemByNameLower.get(row.itemName.toLowerCase())?.id
     if (!existingId) {
       errors.push({
         rowIndex: row.rowIndex,
@@ -472,10 +486,10 @@ async function buildEditPayload(
     return { payload: null, poId: existingPo.id, supplierUpdate: null, errors }
   }
 
-  // Supplier change (optional pre-PUT update).
+  // Supplier change (optional pre-PUT update) via the pre-fetched Map.
   let supplierUpdate: { supplierId: string | null } | null = null
   if (group.supplierName) {
-    const newSupplierId = await resolveSupplierByName(group.supplierName, outletId)
+    const newSupplierId = preload.supplierByNameLower.get(group.supplierName.toLowerCase()) ?? null
     if (newSupplierId && newSupplierId !== existingPo.supplierId) {
       supplierUpdate = { supplierId: newSupplierId }
     }
@@ -615,6 +629,11 @@ export async function POST(request: NextRequest) {
   let failed = 0
   let processed = 0
 
+  // ── Pre-fetch all outlet inventory items + suppliers into lowercased Maps ──
+  // (case-insensitive lookup on both SQLite and PostgreSQL; eliminates N+1
+  // per-PO-group queries).
+  const preload = await preloadOutletData(outletId)
+
   // ── Process each PO group ──
   for (let poIndex = 0; poIndex < groups.length; poIndex++) {
     const group = groups[poIndex]
@@ -643,7 +662,7 @@ export async function POST(request: NextRequest) {
 
     if (mode === 'add') {
       // ── ADD: POST /api/purchases ──
-      const { payload, errors: payloadErrors } = await buildCreatePayload(group, outletId)
+      const { payload, errors: payloadErrors } = await buildCreatePayload(group, outletId, preload)
       if (payloadErrors.length > 0) {
         errors.push(...payloadErrors)
         failed += payloadErrors.length
@@ -703,7 +722,7 @@ export async function POST(request: NextRequest) {
       })
     } else {
       // ── EDIT: PUT /api/purchases/[id] ──
-      const { payload, poId, supplierUpdate, errors: payloadErrors } = await buildEditPayload(group, outletId)
+      const { payload, poId, supplierUpdate, errors: payloadErrors } = await buildEditPayload(group, outletId, preload)
       if (payloadErrors.length > 0 || !payload || !poId) {
         errors.push(...payloadErrors)
         failed += Math.max(payloadErrors.length, group.items.length)

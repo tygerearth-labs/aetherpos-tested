@@ -167,7 +167,12 @@ export const productUpdateServer: BulkServerAdapter = {
       const sku = String(r.data.sku || '').trim()
       const barcode = String(r.data.barcode || '').trim()
       if (id) ids.push(id)
-      if (name) names.push(name.toLowerCase())
+      // NOTE: do NOT lowercase before the DB query. On SQLite, `name IN (...)`
+      // is case-insensitive by default; on PostgreSQL it is case-sensitive.
+      // Lowercasing here would make the query miss DB rows whose name case
+      // differs from the Excel input on PostgreSQL. The byNameLower Map
+      // (built from query results) handles JS-side case-insensitive lookup.
+      if (name) names.push(name)
       if (sku) skus.push(sku)
       if (barcode) barcodes.push(barcode)
     }

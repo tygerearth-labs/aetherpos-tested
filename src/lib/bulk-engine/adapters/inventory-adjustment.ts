@@ -107,7 +107,11 @@ export const inventoryAdjustmentServer: BulkServerAdapter = {
       const name = String(r.data.name || '').trim()
       const sku = String(r.data.sku || '').trim()
       if (id) ids.push(id)
-      if (name) names.push(name.toLowerCase())
+      // NOTE: do NOT lowercase before the DB query. On SQLite, `name IN (...)`
+      // is case-insensitive by default; on PostgreSQL it is case-sensitive.
+      // The byNameLower Map (built from results) handles JS-side case-
+      // insensitive lookup for items that were returned by the query.
+      if (name) names.push(name)
       if (sku) skus.push(sku)
     }
     // NOTE: InventoryItem uses InventoryCategory (NOT Category which is for products).
