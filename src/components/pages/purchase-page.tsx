@@ -125,6 +125,7 @@ import {
   Settings2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { BulkEngineTrigger } from '@/components/bulk-engine/bulk-engine-trigger'
 import SupplierSearchInput from '@/components/purchase/supplier-search-input'
 
 // ════════════════════════════════════════════════════════════
@@ -3228,6 +3229,11 @@ export default function PurchasePage() {
             Purchase &amp; Inventory
           </h1>
           <p className="text-sm text-slate-500">Kelola pembelian stok item dan inventory</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <BulkEngineTrigger kind="purchase:add" label="Tambah PO Excel" variant="compact" />
+          <BulkEngineTrigger kind="purchase:edit" label="Edit PO Excel" variant="compact" />
+          <BulkEngineTrigger kind="inventory:edit" label="Edit Bahan Excel" variant="compact" />
         </div>
       </motion.div>
 

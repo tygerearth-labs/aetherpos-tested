@@ -113,6 +113,7 @@ import {
 // Collapsible removed — analytics section removed in redesign
 import { ProGate } from '@/components/shared/pro-gate'
 import { LockedDropdownItem } from '@/components/shared/locked-dropdown-item'
+import { BulkEngineTrigger } from '@/components/bulk-engine/bulk-engine-trigger'
 
 import ProductFormDialog from './product-form-dialog'
 import dynamic from 'next/dynamic'
@@ -1514,6 +1515,8 @@ export default function ProductsPage() {
               />
             </DropdownMenuContent>
           </DropdownMenu>
+          <BulkEngineTrigger kind="product:add" label="Tambah Excel" variant="compact" />
+          <BulkEngineTrigger kind="product:edit" label="Edit Excel" variant="compact" />
           <Button onClick={handleAdd} className="theme-bg theme-hover text-white h-9 text-xs font-medium shadow-lg theme-shadow shrink-0">
             <Plus className="mr-1.5 h-3.5 w-3.5" />
             Tambah Produk

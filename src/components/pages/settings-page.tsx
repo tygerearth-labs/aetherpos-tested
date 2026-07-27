@@ -1033,13 +1033,15 @@ function PromoTab() {
             <h2 className="text-sm font-semibold text-white">Promo / Diskon</h2>
             <p className="text-xs text-slate-400 mt-0.5">Kelola promo dan diskon untuk pelanggan</p>
           </div>
-          <Button
-            onClick={openCreate}
-            className="theme-btn-primary h-8 text-xs"
-          >
-            <Plus className="mr-1.5 h-3.5 w-3.5" />
-            Tambah Promo
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              onClick={openCreate}
+              className="theme-btn-primary h-8 text-xs"
+            >
+              <Plus className="mr-1.5 h-3.5 w-3.5" />
+              Tambah Promo
+            </Button>
+          </div>
         </div>
 
         {loading ? (

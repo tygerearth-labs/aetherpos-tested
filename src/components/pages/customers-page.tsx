@@ -75,6 +75,7 @@ import {
   BarChart3,
   TrendingUp,
 } from 'lucide-react'
+import { BulkEngineTrigger } from '@/components/bulk-engine/bulk-engine-trigger'
 import {
   Collapsible,
   CollapsibleContent,
@@ -558,10 +559,14 @@ export default function CustomersPage() {
             <h1 className="text-lg font-semibold text-white">Pelanggan</h1>
             <p className="text-xs text-slate-500 mt-0.5">Kelola database pelanggan & program loyalti</p>
           </div>
-          <Button onClick={handleAdd} className="theme-bg hover:theme-hover text-white h-8 text-xs">
-            <Plus className="mr-1.5 h-3.5 w-3.5" />
-            Tambah Pelanggan
-          </Button>
+          <div className="flex items-center gap-2">
+            <BulkEngineTrigger kind="customer:add" label="Tambah Excel" variant="compact" />
+            <BulkEngineTrigger kind="customer:edit" label="Edit Excel" variant="compact" />
+            <Button onClick={handleAdd} className="theme-bg hover:theme-hover text-white h-8 text-xs">
+              <Plus className="mr-1.5 h-3.5 w-3.5" />
+              Tambah Pelanggan
+            </Button>
+          </div>
         </div>
 
         {/* Rich Text Instructions */}
