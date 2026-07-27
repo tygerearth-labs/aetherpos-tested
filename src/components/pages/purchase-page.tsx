@@ -96,7 +96,6 @@ import {
   ScanBarcode,
   Upload,
   FileSpreadsheet,
-  ClipboardPaste,
   Download,
   RotateCcw,
   Archive,
@@ -662,8 +661,9 @@ export default function PurchasePage() {
   // Purchase create dialog
   const [poCreateOpen, setPoCreateOpen] = useState(false)
   const [poCreateLoading, setPoCreateLoading] = useState(false)
-  // Input method selection: 'excel' | 'manual' | null (null = show selection screen)
-  const [inputMethod, setInputMethod] = useState<'excel' | 'manual' | null>(null)
+  // Input method selection: 'manual' | null (null = show selection screen).
+  // Excel import now delegates to the V2 Aether Bulk Engine (see handleOpenBulkPurchaseAdd).
+  const [inputMethod, setInputMethod] = useState<'manual' | null>(null)
   const [poCreateNotes, setPoCreateNotes] = useState('')
   const [poCreateItems, setPoCreateItems] = useState<PurchaseOrderItem[]>([
     // UX-SIMPLIFY: baseQty defaults to '1' (retail mode: 1 beli = 1 dasar)
@@ -704,22 +704,6 @@ export default function PurchasePage() {
   const [supplierOptions, setSupplierOptions] = useState<Array<{ id: string; name: string }>>([])
   const [poCreateSupplierId, setPoCreateSupplierId] = useState('')
 
-  // Excel import
-  const [showImportPreview, setShowImportPreview] = useState(false)
-  const [importLoading, setImportLoading] = useState(false)
-  const [importPosting, setImportPosting] = useState(false)
-  const [importProgress, setImportProgress] = useState({ step: 0, total: 0, label: '' })
-  const [importSupplierId, setImportSupplierId] = useState('')
-  const [importPreviewData, setImportPreviewData] = useState<Array<{
-    row: number; name: string; sku: string | null; purchaseUnit: string;
-    qty: number; baseQty: number; baseUnit: string; pricePerUnit: number;
-    batch: string | null; expiredDate: string | null;
-    matchedItemId: string | null; matchedItemName: string | null;
-    matchedItemSku: string | null; matchedItemUnit: string | null;
-    isNew: boolean; error?: string;
-  }> | null>(null)
-  const importFileRef = useRef<HTMLInputElement | null>(null)
-
   // Edit Excel state
   const [editExcelOpen, setEditExcelOpen] = useState(false)
   const [editExcelFile, setEditExcelFile] = useState<File | null>(null)
@@ -730,7 +714,6 @@ export default function PurchasePage() {
     errors: string[]
   } | null>(null)
   const [editExcelDragOver, setEditExcelDragOver] = useState(false)
-  const [templateDownloadLoading, setTemplateDownloadLoading] = useState(false)
 
   // Bulk category change
   const [bulkCatOpen, setBulkCatOpen] = useState(false)
@@ -1402,8 +1385,6 @@ export default function PurchasePage() {
     pendingCounterRef.current = 0
     setQuickAddQueue([])
     setQuickAddTargetIdx(0)
-    setShowImportPreview(false)
-    setImportPreviewData(null)
   }
 
   // Fetch suppliers for purchase dialog dropdown
@@ -1467,205 +1448,14 @@ export default function PurchasePage() {
     void fetchSuppliers()
   }
 
-  // Handle Excel file import
-  const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setImportLoading(true)
-    setShowImportPreview(true)
-    setImportSupplierId('')
-    void fetchSuppliers() // Pre-fetch suppliers for preview dialog
-    try {
-      const formData = new FormData()
-      formData.append('file', file)
-      const res = await fetch('/api/purchases/import-excel', {
-        method: 'POST',
-        body: formData,
-      })
-      if (res.ok) {
-        const data = await res.json()
-        setImportPreviewData(data.items || [])
-        if (data.items.length === 0) {
-          toast.error('Tidak ada data yang bisa diproses dari file')
-        }
-      } else {
-        const data = await res.json()
-        // Fix Bug #11: Show details message for better debugging
-        toast.error(data.details || data.error || 'Gagal membaca file')
-        setShowImportPreview(false)
-      }
-    } catch {
-      toast.error('Gagal mengupload file')
-      setShowImportPreview(false)
-    } finally {
-      setImportLoading(false)
-      // Reset file input
-      if (importFileRef.current) importFileRef.current.value = ''
-    }
-  }
-
-  // Apply import preview items to purchase form
-  const handleApplyImport = () => {
-    if (!importPreviewData) return
-    const newItems: PurchaseOrderItem[] = []
-    const newOptions: InventoryItemOption[] = []
-    importPreviewData.forEach((item, idx) => {
-      if (item.error) return
-      const itemId = item.matchedItemId || `__pending_${item.name}_${item.sku || ''}_${idx}_${Date.now()}`
-      newItems.push({
-        inventoryItemId: itemId,
-        inventoryItemName: item.name,
-        inventoryItemSku: item.matchedItemSku || item.sku,
-        baseUnit: item.baseUnit || item.matchedItemUnit || '',
-        qty: String(item.qty || 1),
-        unit: item.purchaseUnit || '',
-        baseQty: String(item.baseQty || 1),
-        pricePerItem: String(item.pricePerUnit || 0),
-        batch: item.batch || '',
-        expiredDate: item.expiredDate || '',
-      })
-      // Add new items to poItemOptions so pending creation works
-      if (item.isNew && !item.matchedItemId) {
-        newOptions.push({
-          id: itemId,
-          name: item.name,
-          sku: item.sku || null,
-          baseUnit: item.baseUnit || item.matchedItemUnit || 'pcs',
-          stock: 0,
-          active: true,
-          _isNew: true,
-        })
-      }
-    })
-    if (newItems.length > 0) {
-      if (newOptions.length > 0) {
-        setPoItemOptions(prev => [...newOptions, ...prev])
-      }
-      setPoCreateItems(newItems)
-      setShowImportPreview(false)
-      setImportPreviewData(null)
-      setPoCreateOpen(true)
-      void fetchSuppliers()
-      toast.success(`${newItems.length} item berhasil ditambahkan ke pembelian`)
-    }
-  }
-
-  // Direct posting from import preview (creates new items + PO in one shot)
-  const handleImportPost = async () => {
-    if (!importPreviewData) return
-    const validItems = importPreviewData.filter(i => !i.error)
-    if (validItems.length === 0) return
-
-    setImportPosting(true)
-    const total = validItems.length
-
-    // Animate progress while backend processes
-    let progressTimer: ReturnType<typeof setInterval> | null = null
-    let currentStep = 0
-    const steps = total <= 10
-      ? ['Menyimpan pembelian...']
-      : ['Membuat item baru...', 'Menyimpan pembelian...']
-
-    const startProgress = () => {
-      setImportProgress({ step: 0, total, label: steps[0] })
-      currentStep = 0
-      progressTimer = setInterval(() => {
-        currentStep = Math.min(currentStep + 1, total)
-        const stepIdx = currentStep > total / 2 ? Math.min(1, steps.length - 1) : 0
-        setImportProgress({ step: currentStep, total, label: steps[stepIdx] })
-      }, total <= 20 ? 200 : 80)
-    }
-    const stopProgress = () => {
-      if (progressTimer) { clearInterval(progressTimer); progressTimer = null }
-      setImportProgress({ step: total, total, label: '' })
-    }
-
-    try {
-      startProgress()
-
-      // Separate existing items vs new items
-      const existingItems = validItems.filter(i => !i.isNew && i.matchedItemId)
-      const newItems = validItems.filter(i => i.isNew && !i.matchedItemId)
-
-      // Build purchase items (existing — already have IDs)
-      const purchaseItems = existingItems.map(item => {
-        const baseQtyVal = item.baseQty || 1
-        const qtyVal = item.qty || 0
-        const pricePerUnit = item.pricePerUnit || 0
-        const totalCost = pricePerUnit * qtyVal
-        const totalBaseQty = qtyVal * baseQtyVal
-        const unitCost = totalBaseQty > 0 ? totalCost / totalBaseQty : 0
-
-        return {
-          inventoryItemId: item.matchedItemId!,
-          purchaseQty: qtyVal,
-          purchaseUnit: item.purchaseUnit || '',
-          baseQty: totalBaseQty,
-          baseUnit: item.baseUnit || item.matchedItemUnit || '',
-          unitCost,
-          totalCost,
-          batch: item.batch?.trim() || undefined,
-          expiredDate: item.expiredDate || undefined,
-        }
-      })
-
-      // Build new items (no inventoryItemId — backend creates them)
-      const newItemsPayload = newItems.map(item => {
-        const baseQtyVal = item.baseQty || 1
-        const qtyVal = item.qty || 0
-        const pricePerUnit = item.pricePerUnit || 0
-        const totalCost = pricePerUnit * qtyVal
-        const totalBaseQty = qtyVal * baseQtyVal
-        const unitCost = totalBaseQty > 0 ? totalCost / totalBaseQty : 0
-
-        return {
-          key: `import_row_${item.row}`,
-          name: item.name,
-          sku: item.sku || undefined,
-          baseUnit: item.baseUnit || item.matchedItemUnit || 'pcs',
-          purchaseQty: qtyVal,
-          purchaseUnit: item.purchaseUnit || '',
-          baseQty: totalBaseQty,
-          unitCost,
-          totalCost,
-          batch: item.batch?.trim() || undefined,
-          expiredDate: item.expiredDate || undefined,
-        }
-      })
-
-      // ONE API CALL: backend creates new items + PO atomically
-      const res = await fetch('/api/purchases', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          supplierId: importSupplierId || undefined,
-          items: purchaseItems,
-          newItems: newItemsPayload.length > 0 ? newItemsPayload : undefined,
-        }),
-      })
-
-      if (res.ok) {
-        const data = await res.json()
-        stopProgress()
-        toast.success(`Pembelian berhasil! ${data.orderNumber} (${validItems.length} item, ${formatCurrency(data.totalCost)})`)
-        setShowImportPreview(false)
-        setImportPreviewData(null)
-        setImportSupplierId('')
-        void fetchPurchaseOrders()
-        void fetchInventoryItems()
-        void fetchPurchaseSummary()
-      } else {
-        stopProgress()
-        const data = await res.json()
-        toast.error(data.error || 'Gagal membuat pembelian')
-      }
-    } catch (err) {
-      stopProgress()
-      toast.error('Gagal membuat pembelian')
-      console.error('[Import Post] Error:', err)
-    } finally {
-      setImportPosting(false)
-    }
+  // Open the V2 Aether Bulk Engine dialog for adding purchases via Excel.
+  // Replaces the legacy inline /api/purchases/import-excel flow (which duplicated
+  // the bulk engine's purchase:add adapter). Closes the create dialog first so
+  // the bulk dialog becomes the focus.
+  const handleOpenBulkPurchaseAdd = () => {
+    setPoCreateOpen(false)
+    resetPoCreateForm()
+    openBulkDialog('purchase:add')
   }
 
   const handleAddPoItem = () => {
@@ -3313,14 +3103,14 @@ export default function PurchasePage() {
                     <Upload className="h-3.5 w-3.5 text-slate-500 group-hover:text-emerald-400 transition-colors" />
                     <div className="flex-1">
                       <span>Tambah PO Excel</span>
-                      <p className="text-[10px] text-slate-600">Bulk Engine V2 — upload massal</p>
+                      <p className="text-[10px] text-slate-600">Upload massal</p>
                     </div>
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => openBulkDialog('purchase:edit')} className="flex items-center gap-2.5 px-3 py-2.5 text-xs text-slate-300 hover:bg-white/[0.04] hover:text-white rounded-lg cursor-pointer focus:bg-white/[0.04] focus:text-white group">
                     <FilePenLine className="h-3.5 w-3.5 text-slate-500 group-hover:text-cyan-400 transition-colors" />
                     <div className="flex-1">
                       <span>Edit PO Excel</span>
-                      <p className="text-[10px] text-slate-600">Bulk Engine V2 — update massal</p>
+                      <p className="text-[10px] text-slate-600">Update massal PO</p>
                     </div>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
@@ -3907,7 +3697,7 @@ export default function PurchasePage() {
                         <FilePenLine className="h-3.5 w-3.5 text-slate-500 group-hover:text-cyan-400 transition-colors" />
                         <div className="flex-1">
                           <span>Edit Bahan Excel</span>
-                          <p className="text-[10px] text-slate-600">Bulk Engine V2 — update massal</p>
+                          <p className="text-[10px] text-slate-600">Update massal bahan</p>
                         </div>
                       </DropdownMenuItem>
                     </DropdownMenuContent>
@@ -5012,11 +4802,11 @@ export default function PurchasePage() {
                     </div>
                   </button>
 
-                  {/* ── Excel/CSV Import Card ── */}
+                  {/* ── Excel/CSV Import Card (delegates to V2 Aether Bulk Engine) ── */}
                   <button
                     type="button"
                     className="group rounded-xl border border-white/[0.08] bg-white/[0.02] p-4 text-left hover:bg-white/[0.04] hover:border-blue-500/30 transition-all duration-200"
-                    onClick={() => setInputMethod('excel')}
+                    onClick={handleOpenBulkPurchaseAdd}
                   >
                     <div className="flex items-start gap-3">
                       <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center shrink-0 group-hover:bg-blue-500/15 transition-colors">
@@ -5025,7 +4815,7 @@ export default function PurchasePage() {
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-slate-200 group-hover:text-blue-300 transition-colors">Import Excel / CSV</p>
                         <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
-                          Upload file Excel atau paste data dari spreadsheet. Ideal untuk pembelian banyak item sekaligus.
+                          Upload file Excel untuk pembelian banyak item sekaligus. Diproses oleh Aether Bulk Engine dengan batching &amp; retry otomatis.
                         </p>
                         <div className="flex items-center gap-1.5 mt-2.5 text-[10px] text-slate-600">
                           <CheckCircle2 className="h-3 w-3" />
@@ -5054,17 +4844,8 @@ export default function PurchasePage() {
                     Ganti Metode
                   </button>
                   <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/[0.04] text-[11px]">
-                    {inputMethod === 'manual' ? (
-                      <>
-                        <ScanBarcode className="h-3.5 w-3.5 text-emerald-400" />
-                        <span className="text-slate-300">Input Manual</span>
-                      </>
-                    ) : (
-                      <>
-                        <FileSpreadsheet className="h-3.5 w-3.5 text-blue-400" />
-                        <span className="text-slate-300">Import Excel</span>
-                      </>
-                    )}
+                    <ScanBarcode className="h-3.5 w-3.5 text-emerald-400" />
+                    <span className="text-slate-300">Input Manual</span>
                   </div>
                 </div>
 
@@ -5464,221 +5245,6 @@ export default function PurchasePage() {
               </div>
                   </div>
                 )}
-
-                {/* ══════════════════════════════════════════════════════ */}
-                {/* EXCEL IMPORT FORM                                        */}
-                {/* ══════════════════════════════════════════════════════ */}
-                {inputMethod === 'excel' && (
-                  <div className="space-y-4">
-                    {/* ── Section Label ── */}
-                    <div className="flex items-center gap-2">
-                      <FileSpreadsheet className="h-3.5 w-3.5 text-blue-400" />
-                      <span className="text-[11px] text-slate-400 font-medium">Import dari File Excel / CSV</span>
-                    </div>
-
-                    {/* ── Upload Area ── */}
-                    <div className="rounded-xl border border-dashed border-white/[0.1] bg-white/[0.02] p-6 text-center space-y-3">
-                      <div className="w-12 h-12 rounded-xl bg-blue-500/10 flex items-center justify-center mx-auto">
-                        <Upload className="h-6 w-6 text-blue-400" />
-                      </div>
-                      <div>
-                        <p className="text-sm text-slate-300 font-medium">Upload File Excel / CSV</p>
-                        <p className="text-[11px] text-slate-500 mt-1">Format .xlsx, .xls, atau .csv — Maks 2MB</p>
-                      </div>
-                      <input
-                        ref={(el) => { importFileRef.current = el }}
-                        type="file"
-                        accept=".xlsx,.xls,.csv"
-                        className="hidden"
-                        onChange={handleImportExcel}
-                      />
-                      <button
-                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-blue-500/15 text-blue-400 hover:bg-blue-500/25 text-xs font-medium transition-colors disabled:opacity-50"
-                        onClick={() => importFileRef.current?.click()}
-                        disabled={importLoading}
-                      >
-                        {importLoading ? (
-                          <>
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                            Membaca File...
-                          </>
-                        ) : (
-                          <>
-                            <FileSpreadsheet className="h-4 w-4" />
-                            Pilih File
-                          </>
-                        )}
-                      </button>
-                    </div>
-
-                    {/* ── Or Divider ── */}
-                    <div className="flex items-center gap-3">
-                      <div className="flex-1 h-px bg-white/[0.06]" />
-                      <span className="text-[11px] text-slate-600">atau</span>
-                      <div className="flex-1 h-px bg-white/[0.06]" />
-                    </div>
-
-                    {/* ── Paste from Clipboard ── */}
-                    <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 space-y-3">
-                      <div className="flex items-center gap-2">
-                        <ClipboardPaste className="h-4 w-4 text-slate-400" />
-                        <span className="text-xs text-slate-300 font-medium">Tempel dari Spreadsheet</span>
-                      </div>
-                      <p className="text-[11px] text-slate-500 leading-relaxed">
-                        Copy data dari Excel/Google Sheets, lalu tempel di sini. Data tabular akan otomatis terdeteksi.
-                      </p>
-                      <button
-                        className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-white/[0.04] border border-white/[0.08] text-slate-400 hover:text-slate-300 hover:bg-white/[0.06] transition-colors text-xs"
-                        onClick={async () => {
-                          try {
-                            const text = await navigator.clipboard.readText()
-                            if (text && text.includes('\t')) {
-                              // Tab-separated = likely Excel paste
-                              const lines = text.trim().split('\n').filter(l => l.trim())
-                              const items = lines.map(line => {
-                                const cols = line.split('\t').map(c => c.trim())
-                                return cols.join(', ')
-                              }).filter(Boolean).join(', ')
-                              if (items) {
-                                setSmartInput(items)
-                                toast.info(`${lines.length} baris dari clipboard — tekan Enter untuk proses`)
-                              }
-                            } else if (text) {
-                              setSmartInput(text)
-                              toast.info('Data dari clipboard — tekan Enter untuk proses')
-                            }
-                          } catch {
-                            toast.error('Gagal membaca clipboard')
-                          }
-                        }}
-                      >
-                        <ClipboardPaste className="h-4 w-4" />
-                        Tempel dari Clipboard
-                      </button>
-                    </div>
-
-                    {/* ── Template Download ── */}
-                    <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 space-y-3">
-                      <div className="flex items-center gap-2">
-                        <Download className="h-4 w-4 text-slate-400" />
-                        <span className="text-xs text-slate-300 font-medium">Butuh Template?</span>
-                      </div>
-                      <p className="text-[11px] text-slate-500 leading-relaxed">
-                        Download template Excel yang sudah terformat dengan benar. Cukup isi data barang dan upload.
-                      </p>
-                      <button
-                        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/[0.04] border border-white/[0.08] text-slate-400 hover:text-slate-300 hover:bg-white/[0.06] transition-colors text-xs"
-                        onClick={() => void downloadBlob('/api/purchases/import-excel/template', 'template-pembelian-aether-pos.xlsx', setTemplateDownloadLoading)}
-                        disabled={templateDownloadLoading}
-                      >
-                        {templateDownloadLoading ? (
-                          <>
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            Mendownload...
-                          </>
-                        ) : (
-                          <>
-                            <Download className="h-3.5 w-3.5" />
-                            Download Template Excel
-                          </>
-                        )}
-                      </button>
-                    </div>
-
-                    {/* ── Smart Input Fallback (after paste) ── */}
-                    {smartInput && (
-                      <div className="rounded-xl bg-emerald-500/[0.04] border border-emerald-500/10 p-3.5 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[11px] text-emerald-300 font-medium">Data siap diproses:</span>
-                          <button
-                            className="text-[10px] text-slate-500 hover:text-slate-300"
-                            onClick={() => setSmartInput('')}
-                          >
-                            Hapus
-                          </button>
-                        </div>
-                        <div className="bg-white/[0.03] rounded-lg p-2.5 max-h-24 overflow-y-auto">
-                          <p className="text-[11px] text-slate-300 font-mono break-all whitespace-pre-wrap">{smartInput}</p>
-                        </div>
-                        <button
-                          className="w-full h-8 rounded-lg bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors"
-                          onClick={handleSmartInputSubmit}
-                        >
-                          <CheckCircle2 className="h-3 w-3" />
-                          Proses Data
-                        </button>
-                      </div>
-                    )}
-
-                    {/* ── Imported Items Preview ── */}
-                    {poCreateItems.some(i => i.inventoryItemId) && (
-                      <div className="space-y-3">
-                        <div className="flex items-center gap-2">
-                          <Package className="h-3.5 w-3.5 text-slate-400" />
-                          <span className="text-[11px] text-slate-400 font-medium">
-                            Item yang Diimport ({poCreateItems.filter(i => i.inventoryItemId).length})
-                          </span>
-                        </div>
-                        <div className="space-y-2">
-                          {poCreateItems.filter(i => i.inventoryItemId).map((item, idx) => {
-                            const originalIdx = poCreateItems.findIndex(i => i === item)
-                            return (
-                              <div
-                                key={originalIdx}
-                                className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.04] space-y-2"
-                              >
-                                <div className="flex items-center gap-2">
-                                  <CheckCircle2 className={cn(
-                                    "h-3.5 w-3.5 shrink-0",
-                                    item.inventoryItemId.startsWith('__pending_') ? "text-amber-400" : "text-emerald-400"
-                                  )} />
-                                  <span className={cn(
-                                    "text-xs font-medium truncate",
-                                    item.inventoryItemId.startsWith('__pending_') ? "text-amber-300" : "text-emerald-300"
-                                  )}>{item.inventoryItemName}</span>
-                                  {poCreateItems.filter(i => i.inventoryItemId).length > 1 && (
-                                    <button
-                                      className="w-5 h-5 rounded bg-red-500/10 flex items-center justify-center text-red-400 hover:text-red-300 hover:bg-red-500/20 transition-colors ml-auto"
-                                      onClick={() => handleRemovePoItem(originalIdx)}
-                                      title="Hapus item ini"
-                                    >
-                                      <Trash2 className="h-3 w-3" />
-                                    </button>
-                                  )}
-                                </div>
-                                <div className="grid grid-cols-2 gap-2 pl-5">
-                                  <div className="space-y-1">
-                                    <label className="text-[10px] text-slate-500">Jumlah</label>
-                                    <Input
-                                      type="number"
-                                      min="0"
-                                      step="any"
-                                      value={item.qty}
-                                      onChange={(e) => handleUpdatePoItem(originalIdx, 'qty', e.target.value)}
-                                      className={cn(inputClass, 'text-xs h-8')}
-                                      placeholder="1"
-                                    />
-                                  </div>
-                                  <div className="space-y-1">
-                                    <label className="text-[10px] text-slate-500">Harga</label>
-                                    <Input
-                                      type="number"
-                                      min="0"
-                                      value={item.pricePerItem}
-                                      onChange={(e) => handleUpdatePoItem(originalIdx, 'pricePerItem', e.target.value)}
-                                      className={cn(inputClass, 'text-xs h-8')}
-                                      placeholder="0"
-                                    />
-                                  </div>
-                                </div>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
               </>
             )}
           </div>
@@ -5726,199 +5292,6 @@ export default function PurchasePage() {
                   <CheckCircle2 className="h-3.5 w-3.5" />
                 )}
                 Simpan Pembelian
-              </Button>
-            </div>
-          </div>
-        </ResponsiveDialogContent>
-      </ResponsiveDialog>
-
-      {/* ── Import Excel Preview Dialog ── */}
-      <ResponsiveDialog open={showImportPreview} onOpenChange={(open) => { if (importPosting) return; if (!open) { setShowImportPreview(false); setImportPreviewData(null) } }}>
-        <ResponsiveDialogContent className="sm:max-w-2xl flex flex-col max-h-[85vh]">
-          <ResponsiveDialogHeader>
-            <ResponsiveDialogTitle className="text-white text-base flex items-center gap-2">
-              <div className="w-8 h-8 rounded-xl bg-emerald-500/10 flex items-center justify-center">
-                <FileSpreadsheet className="h-4 w-4 text-emerald-400" />
-              </div>
-              <div>
-                <span>Preview Import Excel</span>
-                <p className="text-[11px] text-slate-500 font-normal mt-0.5">
-                  {importPreviewData
-                    ? `${importPreviewData.filter(i => !i.error).length} item ditemukan, ${importPreviewData.filter(i => i.isNew).length} barang baru`
-                    : 'Membaca file...'}
-                </p>
-              </div>
-            </ResponsiveDialogTitle>
-            <ResponsiveDialogDescription className="text-slate-400 text-xs sr-only">
-              Preview item dari file Excel sebelum membuat pembelian
-            </ResponsiveDialogDescription>
-          </ResponsiveDialogHeader>
-
-          {/* Summary bar */}
-          {importPreviewData && (
-            <div className="flex items-center gap-3 px-1 mt-1">
-              {(() => {
-                const valid = importPreviewData.filter(i => !i.error)
-                const totalCost = valid.reduce((sum, i) => sum + ((i.qty || 0) * (i.pricePerUnit || 0)), 0)
-                const errorCount = importPreviewData.filter(i => i.error).length
-                return (
-                  <>
-                    <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
-                      <Package className="h-3 w-3" />
-                      <span>{valid.length} item</span>
-                    </div>
-                    {totalCost > 0 && (
-                      <div className="flex items-center gap-1.5 text-[11px] text-emerald-400">
-                        <Banknote className="h-3 w-3" />
-                        <span className="font-mono">{formatCurrency(totalCost)}</span>
-                      </div>
-                    )}
-                    {errorCount > 0 && (
-                      <div className="flex items-center gap-1.5 text-[11px] text-red-400">
-                        <AlertTriangle className="h-3 w-3" />
-                        <span>{errorCount} error</span>
-                      </div>
-                    )}
-                  </>
-                )
-              })()}
-            </div>
-          )}
-
-          {/* Supplier selector */}
-          {importPreviewData && importPreviewData.filter(i => !i.error).length > 0 && (
-            <div className="mt-2">
-              <Label className="text-[11px] text-slate-400 mb-1.5 block">Supplier (opsional)</Label>
-              <SupplierSearchInput
-                value={importSupplierId}
-                onChange={setImportSupplierId}
-                options={supplierOptions}
-                onCreateSupplier={handleCreateSupplierForImport}
-              />
-            </div>
-          )}
-
-          {/* Items list */}
-          <div className="flex-1 overflow-y-auto space-y-1.5 mt-2">
-            {importLoading && !importPreviewData && (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-5 w-5 text-emerald-400 animate-spin" />
-                <span className="text-xs text-slate-400 ml-2">Membaca file Excel...</span>
-              </div>
-            )}
-            {importPreviewData && importPreviewData.map((item) => {
-              const itemTotal = (item.qty || 0) * (item.pricePerUnit || 0)
-              return (
-                <div
-                  key={item.row}
-                  className={cn(
-                    'rounded-lg border p-2.5 text-xs',
-                    item.error
-                      ? 'border-red-500/20 bg-red-500/[0.04]'
-                      : item.isNew
-                        ? 'border-amber-500/20 bg-amber-500/[0.04]'
-                        : 'border-white/[0.04] bg-white/[0.02]'
-                  )}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 min-w-0 flex-1">
-                      <span className="text-[10px] text-slate-600 shrink-0">#{item.row}</span>
-                      <span className="text-xs text-slate-200 font-medium truncate">{item.name}</span>
-                      {item.sku && <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 border-white/[0.1] text-slate-500 shrink-0">{item.sku}</Badge>}
-                      {item.batch && <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 border-blue-500/20 text-blue-400/80 bg-blue-500/[0.06] shrink-0 font-mono">B:{item.batch}</Badge>}
-                      {item.isNew ? (
-                        <Badge className="text-[9px] px-1.5 py-0 h-4 bg-amber-500/10 text-amber-400 border-amber-500/20 shrink-0">Baru</Badge>
-                      ) : item.matchedItemName ? (
-                        <Badge className="text-[9px] px-1.5 py-0 h-4 bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shrink-0">Match</Badge>
-                      ) : null}
-                    </div>
-                    <div className="flex items-center gap-3 shrink-0 ml-2">
-                      {item.expiredDate && (
-                        <span className={cn(
-                          "text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0",
-                          new Date(item.expiredDate) < new Date()
-                            ? "text-red-400 bg-red-500/10"
-                            : "text-amber-400/70 bg-amber-500/10"
-                        )}>
-                          Exp: {formatDate(item.expiredDate)}
-                        </span>
-                      )}
-                      {item.qty > 0 && (
-                        <span className="text-[11px] text-slate-300">
-                          {item.qty}{item.purchaseUnit ? ` ${item.purchaseUnit}` : ''}
-                          {item.baseQty > 0 && item.baseQty !== 1 && item.baseUnit ? (
-                            <span className="text-slate-500"> → {item.qty * item.baseQty} {item.baseUnit}</span>
-                          ) : null}
-                        </span>
-                      )}
-                      {item.pricePerUnit > 0 && (
-                        <span className="text-[11px] text-slate-400 font-mono">{formatCurrency(item.pricePerUnit)}</span>
-                      )}
-                      {itemTotal > 0 && (
-                        <span className="text-[11px] text-emerald-400 font-mono font-medium">{formatCurrency(itemTotal)}</span>
-                      )}
-                    </div>
-                  </div>
-                  {item.error && (
-                    <p className="text-[10px] text-red-400/80 mt-1">{item.error}</p>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-
-          {/* Footer */}
-          <div className="pt-3 mt-auto border-t border-white/[0.06] space-y-2">
-            {/* Progress bar (visible during posting) */}
-            {importPosting && importProgress.total > 0 && (
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between text-[11px]">
-                  <span className="text-slate-400 flex items-center gap-1.5">
-                    <Loader2 className="h-3 w-3 animate-spin text-emerald-400" />
-                    {importProgress.label || 'Memproses...'}
-                  </span>
-                  <span className="text-slate-500 font-mono">
-                    {importProgress.step} / {importProgress.total}
-                  </span>
-                </div>
-                <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
-                  <motion.div
-                    className="h-full bg-emerald-500 rounded-full"
-                    initial={{ width: 0 }}
-                    animate={{ width: `${Math.min((importProgress.step / importProgress.total) * 100, 100)}%` }}
-                    transition={{ duration: 0.3, ease: 'easeOut' }}
-                  />
-                </div>
-              </div>
-            )}
-
-            <Button
-              className="w-full h-10 text-xs theme-bg theme-hover text-white font-medium"
-              disabled={!importPreviewData || importPreviewData.filter(i => !i.error).length === 0 || importPosting}
-              onClick={handleImportPost}
-            >
-              {!importPosting && <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />}
-              {importPosting
-                ? 'Memproses...'
-                : `Posting ${importPreviewData ? importPreviewData.filter(i => !i.error).length : 0} Item`}
-            </Button>
-            <div className="flex gap-2">
-              <Button
-                variant="ghost"
-                className="flex-1 h-9 text-[11px] text-slate-400 hover:text-white"
-                disabled={importPosting}
-                onClick={() => { setShowImportPreview(false); setImportPreviewData(null) }}
-              >
-                {importPosting ? 'Menyimpan...' : 'Batal'}
-              </Button>
-              <Button
-                variant="ghost"
-                className="flex-1 h-9 text-[11px] text-slate-400 hover:text-white"
-                disabled={!importPreviewData || importPreviewData.filter(i => !i.error).length === 0 || importPosting}
-                onClick={handleApplyImport}
-              >
-                <ClipboardPaste className="h-3 w-3 mr-1" />
-                Terapkan ke Form
               </Button>
             </div>
           </div>
