@@ -170,6 +170,11 @@ export const purchaseEditClient: BulkClientAdapter = {
   supportsClear: false,
   supportsDelete: false,
   templateColumns: COLUMNS,
+  // V2: Edit-mode downloads EXISTING data formatted per COLUMNS (not blank
+  // template). The export-existing endpoint emits current PO line items
+  // with poNumber + item data pre-filled; "Supplier Baru" and "Catatan
+  // Baru" columns left blank — user fills only if changing.
+  templateEndpoint: '/api/bulk-engine/export-existing?kind=purchase:edit',
 
   /**
    * Parse the file client-side for preview + validation (same pattern as

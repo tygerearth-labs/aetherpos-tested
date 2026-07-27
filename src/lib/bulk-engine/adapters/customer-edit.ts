@@ -46,6 +46,11 @@ export const customerEditClient: BulkClientAdapter = {
   supportsClear: false,
   supportsDelete: false,
   templateColumns: COLUMNS,
+  // V2: Edit-mode downloads EXISTING data formatted per COLUMNS (not blank
+  // template). The export-existing endpoint emits active customers with
+  // ID + WhatsApp (lookup) pre-filled; "Nama Baru" and "WhatsApp Baru"
+  // columns left blank — user fills only what they want to change.
+  templateEndpoint: '/api/bulk-engine/export-existing?kind=customer:edit',
 
   async parseFile(file: File) {
     const { parseWorkbookAsync } = await import('../sheet-parse')

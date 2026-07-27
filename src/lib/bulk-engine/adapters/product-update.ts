@@ -29,8 +29,16 @@
  * Cell semantics (EDIT mode):
  *  - blank = no change (skip field)
  *  - 0 = valid value (e.g. price 0, stock 0)
- *  - CLEAR = clear supported optional field (barcode, description, category)
+ *  - CLEAR = clear supported optional field (barcode, image, category)
  *  - DELETE not supported (use bulk-delete page)
+ *
+ * NOTE: The Product model does NOT have `status` or `description` fields.
+ * Previous versions of this adapter referenced those fields, causing every
+ * update to throw a Prisma "Unknown field" error silently (caught in
+ * executeBatch's try/catch, pushed to errors). This is the root cause of
+ * the "upload edit product tidak ada perubahan sama sekali" bug. Fixed by
+ * removing those columns and adding the real editable fields: lowStockAlert
+ * and image (Image URL).
  */
 
 import type {
@@ -62,8 +70,8 @@ const COLUMNS: ColumnSpec[] = [
   { key: 'cost', label: 'HPP/Modal (Rp)', type: 'number', aliases: ['hpp', 'modal', 'cost', 'hpp/modal'] },
   { key: 'stock', label: 'Stok', type: 'number', description: 'Stok produk non-varian. Untuk produk varian, edit stok di UI varian (tidak didukung di sini).', aliases: ['stok', 'stock', 'qty'] },
   { key: 'unit', label: 'Satuan', type: 'text', aliases: ['satuan', 'unit'] },
-  { key: 'status', label: 'Status', type: 'text', description: 'ACTIVE atau INACTIVE', aliases: ['status'] },
-  { key: 'description', label: 'Deskripsi', type: 'text', aliases: ['deskripsi', 'description', 'desc'] },
+  { key: 'lowStockAlert', label: 'Alert Stok Minim', type: 'number', aliases: ['low stock alert', 'stok minim', 'min stok', 'alert', 'alert stok minim'] },
+  { key: 'imageUrl', label: 'Image URL', type: 'text', description: 'URL gambar produk (http/https). Kosongkan jika tidak mengubah. Isi "CLEAR" untuk hapus gambar.', aliases: ['image url', 'image', 'gambar', 'url gambar', 'foto'] },
 ]
 
 // ── Client adapter ─────────────────────────────────────────────────────────
@@ -78,7 +86,11 @@ export const productUpdateClient: BulkClientAdapter = {
   supportsClear: true,
   supportsDelete: false,
   templateColumns: COLUMNS,
-  templateEndpoint: '/api/products/bulk-upload/template',
+  // V2: Edit-mode downloads EXISTING data formatted per COLUMNS (not blank
+  // template). The export-existing endpoint emits current products with
+  // ID, name, SKU, barcode, category, price, hpp, stock, unit, lowStockAlert,
+  // image URL — all editable fields on the Product model.
+  templateEndpoint: '/api/bulk-engine/export-existing?kind=product:edit',
 
   async parseFile(file: File) {
     const { parseWorkbookAsync } = await import('../sheet-parse')
@@ -109,6 +121,17 @@ export const productUpdateClient: BulkClientAdapter = {
       const n = sanitizeNumber(stock)
       if (n < 0) warnings.push('Stok negatif akan disimpan apa adanya.')
     }
+    const lowStockAlert = row.data.lowStockAlert
+    if (lowStockAlert !== undefined && lowStockAlert !== '' && lowStockAlert !== null) {
+      const n = sanitizeNumber(lowStockAlert)
+      if (n < 0) errors.push('Alert stok minim tidak boleh negatif.')
+    }
+    const imageUrl = String(row.data.imageUrl || '').trim()
+    if (imageUrl && imageUrl.toUpperCase() !== 'CLEAR') {
+      if (!/^https?:\/\/.+/i.test(imageUrl)) {
+        warnings.push('Image URL sebaiknya diawali http:// atau https://')
+      }
+    }
     return { valid: errors.length === 0, errors, warnings }
   },
 
@@ -125,6 +148,7 @@ interface ProductPreloadEntry {
   hasVariants: boolean
   hasComposition: boolean
   stock: number
+  image: string | null
 }
 
 interface ProductPreload extends PreloadData {
@@ -139,7 +163,7 @@ interface ProductPreload extends PreloadData {
 interface UpdateOp {
   rowIndex: number
   productId: string
-  /** Non-stock fields to update (price, hpp, unit, barcode, status, description, categoryId). */
+  /** Non-stock fields to update (price, hpp, unit, barcode, lowStockAlert, image, categoryId). */
   fields: Record<string, unknown>
   /** Stock change plan; absent when stock cell is blank or when stock is rejected pre-execute. */
   stockChange?: {
@@ -200,6 +224,7 @@ export const productUpdateServer: BulkServerAdapter = {
           hasVariants: true,
           hasComposition: true,
           stock: true,
+          image: true,
         },
       }),
       db.category.findMany({
@@ -222,6 +247,7 @@ export const productUpdateServer: BulkServerAdapter = {
         hasVariants: p.hasVariants,
         hasComposition: p.hasComposition,
         stock: p.stock,
+        image: p.image,
       }
       byId.set(p.id, entry)
       if (p.sku) bySku.set(p.sku, p.id)
@@ -317,14 +343,18 @@ export const productUpdateServer: BulkServerAdapter = {
         fields.barcode = null
       }
 
-      const interpDesc = interpretCell(row.data.description, { supportsClear: true })
-      if (interpDesc.kind === 'value') fields.description = String(interpDesc.value)
-      else if (interpDesc.kind === 'clear') fields.description = null
+      const interpLowStock = interpretCell(row.data.lowStockAlert, { supportsClear: false })
+      if (interpLowStock.kind === 'value') {
+        const n = sanitizeNumber(interpLowStock.value)
+        if (n >= 0) fields.lowStockAlert = Math.round(n)
+      }
 
-      const interpStatus = interpretCell(row.data.status, { supportsClear: false })
-      if (interpStatus.kind === 'value') {
-        const s = String(interpStatus.value).toUpperCase()
-        if (s === 'ACTIVE' || s === 'INACTIVE') fields.status = s
+      const interpImage = interpretCell(row.data.imageUrl, { supportsClear: true })
+      if (interpImage.kind === 'value') {
+        const newImage = String(interpImage.value).trim()
+        if (newImage !== (product.image || '')) fields.image = newImage
+      } else if (interpImage.kind === 'clear') {
+        fields.image = null
       }
 
       const interpCat = interpretCell(row.data.category, { supportsClear: true })

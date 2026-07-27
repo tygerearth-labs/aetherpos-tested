@@ -17,13 +17,24 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Loader2, CheckCircle2, AlertTriangle, XCircle, Layers, X, ListChecks,
 } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { useBulkWorker } from './bulk-worker-context'
 import type { BulkJob } from '@/lib/bulk-engine/dexie-db'
 
 function formatDuration(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000))
   const m = Math.floor(s / 60)
-  return `${m.toString().padStart(2, '0')}:${(s % 60).toString(2).padStart(2, '0')}`
+  return `${m.toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`
+}
+
+function formatEta(ms: number): string {
+  if (ms <= 0 || !isFinite(ms)) return '—'
+  const s = Math.ceil(ms / 1000)
+  if (s < 60) return `${s}d`
+  const m = Math.floor(s / 60)
+  if (m < 60) return `${m}m`
+  const h = Math.floor(m / 60)
+  return `${h}j ${m % 60}m`
 }
 
 function pickWidgetJob(jobs: BulkJob[]): BulkJob | null {
@@ -46,6 +57,17 @@ function pickWidgetJob(jobs: BulkJob[]): BulkJob | null {
 
 export function BulkFloatingWidget() {
   const { jobs, openJobModal, openQueueDrawer, dismissJob } = useBulkWorker()
+  const [, setTick] = useState(0)
+
+  // Re-render every second while a job is processing so the elapsed time
+  // and ETA update live (Dexie useLiveQuery only re-renders on data changes,
+  // which happen per-batch, not per-second).
+  useEffect(() => {
+    const hasActive = jobs.some((j) => j.status === 'processing')
+    if (!hasActive) return
+    const t = setInterval(() => setTick((n) => n + 1), 1000)
+    return () => clearInterval(t)
+  }, [jobs])
 
   const job = pickWidgetJob(jobs)
   const activeCount = jobs.filter((j) => j.status === 'processing' || j.status === 'paused' || j.status === 'queued').length
@@ -53,6 +75,10 @@ export function BulkFloatingWidget() {
   const processed = job ? job.stats.processed + job.stats.skipped : 0
   const pct = job && job.totalRows > 0 ? Math.min(100, Math.round((processed / job.totalRows) * 100)) : 0
   const elapsed = job && job.startedAt ? Date.now() - job.startedAt : 0
+  const remaining = job ? Math.max(0, job.totalRows - processed) : 0
+  const etaMs = job && job.status === 'processing' && processed > 0 && elapsed > 0
+    ? (elapsed / processed) * remaining
+    : 0
 
   const isProcessing = job?.status === 'processing'
   const isPaused = job?.status === 'paused'
@@ -134,7 +160,12 @@ export function BulkFloatingWidget() {
                         <Layers className="h-2.5 w-2.5" />
                         Batch {(job.currentBatch || 0) + 1}/{job.totalBatches || '?'}
                       </span>
-                      <span>{pct}% · {formatDuration(elapsed)}</span>
+                      <span className="inline-flex items-center gap-1.5">
+                        <span>{pct}% · {formatDuration(elapsed)}</span>
+                        {etaMs > 0 && (
+                          <span className="text-emerald-400">· ETA {formatEta(etaMs)}</span>
+                        )}
+                      </span>
                     </div>
                   </div>
                 )}

@@ -52,6 +52,11 @@ export const inventoryAdjustmentClient: BulkClientAdapter = {
   supportsClear: true,
   supportsDelete: false,
   templateColumns: COLUMNS,
+  // V2: Edit-mode downloads EXISTING data formatted per COLUMNS (not blank
+  // template). The export-existing endpoint emits current inventory items
+  // with ID, name, SKU, kategori, satuan, lowStockAlert, status (NO stock
+  // or avgCost — those are read-only).
+  templateEndpoint: '/api/bulk-engine/export-existing?kind=inventory:edit',
 
   async parseFile(file: File) {
     const { parseWorkbookAsync } = await import('../sheet-parse')

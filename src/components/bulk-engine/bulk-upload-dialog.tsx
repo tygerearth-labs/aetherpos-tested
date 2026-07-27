@@ -18,7 +18,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Loader2, CheckCircle2, AlertTriangle, XCircle, Upload, FileSpreadsheet,
-  Download, Play, Pause, RotateCcw, X, Minimize2, Trash2, ListChecks,
+  Download, Play, Pause, RotateCcw, X, Minimize2, Trash2, ListChecks, Clock,
 } from 'lucide-react'
 import { useBulkWorker } from './bulk-worker-context'
 import { getClientAdapter } from '@/lib/bulk-engine/registry-client'
@@ -29,6 +29,18 @@ function formatDuration(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000))
   const m = Math.floor(s / 60)
   return `${m.toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`
+}
+
+/** Format ETA (estimated time remaining) in a human-readable way. */
+function formatEta(ms: number): string {
+  if (ms <= 0 || !isFinite(ms)) return '—'
+  const s = Math.ceil(ms / 1000)
+  if (s < 60) return `${s}d`
+  const m = Math.floor(s / 60)
+  const rem = s % 60
+  if (m < 60) return `${m}m ${rem}d`
+  const h = Math.floor(m / 60)
+  return `${h}j ${m % 60}m`
 }
 
 export function BulkUploadDialog() {
@@ -151,7 +163,11 @@ function UploadView({
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `template-${kind}.xlsx`
+      // Sanitize kind (e.g. "purchase:add" → "purchase-add") — colon is
+      // invalid in Windows filenames (reserved for drive letters/ADS) and
+      // causes the browser to truncate or refuse the download silently.
+      const safeKind = kind.replace(/[^a-zA-Z0-9-_]/g, '-')
+      a.download = `template-${safeKind}.xlsx`
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
@@ -411,8 +427,20 @@ function JobView({
   const isCancelled = job.status === 'cancelled'
   const currentBatch = batches.find((b) => b.status === 'processing')
 
+  // ETA: elapsed / processed * remaining (only meaningful while processing & >0 processed)
+  const remaining = Math.max(0, job.totalRows - processed)
+  const etaMs = isProcessing && processed > 0 && elapsed > 0
+    ? (elapsed / processed) * remaining
+    : 0
+
   const statusColor = isProcessing ? 'emerald' : isPaused ? 'amber' : isPartial ? 'amber' : isFailed ? 'red' : isCompleted ? 'emerald' : 'slate'
   const statusLabel = isProcessing ? 'Berjalan' : isPaused ? 'Dijeda' : isPartial ? 'Sebagian' : isFailed ? 'Gagal' : isCompleted ? 'Selesai' : 'Dibatalkan'
+
+  // Prominent result summary line (success / fail / skipped counts)
+  const successCount = job.stats.created + job.stats.updated
+  const skippedCount = job.stats.skipped
+  const failedCount = job.errorCount
+  const hasResult = isCompleted || isPartial || isFailed
 
   return (
     <div className="flex flex-col max-h-[90vh]">
@@ -438,12 +466,21 @@ function JobView({
 
       {/* Body */}
       <div className="flex-1 overflow-y-auto p-5 space-y-4">
-        {/* Status badge */}
-        <div className="flex items-center gap-2">
+        {/* Status badge + elapsed + ETA */}
+        <div className="flex items-center gap-2 flex-wrap">
           <span className={`px-2 py-0.5 rounded-md text-[10px] font-semibold bg-${statusColor}-500/15 text-${statusColor}-400 border border-${statusColor}-500/20`}>
             {statusLabel}
           </span>
-          <span className="text-[10px] text-slate-500">{formatDuration(elapsed)}</span>
+          <span className="text-[10px] text-slate-500 inline-flex items-center gap-1">
+            <Clock className="h-3 w-3" />
+            {formatDuration(elapsed)}
+          </span>
+          {isProcessing && etaMs > 0 && (
+            <span className="text-[10px] text-slate-500 inline-flex items-center gap-1">
+              <span className="text-slate-600">·</span>
+              ETA <span className="text-emerald-400 font-medium">{formatEta(etaMs)}</span>
+            </span>
+          )}
         </div>
 
         {/* Progress bar */}
@@ -467,13 +504,59 @@ function JobView({
           </div>
         )}
 
-        {/* Stats grid */}
-        <div className="grid grid-cols-3 gap-2">
-          <StatBox label="Dibuat" value={job.stats.created} color="emerald" />
-          <StatBox label="Diperbarui" value={job.stats.updated} color="emerald" />
-          <StatBox label="Dilewati" value={job.stats.skipped} color="slate" />
-        </div>
-        {job.errorCount > 0 && (
+        {/* Prominent result summary (success / fail / skipped) */}
+        {hasResult && (
+          <div className={`rounded-xl border p-3.5 ${
+            isFailed
+              ? 'bg-red-500/5 border-red-500/20'
+              : isPartial
+                ? 'bg-amber-500/5 border-amber-500/20'
+                : 'bg-emerald-500/5 border-emerald-500/20'
+          }`}>
+            <div className="flex items-center gap-2 mb-2">
+              {isCompleted && <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />}
+              {isPartial && <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />}
+              {isFailed && <XCircle className="h-4 w-4 text-red-400 shrink-0" />}
+              <span className="text-xs font-semibold text-white">
+                {isCompleted ? 'Berhasil' : isPartial ? 'Sebagian Berhasil' : 'Gagal'}
+              </span>
+              <span className="text-[10px] text-slate-500">·</span>
+              <span className="text-[10px] text-slate-400">{formatDuration(elapsed)}</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/15 px-2.5 py-1.5">
+                <div className="text-[9px] text-emerald-400/70 uppercase tracking-wide">Berhasil</div>
+                <div className="text-base font-bold text-emerald-400">{successCount}</div>
+              </div>
+              <div className="rounded-lg bg-slate-500/10 border border-slate-500/15 px-2.5 py-1.5">
+                <div className="text-[9px] text-slate-400/70 uppercase tracking-wide">Dilewati</div>
+                <div className="text-base font-bold text-slate-300">{skippedCount}</div>
+              </div>
+              <div className={`rounded-lg border px-2.5 py-1.5 ${failedCount > 0 ? 'bg-red-500/10 border-red-500/15' : 'bg-slate-500/5 border-slate-500/10'}`}>
+                <div className={`text-[9px] uppercase tracking-wide ${failedCount > 0 ? 'text-red-400/70' : 'text-slate-500'}`}>Gagal</div>
+                <div className={`text-base font-bold ${failedCount > 0 ? 'text-red-400' : 'text-slate-500'}`}>{failedCount}</div>
+              </div>
+            </div>
+            {failedCount > 0 && (
+              <div className="mt-2 flex items-center justify-between">
+                <span className="text-[10px] text-amber-300/80">Ada baris yang gagal diproses</span>
+                <button onClick={onExportErrors} className="inline-flex items-center gap-1 text-[10px] text-amber-400 hover:text-amber-300">
+                  <Download className="h-3 w-3" /> Export error
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Live stats grid (during processing) */}
+        {!hasResult && (
+          <div className="grid grid-cols-3 gap-2">
+            <StatBox label="Dibuat" value={job.stats.created} color="emerald" />
+            <StatBox label="Diperbarui" value={job.stats.updated} color="emerald" />
+            <StatBox label="Dilewati" value={job.stats.skipped} color="slate" />
+          </div>
+        )}
+        {job.errorCount > 0 && !hasResult && (
           <div className="rounded-lg bg-amber-500/5 border border-amber-500/15 p-2.5 flex items-center justify-between">
             <div className="flex items-center gap-1.5">
               <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />
