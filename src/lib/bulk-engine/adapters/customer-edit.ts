@@ -19,6 +19,7 @@ import type {
   BatchError,
   BatchResult,
   BatchStats,
+  BulkChangeRecord,
   BulkClientAdapter,
   BulkServerAdapter,
   ColumnSpec,
@@ -224,7 +225,8 @@ export const customerEditServer: BulkServerAdapter = {
     }
     const allErrors = [...errors]
     let updatedCount = 0
-    const auditData: Array<Record<string, unknown>> = []
+    // AuditLog V2: per-entity change records; folded into ONE BULK_BATCH event.
+    const changes: BulkChangeRecord[] = []
 
     for (const op of ops) {
       try {
@@ -233,13 +235,11 @@ export const customerEditServer: BulkServerAdapter = {
           data: op.fields,
         })
         updatedCount++
-        auditData.push({
-          action: 'UPDATE',
-          entityType: 'CUSTOMER',
-          entityId: op.customerId,
-          details: JSON.stringify({ fields: op.fields, bulkOperationId: operationId }),
-          outletId: context.outletId,
-          userId: context.userId,
+        changes.push({
+          entity: 'CUSTOMER',
+          identifier: (op.rowSnapshot?.name as string) || op.customerId,
+          action: 'updated',
+          after: op.fields as Record<string, unknown>,
         })
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Gagal update pelanggan.'
@@ -256,13 +256,6 @@ export const customerEditServer: BulkServerAdapter = {
       }
     }
 
-    if (auditData.length > 0) {
-      const CHUNK = 100
-      for (let i = 0; i < auditData.length; i += CHUNK) {
-        await tx.auditLog.createMany({ data: auditData.slice(i, i + CHUNK) as never })
-      }
-    }
-
     const stats: BatchStats = {
       processed: ops.length + skipped,
       created: 0,
@@ -271,7 +264,7 @@ export const customerEditServer: BulkServerAdapter = {
       failed: allErrors.length,
       deleted: 0,
     }
-    return { status: 'completed', stats, errors: allErrors }
+    return { status: 'completed', stats, errors: allErrors, changes }
   },
 
   formatError(error, row) {

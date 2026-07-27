@@ -45,6 +45,7 @@ import type {
   BatchError,
   BatchResult,
   BatchStats,
+  BulkChangeRecord,
   BulkClientAdapter,
   BulkServerAdapter,
   ColumnSpec,
@@ -428,7 +429,9 @@ export const productUpdateServer: BulkServerAdapter = {
     }
     const allErrors: BatchError[] = [...planErrors]
     let updated = 0
-    const auditData: Array<Record<string, unknown>> = []
+    // AuditLog V2: collect per-entity change records; the /execute route folds
+    // them into ONE BULK_BATCH audit event (no per-row AuditLog spam).
+    const changes: BulkChangeRecord[] = []
 
     for (const op of ops) {
       try {
@@ -492,22 +495,19 @@ export const productUpdateServer: BulkServerAdapter = {
         updated++
 
         const auditFields: Record<string, unknown> = { ...finalFields }
+        let note: string | undefined
         if (stockCapped) {
           auditFields.__stockCapped = true
           auditFields.__attemptedStock = op.stockChange!.newStock
           auditFields.__maxStock = allErrors[allErrors.length - 1]?.stockCapInfo?.maxStock ?? null
+          note = `stock capped (max ${auditFields.__maxStock ?? '?'})`
         }
-        auditData.push({
-          action: 'UPDATE',
-          entityType: 'PRODUCT',
-          entityId: op.productId,
-          details: JSON.stringify({
-            fields: auditFields,
-            bulkOperationId: operationId,
-            bulkKind: 'product:edit',
-          }),
-          outletId: context.outletId,
-          userId: context.userId,
+        changes.push({
+          entity: 'PRODUCT',
+          identifier: (op.rowSnapshot?.name as string) || op.productId,
+          action: 'updated',
+          after: auditFields,
+          note,
         })
       } catch (err) {
         allErrors.push({
@@ -519,14 +519,6 @@ export const productUpdateServer: BulkServerAdapter = {
       }
     }
 
-    // Batched audit logs (createMany) — atomic with the product updates.
-    if (auditData.length > 0) {
-      const CHUNK = 100
-      for (let i = 0; i < auditData.length; i += CHUNK) {
-        await tx.auditLog.createMany({ data: auditData.slice(i, i + CHUNK) as never })
-      }
-    }
-
     const stats: BatchStats = {
       processed,
       created: 0,
@@ -535,7 +527,7 @@ export const productUpdateServer: BulkServerAdapter = {
       failed: allErrors.length,
       deleted: 0,
     }
-    return { status: 'completed', stats, errors: allErrors }
+    return { status: 'completed', stats, errors: allErrors, changes }
   },
 
   formatError(error, row) {

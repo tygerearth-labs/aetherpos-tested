@@ -27,17 +27,24 @@ export async function GET(request: NextRequest) {
     const { limit, skip } = parsePagination(searchParams)
     const action = searchParams.get('action') || ''
     const entityType = searchParams.get('entityType') || ''
+    const eventType = searchParams.get('eventType') || ''
     const dateFrom = searchParams.get('from') || ''
     const dateTo = searchParams.get('to') || ''
     const search = searchParams.get('search') || ''
 
     const where: Record<string, unknown> = { outletId }
 
-    if (action && action !== 'ALL') {
-      where.action = action
-    }
-    if (entityType && entityType !== 'ALL') {
-      where.entityType = entityType
+    // V2: filter by eventType (preferred). Keep V1 action/entityType filters
+    // for backward compatibility with existing UI tabs.
+    if (eventType && eventType !== 'ALL') {
+      where.eventType = eventType
+    } else {
+      if (action && action !== 'ALL') {
+        where.action = action
+      }
+      if (entityType && entityType !== 'ALL') {
+        where.entityType = entityType
+      }
     }
     const dateFilter = buildDateFilter(dateFrom, dateTo)
     if (Object.keys(dateFilter).length > 0) {
@@ -45,6 +52,8 @@ export async function GET(request: NextRequest) {
     }
     if (search) {
       where.OR = withInsensitiveMode([
+        { title: { contains: search } },
+        { summary: { contains: search } },
         { details: { contains: search } },
         { user: { name: { contains: search } } },
         { entityType: { contains: search } },
@@ -69,10 +78,20 @@ export async function GET(request: NextRequest) {
 
     const logs = data.map((log) => ({
       id: log.id,
+      // V1 (kept for backward compat)
       action: log.action,
       entityType: log.entityType,
       entityId: log.entityId,
       details: log.details,
+      // V2 event-oriented
+      eventType: log.eventType,
+      title: log.title,
+      summary: log.summary,
+      sections: log.sections,
+      metadata: log.metadata,
+      operationId: log.operationId,
+      sourceEntityType: log.sourceEntityType,
+      sourceEntityId: log.sourceEntityId,
       createdAt: log.createdAt,
       user: log.user
         ? { name: log.user.name, email: log.user.email }
@@ -81,6 +100,7 @@ export async function GET(request: NextRequest) {
 
     return safeJson({
       logs,
+      total,
       totalPages: Math.ceil(total / limit),
     })
   } catch (error) {

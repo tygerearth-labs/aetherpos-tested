@@ -10,6 +10,7 @@ import { assertOutletWithinLimits } from '@/lib/api/plan-enforcement'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 import { ensureMigrated } from '@/lib/db-migrate'
 import { InventoryConsumptionService } from '@/lib/inventory-consumption-service'
+import { emitAuditEvent, buildSaleEvent } from '@/lib/audit-v2'
 
 interface CheckoutItem {
   productId: string
@@ -372,59 +373,58 @@ export async function POST(request: NextRequest) {
         await tx.transactionConsumption.createMany({ data: snapshots })
       }
 
-      // 8. Batch create audit logs
-      const auditData = checkoutItems.map((item) => {
-        const product = productMap.get(item.productId)!
-        const variant = item.variantId ? variantMap.get(item.variantId) : null
-
-        const newStock = item.variantId
-          ? updatedVariantMap.get(item.variantId) ?? 0
-          : updatedProductMap.get(item.productId) ?? 0
-        const previousStock = newStock + item.qty // derive previous from new + qty (accurate because atomic)
-
-        if (variant) {
-          return {
-            action: 'SALE' as const,
-            entityType: 'VARIANT' as const,
-            entityId: item.variantId,
-            details: JSON.stringify({
-              invoiceNumber,
+      // 8. Audit log — ONE SALE event per transaction (event-oriented V2).
+      //    Replaces the legacy per-item SALE audit spam: a 5-item cart used to
+      //    produce 5 SALE rows; now it produces 1. Composition (inventory)
+      //    consumption is included as a single "Inventory Impact" section —
+      //    no separate COMPOSITION_DEDUCT audit rows are created (those remain
+      //    only in the InventoryMovement technical ledger).
+      let customerName: string | null = null
+      if (customerId) {
+        const c = await tx.customer.findFirst({
+          where: { id: customerId, outletId, deletedAt: null },
+          select: { name: true },
+        })
+        customerName = c?.name ?? null
+      }
+      await emitAuditEvent(
+        tx,
+        buildSaleEvent({
+          transactionId: transaction.id,
+          invoiceNumber,
+          items: checkoutItems.map((item) => {
+            const product = productMap.get(item.productId)
+            const variant = item.variantId ? variantMap.get(item.variantId) : null
+            return {
               productName: item.productName,
-              productSku: product.sku || null,
-              variantName: item.variantName,
+              productSku: product?.sku || null,
+              variantName: item.variantName || null,
               variantSku: variant?.sku || null,
-              quantitySold: item.qty,
+              qty: item.qty,
               price: item.price,
-              subtotal: item.price * item.qty,
-              previousStock,
-              newStock,
-            }),
-            outletId,
-            userId,
-          }
-        }
-
-        return {
-          action: 'SALE' as const,
-          entityType: 'PRODUCT' as const,
-          entityId: item.productId,
-          details: JSON.stringify({
-            invoiceNumber,
-            productName: item.productName,
-            productSku: product.sku || null,
-            quantitySold: item.qty,
-            price: item.price,
-            subtotal: item.price * item.qty,
-            previousStock,
-            newStock,
+              subtotal: item.subtotal || item.price * item.qty,
+              itemDiscount: item.itemDiscount,
+            }
           }),
+          subtotal,
+          discount: discount || 0,
+          taxAmount: taxAmount || 0,
+          total,
+          paymentMethod,
+          paidAmount: paidAmount || 0,
+          change: change || 0,
+          customerName,
+          customerId: customerId || null,
+          consumption: consumptionResult.deductions.map((d) => ({
+            itemName: d.itemName,
+            baseUnit: d.baseUnit,
+            quantityUsed: d.totalDeducted,
+            materialCost: d.materialCost,
+          })),
           outletId,
           userId,
-        }
-      })
-      if (auditData.length > 0) {
-        await tx.auditLog.createMany({ data: auditData })
-      }
+        }),
+      )
 
       // 9. Handle customer loyalty
       if (customerId) {

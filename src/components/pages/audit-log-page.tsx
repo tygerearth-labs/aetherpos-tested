@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { toast } from 'sonner'
 import { formatDate, formatCurrency } from '@/lib/format'
 import { Button } from '@/components/ui/button'
@@ -17,10 +17,14 @@ import {
 } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent,
+} from '@/components/ui/card'
+import {
   ResponsiveDialog,
   ResponsiveDialogContent,
-  ResponsiveDialogHeader,
-  ResponsiveDialogTitle,
 } from '@/components/ui/responsive-dialog'
 import { Separator } from '@/components/ui/separator'
 import { Pagination } from '@/components/shared/pagination'
@@ -30,590 +34,696 @@ import {
   Search,
   Download,
   X,
-  Plus,
+  RotateCcw,
+  Loader2,
+  FileText,
   Package,
   ShoppingCart,
-  SlidersHorizontal,
-  Pencil,
   Ban,
-  RotateCcw,
-  FileText,
-  Tag,
-  MoreHorizontal,
-  ArrowLeftRight,
+  Boxes,
+  SlidersHorizontal,
+  Users,
   Beaker,
-  Receipt,
-  List,
-  Loader2,
+  Layers,
+  History,
 } from 'lucide-react'
 
 // ==================== TYPES ====================
+type EventType =
+  | 'MIGRATION_BATCH'
+  | 'BULK_BATCH'
+  | 'SALE'
+  | 'VOID'
+  | 'PURCHASE'
+  | 'INVENTORY_ADJUSTMENT'
+  | 'COMPOSITION_UPDATE'
+  | 'CUSTOMER_CHANGE'
+  | 'LEGACY'
+  | null
+
 interface AuditLog {
   id: string
+  // V1 (legacy, may be present)
   action: string
   entityType: string
-  entityId?: string | null
-  details?: string | null
+  entityId: string | null
+  details: string | null
+  // V2 event-oriented
+  eventType: EventType
+  title: string | null
+  summary: string | null
+  sections: string | null
+  metadata: string | null
+  operationId: string | null
+  sourceEntityType: string | null
+  sourceEntityId: string | null
   createdAt: string
-  user?: {
-    name: string
-    email: string
+  user: { name: string; email: string }
+}
+
+interface AuditField {
+  k: string
+  v: string
+}
+
+type AuditSectionType = 'summary' | 'changes' | 'inventory' | 'errors' | 'metadata'
+type AuditSectionTone = 'default' | 'info' | 'success' | 'warning' | 'danger'
+
+interface AuditSection {
+  type: AuditSectionType
+  label: string
+  tone?: AuditSectionTone
+  fields?: AuditField[]
+  items?: Record<string, string>[]
+  collapsed?: boolean
+  columns?: string[]
+  download?: {
+    filename: string
+    contentType: string
+    data: string
+    encoding?: 'text' | 'base64'
   }
 }
 
 interface AuditLogListResponse {
   logs: AuditLog[]
+  total: number
   totalPages: number
 }
 
 // ==================== CONSTANTS ====================
-const CLIENT_PAGE_SIZE = 20
-const API_FETCH_LIMIT = 100
+const PAGE_SIZE = 20
 
-// ==================== TAB SECTION DEFINITIONS ====================
-interface TabSection {
-  id: string
-  label: string
-  icon: React.ElementType
-}
-
-const TAB_SECTIONS: TabSection[] = [
-  { id: 'semua', label: 'Semua', icon: List },
-  { id: 'transaksi', label: 'Transaksi', icon: Receipt },
-  { id: 'transfer', label: 'Kirim & Terima', icon: ArrowLeftRight },
-  { id: 'pembelian', label: 'Pembelian', icon: FileText },
-  { id: 'inventory', label: 'Inventory', icon: Beaker },
-  { id: 'produk', label: 'Produk', icon: Tag },
-  { id: 'lainnya', label: 'Lainnya', icon: MoreHorizontal },
+const EVENT_TYPE_TABS: { value: string; label: string; icon: React.ElementType }[] = [
+  { value: 'ALL', label: 'Semua', icon: History },
+  { value: 'MIGRATION_BATCH', label: 'Migrasi', icon: Boxes },
+  { value: 'BULK_BATCH', label: 'Massal', icon: Layers },
+  { value: 'SALE', label: 'Penjualan', icon: ShoppingCart },
+  { value: 'VOID', label: 'Void', icon: Ban },
+  { value: 'PURCHASE', label: 'Pembelian', icon: FileText },
+  { value: 'INVENTORY_ADJUSTMENT', label: 'Stok', icon: SlidersHorizontal },
+  { value: 'COMPOSITION_UPDATE', label: 'Komposisi', icon: Beaker },
+  { value: 'CUSTOMER_CHANGE', label: 'Customer', icon: Users },
+  { value: 'LEGACY', label: 'Legacy', icon: Package },
 ]
 
-// ==================== TAB MATCH FUNCTIONS ====================
-function matchTransaksi(log: AuditLog): boolean {
-  return (
-    ['SALE', 'VOID'].includes(log.action) &&
-    ['TRANSACTION', 'PRODUCT', 'VARIANT'].includes(log.entityType)
-  )
+const EVENT_TYPE_BADGE: Record<string, string> = {
+  MIGRATION_BATCH: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
+  BULK_BATCH: 'bg-violet-500/15 text-violet-600 dark:text-violet-400',
+  SALE: 'bg-teal-500/15 text-teal-600 dark:text-teal-400',
+  VOID: 'bg-rose-500/15 text-rose-600 dark:text-rose-400',
+  PURCHASE: 'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400',
+  INVENTORY_ADJUSTMENT: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
+  COMPOSITION_UPDATE: 'bg-fuchsia-500/15 text-fuchsia-600 dark:text-fuchsia-400',
+  CUSTOMER_CHANGE: 'bg-lime-500/15 text-lime-600 dark:text-lime-400',
+  LEGACY: 'bg-zinc-500/15 text-zinc-600 dark:text-zinc-400',
 }
 
-function matchTransfer(log: AuditLog): boolean {
-  return (
-    ['RESTOCK', 'ADJUSTMENT'].includes(log.action) &&
-    ['OUTLET_TRANSFER', 'TRANSFER_ITEM'].includes(log.entityType)
-  )
+const TONE_BADGE: Record<AuditSectionTone, string> = {
+  default: 'bg-zinc-500/15 text-zinc-600 dark:text-zinc-400',
+  info: 'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400',
+  success: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
+  warning: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
+  danger: 'bg-rose-500/15 text-rose-600 dark:text-rose-400',
 }
 
-function matchPembelian(log: AuditLog): boolean {
-  if (log.entityType !== 'INVENTORY_ITEM' && log.entityType !== 'PURCHASE_ORDER') return false
-  if (log.action === 'PURCHASE') return true
-  // Purchase edit/delete creates UPDATE/DELETE with purchaseOrderNumber in details
-  if (log.action === 'UPDATE' || log.action === 'DELETE') {
-    try {
-      const d = JSON.parse(log.details || '{}')
-      return !!d.purchaseOrderNumber
-    } catch { return false }
+const TONE_LABEL: Record<AuditSectionTone, string> = {
+  default: 'Info',
+  info: 'Info',
+  success: 'Sukses',
+  warning: 'Peringatan',
+  danger: 'Error',
+}
+
+const SECTION_ORDER: AuditSectionType[] = [
+  'summary',
+  'changes',
+  'inventory',
+  'errors',
+  'metadata',
+]
+
+// ==================== HELPERS ====================
+
+/**
+ * safeText — never returns "[object Object]".
+ * Strings pass through; null/undefined → "—"; objects → JSON.stringify;
+ * other primitives → String(v).
+ */
+function safeText(v: unknown): string {
+  if (typeof v === 'string') return v
+  if (v === null || v === undefined) return '—'
+  if (typeof v === 'object') return JSON.stringify(v)
+  return String(v)
+}
+
+function eventTypeBadgeClass(eventType: EventType): string {
+  if (!eventType) return EVENT_TYPE_BADGE.LEGACY
+  return EVENT_TYPE_BADGE[eventType] || EVENT_TYPE_BADGE.LEGACY
+}
+
+function eventTypeLabel(eventType: EventType): string {
+  if (!eventType) return 'LEGACY'
+  return eventType
+}
+
+function toneBadgeClass(tone?: AuditSectionTone): string {
+  if (!tone) return TONE_BADGE.default
+  return TONE_BADGE[tone] || TONE_BADGE.default
+}
+
+function toneLabel(tone?: AuditSectionTone): string {
+  return TONE_LABEL[tone || 'default'] || 'Info'
+}
+
+function parseSections(sections: string | null): AuditSection[] {
+  if (!sections) return []
+  try {
+    const parsed = JSON.parse(sections)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((s): s is AuditSection => {
+      return (
+        typeof s === 'object' &&
+        s !== null &&
+        typeof s.type === 'string' &&
+        typeof s.label === 'string'
+      )
+    })
+  } catch {
+    return []
   }
-  return false
 }
 
-function matchInventory(log: AuditLog): boolean {
-  return (
-    (log.action === 'COMPOSITION_DEDUCT' || log.action === 'ADJUSTMENT') &&
-    log.entityType === 'INVENTORY_ITEM'
-  )
-}
-
-function matchProduk(log: AuditLog): boolean {
-  return (
-    ['CREATE', 'UPDATE', 'DELETE', 'BULK_UPDATE', 'VARIANT'].includes(log.action) &&
-    ['PRODUCT', 'VARIANT', 'CATEGORY'].includes(log.entityType)
-  )
-}
-
-function matchAnyTab(log: AuditLog): boolean {
-  return (
-    matchTransaksi(log) ||
-    matchTransfer(log) ||
-    matchPembelian(log) ||
-    matchInventory(log) ||
-    matchProduk(log)
-  )
-}
-
-function matchLainnya(log: AuditLog): boolean {
-  return !matchAnyTab(log)
-}
-
-function getTabMatcher(tabId: string): (log: AuditLog) => boolean {
-  switch (tabId) {
-    case 'semua': return () => true
-    case 'transaksi': return matchTransaksi
-    case 'transfer': return matchTransfer
-    case 'pembelian': return matchPembelian
-    case 'inventory': return matchInventory
-    case 'produk': return matchProduk
-    case 'lainnya': return matchLainnya
-    default: return () => true
-  }
-}
-
-// ==================== ACTION TYPE CONFIG ====================
-const ACTION_CONFIG: Record<string, {
-  label: string
-  icon: React.ElementType
-  color: string
-  bgColor: string
-  borderColor: string
-  iconBg: string
-  leftBorder: string
-  dotColor: string
-}> = {
-  CREATE: {
-    label: 'Dibuat',
-    icon: Plus,
-    color: 'theme-text',
-    bgColor: 'theme-bg-very-light',
-    borderColor: 'theme-border-light',
-    iconBg: 'theme-bg-very-light',
-    leftBorder: 'theme-border',
-    dotColor: 'theme-bg',
-  },
-  SALE: {
-    label: 'Penjualan',
-    icon: ShoppingCart,
-    color: 'text-sky-400',
-    bgColor: 'bg-sky-500/10',
-    borderColor: 'border-sky-500/20',
-    iconBg: 'bg-sky-500/10',
-    leftBorder: 'border-l-sky-500',
-    dotColor: 'bg-sky-500',
-  },
-  VOID: {
-    label: 'Void',
-    icon: Ban,
-    color: 'text-red-400',
-    bgColor: 'bg-red-500/10',
-    borderColor: 'border-red-500/20',
-    iconBg: 'bg-red-500/10',
-    leftBorder: 'border-l-red-500',
-    dotColor: 'bg-red-500',
-  },
-  RESTOCK: {
-    label: 'Restock',
-    icon: Package,
-    color: 'text-amber-400',
-    bgColor: 'bg-amber-500/10',
-    borderColor: 'border-amber-500/20',
-    iconBg: 'bg-amber-500/10',
-    leftBorder: 'border-l-amber-500',
-    dotColor: 'bg-amber-500',
-  },
-  ADJUSTMENT: {
-    label: 'Penyesuaian',
-    icon: SlidersHorizontal,
-    color: 'text-zinc-300',
-    bgColor: 'bg-zinc-500/10',
-    borderColor: 'border-zinc-500/20',
-    iconBg: 'bg-zinc-500/10',
-    leftBorder: 'border-l-zinc-400',
-    dotColor: 'bg-zinc-400',
-  },
-  PURCHASE: {
-    label: 'Pembelian',
-    icon: ShoppingCart,
-    color: 'text-purple-400',
-    bgColor: 'bg-purple-500/10',
-    borderColor: 'border-purple-500/20',
-    iconBg: 'bg-purple-500/10',
-    leftBorder: 'border-l-purple-500',
-    dotColor: 'bg-purple-500',
-  },
-  COMPOSITION_DEDUCT: {
-    label: 'Komposisi',
-    icon: Beaker,
-    color: 'text-cyan-400',
-    bgColor: 'bg-cyan-500/10',
-    borderColor: 'border-cyan-500/20',
-    iconBg: 'bg-cyan-500/10',
-    leftBorder: 'border-l-cyan-500',
-    dotColor: 'bg-cyan-500',
-  },
-  TRANSFER: {
-    label: 'Transfer',
-    icon: ArrowLeftRight,
-    color: 'text-teal-400',
-    bgColor: 'bg-teal-500/10',
-    borderColor: 'border-teal-500/20',
-    iconBg: 'bg-teal-500/10',
-    leftBorder: 'border-l-teal-500',
-    dotColor: 'bg-teal-500',
-  },
-  UPDATE: {
-    label: 'Diperbarui',
-    icon: Pencil,
-    color: 'text-violet-400',
-    bgColor: 'bg-violet-500/10',
-    borderColor: 'border-violet-500/20',
-    iconBg: 'bg-violet-500/10',
-    leftBorder: 'border-l-violet-500',
-    dotColor: 'bg-violet-500',
-  },
-  BULK_UPDATE: {
-    label: 'Mass Edit',
-    icon: SlidersHorizontal,
-    color: 'text-orange-400',
-    bgColor: 'bg-orange-500/10',
-    borderColor: 'border-orange-500/20',
-    iconBg: 'bg-orange-500/10',
-    leftBorder: 'border-l-orange-500',
-    dotColor: 'bg-orange-500',
-  },
-  DELETE: {
-    label: 'Dihapus',
-    icon: Ban,
-    color: 'text-red-400',
-    bgColor: 'bg-red-500/10',
-    borderColor: 'border-red-500/20',
-    iconBg: 'bg-red-500/10',
-    leftBorder: 'border-l-red-500',
-    dotColor: 'bg-red-500',
-  },
-  VARIANT: {
-    label: 'Varian',
-    icon: Pencil,
-    color: 'text-violet-400',
-    bgColor: 'bg-violet-500/10',
-    borderColor: 'border-violet-500/20',
-    iconBg: 'bg-violet-500/10',
-    leftBorder: 'border-l-violet-500',
-    dotColor: 'bg-violet-500',
-  },
-}
-
-const DEFAULT_ACTION = {
-  label: 'Lainnya',
-  icon: RotateCcw,
-  color: 'text-zinc-400',
-  bgColor: 'bg-zinc-500/10',
-  borderColor: 'border-zinc-500/20',
-  iconBg: 'bg-zinc-500/10',
-  leftBorder: 'border-l-zinc-600',
-  dotColor: 'bg-zinc-600',
-}
-
-function getActionConfig(action: string) {
-  return ACTION_CONFIG[action] || DEFAULT_ACTION
-}
-
-// ==================== ENTITY TYPE CONFIG ====================
-const ENTITY_LABELS: Record<string, string> = {
-  PRODUCT: 'Produk',
-  CATEGORY: 'Kategori',
-  CUSTOMER: 'Customer',
-  TRANSACTION: 'Transaksi',
-  USER: 'User/Crew',
-  PROMO: 'Promo',
-  OUTLET: 'Outlet',
-  SETTINGS: 'Pengaturan',
-  STOCK: 'Stok',
-  VARIANT: 'Varian',
-  INVENTORY_ITEM: 'Bahan/Inventory',
-  PURCHASE_ORDER: 'Pembelian',
-  OUTLET_TRANSFER: 'Transfer',
-  TRANSFER_ITEM: 'Item Transfer',
-}
-
-function getEntityLabel(type: string): string {
-  return ENTITY_LABELS[type] || type
-}
-
-// ==================== DETAIL KEY LABELS ====================
-const DETAIL_LABELS: Record<string, string> = {
-  name: 'Nama',
-  productName: 'Produk',
-  productSku: 'SKU',
-  customerName: 'Nama Customer',
-  price: 'Harga',
-  stock: 'Stok',
-  previousStock: 'Stok Sebelum',
-  newStock: 'Stok Baru',
-  quantityAdded: 'Jumlah Ditambah',
-  quantityDecreased: 'Jumlah Berkurang',
-  invoiceNumber: 'Invoice',
-  total: 'Total',
-  reason: 'Alasan',
-  voidedBy: 'Dibatalkan oleh',
-  voidedAt: 'Waktu Void',
-  whatsapp: 'WhatsApp',
-  sku: 'SKU',
-  hpp: 'HPP',
-  itemsRestored: 'Item Dikembalikan',
-  description: 'Deskripsi',
-  outletName: 'Nama Outlet',
-  outletAddress: 'Alamat',
-  outletPhone: 'Telepon',
-  variantName: 'Nama Varian',
-  variantId: 'ID Varian',
-  hasVariants: 'Punya Varian',
-  bulkUpload: 'Upload Massal',
-  created: 'Dibuat',
-  skipped: 'Dilewati',
-  fileName: 'Nama File',
-  variantCount: 'Jumlah Varian',
-  ppnEnabled: 'PPN Aktif',
-  ppnRate: 'Tarif PPN',
-  batchOperation: 'Operasi Batch',
-  changes: 'Perubahan',
-  quantitySold: 'Jumlah Terjual',
-  // Purchase-specific
-  itemName: 'Nama Item',
-  purchaseOrderNumber: 'No. Pembelian',
-  baseQtyAdded: 'Qty Ditambah',
-  baseQtyReversed: 'Qty Dikurangi',
-  unitCost: 'Harga Satuan',
-  previousAvgCost: 'HPP Sebelum',
-  newAvgCost: 'HPP Baru',
-  // Multi-outlet / Transfer
-  action: 'Aksi',
-  transferNumber: 'No. Transfer',
-  toOutlet: 'Outlet Tujuan',
-  fromOutlet: 'Outlet Asal',
-  itemCount: 'Jumlah Item',
-  totalQty: 'Total Qty',
-  totalValue: 'Total Nilai',
-  totalHpp: 'Total HPP',
-  items: 'Daftar Item',
-  createdProducts: 'Produk Baru',
-  restockedProducts: 'Produk di-Restock',
-  productBarcode: 'Barcode',
-  initialStock: 'Stok Awal',
-  subtotal: 'Subtotal',
-}
-
-function getDetailLabel(key: string): string {
-  return DETAIL_LABELS[key] || key
-}
-
-// ==================== DETAIL PARSING ====================
-function parseDetails(details: string | null): Record<string, unknown> | string | null {
+function parseDetailsFallback(
+  details: string | null
+): string | Record<string, unknown> | null {
   if (!details) return null
   try {
-    return JSON.parse(details)
+    const parsed = JSON.parse(details)
+    if (typeof parsed === 'object' && parsed !== null) {
+      return parsed as Record<string, unknown>
+    }
+    return String(parsed)
   } catch {
     return details
   }
 }
 
-function formatDetailValue(key: string, value: unknown): string {
-  if (value === null || value === undefined) return '-'
-  if (typeof value === 'number') {
-    if (['price', 'total', 'hpp', 'discount', 'subtotal', 'paidAmount', 'change', 'taxAmount', 'unitCost', 'previousAvgCost', 'newAvgCost'].includes(key)) {
-      return formatCurrency(value)
+function triggerDownload(
+  filename: string,
+  contentType: string,
+  data: string,
+  encoding?: 'text' | 'base64'
+) {
+  let bytes: BlobPart
+  if (encoding === 'base64') {
+    try {
+      const bin = atob(data)
+      const arr = new Uint8Array(bin.length)
+      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i)
+      bytes = arr
+    } catch {
+      bytes = data
     }
-    if (['stock', 'previousStock', 'newStock', 'initialStock', 'quantityAdded', 'quantityDecreased', 'qty', 'quantitySold', 'baseQtyAdded', 'baseQtyReversed'].includes(key)) {
-      return `${value} unit`
-    }
-    if (key === 'points') {
-      return `${value} poin`
-    }
-    return String(value)
+  } else {
+    bytes = data
   }
-  if (typeof value === 'boolean') return value ? 'Ya' : 'Tidak'
-  if (Array.isArray(value)) {
-    if (key === 'itemsRestored') {
-      return value
-        .map((item: Record<string, unknown>) => {
-          const name = typeof item.productName === 'string' ? item.productName : '?'
-          const sku = typeof item.productSku === 'string' ? item.productSku : (typeof item.variantSku === 'string' ? item.variantSku : '')
-          const qty = typeof item.qty === 'number' ? item.qty : '?'
-          return sku ? `${name} (${sku}) x${qty}` : `${name} x${qty}`
-        })
-        .join(', ')
-    }
-    if (key === 'items') {
-      return value
-        .map((item: Record<string, unknown>) => {
-          const name = typeof item.productName === 'string' ? item.productName : (typeof item.name === 'string' ? item.name : '?')
-          const sku = typeof item.productSku === 'string' ? item.productSku : ''
-          const qty = typeof item.quantity === 'number' ? item.quantity : '?'
-          const price = typeof item.price === 'number' ? formatCurrency(item.price) : ''
-          const hpp = typeof item.hpp === 'number' ? formatCurrency(item.hpp) : ''
-          const subtotal = typeof item.subtotal === 'number' ? formatCurrency(item.subtotal) : ''
-          const hasVariants = item.hasVariants === true
-          const variantInfo = hasVariants && Array.isArray(item.variants) && (item.variants as unknown[]).length > 0
-            ? ` [${(item.variants as Record<string, unknown>[]).map((v) => `${v.name}(${typeof v.stock === 'number' ? `stok:${v.stock}` : ''}${typeof v.price === 'number' ? ` Rp${v.price.toLocaleString('id-ID')}` : ''})`).join(', ')}]`
-            : ''
-          const parts: string[] = []
-          parts.push(sku ? `${name} (${sku}) x${qty}` : `${name} x${qty}`)
-          if (hpp) parts.push(`HPP ${hpp}`)
-          if (price) parts.push(`@${price}`)
-          if (subtotal) parts.push(`= ${subtotal}`)
-          return parts.join(' ') + variantInfo
-        })
-        .join(', ')
-    }
-    if (key === 'variants') {
-      return (value as Record<string, unknown>[])
-        .map((v) => {
-          const name = typeof v.name === 'string' ? v.name : '?'
-          const sku = typeof v.sku === 'string' && v.sku ? ` (${v.sku})` : ''
-          const prev = typeof v.previousStock === 'number' ? v.previousStock : 0
-          const added = typeof v.addedStock === 'number' ? v.addedStock : 0
-          const newSt = typeof v.newStock === 'number' ? v.newStock : 0
-          const created = v.created === true ? ' [BARU]' : ''
-          return `${name}${sku}: ${prev} → +${added} = ${newSt}${created}`
-        })
-        .join(', ')
-    }
-    if (key === 'createdProducts' || key === 'restockedProducts') {
-      return value.join(', ')
-    }
-    return JSON.stringify(value)
-  }
-  return String(value)
+  const blob = new Blob([bytes], {
+    type: contentType || 'application/octet-stream',
+  })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  setTimeout(() => {
+    a.remove()
+    URL.revokeObjectURL(url)
+  }, 1000)
 }
 
-// ==================== DETAIL DISPLAY COMPONENT ====================
-function DetailsDisplay({ action, details }: { action: string; details: string | null | undefined }) {
-  const parsed = parseDetails(details ?? null)
-  if (!parsed) return <span className="text-slate-500 italic">-</span>
-
+function truncateDetails(details: string | null, max = 120): string {
+  if (!details) return '—'
+  const parsed = parseDetailsFallback(details)
+  if (parsed === null) return '—'
   if (typeof parsed === 'string') {
-    return <span className="text-slate-400">{parsed}</span>
+    return parsed.length > max ? parsed.slice(0, max) + '…' : parsed
   }
-
   const entries = Object.entries(parsed) as [string, unknown][]
+  const parts = entries.slice(0, 4).map(([k, v]) => `${k}=${safeText(v)}`)
+  let joined = parts.join(', ')
+  if (entries.length > 4) joined += `, +${entries.length - 4}`
+  if (joined.length > max) joined = joined.slice(0, max) + '…'
+  return joined
+}
 
-  const priorityKeys: Record<string, string[]> = {
-    SALE: ['invoiceNumber', 'productName', 'productSku', 'variantName', 'variantSku', 'quantitySold', 'previousStock', 'newStock'],
-    RESTOCK: ['productName', 'productSku', 'action', 'transferNumber', 'fromOutlet', 'toOutlet', 'itemCount', 'createdProducts', 'restockedProducts', 'reason', 'quantityAdded', 'newStock'],
-    VOID: ['invoiceNumber', 'total', 'reason', 'voidedBy', 'itemsRestored'],
-    PURCHASE: ['itemName', 'purchaseOrderNumber', 'baseQtyAdded', 'unitCost', 'newStock', 'previousStock', 'newAvgCost', 'previousAvgCost'],
-    COMPOSITION_DEDUCT: ['productName', 'productSku', 'quantityDecreased', 'newStock', 'reason'],
-    ADJUSTMENT: ['productName', 'productSku', 'action', 'transferNumber', 'fromOutlet', 'toOutlet', 'itemCount', 'totalQty', 'totalValue', 'previousStock', 'newStock', 'reason', 'items'],
-    TRANSFER: ['productName', 'productSku', 'action', 'transferNumber', 'fromOutlet', 'toOutlet', 'itemCount', 'items'],
-    CREATE: ['name', 'productName', 'action', 'transferNumber', 'fromOutlet', 'toOutlet', 'productSku', 'itemCount', 'totalQty', 'totalValue', 'totalHpp', 'initialStock', 'price', 'stock', 'bulkUpload', 'created', 'skipped', 'items'],
-    UPDATE: ['name', 'productName', 'productSku', 'variantName', 'variantSku', 'outletName', 'outletAddress', 'outletPhone', 'price', 'stock', 'ppnEnabled', 'ppnRate', 'hasVariants', 'variantCount'],
-    BULK_UPDATE: ['productName', 'productSku', 'changes', 'batchOperation'],
-    DELETE: ['productName', 'variantName', 'price', 'stock', 'variantCount'],
-    VARIANT: ['productName', 'productSku', 'variantName', 'variantSku', 'name', 'price', 'stock', 'changes'],
-  }
+// ==================== EVENT BADGE ====================
+function EventBadge({
+  eventType,
+  className,
+}: {
+  eventType: EventType
+  className?: string
+}) {
+  return (
+    <Badge
+      variant="outline"
+      className={`border-transparent ${eventTypeBadgeClass(eventType)} text-[10px] px-1.5 py-0 ${className ?? ''}`}
+    >
+      {eventTypeLabel(eventType)}
+    </Badge>
+  )
+}
 
-  const sortedKeys = priorityKeys[action]
-    ? [...priorityKeys[action], ...entries.filter(([k]) => !(priorityKeys[action] || []).includes(k)).map(([k]) => k)]
-    : entries.map(([k]) => k)
+// ==================== SECTION BLOCK ====================
+function SectionBlock({ section }: { section: AuditSection }) {
+  const hasFields = Array.isArray(section.fields) && section.fields.length > 0
+  const hasItems = Array.isArray(section.items) && section.items.length > 0
+  const hasDownload = !!section.download
+  // Hooks MUST be called before any early return (Rules of Hooks).
+  const [expanded, setExpanded] = useState(false)
+  if (!hasFields && !hasItems && !hasDownload) return null
 
-  const uniqueKeys = [...new Set(sortedKeys)]
+  const items = (section.items || []) as Record<string, string>[]
+  const columns =
+    section.columns && section.columns.length > 0
+      ? section.columns
+      : items.length > 0
+        ? Object.keys(items[0])
+        : []
+
+  const shouldCollapse = section.collapsed === true || items.length > 10
+  const visibleItems =
+    shouldCollapse && !expanded ? items.slice(0, 5) : items
 
   return (
-    <div className="space-y-1">
-      {uniqueKeys.slice(0, 5).map((key) => {
-        const value = parsed[key]
-        if (value === undefined || value === null) return null
-        const formatted = formatDetailValue(key, value)
+    <Card className="bg-white/[0.02] border-white/[0.06] py-0 gap-3 rounded-xl overflow-hidden">
+      <CardHeader className="px-4 pt-3 pb-2">
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="text-xs font-semibold text-slate-200">
+            {section.label}
+          </CardTitle>
+          <Badge
+            variant="outline"
+            className={`border-transparent ${toneBadgeClass(section.tone)} text-[9px] px-1.5 py-0`}
+          >
+            {toneLabel(section.tone)}
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="px-4 pb-3 text-xs space-y-3">
+        {hasFields && (
+          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5">
+            {(section.fields as AuditField[]).map((f, i) => (
+              <div key={`${f.k}-${i}`} className="flex flex-col gap-0.5 min-w-0">
+                <dt className="text-[10px] text-slate-500 uppercase tracking-wide truncate">
+                  {safeText(f.k)}
+                </dt>
+                <dd className="text-slate-200 break-words text-xs">
+                  {safeText(f.v)}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        )}
 
-        if (key === 'itemsRestored' && Array.isArray(value) && value.length > 0) {
-          return (
-            <div key={key} className="space-y-0.5">
-              <span className="text-slate-500 text-[10px]">{getDetailLabel(key)}:</span>
-              <div className="text-slate-400 text-[11px]">{formatted}</div>
-            </div>
-          )
-        }
-
-        return (
-          <div key={key} className="flex items-center gap-1.5 leading-tight">
-            <span className="text-slate-500 text-[10px] shrink-0">{getDetailLabel(key)}:</span>
-            <span className="text-slate-300 text-[11px] truncate">{formatted}</span>
+        {hasItems && (
+          <div className="rounded-lg border border-white/[0.06] overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="border-white/[0.06] hover:bg-transparent">
+                  {columns.map((c) => (
+                    <TableHead
+                      key={c}
+                      className="text-[10px] text-slate-500 font-medium px-2 py-1.5 whitespace-nowrap"
+                    >
+                      {safeText(c)}
+                    </TableHead>
+                  ))}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {visibleItems.length === 0 ? (
+                  <TableRow className="border-white/[0.04]">
+                    <TableCell
+                      colSpan={columns.length || 1}
+                      className="text-[11px] text-slate-500 italic px-2 py-2"
+                    >
+                      Tidak ada data
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  visibleItems.map((row, i) => (
+                    <TableRow key={i} className="border-white/[0.04]">
+                      {columns.map((c) => (
+                        <TableCell
+                          key={c}
+                          className="text-[11px] text-slate-300 px-2 py-1.5 align-top break-words whitespace-normal"
+                        >
+                          {safeText(row[c])}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
           </div>
-        )
-      })}
-      {uniqueKeys.length > 5 && (
-        <span className="text-slate-500 text-[10px]">+{uniqueKeys.length - 5} lainnya</span>
+        )}
+
+        {shouldCollapse && (
+          <button
+            type="button"
+            onClick={() => setExpanded(!expanded)}
+            className="text-[11px] text-slate-400 hover:text-slate-200 underline-offset-2 hover:underline"
+          >
+            {expanded
+              ? 'Sembunyikan'
+              : `Tampilkan semua (${items.length})`}
+          </button>
+        )}
+
+        {hasDownload && section.download && (
+          <div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 text-[11px] bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.06] gap-1.5"
+              onClick={() =>
+                triggerDownload(
+                  section.download!.filename,
+                  section.download!.contentType,
+                  section.download!.data,
+                  section.download!.encoding
+                )
+              }
+            >
+              <Download className="h-3 w-3" />
+              {section.download.filename}
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+// ==================== LEGACY DETAILS BLOCK ====================
+function LegacyDetailsBlock({ details }: { details: string | null }) {
+  const parsed = parseDetailsFallback(details)
+  if (parsed === null) {
+    return (
+      <div className="text-xs text-slate-500 italic">Tidak ada detail</div>
+    )
+  }
+  if (typeof parsed === 'string') {
+    return (
+      <pre className="text-xs text-slate-300 whitespace-pre-wrap break-words bg-white/[0.02] rounded-lg p-3 border border-white/[0.06] overflow-x-auto">
+        {parsed}
+      </pre>
+    )
+  }
+  const entries = Object.entries(parsed) as [string, unknown][]
+  return (
+    <Card className="bg-white/[0.02] border-white/[0.06] py-0 gap-3 rounded-xl overflow-hidden">
+      <CardHeader className="px-4 pt-3 pb-2">
+        <CardTitle className="text-xs font-semibold text-slate-200">
+          Detail (Legacy)
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="px-4 pb-3 text-xs">
+        <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5">
+          {entries.map(([k, v]) => (
+            <div key={k} className="flex flex-col gap-0.5 min-w-0">
+              <dt className="text-[10px] text-slate-500 uppercase tracking-wide truncate">
+                {safeText(k)}
+              </dt>
+              <dd className="text-slate-200 break-words text-xs">
+                {safeText(v)}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </CardContent>
+    </Card>
+  )
+}
+
+// ==================== DETAIL CONTENT ====================
+function DetailContent({ log }: { log: AuditLog }) {
+  const sections = parseSections(log.sections)
+  const title = log.title || `${log.action} · ${log.entityType}`
+  const showLegacyFallback = sections.length === 0 && !!log.details
+
+  // Group sections by type in the required order
+  const grouped = SECTION_ORDER.map((type) => ({
+    type,
+    items: sections.filter((s) => s.type === type),
+  })).filter((g) => g.items.length > 0)
+
+  // Show batch-export for inventory / purchase source entities
+  const sourceType = log.sourceEntityType || log.entityType
+  const sourceId = log.sourceEntityId || log.entityId
+  const canBatchExport =
+    !!sourceId &&
+    (sourceType === 'INVENTORY_ITEM' || sourceType === 'PURCHASE_ORDER')
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <EventBadge eventType={log.eventType} />
+          {log.operationId && (
+            <Badge
+              variant="outline"
+              className="bg-white/[0.04] border-white/[0.08] text-slate-400 text-[10px] font-mono"
+            >
+              op: {log.operationId}
+            </Badge>
+          )}
+        </div>
+        <h2 className="text-base font-semibold text-white break-words">
+          {safeText(title)}
+        </h2>
+        {log.summary && (
+          <p className="text-xs text-slate-400 break-words">
+            {safeText(log.summary)}
+          </p>
+        )}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-500">
+          {log.sourceEntityType && (
+            <span>
+              <span className="text-slate-600">Source:</span>{' '}
+              <span className="text-slate-400">
+                {safeText(log.sourceEntityType)}
+              </span>
+            </span>
+          )}
+          <span>
+            <span className="text-slate-600">User:</span>{' '}
+            <span className="text-slate-400">
+              {log.user?.name || 'System'}
+            </span>
+          </span>
+          <span>
+            <span className="text-slate-600">Waktu:</span>{' '}
+            <span className="text-slate-400">
+              {formatDate(log.createdAt)}
+            </span>
+          </span>
+        </div>
+      </div>
+
+      <Separator className="bg-white/[0.06]" />
+
+      {/* Sections in required order */}
+      {grouped.length > 0 ? (
+        <div className="space-y-3">
+          {grouped.map((g) => (
+            <div key={g.type} className="space-y-2">
+              {g.items.map((section, idx) => (
+                <SectionBlock key={`${g.type}-${idx}`} section={section} />
+              ))}
+            </div>
+          ))}
+        </div>
+      ) : showLegacyFallback ? (
+        <LegacyDetailsBlock details={log.details} />
+      ) : (
+        <div className="text-xs text-slate-500 italic">
+          Tidak ada detail tambahan
+        </div>
+      )}
+
+      {/* Batch export button (Pro-gated, preserved from V1) */}
+      {canBatchExport && (
+        <>
+          <Separator className="bg-white/[0.06]" />
+          <div className="flex justify-end">
+            <ProGate
+              feature="exportExcel"
+              label="Export Batch Detail"
+              variant="inline"
+            >
+              <BatchExportButton
+                entityType={sourceType}
+                entityId={sourceId || ''}
+              />
+            </ProGate>
+          </div>
+        </>
       )}
     </div>
   )
 }
 
-// ==================== MAIN PAGE ====================
-export default function AuditLogPage() {
-  const [allLogs, setAllLogs] = useState<AuditLog[]>([])
-  const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState('semua')
-  const [page, setPage] = useState(1)
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
-  const [search, setSearch] = useState('')
-  const [searchInput, setSearchInput] = useState('')
-  const [detailLog, setDetailLog] = useState<AuditLog | null>(null)
-  const [exporting, setExporting] = useState(false)
-  const [batchExporting, setBatchExporting] = useState(false)
-
-  const downloadBlob = async (url: string, filename: string, loadingSetter: (v: boolean) => void) => {
-    loadingSetter(true)
+// ==================== BATCH EXPORT BUTTON ====================
+function BatchExportButton({
+  entityType,
+  entityId,
+}: {
+  entityType: string
+  entityId: string
+}) {
+  const [busy, setBusy] = useState(false)
+  const handleClick = async () => {
+    setBusy(true)
     try {
-      const res = await fetch(url, { credentials: 'include' })
+      const res = await fetch(
+        `/api/audit-logs/batch-export?entityType=${entityType}&entityId=${entityId}`,
+        { credentials: 'include' }
+      )
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
         toast.error(data.error || `Export gagal (${res.status})`)
         return
       }
       const blob = await res.blob()
-      const blobUrl = URL.createObjectURL(blob)
+      const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
-      a.href = blobUrl
-      a.download = filename
+      a.href = url
+      a.download = `batch-detail-${entityType}-${new Date()
+        .toISOString()
+        .slice(0, 10)}.xlsx`
       document.body.appendChild(a)
       a.click()
-      setTimeout(() => { a.remove(); URL.revokeObjectURL(blobUrl) }, 1000)
+      setTimeout(() => {
+        a.remove()
+        URL.revokeObjectURL(url)
+      }, 1000)
       toast.success('Export berhasil diunduh')
     } catch {
       toast.error('Gagal mengekspor. Coba lagi.')
     } finally {
-      loadingSetter(false)
+      setBusy(false)
     }
   }
+  return (
+    <Button
+      onClick={handleClick}
+      disabled={busy}
+      variant="outline"
+      className="h-8 text-xs bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.06] gap-1.5"
+    >
+      {busy ? (
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+      ) : (
+        <Download className="h-3.5 w-3.5" />
+      )}
+      {busy ? 'Mengunduh...' : 'Export Batch Detail'}
+    </Button>
+  )
+}
 
-  // Fetch all logs (no action/entityType filter, only search + date)
+// ==================== MOBILE LOG CARD ====================
+function MobileLogCard({
+  log,
+  onClick,
+}: {
+  log: AuditLog
+  onClick: () => void
+}) {
+  const title = log.title || `${log.action} · ${log.entityType}`
+  const summary = log.summary || truncateDetails(log.details)
+  return (
+    <div
+      onClick={onClick}
+      className="rounded-xl border border-white/[0.06] bg-nebula p-3 transition-colors cursor-pointer hover:bg-white/[0.03]"
+    >
+      <div className="flex items-start gap-2 mb-1.5">
+        <EventBadge eventType={log.eventType} />
+        <span className="text-[10px] text-slate-500 ml-auto whitespace-nowrap">
+          {formatDate(log.createdAt)}
+        </span>
+      </div>
+      <p className="text-xs font-medium text-slate-200 mb-1 line-clamp-2 break-words">
+        {safeText(title)}
+      </p>
+      <p className="text-[11px] text-slate-400 line-clamp-1 break-words">
+        {safeText(summary)}
+      </p>
+      <p className="text-[10px] text-slate-500 mt-1.5">
+        <span>oleh</span>{' '}
+        <span className="text-slate-400">
+          {log.user?.name || 'System'}
+        </span>
+      </p>
+    </div>
+  )
+}
+
+// ==================== MAIN PAGE ====================
+export default function AuditLogPage() {
+  const [logs, setLogs] = useState<AuditLog[]>([])
+  const [loading, setLoading] = useState(true)
+  const [activeTab, setActiveTab] = useState('ALL')
+  const [page, setPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
+  const [search, setSearch] = useState('')
+  const [searchInput, setSearchInput] = useState('')
+  const [detailLog, setDetailLog] = useState<AuditLog | null>(null)
+  const [exporting, setExporting] = useState(false)
+
   const fetchLogs = useCallback(async () => {
     setLoading(true)
     try {
-      const params = new URLSearchParams({ page: '1', limit: String(API_FETCH_LIMIT) })
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: String(PAGE_SIZE),
+      })
+      if (activeTab !== 'ALL') params.set('eventType', activeTab)
       if (dateFrom) params.set('from', dateFrom)
       if (dateTo) params.set('to', dateTo)
       if (search) params.set('search', search)
-      const res = await fetch(`/api/audit-logs?${params}`)
+
+      const res = await fetch(`/api/audit-logs?${params}`, {
+        credentials: 'include',
+      })
       if (res.ok) {
         const data: AuditLogListResponse = await res.json()
-        setAllLogs(Array.isArray(data.logs) ? data.logs.filter(Boolean) : [])
+        setLogs(Array.isArray(data.logs) ? data.logs.filter(Boolean) : [])
+        setTotalPages(Math.max(1, data.totalPages || 1))
       } else {
         toast.error('Gagal memuat audit log')
+        setLogs([])
       }
     } catch {
       toast.error('Gagal memuat audit log')
+      setLogs([])
     } finally {
       setLoading(false)
     }
-  }, [dateFrom, dateTo, search])
+  }, [page, activeTab, dateFrom, dateTo, search])
 
   useEffect(() => {
     void fetchLogs()
   }, [fetchLogs])
 
-  // Client-side filtering based on active tab
-  const filteredLogs = useMemo(() => {
-    const matcher = getTabMatcher(activeTab)
-    return allLogs.filter(matcher)
-  }, [allLogs, activeTab])
-
-  // Client-side pagination
-  const totalPages = Math.max(1, Math.ceil(filteredLogs.length / CLIENT_PAGE_SIZE))
-  const currentPage = Math.min(page, totalPages)
-  const paginatedLogs = useMemo(
-    () => filteredLogs.slice((currentPage - 1) * CLIENT_PAGE_SIZE, currentPage * CLIENT_PAGE_SIZE),
-    [filteredLogs, currentPage]
-  )
-
-  // Reset page when tab changes
   const handleTabChange = (value: string) => {
     setActiveTab(value)
     setPage(1)
@@ -631,9 +741,7 @@ export default function AuditLogPage() {
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      handleFilter()
-    }
+    if (e.key === 'Enter') handleFilter()
   }
 
   const handleClearAllFilters = () => {
@@ -644,85 +752,108 @@ export default function AuditLogPage() {
     setPage(1)
   }
 
+  const downloadExportBlob = async (
+    url: string,
+    filename: string,
+    loadingSetter: (v: boolean) => void
+  ) => {
+    loadingSetter(true)
+    try {
+      const res = await fetch(url, { credentials: 'include' })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        toast.error(data.error || `Export gagal (${res.status})`)
+        return
+      }
+      const blob = await res.blob()
+      const blobUrl = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = blobUrl
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      setTimeout(() => {
+        a.remove()
+        URL.revokeObjectURL(blobUrl)
+      }, 1000)
+      toast.success('Export berhasil diunduh')
+    } catch {
+      toast.error('Gagal mengekspor. Coba lagi.')
+    } finally {
+      loadingSetter(false)
+    }
+  }
+
   const handleExport = () => {
     const params = new URLSearchParams()
+    if (activeTab !== 'ALL') params.set('eventType', activeTab)
     if (search) params.set('search', search)
     if (dateFrom) params.set('from', dateFrom)
     if (dateTo) params.set('to', dateTo)
-    void downloadBlob(`/api/audit-logs/export?${params}`, `audit-log-export-${new Date().toISOString().slice(0, 10)}.xlsx`, setExporting)
-  }
-
-  const hasActiveFilters = search || dateFrom || dateTo
-
-  // ==================== ACTION BADGE ====================
-  const ActionBadge = ({ action }: { action: string }) => {
-    const config = getActionConfig(action)
-    const Icon = config.icon
-    return (
-      <Badge className={`${config.bgColor} ${config.borderColor} ${config.color} text-[10px] gap-1 px-1.5 py-0`}>
-        <Icon className="h-2.5 w-2.5" />
-        {config.label}
-      </Badge>
+    void downloadExportBlob(
+      `/api/audit-logs/export?${params}`,
+      `audit-log-export-${new Date().toISOString().slice(0, 10)}.xlsx`,
+      setExporting
     )
   }
 
-  // ==================== ACTION ICON ====================
-  const ActionIcon = ({ action }: { action: string }) => {
-    const config = getActionConfig(action)
-    const Icon = config.icon
-    return (
-      <div className={`w-7 h-7 rounded-lg ${config.iconBg} flex items-center justify-center shrink-0`}>
-        <Icon className={`h-3.5 w-3.5 ${config.color}`} />
-      </div>
-    )
-  }
+  const hasActiveFilters = !!(search || dateFrom || dateTo || activeTab !== 'ALL')
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col flex-1 min-h-0 gap-4">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 shrink-0">
         <div>
           <h1 className="text-lg font-semibold text-white">Audit Log</h1>
-          <p className="text-xs text-slate-500 mt-0.5">Lacak semua aktivitas dan perubahan sistem</p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Lacak semua aktivitas dan perubahan sistem
+          </p>
         </div>
         <Button
           onClick={handleExport}
           disabled={exporting}
           variant="outline"
-          className="h-9 sm:h-8 text-xs bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.06] gap-1.5"
+          className="h-9 sm:h-8 text-xs bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.06] gap-1.5 shrink-0"
         >
-          {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+          {exporting ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Download className="h-3.5 w-3.5" />
+          )}
           {exporting ? 'Mengunduh...' : 'Export'}
         </Button>
       </div>
 
-      {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={handleTabChange}>
-        <TabsList className="bg-white/[0.04] border border-white/[0.06] h-9 p-0.5 rounded-lg">
-          {TAB_SECTIONS.map((tab) => {
-            const Icon = tab.icon
-            return (
-              <TabsTrigger
-                key={tab.id}
-                value={tab.id}
-                className="text-xs font-medium h-7 rounded-md data-[state=active]:bg-white/[0.08] data-[state=active]:text-white text-slate-400 px-3 gap-1.5"
-              >
-                <Icon className="h-3.5 w-3.5 shrink-0" />
-                <span className="hidden sm:inline">{tab.label}</span>
-              </TabsTrigger>
-            )
-          })}
-        </TabsList>
-      </Tabs>
+      {/* Tabs (eventType filter) */}
+      <div className="shrink-0">
+        <Tabs value={activeTab} onValueChange={handleTabChange}>
+          <div className="overflow-x-auto -mx-1 px-1 pb-1">
+            <TabsList className="bg-white/[0.04] border border-white/[0.06] h-9 p-0.5 rounded-lg inline-flex w-max">
+              {EVENT_TYPE_TABS.map((tab) => {
+                const Icon = tab.icon
+                return (
+                  <TabsTrigger
+                    key={tab.value}
+                    value={tab.value}
+                    className="text-xs font-medium h-7 rounded-md data-[state=active]:bg-white/[0.08] data-[state=active]:text-white text-slate-400 px-3 gap-1.5"
+                  >
+                    <Icon className="h-3.5 w-3.5 shrink-0" />
+                    <span className="hidden sm:inline">{tab.label}</span>
+                  </TabsTrigger>
+                )
+              })}
+            </TabsList>
+          </div>
+        </Tabs>
+      </div>
 
       {/* Search + Date Filters */}
-      <div className="flex flex-col sm:flex-row gap-2">
-        {/* Search */}
+      <div className="flex flex-col sm:flex-row gap-2 shrink-0">
         <div className="relative flex-1 min-w-0 sm:max-w-xs">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500 pointer-events-none" />
           <Input
             type="text"
-            placeholder="Cari nama, invoice, SKU..."
+            placeholder="Cari judul, ringkasan, user..."
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -738,14 +869,16 @@ export default function AuditLogPage() {
           )}
         </div>
 
-        {/* Date range */}
         <DateFilter
           dateFrom={dateFrom}
           dateTo={dateTo}
-          onChange={(from, to) => { setDateFrom(from); setDateTo(to); setPage(1) }}
+          onChange={(from, to) => {
+            setDateFrom(from)
+            setDateTo(to)
+            setPage(1)
+          }}
         />
 
-        {/* Clear all */}
         {hasActiveFilters && (
           <Button
             variant="ghost"
@@ -760,19 +893,49 @@ export default function AuditLogPage() {
 
       {/* Active filter badges */}
       {hasActiveFilters && (
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap gap-1.5 shrink-0">
+          {activeTab !== 'ALL' && (
+            <Badge
+              variant="outline"
+              className="bg-white/[0.04] border-white/[0.08] text-slate-300 text-[11px] gap-1 px-2 py-0.5"
+            >
+              Event: {EVENT_TYPE_TABS.find((t) => t.value === activeTab)?.label || activeTab}
+              <button onClick={() => { setActiveTab('ALL'); setPage(1) }}>
+                <X className="h-2.5 w-2.5 ml-0.5" />
+              </button>
+            </Badge>
+          )}
           {search && (
-            <Badge variant="outline" className="bg-white/[0.04] border-white/[0.08] text-slate-300 text-[11px] gap-1 px-2 py-0.5 cursor-pointer">
+            <Badge
+              variant="outline"
+              className="bg-white/[0.04] border-white/[0.08] text-slate-300 text-[11px] gap-1 px-2 py-0.5"
+            >
               Cari: &quot;{search}&quot;
-              <button onClick={() => { setSearchInput(''); setSearch(''); setPage(1) }}>
+              <button
+                onClick={() => {
+                  setSearchInput('')
+                  setSearch('')
+                  setPage(1)
+                }}
+              >
                 <X className="h-2.5 w-2.5 ml-0.5" />
               </button>
             </Badge>
           )}
           {dateFrom && (
-            <Badge variant="outline" className="bg-white/[0.04] border-white/[0.08] text-slate-300 text-[11px] gap-1 px-2 py-0.5 cursor-pointer">
-              📅 {dateFrom}{dateTo && dateTo !== dateFrom ? ` – ${dateTo}` : ''}
-              <button onClick={() => { setDateFrom(''); setDateTo(''); setPage(1) }}>
+            <Badge
+              variant="outline"
+              className="bg-white/[0.04] border-white/[0.08] text-slate-300 text-[11px] gap-1 px-2 py-0.5"
+            >
+              {dateFrom}
+              {dateTo && dateTo !== dateFrom ? ` – ${dateTo}` : ''}
+              <button
+                onClick={() => {
+                  setDateFrom('')
+                  setDateTo('')
+                  setPage(1)
+                }}
+              >
                 <X className="h-2.5 w-2.5 ml-0.5" />
               </button>
             </Badge>
@@ -780,280 +943,129 @@ export default function AuditLogPage() {
         </div>
       )}
 
-      {/* Tab info line */}
-      {activeTab !== 'semua' && !loading && (
-        <div className="text-[11px] text-slate-500">
-          Menampilkan {filteredLogs.length} log untuk <span className="text-slate-300">{TAB_SECTIONS.find(t => t.id === activeTab)?.label}</span>
-        </div>
-      )}
-
       {/* Content */}
-      {loading ? (
-        <div className="space-y-2">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <Skeleton key={i} className="h-16 bg-nebula rounded-xl" />
-          ))}
-        </div>
-      ) : paginatedLogs.length === 0 ? (
-        <div className="rounded-xl border border-white/[0.06] bg-nebula p-8 text-center">
-          <Search className="h-8 w-8 text-zinc-700 mx-auto mb-3" />
-          <p className="text-xs text-slate-500">
-            {hasActiveFilters || activeTab !== 'semua'
-              ? 'Tidak ada audit log yang cocok'
-              : 'Belum ada audit log'}
-          </p>
-          {(hasActiveFilters || activeTab !== 'semua') && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => { setActiveTab('semua'); handleClearAllFilters() }}
-              className="mt-3 text-slate-500 hover:text-slate-300 text-xs h-7"
-            >
-              Reset semua filter
-            </Button>
-          )}
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {/* Mobile card view */}
-          <div className="md:hidden space-y-2">
-            {paginatedLogs.map((log) => {
-              const config = getActionConfig(log.action)
-              return (
-                <div
+      <div className="flex-1 min-h-0">
+        {loading ? (
+          <div className="space-y-2">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Skeleton key={i} className="h-16 bg-nebula rounded-xl" />
+            ))}
+          </div>
+        ) : logs.length === 0 ? (
+          <div className="rounded-xl border border-white/[0.06] bg-nebula p-8 text-center">
+            <Search className="h-8 w-8 text-zinc-700 mx-auto mb-3" />
+            <p className="text-xs text-slate-500">
+              {hasActiveFilters
+                ? 'Tidak ada audit log yang cocok'
+                : 'Belum ada audit log'}
+            </p>
+            {hasActiveFilters && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setActiveTab('ALL')
+                  handleClearAllFilters()
+                }}
+                className="mt-3 text-slate-500 hover:text-slate-300 text-xs h-7"
+              >
+                Reset semua filter
+              </Button>
+            )}
+          </div>
+        ) : (
+          <>
+            {/* Mobile card view */}
+            <div className="md:hidden space-y-2">
+              {logs.map((log) => (
+                <MobileLogCard
                   key={log.id}
-                  className={`rounded-xl border-l-4 ${config.leftBorder} border border-white/[0.06] bg-nebula p-3.5 transition-colors cursor-pointer hover:bg-white/[0.03]`}
+                  log={log}
                   onClick={() => setDetailLog(log)}
-                >
-                  {/* Top row: icon + action + entity + time */}
-                  <div className="flex items-center gap-2.5 mb-2">
-                    <ActionIcon action={log.action} />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <ActionBadge action={log.action} />
-                        <Badge variant="outline" className="bg-white/[0.04] border-white/[0.08] text-slate-400 text-[10px] px-1.5 py-0">
-                          {getEntityLabel(log.entityType)}
-                        </Badge>
-                      </div>
-                      <p className="text-[10px] text-slate-500 mt-0.5">{formatDate(log.createdAt)}</p>
-                    </div>
-                  </div>
+                />
+              ))}
+            </div>
 
-                  {/* User */}
-                  <p className="text-xs text-slate-300 mb-1.5">
-                    <span className="text-slate-500">oleh</span>{' '}
-                    {log.user?.name || 'System'}
-                  </p>
-
-                  {/* Details */}
-                  <div className="pl-0">
-                    <DetailsDisplay action={log.action} details={log.details} />
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-
-          {/* Desktop table view */}
-          <div className="hidden md:block rounded-xl border border-white/[0.06] overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow className="border-white/[0.06] hover:bg-transparent bg-nebula/50">
-                  <TableHead className="text-slate-500 text-[11px] font-medium w-10"></TableHead>
-                  <TableHead className="text-slate-500 text-[11px] font-medium">Waktu</TableHead>
-                  <TableHead className="text-slate-500 text-[11px] font-medium">User</TableHead>
-                  <TableHead className="text-slate-500 text-[11px] font-medium text-center">Aksi</TableHead>
-                  <TableHead className="text-slate-500 text-[11px] font-medium">Entitas</TableHead>
-                  <TableHead className="text-slate-500 text-[11px] font-medium">Detail</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {paginatedLogs.map((log) => {
-                  const config = getActionConfig(log.action)
-                  return (
-                    <TableRow
-                      key={log.id}
-                      className={`border-white/[0.06] transition-colors border-l-2 ${config.leftBorder} cursor-pointer hover:bg-white/[0.02]`}
-                      onClick={() => setDetailLog(log)}
-                    >
-                      {/* Action indicator dot */}
-                      <TableCell className="py-3 px-3">
-                        <div className={`w-2 h-2 rounded-full ${config.dotColor}`} />
-                      </TableCell>
-                      {/* Timestamp */}
-                      <TableCell className="text-xs text-slate-400 py-3 px-3 whitespace-nowrap">
-                        {formatDate(log.createdAt)}
-                      </TableCell>
-                      {/* User */}
-                      <TableCell className="text-xs text-slate-300 py-3 px-3">
-                        {log.user?.name || 'System'}
-                      </TableCell>
-                      {/* Action badge */}
-                      <TableCell className="text-center py-3 px-3">
-                        <ActionBadge action={log.action} />
-                      </TableCell>
-                      {/* Entity type */}
-                      <TableCell className="text-xs text-slate-400 py-3 px-3">
-                        <Badge variant="outline" className="bg-white/[0.04] border-white/[0.08] text-slate-400 text-[10px] px-1.5 py-0">
-                          {getEntityLabel(log.entityType)}
-                        </Badge>
-                      </TableCell>
-                      {/* Details */}
-                      <TableCell className="text-xs text-slate-400 py-3 px-3 max-w-xs">
-                        <DetailsDisplay action={log.action} details={log.details} />
-                      </TableCell>
+            {/* Desktop table view */}
+            <div className="hidden md:block rounded-xl border border-white/[0.06] overflow-hidden">
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="border-white/[0.06] hover:bg-transparent bg-nebula/50">
+                      <TableHead className="text-slate-500 text-[11px] font-medium whitespace-nowrap">
+                        Waktu
+                      </TableHead>
+                      <TableHead className="text-slate-500 text-[11px] font-medium">
+                        Event
+                      </TableHead>
+                      <TableHead className="text-slate-500 text-[11px] font-medium">
+                        Ringkasan
+                      </TableHead>
+                      <TableHead className="text-slate-500 text-[11px] font-medium whitespace-nowrap">
+                        User
+                      </TableHead>
                     </TableRow>
-                  )
-                })}
-              </TableBody>
-            </Table>
-          </div>
-        </div>
-      )}
-
-      {/* Pagination */}
-      <Pagination
-        currentPage={currentPage}
-        totalPages={totalPages}
-        onPageChange={setPage}
-      />
-
-      {/* Detail Dialog */}
-      <ResponsiveDialog open={!!detailLog} onOpenChange={(open) => { if (!open) setDetailLog(null) }}>
-        <ResponsiveDialogContent className="bg-nebula border-white/[0.06] max-w-md">
-          <ResponsiveDialogHeader>
-            <ResponsiveDialogTitle className="text-white text-sm font-semibold">Detail Audit Log</ResponsiveDialogTitle>
-          </ResponsiveDialogHeader>
-          {detailLog && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <p className="text-[10px] text-slate-500">Waktu</p>
-                  <p className="text-xs text-slate-300">{formatDate(detailLog.createdAt)}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] text-slate-500">User</p>
-                  <p className="text-xs text-slate-300">{detailLog.user?.name || 'System'}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] text-slate-500">Aksi</p>
-                  <div className="mt-0.5"><ActionBadge action={detailLog.action} /></div>
-                </div>
-                <div>
-                  <p className="text-[10px] text-slate-500">Entitas</p>
-                  <Badge variant="outline" className="bg-white/[0.04] border-white/[0.08] text-slate-400 text-[10px] px-1.5 py-0 mt-0.5">
-                    {getEntityLabel(detailLog.entityType)}
-                  </Badge>
-                </div>
-                {detailLog.entityId && (
-                  <div className="col-span-2">
-                    <p className="text-[10px] text-slate-500">Entity ID</p>
-                    <p className="text-[10px] text-slate-400 font-mono break-all">{detailLog.entityId}</p>
-                  </div>
-                )}
-              </div>
-              <Separator className="bg-white/[0.06]" />
-              <div>
-                <p className="text-xs text-slate-400 mb-2 font-medium">Detail Lengkap</p>
-                {(() => {
-                  const parsed = parseDetails(detailLog.details ?? null)
-                  if (!parsed) return <p className="text-xs text-slate-500 italic">Tidak ada detail</p>
-                  if (typeof parsed === 'string') return <p className="text-xs text-slate-300">{parsed}</p>
-                  const entries = Object.entries(parsed) as [string, unknown][]
-                  return (
-                    <div className="space-y-2">
-                      {entries.map(([key, value]) => (
-                        <div key={key} className="flex items-start gap-2">
-                          <span className="text-[10px] text-slate-500 min-w-[100px] shrink-0 pt-0.5">{getDetailLabel(key)}</span>
-                          <span className="text-xs text-slate-300 break-all">
-                            {key === 'itemsRestored' && Array.isArray(value)
-                              ? (value as Record<string, unknown>[]).map((item, i) => {
-                                  const name = typeof item.productName === 'string' ? item.productName : '?'
-                                  const sku = typeof item.productSku === 'string' ? item.productSku : (typeof item.variantSku === 'string' ? item.variantSku : '')
-                                  const qty = typeof item.qty === 'number' ? item.qty : '?'
-                                  const suffix = sku ? ` (${sku})` : ''
-                                  return <span key={i}>{name}{suffix} (x{qty}){i < (value as unknown[]).length - 1 ? ', ' : ''}</span>
-                                })
-                              : key === 'items' && Array.isArray(value)
-                                ? <div className="space-y-1">
-                                    {(value as Record<string, unknown>[]).map((item, i) => {
-                                      const name = typeof item.productName === 'string' ? item.productName : (typeof item.name === 'string' ? item.name : '?')
-                                      const sku = typeof item.productSku === 'string' ? item.productSku : ''
-                                      const qty = typeof item.quantity === 'number' ? item.quantity : '?'
-                                      const hpp = typeof item.hpp === 'number' ? formatCurrency(item.hpp) : null
-                                      const price = typeof item.price === 'number' ? formatCurrency(item.price) : null
-                                      const subtotal = typeof item.subtotal === 'number' ? formatCurrency(item.subtotal) : null
-                                      const itemVariants = Array.isArray(item.variants) ? item.variants as Record<string, unknown>[] : []
-                                      return (
-                                        <div key={i} className="text-xs">
-                                          <span className="text-slate-300">{i + 1}. {name}</span>
-                                          {sku && <span className="text-slate-500 ml-1">({sku})</span>}
-                                          <span className="text-slate-400 ml-1">x{qty}</span>
-                                          {hpp && <span className="text-amber-400/70 ml-1">HPP {hpp}</span>}
-                                          {price && <span className="text-slate-500 ml-1">@{price}</span>}
-                                          {subtotal && <span className="text-emerald-400 ml-1">= {subtotal}</span>}
-                                          {itemVariants.length > 0 && (
-                                            <div className="ml-3 mt-0.5 space-y-0.5">
-                                              {itemVariants.map((v, vi) => (
-                                                <div key={vi} className="text-[11px] text-slate-400">
-                                                  <span>{typeof v.name === 'string' ? v.name : '?'}</span>
-                                                  {typeof v.sku === 'string' && v.sku && <span className="text-slate-500 ml-1">({v.sku})</span>}
-                                                  <span className="text-slate-500 ml-1">stok:{typeof v.stock === 'number' ? v.stock : '?'}</span>
-                                                  {typeof v.price === 'number' && <span className="text-slate-500 ml-1">Rp{v.price.toLocaleString('id-ID')}</span>}
-                                                  {typeof v.hpp === 'number' && v.hpp > 0 && <span className="text-amber-400/60 ml-1">HPP Rp{v.hpp.toLocaleString('id-ID')}</span>}
-                                                </div>
-                                              ))}
-                                            </div>
-                                          )}
-                                        </div>
-                                      )
-                                    })}
-                                  </div>
-                                : key === 'variants' && Array.isArray(value)
-                                  ? <div className="space-y-0.5">
-                                      {(value as Record<string, unknown>[]).map((v, i) => {
-                                        const vName = typeof v.name === 'string' ? v.name : '?'
-                                        const vSku = typeof v.sku === 'string' && v.sku ? ` (${v.sku})` : ''
-                                        const prev = typeof v.previousStock === 'number' ? v.previousStock : 0
-                                        const added = typeof v.addedStock === 'number' ? v.addedStock : 0
-                                        const newSt = typeof v.newStock === 'number' ? v.newStock : 0
-                                        const isCreated = v.created === true
-                                        return (
-                                          <div key={i} className="text-xs text-slate-300">
-                                            {vName}{vSku}: <span className="text-slate-500">{prev}</span> → <span className="text-emerald-400">+{added}</span> = <span className="text-white">{newSt}</span>
-                                            {isCreated && <Badge className="text-[8px] px-1 py-0 bg-sky-500/10 text-sky-400 border-0 ml-1">BARU</Badge>}
-                                          </div>
-                                        )
-                                      })}
-                                    </div>
-                                  : formatDetailValue(key, value)}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )
-                })()}
+                  </TableHeader>
+                  <TableBody>
+                    {logs.map((log) => {
+                      const title =
+                        log.title || `${log.action} · ${log.entityType}`
+                      const summary =
+                        log.summary || truncateDetails(log.details)
+                      return (
+                        <TableRow
+                          key={log.id}
+                          className="border-white/[0.06] hover:bg-white/[0.02] cursor-pointer"
+                          onClick={() => setDetailLog(log)}
+                        >
+                          <TableCell className="text-xs text-slate-400 py-3 px-3 whitespace-nowrap align-top">
+                            {formatDate(log.createdAt)}
+                          </TableCell>
+                          <TableCell className="py-3 px-3 align-top">
+                            <div className="flex flex-col gap-1 min-w-[140px]">
+                              <EventBadge eventType={log.eventType} />
+                              <span className="text-xs text-slate-200 line-clamp-1 break-words">
+                                {safeText(title)}
+                              </span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-xs text-slate-400 py-3 px-3 align-top">
+                            <span className="line-clamp-1 break-words">
+                              {safeText(summary)}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-xs text-slate-300 py-3 px-3 whitespace-nowrap align-top">
+                            {log.user?.name || 'System'}
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
               </div>
             </div>
-          )}
-          {detailLog && (detailLog.entityType === 'INVENTORY_ITEM' || detailLog.entityType === 'PURCHASE_ORDER') && (
-            <>
-              <Separator className="bg-white/[0.06]" />
-              <div className="flex justify-end">
-                <ProGate feature="exportExcel" label="Export Batch Detail" variant="inline">
-                  <Button
-                    onClick={() => void downloadBlob(`/api/audit-logs/batch-export?entityType=${detailLog.entityType}&entityId=${detailLog.entityId}`, `batch-detail-${detailLog.entityType}-${new Date().toISOString().slice(0, 10)}.xlsx`, setBatchExporting)}
-                    disabled={batchExporting}
-                    variant="outline"
-                    className="h-8 text-xs bg-white/[0.04] border-white/[0.08] text-slate-300 hover:bg-white/[0.06] gap-1.5"
-                  >
-                    {batchExporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-                    {batchExporting ? 'Mengunduh...' : 'Export Batch Detail'}
-                  </Button>
-                </ProGate>
-              </div>
-            </>
-          )}
+          </>
+        )}
+      </div>
+
+      {/* Pagination */}
+      <div className="shrink-0 pt-2">
+        <Pagination
+          currentPage={page}
+          totalPages={totalPages}
+          onPageChange={setPage}
+        />
+      </div>
+
+      {/* Detail Dialog */}
+      <ResponsiveDialog
+        open={!!detailLog}
+        onOpenChange={(open) => {
+          if (!open) setDetailLog(null)
+        }}
+      >
+        <ResponsiveDialogContent className="bg-nebula border-white/[0.06] sm:max-w-2xl">
+          {detailLog && <DetailContent key={detailLog.id} log={detailLog} />}
         </ResponsiveDialogContent>
       </ResponsiveDialog>
     </div>

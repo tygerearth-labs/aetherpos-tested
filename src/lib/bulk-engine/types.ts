@@ -117,12 +117,33 @@ export interface BatchResult {
   stats: BatchStats
   errors: BatchError[]
   warnings?: string[]
+  /**
+   * Per-entity change records (before/after). Populated by adapters instead of
+   * writing per-row AuditLog rows. The /api/bulk-engine/execute route folds
+   * these into a single BULK_BATCH audit event (AuditLog V2).
+   */
+  changes?: BulkChangeRecord[]
   /** Delegate-mode extras (e.g. migration final-sheet totals). */
   extras?: Record<string, unknown>
   /** Authoritative totalBatches/totalRows from server (for reconciliation). */
   totalBatches?: number
   totalRows?: number
   isLastBatch?: boolean
+}
+
+/**
+ * A single entity change produced by a bulk adapter (create/update/skip/delete).
+ * The execute route aggregates these into ONE BULK_BATCH audit event, so the
+ * audit feed shows 1 row per batch (not 1 per row). `before`/`after` are
+ * plain objects of changed fields — the audit-v2 builder formats them safely.
+ */
+export interface BulkChangeRecord {
+  entity: string
+  identifier: string
+  action: 'created' | 'updated' | 'skipped' | 'deleted' | 'failed'
+  before?: Record<string, unknown>
+  after?: Record<string, unknown>
+  note?: string
 }
 
 // ── Server adapter context ─────────────────────────────────────────────────

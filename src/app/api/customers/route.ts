@@ -7,6 +7,7 @@ import { getFeaturesForOutlet, isUnlimited } from '@/lib/config/plan-config'
 import { assertOutletWithinLimits } from '@/lib/api/plan-enforcement'
 import { notifyNewCustomer } from '@/lib/notify'
 import { safeJson, safeJsonCreated, safeJsonError } from '@/lib/api/safe-response'
+import { buildCustomerChangeEvent, emitAuditEvent } from '@/lib/audit-v2'
 
 export async function GET(request: NextRequest) {
   try {
@@ -118,20 +119,19 @@ export async function POST(request: NextRequest) {
         },
       })
 
-      // L3: Audit log for customer creation
-      await tx.auditLog.create({
-        data: {
-          action: 'CREATE',
-          entityType: 'CUSTOMER',
-          entityId: newCustomer.id,
-          details: JSON.stringify({
-            customerName: newCustomer.name,
-            whatsapp: newCustomer.whatsapp,
-          }),
+      // L3: Audit log for customer creation — V2 event-oriented
+      // (transactional emit; commits atomically with the customer row).
+      await emitAuditEvent(
+        tx,
+        buildCustomerChangeEvent({
+          customerId: newCustomer.id,
+          customerName: newCustomer.name,
+          changeType: 'created',
+          after: { name: newCustomer.name, whatsapp: newCustomer.whatsapp },
           outletId,
           userId: user.id,
-        },
-      })
+        }),
+      )
 
       return newCustomer
     })

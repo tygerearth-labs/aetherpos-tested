@@ -1,9 +1,9 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
-import { safeAuditLog } from '@/lib/safe-audit'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 import { InventoryConsumptionService } from '@/lib/inventory-consumption-service'
+import { emitAuditEvent, buildVoidEvent } from '@/lib/audit-v2'
 
 export async function POST(
   request: NextRequest,
@@ -168,9 +168,13 @@ export async function POST(
       })
       // Check if snapshots were found by querying after the call
       // (restoreFromSnapshots returns void, but logs when no snapshots found)
-      const snapshotCount = await tx.transactionConsumption.count({
+      // We fetch the snapshot rows (not just count) so the VOID event can
+      // include an "Inventory Restored" section without extra queries.
+      const consumptionSnapshots = await tx.transactionConsumption.findMany({
         where: { transactionId: id },
+        select: { itemName: true, baseUnit: true, quantityUsed: true },
       })
+      const snapshotCount = consumptionSnapshots.length
       if (snapshotCount > 0) {
         inventoryRestoreMethod = 'SNAPSHOT'
       } else {
@@ -270,102 +274,49 @@ export async function POST(
       }
 
       // ════════════════════════════════════════════════════════════
-      // STEP 5: Fetch updated stocks for audit logs
+      // STEP 5: Audit log — ONE VOID event per void (event-oriented V2).
       // ════════════════════════════════════════════════════════════
-      const restockProductIds = transactionItems.filter(i => !i.variantId).map(i => i.productId!).filter(Boolean)
-      const restockVariantIds = transactionItems.filter(i => i.variantId).map(i => i.variantId!)
-
-      const productStockMap = new Map<string, number>()
-      if (restockProductIds.length > 0) {
-        const updatedProducts = await tx.product.findMany({
-          where: { id: { in: restockProductIds } },
-          select: { id: true, stock: true },
-        })
-        for (const p of updatedProducts) productStockMap.set(p.id, p.stock)
-      }
-
-      const variantStockMap = new Map<string, number>()
-      if (restockVariantIds.length > 0) {
-        const updatedVariants = await tx.productVariant.findMany({
-          where: { id: { in: restockVariantIds } },
-          select: { id: true, stock: true },
-        })
-        for (const v of updatedVariants) variantStockMap.set(v.id, v.stock)
-      }
-
-      // ════════════════════════════════════════════════════════════
-      // STEP 6: Create audit logs
-      // ════════════════════════════════════════════════════════════
-      // RESTOCK logs per item
-      await tx.auditLog.createMany({
-        data: transactionItems.map(item => {
-          const isVariant = !!item.variantId
-          const newStock = isVariant
-            ? (variantStockMap.get(item.variantId!) ?? 0)
-            : (productStockMap.get(item.productId!) ?? 0)
-          const previousStock = newStock - item.qty
-          return {
-            action: 'RESTOCK' as const,
-            entityType: isVariant ? 'VARIANT' as const : 'PRODUCT' as const,
-            entityId: isVariant ? item.variantId! : item.productId!,
-            details: JSON.stringify({
-              reason: `Void transaksi ${transaction.invoiceNumber}`,
-              productName: item.productName,
-              productSku: getProductSku(item),
-              variantName: item.variantName ?? undefined,
-              variantSku: getVariantSku(item),
-              quantityAdded: item.qty,
-              previousStock,
-              newStock,
-            }),
-            outletId,
-            userId,
-          }
-        }),
-      })
-
-      // VOID audit log (main record)
-      await tx.auditLog.create({
-        data: {
-          action: 'VOID',
-          entityType: 'TRANSACTION',
-          entityId: id,
-          details: JSON.stringify({
-            invoiceNumber: transaction.invoiceNumber,
-            total: transaction.total,
-            reason: reason.trim(),
-            voidedBy: user.name || user.email,
-            voidedAt: new Date().toISOString(),
-            inventoryRestored: true,
-            inventoryRestoreMethod,
-            loyaltyReversed: !!transaction.customerId,
-            parentStockRecalculated: variantProductIds.length > 0,
-            // P1-2 AUDIT-3: surface orphaned variant items explicitly so auditors
-            // can see which line items had their variant stock skipped (variant was
-            // deleted between sale and void).
-            orphanedVariantItems: orphanedVariantItems.map(i => ({
-              productName: i.productName,
-              productSku: getProductSku(i),
-              variantName: i.variantName,
-              variantSku: getVariantSku(i),
-              qty: i.qty,
-              note: 'Variant was deleted after sale; variant stock NOT restored. Raw-material inventory was restored via snapshot.',
-            })),
-            itemsRestored: transactionItems.map(i => ({
-              productName: i.productName,
-              productSku: getProductSku(i),
-              variantName: i.variantName ?? undefined,
-              variantSku: getVariantSku(i),
-              qty: i.qty,
-              stockRestoreTarget:
-                i.variantId ? 'VARIANT' :
-                (i.variantName && i.variantName.trim().length > 0 ? 'ORPHANED_VARIANT_SKIPPED' : 'PRODUCT'),
-            })),
-          }),
+      // Replaces the legacy N RESTOCK rows + 1 VOID row. Now a void of an
+      // N-item transaction produces exactly 1 VOID audit row that includes
+      // the restored items, the inventory (raw-material) restore snapshot,
+      // loyalty reversal, and any orphaned-variant warnings — all grouped
+      // into UI-ready sections. InventoryMovement remains the technical
+      // ledger (unchanged).
+      await emitAuditEvent(
+        tx,
+        buildVoidEvent({
+          transactionId: id,
+          invoiceNumber: transaction.invoiceNumber,
+          total: transaction.total,
+          reason: reason.trim(),
+          voidedBy: user.name || user.email,
+          itemsRestored: transactionItems.map((i) => ({
+            productName: i.productName,
+            variantName: i.variantName ?? null,
+            qty: i.qty,
+            target: i.variantId
+              ? ('VARIANT' as const)
+              : i.variantName && i.variantName.trim().length > 0
+                ? ('ORPHANED_VARIANT_SKIPPED' as const)
+                : ('PRODUCT' as const),
+          })),
+          inventoryRestored: consumptionSnapshots.map((s) => ({
+            itemName: s.itemName,
+            baseUnit: s.baseUnit,
+            quantityRestored: s.quantityUsed,
+            method: inventoryRestoreMethod,
+          })),
+          inventoryRestoreMethod,
+          loyaltyReversed: !!transaction.customerId,
+          orphanedVariantItems: orphanedVariantItems.map((i) => ({
+            productName: i.productName,
+            variantName: i.variantName ?? null,
+            qty: i.qty,
+          })),
           outletId,
           userId,
-        },
-      })
+        }),
+      )
     }, { timeout: 15000 })
 
     return safeJson({ success: true, message: 'Transaction voided, stock restored, inventory reversed, loyalty adjusted' })

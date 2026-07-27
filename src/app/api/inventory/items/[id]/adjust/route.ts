@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 import { invalidateOutletExpiry } from '@/lib/cache'
+import { buildInventoryAdjustmentEvent, emitAuditEvent } from '@/lib/audit-v2'
 
 // POST /api/inventory/items/[id]/adjust — manual stock adjustment
 export async function POST(
@@ -29,7 +30,7 @@ export async function POST(
 
     const existing = await db.inventoryItem.findFirst({
       where: { id, outletId },
-      select: { id: true, name: true, stock: true, avgCost: true },
+      select: { id: true, name: true, stock: true, avgCost: true, baseUnit: true },
     })
     if (!existing) {
       return safeJsonError('Inventory item not found', 404)
@@ -124,27 +125,33 @@ export async function POST(
         }
       }
 
-      await tx.auditLog.create({
-        data: {
-          action: 'ADJUSTMENT',
-          entityType: 'INVENTORY_ITEM',
-          entityId: id,
-          details: JSON.stringify({
-            itemName: existing.name,
-            previousStock: existing.stock,
-            newStock,
-            adjustment: difference,
-            reason: reason || null,
-            batchAction: difference > 0
-              ? `Created ADJUSTMENT batch (+${difference})`
-              : difference < 0
-                ? `Deducted from batches (${difference})`
-                : 'No batch change needed',
-          }),
+      // V2 event-oriented audit (transactional — commits with the stock
+      // update + batch changes + InventoryMovement ledger).
+      // ONE INVENTORY_ADJUSTMENT event with ONE line covers the manual adjust.
+      // operationId is generated client-side-per-call for traceability in the
+      // audit drawer; the InventoryMovement ledger row remains the technical
+      // double-entry record (NOT replaced).
+      const operationId = `ADJUST-${id.slice(-6)}-${Date.now()}`
+      await emitAuditEvent(
+        tx,
+        buildInventoryAdjustmentEvent({
+          lines: [
+            {
+              itemName: existing.name,
+              beforeStock: existing.stock,
+              afterStock: newStock,
+              delta: difference,
+              unit: existing.baseUnit,
+              reason: reason || undefined,
+            },
+          ],
+          reason: reason || 'Penyesuaian stok manual',
+          source: 'manual',
           outletId,
           userId,
-        },
-      })
+          operationId,
+        }),
+      )
 
       // Create inventory movement for adjustment
       await tx.inventoryMovement.create({

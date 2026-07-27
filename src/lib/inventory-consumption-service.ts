@@ -359,30 +359,13 @@ export class InventoryConsumptionService {
       })
     }
 
-    // ── 8. CREATE AUDIT LOGS (uses Actual COGS post-FEFO) ──
-    if (resultDeductions.length > 0) {
-      await tx.auditLog.createMany({
-        data: resultDeductions.map(d => ({
-          action: 'COMPOSITION_DEDUCT',
-          entityType: 'INVENTORY_ITEM',
-          entityId: d.inventoryItemId,
-          details: JSON.stringify({
-            invoiceNumber,
-            itemName: d.itemName,
-            baseUnit: d.baseUnit,
-            totalDeducted: d.totalDeducted,
-            previousStock: d.previousStock,
-            newStock: d.newStock,
-            materialCost: d.materialCost,                       // Actual COGS (batch.unitCost-based or avgCost fallback)
-            unitCostSnapshot: d.unitCostSnapshot ? JSON.parse(d.unitCostSnapshot) : null,
-            costingMethod: d.unitCostSnapshot ? 'BATCH' : 'AVG_COST',
-            sources: d.sources,
-          }),
-          outletId,
-          userId,
-        })),
-      })
-    }
+    // ── 8. NO PER-DEDUCTION AUDIT LOG (AuditLog V2 — event-oriented) ──
+    // Previously this created one COMPOSITION_DEDUCT AuditLog row per deducted
+    // inventory item, which spammed the audit feed on every composition sale.
+    // The deductions are RETURNED to the caller (checkout), which emits a
+    // single SALE audit event that includes an "Inventory Impact" section
+    // summarizing all consumption. The InventoryMovement technical ledger
+    // (step 7 above) is unchanged and remains the system ledger.
 
     return {
       success: true,
@@ -569,28 +552,11 @@ export class InventoryConsumptionService {
       })
     }
 
-    // ── 5. Create audit logs ──
-    if (restoredEntries.length > 0) {
-      await tx.auditLog.createMany({
-        data: restoredEntries.map(r => ({
-          action: 'COMPOSITION_RESTORE',
-          entityType: 'INVENTORY_ITEM',
-          entityId: r.inventoryItemId,
-          details: JSON.stringify({
-            invoiceNumber,
-            reason: 'Void transaksi',
-            itemName: r.itemName,
-            baseUnit: r.baseUnit,
-            totalRestored: r.totalRestored,
-            previousStock: r.previousStock,
-            newStock: r.newStock,
-            sources: r.sources,
-          }),
-          outletId,
-          userId,
-        })),
-      })
-    }
+    // ── 5. NO PER-ENTRY AUDIT LOG (AuditLog V2 — event-oriented) ──
+    // The void route emits a single VOID audit event that includes an
+    // "Inventory Restored" section. The InventoryMovement ledger (step 4)
+    // is unchanged. `restoredEntries` is still computed for its side-effect
+    // documentation in InventoryMovement.notes.
   }
 
   /**
@@ -741,27 +707,10 @@ export class InventoryConsumptionService {
         },
       })
 
-      // Create audit log
-      await tx.auditLog.create({
-        data: {
-          action: 'COMPOSITION_RESTORE',
-          entityType: 'INVENTORY_ITEM',
-          entityId: snapshot.inventoryItemId,
-          details: JSON.stringify({
-            invoiceNumber,
-            reason: 'Void transaksi (from snapshot)',
-            method: 'SNAPSHOT',
-            itemName: snapshot.itemName,
-            baseUnit: snapshot.baseUnit,
-            totalRestored: snapshot.quantityUsed,
-            previousStock,
-            newStock,
-            sourceDetails: JSON.parse(snapshot.sourceDetails),
-          }),
-          outletId,
-          userId,
-        },
-      })
+      // NO per-snapshot audit log (AuditLog V2 — event-oriented).
+      // The void route emits a single VOID event with an "Inventory Restored"
+      // section built from these snapshots. InventoryMovement (above) is the
+      // technical ledger and is unchanged.
     }
 
     console.log(

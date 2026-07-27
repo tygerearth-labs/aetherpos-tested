@@ -21,6 +21,7 @@ import type {
   BatchError,
   BatchResult,
   BatchStats,
+  BulkChangeRecord,
   BulkClientAdapter,
   BulkServerAdapter,
   ColumnSpec,
@@ -238,18 +239,17 @@ export const inventoryAdjustmentServer: BulkServerAdapter = {
     const { ops, errors, skipped } = plan.operations as { ops: UpdateOp[]; errors: BatchError[]; skipped: number }
     const allErrors = [...errors]
     let updated = 0
-    const auditData: Array<Record<string, unknown>> = []
+    // AuditLog V2: per-entity change records; folded into ONE BULK_BATCH event.
+    const changes: BulkChangeRecord[] = []
     for (const op of ops) {
       try {
         await tx.inventoryItem.update({ where: { id: op.itemId }, data: op.fields })
         updated++
-        auditData.push({
-          action: 'UPDATE',
-          entityType: 'INVENTORY_ITEM',
-          entityId: op.itemId,
-          details: JSON.stringify({ fields: op.fields, bulkOperationId: operationId }),
-          outletId: context.outletId,
-          userId: context.userId,
+        changes.push({
+          entity: 'INVENTORY_ITEM',
+          identifier: (op.rowSnapshot?.name as string) || op.itemId,
+          action: 'updated',
+          after: op.fields as Record<string, unknown>,
         })
       } catch (err) {
         allErrors.push({
@@ -260,13 +260,6 @@ export const inventoryAdjustmentServer: BulkServerAdapter = {
         })
       }
     }
-    // Batched audit logs (createMany) — atomic in-tx, per-row traceable.
-    if (auditData.length > 0) {
-      const CHUNK = 100
-      for (let i = 0; i < auditData.length; i += CHUNK) {
-        await tx.auditLog.createMany({ data: auditData.slice(i, i + CHUNK) as never })
-      }
-    }
     const stats: BatchStats = {
       processed: ops.length + skipped,
       created: 0,
@@ -275,7 +268,7 @@ export const inventoryAdjustmentServer: BulkServerAdapter = {
       failed: allErrors.length,
       deleted: 0,
     }
-    return { status: 'completed', stats, errors: allErrors }
+    return { status: 'completed', stats, errors: allErrors, changes }
   },
 
   formatError(error, row) {

@@ -4,6 +4,7 @@ import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { parsePagination, buildFlexibleSearch } from '@/lib/api/api-helpers'
 import { safeJson, safeJsonCreated, safeJsonError, CACHE } from '@/lib/api/safe-response'
 import { invalidateOutletExpiry } from '@/lib/cache'
+import { buildPurchaseEvent, emitAuditEvent } from '@/lib/audit-v2'
 
 // Helper: recalculate HPP for products that use these inventory items
 async function recalculateHppForAffectedProducts(
@@ -620,25 +621,35 @@ export async function POST(request: NextRequest) {
     // ══════════════════════════════════════════════════════
     try {
       await db.$transaction(async (tx) => {
-        const CHUNK = 100
-
-        const auditData = rawUpdates.map(u => ({
-          action: 'PURCHASE' as const,
-          entityType: 'INVENTORY_ITEM' as const,
-          entityId: u.inventoryItemId,
-          details: JSON.stringify({
-            itemName: u.name, purchaseOrderNumber: orderNumber,
-            baseQtyAdded: u.baseQty, unitCost: u.unitCost,
-            previousStock: u.existingStock, newStock: u.newStock,
-            previousAvgCost: u.existingAvgCost, newAvgCost: u.newAvgCost,
-            batch: u.batch, expiredDate: u.expiredDate,
+        // V2 event-oriented audit — ONE PURCHASE event consolidates the
+        // previously per-item auditLog.createMany rows. Emitted INSIDE the
+        // Phase 2 tx so it commits atomically with the InventoryMovement
+        // ledger rows below (technical ledger preserved).
+        await emitAuditEvent(
+          tx,
+          buildPurchaseEvent({
+            purchaseOrderId: purchaseOrder.id,
+            orderNumber,
+            supplierName,
+            items: rawUpdates.map((u) => ({
+              name: u.name,
+              qty: u.baseQty,
+              unit: invItemMap.get(u.inventoryItemId)?.baseUnit || '',
+              unitCost: u.unitCost,
+              batchNumber: u.batch || undefined,
+              expiredDate: u.expiredDate || undefined,
+              lineTotal: u.baseQty * u.unitCost,
+            })),
+            totalValue: totalCost,
+            stockMovementCount: rawUpdates.length,
+            hppImpactNote:
+              'avgCost updated via weighted purchase cost; HPP for affected products recalculated in Phase 3.',
+            outletId,
+            userId,
           }),
-          outletId, userId,
-        }))
-        for (let i = 0; i < auditData.length; i += CHUNK) {
-          await tx.auditLog.createMany({ data: auditData.slice(i, i + CHUNK) })
-        }
+        )
 
+        const CHUNK = 100
         const movementData = rawUpdates.map(u => ({
           type: 'PURCHASE' as const,
           inventoryItemId: u.inventoryItemId, quantity: u.baseQty,

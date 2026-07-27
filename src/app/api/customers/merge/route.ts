@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
+import { buildCustomerChangeEvent, emitAuditEvent } from '@/lib/audit-v2'
 
 export async function POST(request: NextRequest) {
   try {
@@ -87,25 +88,37 @@ export async function POST(request: NextRequest) {
         data: { deletedAt: new Date() },
       })
 
-      // 6. Create audit log inside the transaction
-      await tx.auditLog.create({
-        data: {
-          action: 'MERGE',
-          entityType: 'CUSTOMER',
-          entityId: targetId,
-          details: JSON.stringify({
-            sourceName: source.name,
+      // 6. Create audit log inside the transaction — V2 event-oriented.
+      // ONE CUSTOMER_CHANGE event (changeType: 'merged') captures the merge:
+      // the source customer (this event's subject) was merged into the target.
+      // `before` snapshots the source's pre-merge state; `after` records the
+      // target id/name; mergedIntoName + note surface the merge in the drawer.
+      await emitAuditEvent(
+        tx,
+        buildCustomerChangeEvent({
+          customerId: source.id,
+          customerName: source.name,
+          changeType: 'merged',
+          before: {
             sourceId: source.id,
-            targetName: target.name,
-            targetId: target.id,
-            sourceTransactions: transactionCount,
+            sourceName: source.name,
+            sourceWhatsapp: source.whatsapp,
             sourcePoints: source.points,
             sourceTotalSpend: source.totalSpend,
-          }),
+            sourceTransactions: transactionCount,
+          },
+          after: {
+            targetId: target.id,
+            targetName: target.name,
+            targetWhatsapp: target.whatsapp,
+          },
+          mergedIntoName: target.name,
+          pointsDelta: source.points,
+          note: `Merged ${source.name} → ${target.name}; ${transactionCount} transaction(s) reassigned.`,
           outletId,
           userId,
-        },
-      })
+        }),
+      )
 
       return {
         sourceId: source.id,

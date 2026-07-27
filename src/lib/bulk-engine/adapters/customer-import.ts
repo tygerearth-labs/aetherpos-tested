@@ -24,6 +24,7 @@ import type {
   BatchError,
   BatchResult,
   BatchStats,
+  BulkChangeRecord,
   BulkClientAdapter,
   BulkServerAdapter,
   ColumnSpec,
@@ -137,7 +138,8 @@ export const customerImportServer: BulkServerAdapter = {
     }
     const allErrors = [...errors]
     let createdCount = 0
-    const auditData: Array<Record<string, unknown>> = []
+    // AuditLog V2: per-entity change records; folded into ONE BULK_BATCH event.
+    const changes: BulkChangeRecord[] = []
 
     if (creates.length > 0) {
       try {
@@ -153,13 +155,11 @@ export const customerImportServer: BulkServerAdapter = {
         }
         createdCount = creates.length
         for (const c of creates) {
-          auditData.push({
-            action: 'CREATE',
-            entityType: 'CUSTOMER',
-            entityId: '',
-            details: JSON.stringify({ customerName: c.name, whatsapp: c.whatsapp, bulkOperationId: operationId }),
-            outletId: context.outletId,
-            userId: context.userId,
+          changes.push({
+            entity: 'CUSTOMER',
+            identifier: c.name,
+            action: 'created',
+            after: { name: c.name, whatsapp: c.whatsapp },
           })
         }
       } catch (err) {
@@ -171,13 +171,6 @@ export const customerImportServer: BulkServerAdapter = {
       }
     }
 
-    if (auditData.length > 0) {
-      const CHUNK = 100
-      for (let i = 0; i < auditData.length; i += CHUNK) {
-        await tx.auditLog.createMany({ data: auditData.slice(i, i + CHUNK) as never })
-      }
-    }
-
     const stats: BatchStats = {
       processed: creates.length + skipped,
       created: createdCount,
@@ -186,7 +179,7 @@ export const customerImportServer: BulkServerAdapter = {
       failed: allErrors.length,
       deleted: 0,
     }
-    return { status: 'completed', stats, errors: allErrors }
+    return { status: 'completed', stats, errors: allErrors, changes }
   },
 
   formatError(error, row) {

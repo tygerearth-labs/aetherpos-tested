@@ -40,6 +40,7 @@ import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 import { getServerAdapter } from '@/lib/bulk-engine/registry-server'
 import type { AdapterContext, BatchResult, ParsedRow } from '@/lib/bulk-engine/types'
+import { emitAuditEvent, buildBulkBatchEvent } from '@/lib/audit-v2'
 
 export const maxDuration = 60
 
@@ -202,14 +203,17 @@ export async function POST(request: NextRequest) {
   // ── Build plan (pure function) — BEFORE tx ──
   const plan = adapter.buildPlan(rows, preload, context)
 
-  // ── Execute inside a short tx + write idempotency marker INSIDE tx ──
+  // ── Execute inside a short tx + write ONE BULK_BATCH audit event INSIDE tx ──
+  // AuditLog V2: the idempotency marker is now a full structured BULK_BATCH
+  // event (title, summary, changes section with per-entity before/after, errors
+  // section). ONE row per batch — no per-row AuditLog spam. The V1 `details`
+  // column still carries the BulkMarkerDetails JSON so findMarker() (idempotency
+  // re-check) keeps working unchanged.
   const txTimeout = adapter.txTimeoutMs || DEFAULT_TX_TIMEOUT
   try {
     const result = await db.$transaction(
       async (tx) => {
         const res = await adapter.executeBatch(plan, tx, context, operationId)
-        // Write idempotency marker INSIDE the tx (atomic with the batch) as an
-        // AuditLog row with action='BULK_BATCH'. No extra Prisma model needed.
         const markerDetails: BulkMarkerDetails = {
           operationId,
           payloadHash,
@@ -220,16 +224,23 @@ export async function POST(request: NextRequest) {
           stats: res.stats,
           errorCount: res.errors.length,
         }
-        await tx.auditLog.create({
-          data: {
-            action: BULK_MARKER_ACTION,
-            entityType: BULK_MARKER_ENTITY_TYPE,
-            entityId: operationId,
-            details: JSON.stringify(markerDetails),
+        await emitAuditEvent(
+          tx,
+          buildBulkBatchEvent({
+            adapterKind: kind,
+            operationId,
+            jobId,
+            batchIndex,
+            payloadHash,
+            status: res.status === 'failed' ? 'failed' : 'completed',
+            stats: res.stats,
+            changes: res.changes || [],
+            errors: res.errors.map((e) => ({ row: e.rowIndex, message: e.message })),
             outletId: context.outletId,
             userId: context.userId,
-          },
-        })
+            markerDetails: markerDetails as unknown as Record<string, unknown>,
+          }),
+        )
         return res
       },
       { timeout: txTimeout, maxWait: DEFAULT_TX_MAX_WAIT },

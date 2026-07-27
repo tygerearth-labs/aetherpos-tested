@@ -7,6 +7,7 @@ import * as XLSX from 'xlsx'
 import { safeAuditLog } from '@/lib/safe-audit'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 import { generateUniqueSKU, generateVariantSKU } from '@/lib/sku-generator'
+import { safeEmitAuditEvent, buildMigrationBatchEvent } from '@/lib/audit-v2'
 
 export const maxDuration = 300
 
@@ -640,13 +641,14 @@ export async function POST(request: NextRequest) {
 
     // ==================== HELPERS (accept tx parameter) ====================
 
-    async function flushOpeningStockLogs(tx: Prisma.TransactionClient) {
-      if (openingStockLogs.length === 0) return
-      try {
-        await tx.auditLog.createMany({ data: openingStockLogs })
-      } catch (e) {
-        console.warn('[migration] Failed to batch-create opening stock audit logs:', e)
-      }
+    async function flushOpeningStockLogs(_tx: Prisma.TransactionClient) {
+      // AuditLog V2 (event-oriented): per-product opening-stock RESTOCK audit
+      // rows are NO LONGER written. Migration now emits ONE MIGRATION_BATCH
+      // audit event per completed batch (see the safeEmitAuditEvent call near
+      // the end of the route). Opening-stock stock movements are still recorded
+      // via the InventoryMovement ledger inside the per-batch transaction.
+      // The `openingStockLogs` buffer is retained for potential debugging but
+      // is simply cleared here.
       openingStockLogs.length = 0
     }
 
@@ -2798,45 +2800,43 @@ export async function POST(request: NextRequest) {
       ? Math.max(0, totalProducts - (completedBatches * BATCH_SIZE))
       : 0
 
-    // ==================== AUDIT LOG (outside tx — safeAuditLog uses db) ====================
-    // Only log if at least one record was created. Audit log is non-critical
-    // (safeAuditLog wraps in try/catch) and uses `db` directly, so it must
-    // run AFTER the transaction commits to record the final state.
-    // MIG-BATCH-V2: In single-batch mode, only audit-log on the LAST batch
-    // or on failure (to avoid N audit entries for one migration).
-    const shouldAuditLog = (productsCreated > 0 || inventoryItemsCreated > 0 || compositionsCreated > 0)
-      && (!singleBatchMode || isLastBatchTarget || batchFailed)
-    if (shouldAuditLog) {
-      await safeAuditLog({
-        action: 'CREATE',
-        entityType: 'PRODUCT',
-        details: JSON.stringify({
-          migration: true,
+    // ==================== AUDIT LOG V2 — ONE MIGRATION_BATCH EVENT PER BATCH ====================
+    // Previously: one CREATE audit row on the LAST batch only (single-batch
+    // mode) PLUS N per-product RESTOCK rows from flushOpeningStockLogs (now a
+    // no-op). Now: exactly ONE MIGRATION_BATCH audit row PER completed batch,
+    // with batch index, created/skipped/failed counts, and a concise
+    // product/inventory/composition summary. For 100 products (BATCH_SIZE=50)
+    // this yields 2 audit rows instead of ~100.
+    //
+    // Non-transactional (after the per-batch tx commits) + never throws.
+    if (productsCreated > 0 || inventoryItemsCreated > 0 || compositionsCreated > 0 || batchFailed) {
+      await safeEmitAuditEvent(
+        buildMigrationBatchEvent({
           mode,
-          status,
+          fileName: file.name,
+          batchIndex: targetBatch,
           totalBatches,
-          completedBatches,
+          isLastBatch: isLastBatchTarget,
+          status: batchFailed ? 'FAILED' : (errors.length > 0 ? 'COMPLETED_WITH_ERRORS' : 'COMPLETED'),
           productsCreated,
-          variantsCreated,
           productsSkipped,
+          productsFailed: errors.filter((e) => e.startsWith('Baris')).length,
+          variantsCreated,
           categoriesCreated,
           barcodeCount,
           inventoryItemsCreated: hasInventory ? inventoryItemsCreated : 0,
           inventoryItemsSkipped: hasInventory ? inventoryItemsSkipped : 0,
           inventoryItemsUpdated: hasInventory ? inventoryItemsUpdated : 0,
-          migrationDataCleaned: hasInventory ? migrationDataCleaned : 0,
           compositionsCreated: includeInventory ? compositionsCreated : 0,
           totalStock: hasInventory ? totalStock : 0,
           totalModalValue: hasInventory ? totalModalValue : 0,
-          errors: errors.length,
-          warnings: warnings.length,
-          fileName: file.name,
+          errors,
           batchError,
-          ...(singleBatchMode ? { singleBatchMode, batchNumber: targetBatch } : {}),
+          outletId,
+          userId,
+          operationId: `mig:${file.name}`,
         }),
-        outletId,
-        userId,
-      })
+      )
     }
 
     // MIG-BATCH-V2: Per-batch response (single-batch mode).

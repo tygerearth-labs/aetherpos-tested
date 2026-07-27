@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 import { getMaxStockFromComposition, getMaxStockFromVariantComposition } from '@/lib/comp-stock'
+import { emitAuditEvent, buildCompositionUpdateEvent, type CompositionLineInput } from '@/lib/audit-v2'
 
 // GET /api/products/[id]/composition — get composition items for a product
 export async function GET(
@@ -220,6 +221,39 @@ export async function PUT(
     }
 
     const result = await db.$transaction(async (tx) => {
+      // 0. Snapshot BEFORE composition (for the COMPOSITION_UPDATE audit event).
+      //    Fetched before the delete so we capture the previous recipe exactly.
+      const beforeRows = await tx.productComposition.findMany({
+        where: { productId: id },
+        include: { inventoryItem: { select: { name: true, avgCost: true } } },
+      })
+      const variantNameMap = new Map<string, string>()
+      if (product.hasVariants) {
+        const variants = await tx.productVariant.findMany({
+          where: { productId: id, outletId },
+          select: { id: true, name: true },
+        })
+        for (const v of variants) variantNameMap.set(v.id, v.name)
+      }
+      const toLine = (c: (typeof beforeRows)[number]): CompositionLineInput => ({
+        inventoryItemName: c.inventoryItem.name,
+        qty: c.qty,
+        baseUnit: c.baseUnit,
+        yieldPerBatch: c.yieldPerBatch,
+        avgCost: c.inventoryItem.avgCost,
+      })
+      const beforeSimple: CompositionLineInput[] = beforeRows
+        .filter((c) => c.variantId === null)
+        .map(toLine)
+      const beforeVariantMap = new Map<string, CompositionLineInput[]>()
+      for (const c of beforeRows) {
+        if (c.variantId) {
+          const arr = beforeVariantMap.get(c.variantId) || []
+          arr.push(toLine(c))
+          beforeVariantMap.set(c.variantId, arr)
+        }
+      }
+
       // 1. Delete ALL existing compositions for this product (both product-level and variant-level)
       await tx.productComposition.deleteMany({
         where: { productId: id },
@@ -448,6 +482,62 @@ export async function PUT(
           data: { stock: aggResult._sum.stock ?? 0 },
         })
       }
+
+      // 6. Snapshot AFTER composition + emit ONE COMPOSITION_UPDATE audit event.
+      //    Captures before/after recipe and stock-cap info in a single readable
+      //    event (previously this route created NO audit row at all).
+      const afterRows = await tx.productComposition.findMany({
+        where: { productId: id },
+        include: { inventoryItem: { select: { name: true, avgCost: true } } },
+      })
+      const afterSimple: CompositionLineInput[] = afterRows
+        .filter((c) => c.variantId === null)
+        .map(toLine)
+      const afterVariantMap = new Map<string, CompositionLineInput[]>()
+      for (const c of afterRows) {
+        if (c.variantId) {
+          const arr = afterVariantMap.get(c.variantId) || []
+          arr.push(toLine(c))
+          afterVariantMap.set(c.variantId, arr)
+        }
+      }
+      const variantBeforeAfter = Array.from(afterVariantMap.keys()).map((vid) => ({
+        variantName: variantNameMap.get(vid) || vid,
+        before: beforeVariantMap.get(vid) || [],
+        after: afterVariantMap.get(vid) || [],
+      }))
+      // Include variants that existed before but were removed entirely.
+      for (const [vid, beforeLines] of beforeVariantMap) {
+        if (!afterVariantMap.has(vid)) {
+          variantBeforeAfter.push({
+            variantName: variantNameMap.get(vid) || vid,
+            before: beforeLines,
+            after: [],
+          })
+        }
+      }
+      await emitAuditEvent(
+        tx,
+        buildCompositionUpdateEvent({
+          productId: id,
+          productName: product.name,
+          hasVariants: product.hasVariants,
+          before: beforeSimple,
+          after: afterSimple,
+          variantBeforeAfter,
+          stockCap: stockCapInfo ?? undefined,
+          variantStockCaps: variantStockCapInfo.map((v) => ({
+            variantName: v.variantName,
+            stockCapped: v.newStock < v.oldStock,
+            oldStock: v.oldStock,
+            newStock: v.newStock,
+            maxStock: v.maxStock,
+            limitingItemName: v.limitingItemName,
+          })),
+          outletId,
+          userId: user.id,
+        }),
+      )
 
       return { productAutoHpp, stockCapInfo, variantStockCapInfo }
     })

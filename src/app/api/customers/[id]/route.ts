@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
+import { buildCustomerChangeEvent, emitAuditEvent } from '@/lib/audit-v2'
 
 export async function PUT(
   request: NextRequest,
@@ -54,16 +55,27 @@ export async function PUT(
       })
 
       if (Object.keys(changes).length > 0) {
-        await tx.auditLog.create({
-          data: {
-            action: 'UPDATE',
-            entityType: 'CUSTOMER',
-            entityId: id,
-            details: JSON.stringify({ customerName: updated.name, changes }),
+        // V2 event-oriented audit (transactional — commits with the update).
+        // Build a flat before/after map from the per-field {from,to} change
+        // record so the Changes section renders a clean diff table.
+        const before: Record<string, unknown> = {}
+        const after: Record<string, unknown> = {}
+        for (const [k, v] of Object.entries(changes)) {
+          before[k] = v.from
+          after[k] = v.to
+        }
+        await emitAuditEvent(
+          tx,
+          buildCustomerChangeEvent({
+            customerId: id,
+            customerName: updated.name,
+            changeType: 'updated',
+            before,
+            after,
             outletId,
             userId,
-          },
-        })
+          }),
+        )
       }
 
       return updated
@@ -120,22 +132,26 @@ export async function DELETE(
       // CUST-008 FIX: Create the DELETE audit log INSIDE the same transaction
       // (previously it was created OUTSIDE the tx via safeAuditLog, which is
       // non-atomic — if the delete failed, the audit log would falsely claim
-      // success). Using tx.auditLog.create keeps it atomic with the soft-delete.
-      await tx.auditLog.create({
-        data: {
-          action: 'DELETE',
-          entityType: 'CUSTOMER',
-          entityId: id,
-          details: JSON.stringify({
-            customerName: existing.name,
+      // success). Using emitAuditEvent(tx, ...) keeps it atomic with the soft-delete.
+      // V2: one CUSTOMER_CHANGE event (changeType: 'deleted') with the prior
+      // state captured as `before` so the audit drawer shows what was removed.
+      await emitAuditEvent(
+        tx,
+        buildCustomerChangeEvent({
+          customerId: id,
+          customerName: existing.name,
+          changeType: 'deleted',
+          before: {
+            name: existing.name,
             whatsapp: existing.whatsapp,
             softDelete: true,
             deletedAt: deletedAt.toISOString(),
-          }),
+          },
+          note: 'Soft-deleted (CUST-002). Loyalty logs & transactions preserved.',
           outletId,
           userId,
-        },
-      })
+        }),
+      )
     }, { timeout: 30000 })
 
     return safeJson({ success: true })

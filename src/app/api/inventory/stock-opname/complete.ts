@@ -2,8 +2,8 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
-import { safeAuditLog } from '@/lib/safe-audit'
 import { invalidateOutletExpiry } from '@/lib/cache'
+import { buildInventoryAdjustmentEvent, safeEmitAuditEvent } from '@/lib/audit-v2'
 
 /**
  * POST /api/inventory/stock-opname/complete
@@ -134,7 +134,7 @@ export async function POST(request: NextRequest) {
           id: { in: inventoryItemIds },
           outletId,
         },
-        select: { id: true, name: true, stock: true, avgCost: true },
+        select: { id: true, name: true, stock: true, avgCost: true, baseUnit: true },
       }),
       
       // Current batches for these items
@@ -433,25 +433,33 @@ export async function POST(request: NextRequest) {
 
     const totalTime = Date.now() - startTime
     
-    // Summary audit log
-    await safeAuditLog({
-      action: 'STOCK_OPNAME_COMPLETE',
-      entityType: 'INVENTORY_MOVEMENT',
-      details: JSON.stringify({
-        totalItems: snapshots.length,
-        itemsCounted: snapshots.filter(s => s.physicalQty !== null).length,
-        adjustmentsMade: movementsCreated,
-        batchUpdates: batchesUpdated,
-        totalVarianceValue,
-        varianceItems: varianceCount,
-        notes: opnameNotes,
-        startedAt,
-        completedAt: new Date().toISOString(),
-        processingTimeMs: totalTime,
-      }),
-      outletId,
-      userId,
-    })
+    // V2 event-oriented audit — ONE INVENTORY_ADJUSTMENT event with one line
+    // per adjusted item (consolidates the previously per-row audit spam into
+    // a single business event). Emitted AFTER the tx commits via
+    // safeEmitAuditEvent (never throws — audit is non-critical). The
+    // idempotency marker (STOCK_OPNAME_DEDUP) and the per-item
+    // InventoryMovement ledger rows remain unchanged (technical ledgers).
+    // operationId = opnameId (the same idempotency key the client sent) so
+    // the audit event correlates with the dedup marker.
+    if (adjustments.length > 0) {
+      await safeEmitAuditEvent(
+        buildInventoryAdjustmentEvent({
+          lines: adjustments.map((adj) => ({
+            itemName: adj.itemName,
+            beforeStock: adj.currentStock,
+            afterStock: adj.adjustedStock,
+            delta: adj.delta,
+            unit: currentItemMap.get(adj.inventoryItemId)?.baseUnit || '',
+            reason: opnameNotes || `Physical ${adj.physicalQty} vs system ${adj.systemQty}`,
+          })),
+          reason: opnameNotes || 'Stock opname completion',
+          source: 'stock-opname',
+          outletId,
+          userId,
+          operationId: opnameId,
+        }),
+      )
+    }
 
     console.log(`[StockOpname] Completed in ${totalTime}ms:`, {
       snapshotsReceived: snapshots.length,
