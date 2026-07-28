@@ -5,6 +5,11 @@ generator client {
 }
 
 datasource db {
+  // AuditLog V2 source schema is PostgreSQL. The schema itself is
+  // provider-agnostic (no @db., no native enums, no Json columns, no Decimal),
+  // so it also runs on SQLite for quick local tests, but the canonical source
+  // + migration target is PostgreSQL (verified via isolated PG instance on
+  // port 5433, see scripts/pg-start.ts).
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
@@ -254,19 +259,59 @@ model LoyaltyLog {
   transaction Transaction? @relation(fields: [transactionId], references: [id])
 }
 
-// ==================== AUDIT LOG ====================
+// ==================== AUDIT LOG (V2 — EVENT-ORIENTED) ====================
+// One meaningful user/business action = ONE AuditLog event.
+//
+// V1 fields (action, entityType, entityId, details) are KEPT for backward
+// compatibility — they are mirrored from the V2 fields by the audit-v2
+// emitter (action ← eventType, entityType ← sourceEntityType,
+// entityId ← sourceEntityId/operationId, details ← compact JSON).
+// The bulk-engine idempotency marker (action='BULK_BATCH', entityId=operationId)
+// and the void dedup check (action='VOID', entityId=transactionId) still work.
+//
+// V2 fields form the human-readable business event layer:
+//   eventType   — MIGRATION_BATCH | BULK_BATCH | SALE | VOID | PURCHASE |
+//                 INVENTORY_ADJUSTMENT | COMPOSITION_UPDATE | CUSTOMER_CHANGE | LEGACY
+//   title       — concise human title
+//   summary     — one-line business summary
+//   sections    — JSON array of grouped detail sections
+//                 [{ type, label, fields:[{k,v}], items:[...], collapsed?, download? }]
+//                 type ∈ summary | changes | inventory | errors | metadata
+//   metadata    — JSON object (free-form structured metadata)
+//   operationId — idempotency / correlation id
+//
+// Technical ledgers (InventoryMovement, TransactionConsumption, BulkOperationLog)
+// are NOT removed — they remain the system ledgers. AuditLog is the
+// human-readable business event layer on top.
 model AuditLog {
   id          String   @id @default(cuid())
-  action      String               // CREATE, RESTOCK, SALE, ADJUSTMENT, UPDATE
-  entityType  String               // PRODUCT, STOCK, OUTLET, SETTINGS, TRANSACTION
-  entityId    String?              // ID of the referenced entity (any type)
-  details     String?              // JSON string with change details
+
+  // --- V1 (kept; mirrored from V2 by the emitter) ---
+  action      String               // = eventType (CREATE/RESTOCK/SALE/.../BULK_BATCH/VOID/...)
+  entityType  String               // = sourceEntityType (PRODUCT/TRANSACTION/...)
+  entityId    String?              // = sourceEntityId / operationId
+  details     String?              // compact JSON (summary + metadata + section count)
+
+  // --- V2 event-oriented ---
+  eventType   String?              // MIGRATION_BATCH | BULK_BATCH | SALE | VOID | PURCHASE | INVENTORY_ADJUSTMENT | COMPOSITION_UPDATE | CUSTOMER_CHANGE | LEGACY
+  title       String?              // concise human title
+  summary     String?              // one-line business summary
+  sections    String?              // JSON: grouped detail sections (see comment above)
+  metadata    String?              // JSON: free-form structured metadata
+  operationId String?              // idempotency / correlation id
+  sourceEntityType String?         // PRODUCT | TRANSACTION | PURCHASE_ORDER | INVENTORY_ITEM | ...
+  sourceEntityId   String?         // id of the primary source entity
+
   outletId    String
   userId      String
   createdAt   DateTime @default(now())
 
   outlet  Outlet  @relation(fields: [outletId], references: [id])
   user    User    @relation(fields: [userId], references: [id])
+
+  @@index([outletId, createdAt])
+  @@index([outletId, eventType, createdAt])
+  @@index([operationId])
 }
 
 // ==================== OUTLET SETTING ====================
