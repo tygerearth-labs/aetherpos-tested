@@ -34,12 +34,27 @@ export async function GET(request: NextRequest) {
 
     const where: Record<string, unknown> = { outletId }
 
+    // AUDIT-V2 TECHNICAL MARKER FILTER:
+    // SYNC_DEDUP and STOCK_OPNAME_DEDUP are TECHNICAL idempotency markers
+    // stored as AuditLog rows (they back the partial-unique-index dedup pattern
+    // for offline transaction sync and stock opname). They are NOT business
+    // audit events and must NEVER appear in the visible audit feed — otherwise
+    // every synced transaction would show a "SYNC_DEDUP · SYNC_EVENT" spam row
+    // alongside its single SALE V2 event.
+    //
+    // The rows remain in the DB (the unique index needs them); we only hide
+    // them from the API response. Historical legacy rows (action=SALE · PRODUCT
+    // etc. from pre-V2) are NOT filtered — they stay visible in the Legacy tab.
+    where.action = { notIn: ['SYNC_DEDUP', 'STOCK_OPNAME_DEDUP'] }
+
     // V2: filter by eventType (preferred). Keep V1 action/entityType filters
     // for backward compatibility with existing UI tabs.
     if (eventType && eventType !== 'ALL') {
       where.eventType = eventType
     } else {
       if (action && action !== 'ALL') {
+        // Caller explicitly wants a specific action — drop the technical-marker
+        // exclusion so they can still query SYNC_DEDUP if they really need to.
         where.action = action
       }
       if (entityType && entityType !== 'ALL') {

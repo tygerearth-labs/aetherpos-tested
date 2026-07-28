@@ -3,7 +3,7 @@ import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { getOutletPlan } from '@/lib/config/plan-config'
 import * as XLSX from 'xlsx'
-import { safeAuditLog } from '@/lib/safe-audit'
+import { safeEmitAuditEvent, buildBulkBatchEvent } from '@/lib/audit-v2'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 // Shared Excel utilities
 import {
@@ -408,30 +408,63 @@ export async function POST(request: NextRequest) {
       chunksProcessed: chunks.length,
     })
 
-    // Single audit log for entire operation
-    await safeAuditLog({
-      action: result.updated > 0 ? 'BULK_UPDATE' : 'UPDATE_ATTEMPT',
-      entityType: 'INVENTORY_ITEM',
-      details: JSON.stringify({
-        bulkUpdateExcel: true,
-        fileName: file.name,
-        totalRows: rows.length,
-        updated: result.updated,
-        notFound: result.notFound,
-        errors: result.errors.length,
-        warnings: result.warnings.length,
-        skippedReadOnly: result.skippedReadOnly.length,
-        processingTimeMs: totalTime,
-        success: result.updated > 0,
-        sampleChanges: allChanges.slice(0, 10).map(c => ({
-          id: c.itemId,
-          name: c.name,
-          fields: Object.keys(c.changes),
-        })),
-      }),
-      outletId,
-      userId,
+    // Single AuditLog V2 BULK_BATCH event for the entire bulk-edit-Excel op.
+    // Emitted AFTER all chunk tx commits via safeEmitAuditEvent (non-tx, never throws).
+    // Includes per-item before/after diffs (no longer just sample field names).
+    const operationId = `INV-EXCEL-EDIT-${outletId.slice(-6)}-${Date.now()}`
+    const changes = allChanges.map((c) => {
+      const before: Record<string, unknown> = {}
+      const after: Record<string, unknown> = {}
+      for (const [field, diff] of Object.entries(c.changes)) {
+        before[field] = diff.from
+        after[field] = diff.to
+      }
+      return {
+        entity: 'INVENTORY_ITEM',
+        identifier: c.itemId,
+        action: 'updated' as const,
+        before,
+        after,
+        note: c.name,
+      }
     })
+
+    await safeEmitAuditEvent(
+      buildBulkBatchEvent({
+        adapterKind: 'inventory-edit',
+        operationId,
+        jobId: operationId,
+        batchIndex: 0,
+        payloadHash: `${operationId}-${rows.length}`,
+        status: result.updated > 0 ? 'completed' : 'failed',
+        stats: {
+          processed: rows.length,
+          updated: result.updated,
+          skipped: result.notFound + result.skippedReadOnly.length,
+          failed: result.errors.length,
+        },
+        changes,
+        errors: [
+          ...result.errors,
+          ...result.warnings,
+          ...result.skippedReadOnly.map((s) => `Read-only field skipped: ${s}`),
+        ],
+        outletId,
+        userId,
+        markerDetails: {
+          bulkUpdateExcel: true,
+          fileName: file.name,
+          totalRows: rows.length,
+          updated: result.updated,
+          notFound: result.notFound,
+          errorsCount: result.errors.length,
+          warningsCount: result.warnings.length,
+          skippedReadOnlyCount: result.skippedReadOnly.length,
+          processingTimeMs: totalTime,
+          success: result.updated > 0,
+        },
+      }),
+    )
 
     // Build response message
     let message = ''

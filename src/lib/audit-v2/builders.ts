@@ -998,3 +998,278 @@ export function buildCustomerChangeEvent(input: CustomerChangeEventInput): Audit
     userId: input.userId,
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PRODUCT_CHANGE — one row per product create/update/delete (manual or bulk)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ProductChangeEventInput {
+  productId: string
+  productName: string
+  sku?: string | null
+  changeType: 'created' | 'updated' | 'deleted'
+  before?: Record<string, unknown>
+  after?: Record<string, unknown>
+  source: 'manual' | 'bulk' | 'migration'
+  note?: string
+  operationId?: string | null
+  outletId: string
+  userId: string
+}
+
+export function buildProductChangeEvent(input: ProductChangeEventInput): AuditEvent {
+  const title = `Product ${input.changeType} · ${input.productName}`
+  const summary = [
+    input.changeType,
+    `· ${input.productName}`,
+    input.sku ? `(${input.sku})` : '',
+    `· ${input.source}`,
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  const sections: AuditSection[] = []
+  sections.push({
+    type: 'summary',
+    label: 'Summary',
+    tone: input.changeType === 'deleted' ? 'danger' : input.changeType === 'created' ? 'success' : 'info',
+    fields: fields({
+      Product: input.productName,
+      SKU: input.sku || '-',
+      Action: input.changeType,
+      Source: input.source,
+      ...(input.note ? { Note: input.note } : {}),
+    }),
+  })
+
+  if (input.before || input.after) {
+    const beforeKeys = new Set([...Object.keys(input.before || {}), ...Object.keys(input.after || {})])
+    const rows = Array.from(beforeKeys).map((k) => ({
+      field: k,
+      before: toDisplay((input.before as Record<string, unknown>)?.[k]),
+      after: toDisplay((input.after as Record<string, unknown>)?.[k]),
+    }))
+    sections.push({
+      type: 'changes',
+      label: 'Changes',
+      items: rows,
+      columns: ['field', 'before', 'after'],
+      collapsed: rows.length > 8,
+    })
+  }
+
+  return {
+    eventType: EventType.PRODUCT_CHANGE,
+    title,
+    summary,
+    sections,
+    metadata: {
+      productId: input.productId,
+      productName: input.productName,
+      sku: input.sku ?? null,
+      changeType: input.changeType,
+      source: input.source,
+    },
+    operationId: input.operationId ?? null,
+    sourceEntityType: 'PRODUCT',
+    sourceEntityId: input.productId,
+    action: input.changeType === 'created' ? 'CREATE' : input.changeType === 'deleted' ? 'DELETE' : 'UPDATE',
+    entityType: 'PRODUCT',
+    entityId: input.productId,
+    outletId: input.outletId,
+    userId: input.userId,
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INVENTORY_ITEM_CHANGE — one row per inventory item create/update/delete/archive/restore
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface InventoryItemChangeEventInput {
+  inventoryItemId: string
+  itemName: string
+  sku?: string | null
+  changeType: 'created' | 'updated' | 'deleted' | 'archived' | 'restored'
+  before?: Record<string, unknown>
+  after?: Record<string, unknown>
+  source: 'manual' | 'bulk'
+  note?: string
+  operationId?: string | null
+  outletId: string
+  userId: string
+}
+
+export function buildInventoryItemChangeEvent(input: InventoryItemChangeEventInput): AuditEvent {
+  const title = `Inventory Item ${input.changeType} · ${input.itemName}`
+  const summary = [
+    input.changeType,
+    `· ${input.itemName}`,
+    input.sku ? `(${input.sku})` : '',
+    `· ${input.source}`,
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  const sections: AuditSection[] = []
+  sections.push({
+    type: 'summary',
+    label: 'Summary',
+    tone:
+      input.changeType === 'deleted'
+        ? 'danger'
+        : input.changeType === 'archived'
+          ? 'warning'
+          : input.changeType === 'created'
+            ? 'success'
+            : 'info',
+    fields: fields({
+      Item: input.itemName,
+      SKU: input.sku || '-',
+      Action: input.changeType,
+      Source: input.source,
+      ...(input.note ? { Note: input.note } : {}),
+    }),
+  })
+
+  if (input.before || input.after) {
+    const beforeKeys = new Set([...Object.keys(input.before || {}), ...Object.keys(input.after || {})])
+    const rows = Array.from(beforeKeys).map((k) => ({
+      field: k,
+      before: toDisplay((input.before as Record<string, unknown>)?.[k]),
+      after: toDisplay((input.after as Record<string, unknown>)?.[k]),
+    }))
+    sections.push({
+      type: 'changes',
+      label: 'Changes',
+      items: rows,
+      columns: ['field', 'before', 'after'],
+      collapsed: rows.length > 8,
+    })
+  }
+
+  return {
+    eventType: EventType.INVENTORY_ITEM_CHANGE,
+    title,
+    summary,
+    sections,
+    metadata: {
+      inventoryItemId: input.inventoryItemId,
+      itemName: input.itemName,
+      sku: input.sku ?? null,
+      changeType: input.changeType,
+      source: input.source,
+    },
+    operationId: input.operationId ?? null,
+    sourceEntityType: 'INVENTORY_ITEM',
+    sourceEntityId: input.inventoryItemId,
+    action:
+      input.changeType === 'created'
+        ? 'CREATE'
+        : input.changeType === 'deleted'
+          ? 'DELETE'
+          : input.changeType === 'archived'
+            ? 'ARCHIVE'
+            : input.changeType === 'restored'
+              ? 'RESTORE'
+              : 'UPDATE',
+    entityType: 'INVENTORY_ITEM',
+    entityId: input.inventoryItemId,
+    outletId: input.outletId,
+    userId: input.userId,
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PURCHASE_UPDATE / PURCHASE_DELETE — extend PURCHASE event with edit/delete modes
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface PurchaseChangeEventInput {
+  purchaseOrderId: string
+  orderNumber: string
+  supplierName?: string | null
+  changeType: 'created' | 'updated' | 'deleted' | 'cancelled'
+  before?: Record<string, unknown>
+  after?: Record<string, unknown>
+  itemsReversed?: number
+  stockMovementsReversed?: number
+  note?: string
+  outletId: string
+  userId: string
+}
+
+export function buildPurchaseChangeEvent(input: PurchaseChangeEventInput): AuditEvent {
+  const title = `Purchase ${input.changeType} · ${input.orderNumber}`
+  const summary = [
+    input.changeType,
+    `· ${input.orderNumber}`,
+    input.supplierName ? `· ${input.supplierName}` : '',
+    input.itemsReversed != null ? `· ${input.itemsReversed} item(s) reversed` : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  const sections: AuditSection[] = []
+  sections.push({
+    type: 'summary',
+    label: 'Summary',
+    tone:
+      input.changeType === 'deleted' || input.changeType === 'cancelled'
+        ? 'danger'
+        : input.changeType === 'created'
+          ? 'success'
+          : 'info',
+    fields: fields({
+      'PO Number': input.orderNumber,
+      Supplier: input.supplierName || '-',
+      Action: input.changeType,
+      ...(input.itemsReversed != null ? { 'Items Reversed': input.itemsReversed } : {}),
+      ...(input.stockMovementsReversed != null ? { 'Stock Movements Reversed': input.stockMovementsReversed } : {}),
+      ...(input.note ? { Note: input.note } : {}),
+    }),
+  })
+
+  if (input.before || input.after) {
+    const beforeKeys = new Set([...Object.keys(input.before || {}), ...Object.keys(input.after || {})])
+    const rows = Array.from(beforeKeys).map((k) => ({
+      field: k,
+      before: toDisplay((input.before as Record<string, unknown>)?.[k]),
+      after: toDisplay((input.after as Record<string, unknown>)?.[k]),
+    }))
+    sections.push({
+      type: 'changes',
+      label: 'Changes',
+      items: rows,
+      columns: ['field', 'before', 'after'],
+      collapsed: rows.length > 8,
+    })
+  }
+
+  return {
+    eventType: EventType.PURCHASE,
+    title,
+    summary,
+    sections,
+    metadata: {
+      purchaseOrderId: input.purchaseOrderId,
+      orderNumber: input.orderNumber,
+      supplierName: input.supplierName ?? null,
+      changeType: input.changeType,
+      itemsReversed: input.itemsReversed ?? null,
+      stockMovementsReversed: input.stockMovementsReversed ?? null,
+    },
+    sourceEntityType: 'PURCHASE_ORDER',
+    sourceEntityId: input.purchaseOrderId,
+    action:
+      input.changeType === 'created'
+        ? 'PURCHASE'
+        : input.changeType === 'deleted'
+          ? 'DELETE'
+          : input.changeType === 'cancelled'
+            ? 'CANCEL'
+            : 'UPDATE',
+    entityType: 'PURCHASE_ORDER',
+    entityId: input.purchaseOrderId,
+    outletId: input.outletId,
+    userId: input.userId,
+  }
+}

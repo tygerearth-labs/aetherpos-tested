@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth/auth-utils';
 import type { PaginatedResult, CheckoutInput } from '@/lib/types';
 import { withInsensitiveMode } from '@/lib/api/api-helpers';
+import { emitAuditEvent, buildSaleEvent } from '@/lib/audit-v2';
 
 const PAGE_SIZE = 20;
 
@@ -237,30 +238,15 @@ export async function processCheckout(data: CheckoutInput) {
       });
     }
 
-    // 10. Batch create AuditLog for stock decrease (action: SALE)
-    await tx.auditLog.createMany({
-      data: data.items.map((item) => {
-        const product = productMap.get(item.productId)!;
-        return {
-          action: 'SALE' as const,
-          entityType: 'PRODUCT' as const,
-          entityId: item.productId,
-          details: JSON.stringify({
-            invoiceNumber,
-            productName: item.name,
-            quantitySold: item.qty,
-            price: item.price,
-            subtotal: item.price * item.qty,
-            previousStock: product.stock,
-            newStock: product.stock - item.qty,
-          }),
-          outletId: user.outletId,
-          userId: user.id,
-        };
-      }),
-    });
+    // 10. AuditLog V2 — ONE SALE event per transaction (NOT one row per item).
+    //    The per-item createMany was the main source of LEGACY spam: a 10-item
+    //    cart produced 10 "SALE · PRODUCT" LEGACY rows. Now we emit a single
+    //    structured SALE event after the customer loyalty step so we can
+    //    include customerName + points in the same event (see step 11 below).
 
     // 11. Handle customer loyalty
+    let customerName: string | null = null;
+    let earnedPoints = 0;
     if (data.customerId) {
       const customer = await tx.customer.findFirst({
         where: { id: data.customerId, outletId: user.outletId },
@@ -268,6 +254,7 @@ export async function processCheckout(data: CheckoutInput) {
       if (!customer) {
         throw new Error('Customer not found');
       }
+      customerName = customer.name;
 
       // Check points balance
       if (pointsToUse > customer.points) {
@@ -282,7 +269,7 @@ export async function processCheckout(data: CheckoutInput) {
         select: { loyaltyPointsPerAmount: true },
       });
       const pointsPerAmount = outletSetting?.loyaltyPointsPerAmount || 10000;
-      const earnedPoints = Math.floor(total / pointsPerAmount);
+      earnedPoints = Math.floor(total / pointsPerAmount);
 
       // Combine customer updates into a single query
       const customerUpdateData: { totalSpend: { increment: number }; points?: { increment: number } | { decrement: number } } = {
@@ -326,6 +313,40 @@ export async function processCheckout(data: CheckoutInput) {
         await tx.loyaltyLog.createMany({ data: loyaltyLogs });
       }
     }
+
+    // 11b. AuditLog V2 — emit ONE structured SALE event for the whole
+    //      transaction. Replaces the old per-item createMany that produced
+    //      N LEGACY rows for an N-item cart.
+    await emitAuditEvent(
+      tx,
+      buildSaleEvent({
+        transactionId: transaction.id,
+        invoiceNumber,
+        items: data.items.map((item) => {
+          const product = productMap.get(item.productId)!;
+          return {
+            productName: product.name,
+            productSku: product.sku || null,
+            qty: item.qty,
+            price: item.price,
+            subtotal: item.price * item.qty,
+          };
+        }),
+        subtotal,
+        discount,
+        taxAmount: 0,
+        total,
+        paymentMethod: data.paymentMethod,
+        paidAmount: data.paidAmount,
+        change,
+        customerName,
+        customerId: data.customerId || null,
+        pointsEarned: earnedPoints > 0 ? earnedPoints : undefined,
+        pointsUsed: pointsToUse > 0 ? pointsToUse : undefined,
+        outletId: user.outletId!,
+        userId: user.id,
+      }),
+    );
 
     // 12. Return the complete transaction
     const completeTransaction = await tx.transaction.findUnique({

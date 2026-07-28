@@ -2,6 +2,10 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
+import {
+  emitAuditEvent,
+  buildCustomerChangeEvent,
+} from '@/lib/audit-v2'
 
 export async function POST(
   request: NextRequest,
@@ -68,22 +72,22 @@ export async function POST(
         data: { points: { increment: pointsChange } },
       })
 
-      await tx.auditLog.create({
-        data: {
-          action: 'LOYALTY_ADJUSTMENT',
-          entityType: 'CUSTOMER',
-          entityId: id,
-          details: JSON.stringify({
-            customerId: id,
-            customerName: customer.name,
-            delta: pointsChange,
-            reason: reason.trim(),
-            newBalance: updatedCustomer.points,
-          }),
+      // V2: emit ONE CUSTOMER_CHANGE (loyalty-adjusted) audit event inside
+      // the tx so it commits atomically with the loyalty mutation.
+      await emitAuditEvent(
+        tx,
+        buildCustomerChangeEvent({
+          customerId: id,
+          customerName: customer.name,
+          changeType: 'loyalty-adjusted',
+          before: { points: customer.points },
+          after: { points: updatedCustomer.points },
+          pointsDelta: pointsChange,
+          note: reason.trim(),
           outletId,
           userId: user.id,
-        },
-      })
+        }),
+      )
 
       return updatedCustomer
     })

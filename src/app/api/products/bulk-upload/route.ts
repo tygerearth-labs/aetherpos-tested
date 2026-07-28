@@ -3,8 +3,8 @@ import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { getOutletPlan, isUnlimited } from '@/lib/config/plan-config'
 import * as XLSX from 'xlsx'
-import { safeAuditLog } from '@/lib/safe-audit'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
+import { safeEmitAuditEvent, buildBulkBatchEvent, type BulkChangeInput } from '@/lib/audit-v2'
 // Shared Excel utilities (fixes: inconsistent sanitizeNumber, code duplication)
 import {
   sanitizeNumber,
@@ -1130,27 +1130,64 @@ export async function POST(request: NextRequest) {
     // Optimization #6: Reduce logging output
     console.log(`[Bulk Upload] Done in ${totalTime}ms: ${result.created} created, ${result.skipped} skipped, ${result.variantsCreated} variants, ${result.compCreated} comps`)
 
-    // Audit log
-    await safeAuditLog({
-      action: result.created > 0 ? 'CREATE' : 'UPLOAD_ATTEMPT',
-      entityType: 'PRODUCT',
-      details: JSON.stringify({
-        bulkUpload: true,
-        created: result.created,
-        skipped: result.skipped,
-        variantsCreated: result.variantsCreated,
-        variantsSkipped: result.variantsSkipped,
-        compCreated: result.compCreated,
-        compSkipped: result.compSkipped,
-        errors: result.errors.length,
-        warnings: result.warnings.length,
-        fileName: file.name,
-        processingTimeMs: totalTime,
-        success: result.created > 0 || result.variantsCreated > 0 || result.compCreated > 0,
+    // V2 Audit: ONE BULK_BATCH event for the whole upload (after tx commits).
+    // Changes section lists every created product with its after snapshot; errors section
+    // lists per-row error messages. The markerDetails (V1 `details` JSON) preserves the
+    // legacy bulkUpload summary fields so any existing readers keep working.
+    const operationId = `product-add-${file.name}-${startTime}`
+    const createdChanges: BulkChangeInput[] = []
+    for (const prod of productsToCreate) {
+      const createdId = globalProductNameToIdMap.get(prod.name.toLowerCase())
+      if (!createdId) continue // truncated by plan limit or filtered out — not actually created
+      createdChanges.push({
+        entity: 'PRODUCT',
+        identifier: createdId,
+        action: 'created',
+        after: {
+          name: prod.name,
+          sku: prod.sku,
+          hpp: prod.hpp,
+          price: prod.price,
+          stock: prod.stock,
+          unit: prod.unit,
+          hasVariants: prod.hasVariants,
+        },
+        note: `row ${prod.rowNum}`,
+      })
+    }
+    await safeEmitAuditEvent(
+      buildBulkBatchEvent({
+        adapterKind: 'product-add',
+        operationId,
+        jobId: operationId,
+        batchIndex: 1,
+        payloadHash: '',
+        status: 'completed',
+        stats: {
+          processed: rows.length,
+          created: result.created,
+          skipped: result.skipped,
+          failed: result.errors.length,
+        },
+        changes: createdChanges,
+        errors: result.errors,
+        outletId,
+        userId,
+        markerDetails: {
+          bulkUpload: true,
+          fileName: file.name,
+          created: result.created,
+          skipped: result.skipped,
+          variantsCreated: result.variantsCreated,
+          variantsSkipped: result.variantsSkipped,
+          compCreated: result.compCreated,
+          compSkipped: result.compSkipped,
+          warnings: result.warnings.length,
+          processingTimeMs: totalTime,
+          success: result.created > 0 || result.variantsCreated > 0 || result.compCreated > 0,
+        },
       }),
-      outletId,
-      userId,
-    })
+    )
 
     return safeJson(result)
   } catch (error) {
@@ -1161,29 +1198,66 @@ export async function POST(request: NextRequest) {
     // FIX-P0-5 (AUDIT-1): Always write audit log, even on partial failure.
     // Previous code skipped audit log entirely on error, so partial creations
     // (chunks 0..N-1 already committed before chunk N threw) were un-audited.
+    // V2: ONE BULK_BATCH event with status='failed' (or 'completed' if any partial
+    // success), changes section covers what was actually created.
     try {
-      await safeAuditLog({
-        action: 'UPLOAD_ATTEMPT',
-        entityType: 'PRODUCT',
-        details: JSON.stringify({
-          bulkUpload: true,
-          partialSuccess: true,
-          created: result.created,
-          skipped: result.skipped,
-          variantsCreated: result.variantsCreated,
-          variantsSkipped: result.variantsSkipped,
-          compCreated: result.compCreated,
-          compSkipped: result.compSkipped,
-          errors: result.errors.length + 1, // +1 for the thrown error
-          warnings: result.warnings.length,
-          fileName: file?.name || 'unknown',
-          processingTimeMs: totalTime,
-          success: false,
-          errorMessage: message,
+      const operationId = `product-add-${file?.name || 'unknown'}-${startTime}`
+      const partialChanges: BulkChangeInput[] = []
+      for (const prod of productsToCreate) {
+        const createdId = globalProductNameToIdMap.get(prod.name.toLowerCase())
+        if (!createdId) continue
+        partialChanges.push({
+          entity: 'PRODUCT',
+          identifier: createdId,
+          action: 'created',
+          after: {
+            name: prod.name,
+            sku: prod.sku,
+            hpp: prod.hpp,
+            price: prod.price,
+            stock: prod.stock,
+            unit: prod.unit,
+            hasVariants: prod.hasVariants,
+          },
+          note: `row ${prod.rowNum}`,
+        })
+      }
+      const hasAnyCreated = result.created > 0 || result.variantsCreated > 0 || result.compCreated > 0
+      await safeEmitAuditEvent(
+        buildBulkBatchEvent({
+          adapterKind: 'product-add',
+          operationId,
+          jobId: operationId,
+          batchIndex: 1,
+          payloadHash: '',
+          status: hasAnyCreated ? 'completed' : 'failed',
+          stats: {
+            processed: rows?.length ?? 0,
+            created: result.created,
+            skipped: result.skipped,
+            failed: result.errors.length + 1, // +1 for the thrown error
+          },
+          changes: partialChanges,
+          errors: [...result.errors, message],
+          outletId,
+          userId,
+          markerDetails: {
+            bulkUpload: true,
+            partialSuccess: true,
+            fileName: file?.name || 'unknown',
+            created: result.created,
+            skipped: result.skipped,
+            variantsCreated: result.variantsCreated,
+            variantsSkipped: result.variantsSkipped,
+            compCreated: result.compCreated,
+            compSkipped: result.compSkipped,
+            warnings: result.warnings.length,
+            processingTimeMs: totalTime,
+            success: false,
+            errorMessage: message,
+          },
         }),
-        outletId,
-        userId,
-      })
+      )
     } catch (auditErr) {
       console.error('[Bulk Upload] Failed to write partial-success audit log:', auditErr)
     }

@@ -3,7 +3,11 @@ import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { getOutletPlan } from '@/lib/config/plan-config'
 import * as XLSX from 'xlsx'
-import { safeAuditLog } from '@/lib/safe-audit'
+import {
+  safeEmitAuditEvent,
+  buildBulkBatchEvent,
+  type BulkChangeInput,
+} from '@/lib/audit-v2'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 // Shared Excel utilities (fixes: inconsistent sanitizeNumber, code duplication, date parsing)
 import {
@@ -34,6 +38,10 @@ export async function POST(request: NextRequest) {
     warnings: [] as string[],
     errors: [] as string[],
   }
+
+  // V2: collect per-row change records to emit ONE BULK_BATCH event after tx.
+  const bulkChanges: BulkChangeInput[] = []
+  const operationId = `po-bulk-update-${Date.now()}`
 
   try {
     const user = await getAuthUser(request)
@@ -170,19 +178,20 @@ export async function POST(request: NextRequest) {
           data: updateData,
         })
 
-        await safeAuditLog({
-          action: 'BULK_UPDATE',
-          entityType: 'PURCHASE_ORDER_ITEM',
-          entityId: targetItem.id,
-          details: JSON.stringify({
-            bulkUpdateExcel: true,
-            poNumber,
-            itemName,
-            changes,
-            fileName: file.name,
-          }),
-          outletId,
-          userId,
+        // V2: collect a per-row change record; the single BULK_BATCH audit
+        // event is emitted AFTER the tx commits (below). Replaces the legacy
+        // per-row safeAuditLog call.
+        bulkChanges.push({
+          entity: 'PURCHASE_ORDER_ITEM',
+          identifier: `${poNumber}/${itemName}`,
+          action: 'updated',
+          before: {
+            expiredDate: changes.expiredDate?.from ?? null,
+          },
+          after: {
+            expiredDate: changes.expiredDate?.to ?? null,
+          },
+          note: `PO ${poNumber} · row ${rowNum}`,
         })
 
         result.updated++
@@ -192,22 +201,39 @@ export async function POST(request: NextRequest) {
       maxWait: 5_000,
     }) // End of transaction
 
-    // Audit log summary (Fix Bug #14)
-    if (result.updated > 0 || result.notFound > 0) {
-      await safeAuditLog({
-        action: 'BULK_UPDATE',
-        entityType: 'PURCHASE_ORDER_ITEM',
-        details: JSON.stringify({
-          bulkUpdateExcel: true,
-          updated: result.updated,
-          notFound: result.notFound,
-          warnings: result.warnings.length,
-          errors: result.errors.length,
-          fileName: file.name,
+    // V2: emit ONE BULK_BATCH event after the tx commits (non-atomic, never
+    // throws). Replaces the 2 legacy safeAuditLog calls (per-row + summary).
+    // Captures per-item diffs so the audit feed no longer loses row data.
+    if (result.updated > 0 || result.notFound > 0 || bulkChanges.length > 0) {
+      await safeEmitAuditEvent(
+        buildBulkBatchEvent({
+          adapterKind: 'purchase-edit',
+          operationId,
+          jobId: operationId,
+          batchIndex: 1,
+          payloadHash: '',
+          status: result.errors.length > 0 && result.updated === 0 ? 'failed' : 'completed',
+          stats: {
+            processed: rows.length,
+            updated: result.updated,
+            skipped: result.notFound,
+            failed: result.errors.length,
+          },
+          changes: bulkChanges,
+          errors: result.errors.map((e) => ({ message: e })),
+          outletId,
+          userId,
+          markerDetails: {
+            bulkUpdateExcel: true,
+            fileName: file.name,
+            updated: result.updated,
+            notFound: result.notFound,
+            warnings: result.warnings.length,
+            errors: result.errors.length,
+            operationId,
+          },
         }),
-        outletId,
-        userId,
-      })
+      )
     }
 
     return safeJson({ ...result })

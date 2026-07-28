@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJsonCreated, safeJsonError } from '@/lib/api/safe-response'
+import { safeEmitAuditEvent, buildBulkBatchEvent } from '@/lib/audit-v2'
 
 /**
  * POST /api/inventory/items/bulk
@@ -174,6 +175,76 @@ export async function POST(request: NextRequest) {
     if (missingIds.length > 0) {
       console.error('[Bulk Create] Missing IDs for items:', missingIds.map(i => i.name))
     }
+
+    // ── 8. AuditLog V2 — ONE BULK_BATCH event for the entire bulk-create op.
+    //    Emitted AFTER all chunked createMany commits via safeEmitAuditEvent
+    //    (non-transactional, never throws — audit failure must not break the response).
+    const operationId = `INV-BULK-${outletId.slice(-6)}-${Date.now()}`
+    const changes = [
+      // Newly created items
+      ...createdIds.map((c) => {
+        const src = toCreate.find((i) => i.key === c.key)
+        return {
+          entity: 'INVENTORY_ITEM',
+          identifier: c.id,
+          action: 'created' as const,
+          after: {
+            name: src?.name ?? '',
+            sku: src?.sku ?? '',
+            baseUnit: src?.baseUnit ?? '',
+            stock: src?.stock ?? 0,
+            avgCost: src?.avgCost ?? 0,
+          },
+        }
+      }),
+      // Items that already existed (matched by name)
+      ...alreadyExist.map((a) => {
+        const src = dedupedItems.find((i) => i.key === a.key)
+        return {
+          entity: 'INVENTORY_ITEM',
+          identifier: a.id,
+          action: 'skipped' as const,
+          note: `Already exists: ${src?.name ?? ''}`,
+        }
+      }),
+      // Items that failed validation
+      ...errors.map((e) => ({
+        entity: 'INVENTORY_ITEM',
+        identifier: e.key,
+        action: 'failed' as const,
+        note: e.error,
+      })),
+    ]
+
+    await safeEmitAuditEvent(
+      buildBulkBatchEvent({
+        adapterKind: 'inventory-bulk',
+        operationId,
+        jobId: operationId,
+        batchIndex: 0,
+        payloadHash: `${operationId}-${items.length}`,
+        status: 'completed',
+        stats: {
+          processed: items.length,
+          created: createdIds.length,
+          skipped: alreadyExist.length + dupKeyMap.size,
+          failed: errors.length,
+        },
+        changes,
+        errors: errors.map((e) => ({ row: e.key, message: e.error })),
+        outletId,
+        userId: user.id,
+        markerDetails: {
+          bulkCreate: true,
+          source: 'inventory-items-bulk',
+          totalRequested: items.length,
+          created: createdIds.length,
+          matched: alreadyExist.length,
+          duplicates: dupKeyMap.size,
+          failed: errors.length,
+        },
+      }),
+    )
 
     return safeJsonCreated({
       idMap,

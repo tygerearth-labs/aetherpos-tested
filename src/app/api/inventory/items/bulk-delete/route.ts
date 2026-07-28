@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
-import { safeAuditLogMany } from '@/lib/safe-audit'
+import { emitAuditEvent, buildBulkBatchEvent } from '@/lib/audit-v2'
 
 // Types for detailed history analysis
 interface ItemHistoryAnalysis {
@@ -193,25 +193,53 @@ export async function POST(request: NextRequest) {
         console.log(`[Bulk Delete] ✓ Cleaned ${batchResult.count} batches`)
       }
 
-      // STEP 4: Single aggregated audit log (ONE write instead of N writes)
+      // STEP 4: Single AuditLog V2 BULK_BATCH event INSIDE the tx.
+      // Atomic with the cleanup + delete — committed together or rolled back together.
+      const operationId = `INV-BULK-DELETE-${outletId.slice(-6)}-${Date.now()}`
+      const changes = deletableItems.map((a) => ({
+        entity: 'INVENTORY_ITEM',
+        identifier: a.id,
+        action: 'deleted' as const,
+        before: {
+          name: a.name,
+          sku: a.sku ?? '',
+          stock: a.stock,
+          avgCost: a.avgCost,
+        },
+        note: a.reason,
+      }))
+      const blockedChangeNotes = blockedItems.map(
+        (a) => `${a.name}: ${a.reason}`,
+      )
       try {
-        await tx.auditLog.create({
-          data: {
-            action: 'DELETE',
-            entityType: 'INVENTORY_ITEM',
-            entityId: 'bulk',
-            details: JSON.stringify({
+        await emitAuditEvent(
+          tx,
+          buildBulkBatchEvent({
+            adapterKind: 'inventory-delete',
+            operationId,
+            jobId: operationId,
+            batchIndex: 0,
+            payloadHash: `${operationId}-${idsToDelete.length}`,
+            status: 'completed',
+            stats: {
+              processed: ids.length,
+              deleted: idsToDelete.length,
+              skipped: blockedItems.length,
+            },
+            changes,
+            errors: blockedChangeNotes,
+            outletId,
+            userId,
+            markerDetails: {
               deleteType: blockedItems.length > 0 ? 'BULK_PARTIAL_SMART' : 'BULK_SMART',
               deletedCount: idsToDelete.length,
               blockedCount: blockedItems.length,
               deletedIds: idsToDelete,
-              deletedNames: deletableItems.map(a => a.name),
+              deletedNames: deletableItems.map((a) => a.name),
               reason: 'BULK_DELETE_OPTIMIZED',
-            }),
-            outletId,
-            userId,
-          },
-        })
+            },
+          }),
+        )
       } catch (auditErr) {
         // Don't fail the whole operation if audit log fails
         console.warn('[Bulk Delete] Audit log failed (non-critical):', auditErr)

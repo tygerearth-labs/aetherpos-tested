@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
+import { safeEmitAuditEvent, buildInventoryAdjustmentEvent } from '@/lib/audit-v2'
 
 /**
  * GET /api/inventory/composition-sync
@@ -109,13 +110,22 @@ export async function POST(request: NextRequest) {
     const result = await db.$transaction(async (tx) => {
       let processed = 0
       const errors: Array<{ snapshotId: string; error: string }> = []
+      // Per-item adjustment lines (for AuditLog V2 emission after commit)
+      const lines: Array<{
+        itemName: string
+        beforeStock: number
+        afterStock: number
+        delta: number
+        unit: string
+        reason: string
+      }> = []
 
       for (const [invItemId, { totalDeducted, snapshots }] of deductions) {
         try {
           // Fetch current stock
           const invItem = await tx.inventoryItem.findFirst({
             where: { id: invItemId, outletId },
-            select: { id: true, stock: true, name: true },
+            select: { id: true, stock: true, name: true, baseUnit: true },
           })
           if (!invItem) {
             // Inventory item no longer exists — mark snapshots with error
@@ -166,6 +176,17 @@ export async function POST(request: NextRequest) {
           })
 
           processed += snapshots.length
+
+          // Record an audit line for this item (emitted as part of a single
+          // V2 INVENTORY_ADJUSTMENT event after the tx commits).
+          lines.push({
+            itemName: invItem.name,
+            beforeStock: previousStock,
+            afterStock: newStock,
+            delta: -totalDeducted,
+            unit: invItem.baseUnit || '',
+            reason: `Sync ${snapshots.length} snapshot (${txInfo?.invoiceNumber || snapshots[0].transactionId.slice(-6)})`,
+          })
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : 'Unknown error'
           for (const s of snapshots) {
@@ -180,12 +201,30 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      return { processed, errors, deleted: invalidSnapshotIds.length }
+      return { processed, errors, deleted: invalidSnapshotIds.length, lines }
     })
+
+    // AuditLog V2 — ONE INVENTORY_ADJUSTMENT event for the sync recovery.
+    // Emitted AFTER the sync tx commits via safeEmitAuditEvent (non-tx, never throws).
+    // Only emit if at least one item was actually adjusted (no empty events for no-op syncs).
+    if (result.lines.length > 0) {
+      await safeEmitAuditEvent(
+        buildInventoryAdjustmentEvent({
+          lines: result.lines,
+          reason: 'Composition sync recovery',
+          source: 'manual',
+          operationId: `COMP-SYNC-${outletId.slice(-6)}-${Date.now()}`,
+          outletId,
+          userId: user.id,
+        }),
+      )
+    }
 
     return safeJson({
       message: `Sync selesai: ${result.processed} snapshot diproses, ${result.deleted} snapshot dihapus (transaksi tidak ditemukan)`,
-      ...result,
+      processed: result.processed,
+      errors: result.errors,
+      deleted: result.deleted,
     })
   } catch (error) {
     console.error('Composition sync POST error:', error)

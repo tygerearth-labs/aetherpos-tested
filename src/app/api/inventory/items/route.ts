@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { buildFlexibleSearch } from '@/lib/api/api-helpers'
 import { safeJson, safeJsonCreated, safeJsonError } from '@/lib/api/safe-response'
+import { emitAuditEvent, buildInventoryItemChangeEvent } from '@/lib/audit-v2'
 
 // GET /api/inventory/items — list inventory items for outlet
 export async function GET(request: NextRequest) {
@@ -164,6 +165,31 @@ export async function POST(request: NextRequest) {
             `stock=${initialStock}, avgCost=${avgCost || 0}`
           )
         }
+
+        // AuditLog V2 — single event for manual inventory item creation.
+        // Atomic with the inventoryItem + batch + movement writes.
+        await emitAuditEvent(
+          tx,
+          buildInventoryItemChangeEvent({
+            inventoryItemId: created.id,
+            itemName: created.name,
+            sku: created.sku,
+            changeType: 'created',
+            after: {
+              name: created.name,
+              sku: created.sku ?? '',
+              baseUnit: created.baseUnit,
+              stock: created.stock,
+              avgCost: created.avgCost,
+              lowStockAlert: created.lowStockAlert,
+              categoryId: created.categoryId ?? '',
+            },
+            source: 'manual',
+            outletId: user.outletId,
+            userId: user.id,
+            operationId: `INV-CREATE-${created.id.slice(-6)}-${Date.now()}`,
+          }),
+        )
 
         return created
       }, { timeout: 15000 })

@@ -3,6 +3,10 @@ import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 import { FEFOEngine } from '@/lib/fefo-engine'
+import {
+  emitAuditEvent,
+  buildPurchaseChangeEvent,
+} from '@/lib/audit-v2'
 
 // Helper: recalculate HPP for all products affected by the given inventory item IDs
 async function recalculateHppForAffectedProducts(
@@ -220,9 +224,6 @@ export async function PUT(
     const result = await db.$transaction(async (tx) => {
       const affectedInventoryItemIds: string[] = []
 
-      // Build maps for old items
-      const oldItemMap = new Map(order.items.map((item) => [item.inventoryItemId, item]))
-
       // Build maps for new items
       const newItemMap = new Map(items.map((item) => [item.inventoryItemId, item]))
 
@@ -255,28 +256,6 @@ export async function PUT(
             where: { id: oldItem.inventoryItemId },
             data: { stock: newStock, avgCost: newAvgCost },
           })
-
-          await tx.auditLog.create({
-            data: {
-              action: 'UPDATE',
-              entityType: 'INVENTORY_ITEM',
-              entityId: oldItem.inventoryItemId,
-              details: JSON.stringify({
-                itemName: invItem.name,
-                action: 'REVERSE_PURCHASE_EDIT',
-                purchaseOrderNumber: order.orderNumber,
-                baseQtyReversed: oldItem.baseQty,
-                previousStock: existingStock,
-                newStock,
-                previousAvgCost: existingAvgCost,
-                newAvgCost,
-                batch: oldItem.batch,
-                expiredDate: oldItem.expiredDate?.toISOString() ?? null,
-              }),
-              outletId,
-              userId,
-            },
-          })
         } else {
           // Item is removed entirely: reverse old stock
           if (invItem.stock < oldItem.baseQty) {
@@ -295,28 +274,6 @@ export async function PUT(
           await tx.inventoryItem.update({
             where: { id: oldItem.inventoryItemId },
             data: { stock: newStock, avgCost: newAvgCost },
-          })
-
-          await tx.auditLog.create({
-            data: {
-              action: 'UPDATE',
-              entityType: 'INVENTORY_ITEM',
-              entityId: oldItem.inventoryItemId,
-              details: JSON.stringify({
-                itemName: invItem.name,
-                action: 'REMOVE_PURCHASE_ITEM',
-                purchaseOrderNumber: order.orderNumber,
-                baseQtyReversed: oldItem.baseQty,
-                previousStock: existingStock,
-                newStock,
-                previousAvgCost: existingAvgCost,
-                newAvgCost,
-                batch: oldItem.batch,
-                expiredDate: oldItem.expiredDate?.toISOString() ?? null,
-              }),
-              outletId,
-              userId,
-            },
           })
         }
 
@@ -373,31 +330,6 @@ export async function PUT(
           data: {
             stock: newStock,
             avgCost: newAvgCost,
-          },
-        })
-
-        // Audit log for re-applied purchase
-        const wasOldItem = oldItemMap.has(item.inventoryItemId)
-        await tx.auditLog.create({
-          data: {
-            action: 'UPDATE',
-            entityType: 'INVENTORY_ITEM',
-            entityId: item.inventoryItemId,
-            details: JSON.stringify({
-              itemName: invItem.name,
-              action: wasOldItem ? 'REAPPLY_PURCHASE_EDIT' : 'ADD_PURCHASE_ITEM',
-              purchaseOrderNumber: order.orderNumber,
-              baseQtyAdded: baseQty,
-              unitCost,
-              previousStock: existingStock,
-              newStock,
-              previousAvgCost: existingAvgCost,
-              newAvgCost,
-              batch: item.batch?.trim() || null,
-              expiredDate: item.expiredDate || null,
-            }),
-            outletId,
-            userId,
           },
         })
 
@@ -468,6 +400,49 @@ export async function PUT(
       // ── STEP 6: Recalculate HPP ──
       const uniqueAffectedIds = [...new Set(affectedInventoryItemIds)]
       await recalculateHppForAffectedProducts(tx, uniqueAffectedIds)
+
+      // V2: emit ONE PURCHASE_CHANGE (updated) audit event inside the tx so
+      // it commits atomically with the inventory reversal + re-apply. This
+      // replaces the 3 legacy per-item raw tx.auditLog.create calls
+      // (REVERSE_PURCHASE_EDIT, REMOVE_PURCHASE_ITEM, REAPPLY_PURCHASE_EDIT).
+      await emitAuditEvent(
+        tx,
+        buildPurchaseChangeEvent({
+          purchaseOrderId: id,
+          orderNumber: order.orderNumber,
+          supplierName: orderSupplier?.supplier?.name || null,
+          changeType: 'updated',
+          before: {
+            totalCost: order.totalCost,
+            notes: order.notes,
+            itemCount: order.items.length,
+            items: order.items.map((i) => ({
+              name: i.name,
+              baseQty: i.baseQty,
+              unitCost: i.unitCost,
+              batch: i.batch,
+              expiredDate: i.expiredDate?.toISOString() ?? null,
+            })),
+          },
+          after: {
+            totalCost,
+            notes: notes?.trim() || null,
+            itemCount: items.length,
+            items: items.map((i) => ({
+              name: inventoryItems.find((ii) => ii.id === i.inventoryItemId)?.name ?? i.inventoryItemId,
+              baseQty: i.baseQty,
+              unitCost: i.unitCost,
+              batch: i.batch?.trim() || null,
+              expiredDate: i.expiredDate ?? null,
+            })),
+          },
+          itemsReversed: order.items.length,
+          stockMovementsReversed: items.length,
+          note: `Edit pembelian: ${order.orderNumber}`,
+          outletId,
+          userId,
+        }),
+      )
 
       // Return updated order
       return tx.purchaseOrder.findFirst({
@@ -624,53 +599,8 @@ export async function DELETE(
           },
         })
 
-        // Audit log
-        await tx.auditLog.create({
-          data: {
-            action: 'DELETE',
-            entityType: 'INVENTORY_ITEM',
-            entityId: item.inventoryItemId,
-            details: JSON.stringify({
-              itemName: invItem.name,
-              action: 'REVERSE_PURCHASE',
-              purchaseOrderNumber: order.orderNumber,
-              baseQtyReversed: baseQty,
-              previousStock: existingStock,
-              newStock,
-              previousAvgCost: existingAvgCost,
-              newAvgCost,
-              batch: item.batch,
-              expiredDate: item.expiredDate?.toISOString() ?? null,
-            }),
-            outletId,
-            userId,
-          },
-        })
-
         affectedInventoryItemIds.push(item.inventoryItemId)
       }
-
-      // Audit log for purchase order deletion itself
-      await tx.auditLog.create({
-        data: {
-          action: 'DELETE',
-          entityType: 'PURCHASE_ORDER',
-          entityId: id,
-          details: JSON.stringify({
-            orderNumber: order.orderNumber,
-            totalCost: order.totalCost,
-            itemCount: order.items.length,
-            itemNames: order.items.map((i) => i.name),
-            batchInfo: order.items
-              .filter((i) => i.batch || i.expiredDate)
-              .map((i) => ({ name: i.name, batch: i.batch, expiredDate: i.expiredDate?.toISOString() ?? null })),
-            supplierName: order.supplier?.name || null,
-            createdAt: order.createdAt.toISOString(),
-          }),
-          outletId,
-          userId,
-        },
-      })
 
       // Delete purchase order (items cascade delete)
       await tx.purchaseOrder.delete({
@@ -679,6 +609,40 @@ export async function DELETE(
 
       // Recalculate HPP for affected products
       await recalculateHppForAffectedProducts(tx, affectedInventoryItemIds)
+
+      // V2: emit ONE PURCHASE_CHANGE (deleted) audit event inside the tx so
+      // it commits atomically with the inventory reversal + PO hard-delete.
+      // This replaces the 2 legacy raw tx.auditLog.create calls (per-item
+      // REVERSE_PURCHASE + PO-level DELETE). The route performs a hard
+      // delete (tx.purchaseOrder.delete) → changeType='deleted'.
+      await emitAuditEvent(
+        tx,
+        buildPurchaseChangeEvent({
+          purchaseOrderId: id,
+          orderNumber: order.orderNumber,
+          supplierName: order.supplier?.name || null,
+          changeType: 'deleted',
+          before: {
+            orderNumber: order.orderNumber,
+            totalCost: order.totalCost,
+            itemCount: order.items.length,
+            supplierName: order.supplier?.name || null,
+            createdAt: order.createdAt.toISOString(),
+            items: order.items.map((i) => ({
+              name: i.name,
+              baseQty: i.baseQty,
+              unitCost: i.unitCost,
+              batch: i.batch,
+              expiredDate: i.expiredDate?.toISOString() ?? null,
+            })),
+          },
+          itemsReversed: affectedInventoryItemIds.length,
+          stockMovementsReversed: affectedInventoryItemIds.length,
+          note: `Hapus pembelian: ${order.orderNumber}`,
+          outletId,
+          userId,
+        }),
+      )
     }, { timeout: 30000 })
 
     return safeJson({ success: true })

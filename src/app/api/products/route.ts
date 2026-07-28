@@ -6,6 +6,7 @@ import { getPlanFeatures, isUnlimited } from '@/lib/config/plan-config'
 import { assertOutletWithinLimits } from '@/lib/api/plan-enforcement'
 import { safeJson, safeJsonCreated, safeJsonError, CACHE } from '@/lib/api/safe-response'
 import { generateUniqueSKU, generateVariantSKU } from '@/lib/sku-generator'
+import { emitAuditEvent, buildProductChangeEvent } from '@/lib/audit-v2'
 
 type SortOption = 'newest' | 'best-selling' | 'low-stock' | 'most-stock'
 
@@ -433,23 +434,31 @@ export async function POST(request: NextRequest) {
         })
       }
 
-      await tx.auditLog.create({
-        data: {
-          action: 'CREATE',
-          entityType: 'PRODUCT',
-          entityId: newProduct.id,
-          details: JSON.stringify({
+      await emitAuditEvent(
+        tx,
+        buildProductChangeEvent({
+          productId: newProduct.id,
+          productName: newProduct.name,
+          sku: newProduct.sku,
+          changeType: 'created',
+          after: {
             name: newProduct.name,
-            sku: newProduct.sku || null,
+            sku: newProduct.sku,
+            barcode: newProduct.barcode,
+            hpp: newProduct.hpp,
             price: newProduct.price,
             stock: newProduct.stock,
+            lowStockAlert: newProduct.lowStockAlert,
+            unit: newProduct.unit,
+            categoryId: newProduct.categoryId,
             hasVariants: !!hasVariants,
             variantCount: parsedVariants.length,
-          }),
+          },
+          source: 'manual',
           outletId,
           userId,
-        },
-      })
+        }),
+      )
 
       return newProduct
     })

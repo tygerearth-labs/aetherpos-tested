@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 import { withInsensitiveMode } from '@/lib/api/api-helpers'
+import { emitAuditEvent, buildBulkBatchEvent, type BulkChangeInput } from '@/lib/audit-v2'
 
 export async function POST(request: NextRequest) {
   try {
@@ -100,14 +101,9 @@ export async function POST(request: NextRequest) {
 
     // Process each product in a transaction
     let updatedCount = 0
-    const auditLogs: Array<{
-      action: string
-      entityType: string
-      entityId: string
-      details: string
-      outletId: string
-      userId: string
-    }> = []
+    // V2: collect structured changes for ONE BULK_BATCH event (not N LEGACY rows)
+    const bulkChanges: BulkChangeInput[] = []
+    const operationId = `bulk-update-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
     await db.$transaction(async (tx) => {
       for (const product of existingProducts) {
@@ -190,21 +186,13 @@ export async function POST(request: NextRequest) {
                 data: { price: variantNewPrice },
               })
 
-              auditLogs.push({
-                action: 'BULK_UPDATE',
-                entityType: 'PRODUCT_VARIANT',
-                entityId: variant.id,
-                details: JSON.stringify({
-                  parentProductName: product.name,
-                  parentProductSku: product.sku || null,
-                  variantName: variant.name,
-                  variantSku: variant.sku || null,
-                  price: { from: variant.price, to: variantNewPrice },
-                  hpp: variant.hpp,
-                  batchOperation: true,
-                }),
-                outletId,
-                userId,
+              bulkChanges.push({
+                entity: 'PRODUCT_VARIANT',
+                identifier: variant.sku || variant.id,
+                action: 'updated',
+                before: { price: variant.price },
+                after: { price: variantNewPrice },
+                note: `variant of ${product.name}`,
               })
             }
           }
@@ -233,22 +221,13 @@ export async function POST(request: NextRequest) {
                 data: { stock: variantNewStock },
               })
 
-              auditLogs.push({
-                action: 'BULK_UPDATE',
-                entityType: 'PRODUCT_VARIANT',
-                entityId: variant.id,
-                details: JSON.stringify({
-                  parentProductName: product.name,
-                  parentProductSku: product.sku || null,
-                  variantName: variant.name,
-                  variantSku: variant.sku || null,
-                  stock: { from: variant.stock, to: variantNewStock },
-                  price: variant.price,
-                  hpp: variant.hpp,
-                  batchOperation: true,
-                }),
-                outletId,
-                userId,
+              bulkChanges.push({
+                entity: 'PRODUCT_VARIANT',
+                identifier: variant.sku || variant.id,
+                action: 'updated',
+                before: { stock: variant.stock },
+                after: { stock: variantNewStock },
+                note: `variant of ${product.name}`,
               })
             }
 
@@ -270,29 +249,50 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        auditLogs.push({
-          action: 'BULK_UPDATE',
-          entityType: 'PRODUCT',
-          entityId: product.id,
-          details: JSON.stringify({
-            productName: product.name,
-            productSku: product.sku || null,
-            changes,
-            hpp: product.hpp,
-            batchOperation: true,
-          }),
-          outletId,
-          userId,
+        bulkChanges.push({
+          entity: 'PRODUCT',
+          identifier: product.sku || product.name,
+          action: 'updated',
+          before: {
+            ...(changes.price ? { price: changes.price.from } : {}),
+            ...(changes.stock ? { stock: changes.stock.from } : {}),
+            ...(changes.categoryId ? { categoryId: changes.categoryId.from } : {}),
+          },
+          after: {
+            ...(changes.price ? { price: changes.price.to } : {}),
+            ...(changes.stock ? { stock: changes.stock.to } : {}),
+            ...(changes.categoryId ? { categoryId: changes.categoryId.to } : {}),
+          },
+          note: product.name,
         })
 
         updatedCount++
       }
 
-      // Create all audit logs
-      if (auditLogs.length > 0) {
-        await tx.auditLog.createMany({
-          data: auditLogs,
-        })
+      // V2: emit ONE BULK_BATCH event for the whole operation (not N LEGACY rows)
+      if (bulkChanges.length > 0) {
+        await emitAuditEvent(
+          tx,
+          buildBulkBatchEvent({
+            adapterKind: 'product-update',
+            operationId,
+            jobId: operationId,
+            batchIndex: 1,
+            payloadHash: '',
+            status: 'completed',
+            stats: { processed: updatedCount, updated: updatedCount },
+            changes: bulkChanges,
+            errors: [],
+            outletId,
+            userId,
+            markerDetails: {
+              adapterKind: 'product-update',
+              operationId,
+              updatedCount,
+              batchOperation: true,
+            },
+          }),
+        )
       }
     }, { timeout: 15000 })
 

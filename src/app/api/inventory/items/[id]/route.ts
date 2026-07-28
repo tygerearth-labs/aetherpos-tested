@@ -2,7 +2,10 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
-import { safeAuditLog } from '@/lib/safe-audit'
+import {
+  emitAuditEvent,
+  buildInventoryItemChangeEvent,
+} from '@/lib/audit-v2'
 
 // GET /api/inventory/items/[id] — get single inventory item with linked products & movements
 export async function GET(
@@ -244,12 +247,50 @@ export async function PUT(
     if (lowStockAlert !== undefined) updateData.lowStockAlert = lowStockAlert
     if (categoryId !== undefined) updateData.categoryId = categoryId || null
 
-    const updated = await db.inventoryItem.update({
-      where: { id },
-      data: updateData,
-      include: {
-        category: { select: { id: true, name: true, color: true } },
-      },
+    // AuditLog V2 — emit a single 'updated' event INSIDE the update tx.
+    // Capture before-snapshot from `existing` (already fetched).
+    const updated = await db.$transaction(async (tx) => {
+      const beforeSnapshot = {
+        name: existing.name,
+        sku: existing.sku ?? '',
+        baseUnit: existing.baseUnit,
+        lowStockAlert: existing.lowStockAlert,
+        categoryId: existing.categoryId ?? '',
+      }
+
+      const result = await tx.inventoryItem.update({
+        where: { id },
+        data: updateData,
+        include: {
+          category: { select: { id: true, name: true, color: true } },
+        },
+      })
+
+      const afterSnapshot = {
+        name: result.name,
+        sku: result.sku ?? '',
+        baseUnit: result.baseUnit,
+        lowStockAlert: result.lowStockAlert,
+        categoryId: result.categoryId ?? '',
+      }
+
+      await emitAuditEvent(
+        tx,
+        buildInventoryItemChangeEvent({
+          inventoryItemId: result.id,
+          itemName: result.name,
+          sku: result.sku,
+          changeType: 'updated',
+          before: beforeSnapshot,
+          after: afterSnapshot,
+          source: 'manual',
+          outletId: user.outletId,
+          userId: user.id,
+          operationId: `INV-EDIT-${result.id.slice(-6)}-${Date.now()}`,
+        }),
+      )
+
+      return result
     })
 
     return safeJson(updated)
@@ -293,24 +334,35 @@ export async function PATCH(
     }
 
     const newStatus = action === 'archive' ? 'ARCHIVED' : 'ACTIVE'
+    const changeType = action === 'archive' ? 'archived' : 'restored'
+    const note =
+      action === 'archive'
+        ? 'Item dinonaktifkan (archived)'
+        : 'Item diaktifkan kembali (restored)'
 
-    await db.inventoryItem.update({
-      where: { id },
-      data: { status: newStatus },
-    })
+    // AuditLog V2 — single event INSIDE the tx, atomic with the status update.
+    await db.$transaction(async (tx) => {
+      await tx.inventoryItem.update({
+        where: { id },
+        data: { status: newStatus },
+      })
 
-    await safeAuditLog({
-      action: action === 'archive' ? 'ARCHIVE' : 'RESTORE',
-      entityType: 'INVENTORY_ITEM',
-      entityId: id,
-      details: JSON.stringify({
-        itemName: existing.name,
-        sku: existing.sku,
-        previousStatus: existing.status,
-        newStatus,
-      }),
-      outletId,
-      userId,
+      await emitAuditEvent(
+        tx,
+        buildInventoryItemChangeEvent({
+          inventoryItemId: id,
+          itemName: existing.name,
+          sku: existing.sku,
+          changeType,
+          before: { status: existing.status },
+          after: { status: newStatus },
+          source: 'manual',
+          note,
+          outletId,
+          userId,
+          operationId: `INV-${action.toUpperCase()}-${id.slice(-6)}-${Date.now()}`,
+        }),
+      )
     })
 
     return safeJson({ success: true, status: newStatus })
@@ -371,20 +423,29 @@ export async function DELETE(
     // Quick path: no relations at all → safe to delete
     if (totalRelations === 0) {
       await db.$transaction(async (tx) => {
-        await tx.auditLog.create({
-          data: {
-            action: 'DELETE',
-            entityType: 'INVENTORY_ITEM',
-            entityId: id,
-            details: JSON.stringify({
-              itemName: existing.name,
-              sku: existing.sku,
+        await emitAuditEvent(
+          tx,
+          buildInventoryItemChangeEvent({
+            inventoryItemId: id,
+            itemName: existing.name,
+            sku: existing.sku,
+            changeType: 'deleted',
+            before: {
+              name: existing.name,
+              sku: existing.sku ?? '',
+              baseUnit: existing.baseUnit,
+              stock: existing.stock,
+              avgCost: existing.avgCost,
+              lowStockAlert: existing.lowStockAlert,
               reason: 'NO_HISTORY',
-            }),
+            },
+            source: 'manual',
+            note: 'Hard delete — no history',
             outletId,
             userId,
-          },
-        })
+            operationId: `INV-DELETE-${id.slice(-6)}-${Date.now()}`,
+          }),
+        )
         await tx.inventoryItem.delete({ where: { id } })
       }, { timeout: 10000 })
 
@@ -529,24 +590,32 @@ export async function DELETE(
         where: { inventoryItemId: id },
       })
 
-      // 4. Audit log before deletion
-      await tx.auditLog.create({
-        data: {
-          action: 'DELETE',
-          entityType: 'INVENTORY_ITEM',
-          entityId: id,
-          details: JSON.stringify({
-            itemName: existing.name,
-            sku: existing.sku,
+      // 4. AuditLog V2 — single 'deleted' event with before-snapshot.
+      //    Atomic with the cleanup + delete inside this tx.
+      await emitAuditEvent(
+        tx,
+        buildInventoryItemChangeEvent({
+          inventoryItemId: id,
+          itemName: existing.name,
+          sku: existing.sku,
+          changeType: 'deleted',
+          before: {
+            name: existing.name,
+            sku: existing.sku ?? '',
+            baseUnit: existing.baseUnit,
             stock: existing.stock,
             avgCost: existing.avgCost,
+            lowStockAlert: existing.lowStockAlert,
             reason: 'MIGRATION_DATA_ONLY',
             cleanedUp: analysis.migrationData,
-          }),
+          },
+          source: 'manual',
+          note: `Hard delete — migration data cleaned: ${analysis.migrationData.join(', ') || 'none'}`,
           outletId,
           userId,
-        },
-      })
+          operationId: `INV-DELETE-${id.slice(-6)}-${Date.now()}`,
+        }),
+      )
 
       // 5. Finally delete the item
       await tx.inventoryItem.delete({ where: { id } })

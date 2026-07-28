@@ -7,6 +7,7 @@ import { assertOutletWithinLimits } from '@/lib/api/plan-enforcement'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 import { ensureMigrated } from '@/lib/db-migrate'
 import { InventoryConsumptionService } from '@/lib/inventory-consumption-service'
+import { emitAuditEvent, buildSaleEvent } from '@/lib/audit-v2'
 
 interface SyncTransactionItem {
   productId: string
@@ -442,70 +443,24 @@ export async function POST(request: NextRequest) {
             await txDb.transactionConsumption.createMany({ data: snapshots })
           }
 
-          // 8. Create audit logs — VARIANT type for variant items, PRODUCT for normal
-          const auditLogs = []
-          for (const item of payload.items) {
-            const product = productMap.get(item.productId)!
-            if (item.variantId) {
-              const variant = variantMap.get(item.variantId)
-              auditLogs.push({
-                action: 'SALE' as const,
-                entityType: 'VARIANT' as const,
-                entityId: item.variantId,
-                details: JSON.stringify({
-                  invoiceNumber,
-                  productName: item.productName,
-                  productSku: product.sku || null,
-                  variantName: item.variantName,
-                  variantSku: variant?.sku || null,
-                  quantitySold: item.qty,
-                  price: item.price,
-                  subtotal: item.price * item.qty,
-                  previousStock: variant?.stock || 0,
-                  newStock: (variant?.stock || 0) - item.qty,
-                  syncedFromOffline: true,
-                  originalCreatedAt: createdAt,
-                }),
-                outletId,
-                userId,
-                createdAt: transactionDate,
-              })
-            } else {
-              auditLogs.push({
-                action: 'SALE' as const,
-                entityType: 'PRODUCT' as const,
-                entityId: item.productId,
-                details: JSON.stringify({
-                  invoiceNumber,
-                  productName: item.productName,
-                  productSku: product.sku || null,
-                  quantitySold: item.qty,
-                  price: item.price,
-                  subtotal: item.price * item.qty,
-                  previousStock: product.stock,
-                  newStock: product.stock - item.qty,
-                  syncedFromOffline: true,
-                  originalCreatedAt: createdAt,
-                }),
-                outletId,
-                userId,
-                createdAt: transactionDate,
-              })
-            }
-          }
-          if (auditLogs.length > 0) {
-            await txDb.auditLog.createMany({ data: auditLogs })
-          }
+          // 8. AuditLog V2 — ONE SALE event per transaction (NOT one row per item).
+          //    The old per-item createMany produced N LEGACY rows for an N-item
+          //    cart. The structured SALE event is emitted AFTER customer loyalty
+          //    (step 9) so customerName + points are included. See step 9b below.
 
           // 9. Handle customer loyalty
+          let syncCustomerName: string | null = null
+          let syncEarnedPoints = 0
+          let syncPointsUsed = payload.pointsUsed || 0
           if (payload.customerId) {
             const customer = await txDb.customer.findFirst({
               where: { id: payload.customerId, outletId, deletedAt: null },
-              select: { id: true },
+              select: { id: true, name: true },
             })
             if (!customer) {
               throw new Error('Customer not found')
             }
+            syncCustomerName = customer.name
 
             const pointsToUse = payload.pointsUsed || 0
 
@@ -518,6 +473,7 @@ export async function POST(request: NextRequest) {
             if (syncSetting?.loyaltyEnabled && syncSetting.loyaltyPointsPerAmount > 0) {
               earnedPoints = Math.floor(payload.total / syncSetting.loyaltyPointsPerAmount)
             }
+            syncEarnedPoints = earnedPoints
 
             // CUST-001 FIX: Atomic loyalty point update — race-condition-free.
             // Mirrors the atomic stock-deduction pattern used earlier in this route
@@ -574,6 +530,72 @@ export async function POST(request: NextRequest) {
               await txDb.loyaltyLog.createMany({ data: loyaltyLogs })
             }
           }
+
+          // 9a. AuditLog V2 — emit ONE structured SALE event for the whole
+          //     synced transaction. Replaces the old per-item createMany that
+          //     produced N LEGACY rows for an N-item cart. Handles both plain
+          //     products and variant products via the SaleItemInput shape.
+          //
+          //     AUDIT-V2 SYNC FIX: This is the OFFLINE→SYNC path. The SALE
+          //     event MUST include (a) the inventory consumption as a single
+          //     "Inventory Impact" section (same as online checkout), and
+          //     (b) syncedFromOffline=true + localTransactionId + localEventId
+          //     in metadata so the audit feed can distinguish synced vs online
+          //     sales. The SYNC_DEDUP marker (step 0) is a TECHNICAL
+          //     idempotency ledger — it is filtered from /api/audit-logs so
+          //     the visible feed shows exactly ONE row per synced transaction.
+          const syncSaleEvent = buildSaleEvent({
+            transactionId: transaction.id,
+            invoiceNumber,
+            items: payload.items.map((item) => {
+              const product = productMap.get(item.productId)!
+              const variant = item.variantId ? variantMap.get(item.variantId) : null
+              return {
+                productName: item.productName || product.name,
+                productSku: product.sku || null,
+                variantName: item.variantName || null,
+                variantSku: variant?.sku || null,
+                qty: item.qty,
+                price: item.price,
+                subtotal: item.subtotal,
+                itemDiscount: item.itemDiscount,
+              }
+            }),
+            subtotal: payload.subtotal ?? payload.items.reduce((s, i) => s + i.subtotal, 0),
+            discount: payload.discount ?? 0,
+            taxAmount: payload.taxAmount ?? 0,
+            total: payload.total,
+            paymentMethod: payload.paymentMethod,
+            paidAmount: payload.paidAmount ?? payload.total,
+            change: payload.change ?? 0,
+            customerName: syncCustomerName,
+            customerId: payload.customerId || null,
+            pointsEarned: syncEarnedPoints > 0 ? syncEarnedPoints : undefined,
+            pointsUsed: syncPointsUsed > 0 ? syncPointsUsed : undefined,
+            // Inventory Impact section — composition consumption (same mapping
+            // as /api/pos/checkout). Without this, synced composition sales
+            // would show no inventory deduction in the audit drawer.
+            consumption: syncConsumptionResult.deductions.map((d) => ({
+              itemName: d.itemName,
+              baseUnit: d.baseUnit,
+              quantityUsed: d.totalDeducted,
+              materialCost: d.materialCost,
+            })),
+            outletId,
+            userId,
+          })
+          // Merge sync-origin metadata so the audit feed can distinguish
+          // online vs offline-synced sales. buildSaleEvent already sets
+          // metadata.{transactionId, invoiceNumber, ...}; we add the sync
+          // provenance keys here.
+          syncSaleEvent.metadata = {
+            ...(syncSaleEvent.metadata ?? {}),
+            syncedFromOffline: true,
+            localTransactionId: tx.id != null ? String(tx.id) : null,
+            localEventId: tx.eventId ?? null,
+            serverTransactionId: transaction.id,
+          }
+          await emitAuditEvent(txDb, syncSaleEvent)
 
           // 9b. UPDATE dedup marker with the real invoiceNumber + serverId.
           //     The marker was inserted with placeholder details at step 0 (start

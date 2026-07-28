@@ -46,6 +46,8 @@ import {
   Beaker,
   Layers,
   History,
+  Tag,
+  Box,
 } from 'lucide-react'
 
 // ==================== TYPES ====================
@@ -58,6 +60,8 @@ type EventType =
   | 'INVENTORY_ADJUSTMENT'
   | 'COMPOSITION_UPDATE'
   | 'CUSTOMER_CHANGE'
+  | 'PRODUCT_CHANGE'
+  | 'INVENTORY_ITEM_CHANGE'
   | 'LEGACY'
   | null
 
@@ -124,6 +128,8 @@ const EVENT_TYPE_TABS: { value: string; label: string; icon: React.ElementType }
   { value: 'INVENTORY_ADJUSTMENT', label: 'Stok', icon: SlidersHorizontal },
   { value: 'COMPOSITION_UPDATE', label: 'Komposisi', icon: Beaker },
   { value: 'CUSTOMER_CHANGE', label: 'Customer', icon: Users },
+  { value: 'PRODUCT_CHANGE', label: 'Produk', icon: Tag },
+  { value: 'INVENTORY_ITEM_CHANGE', label: 'Item', icon: Box },
   { value: 'LEGACY', label: 'Legacy', icon: Package },
 ]
 
@@ -136,6 +142,8 @@ const EVENT_TYPE_BADGE: Record<string, string> = {
   INVENTORY_ADJUSTMENT: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
   COMPOSITION_UPDATE: 'bg-fuchsia-500/15 text-fuchsia-600 dark:text-fuchsia-400',
   CUSTOMER_CHANGE: 'bg-lime-500/15 text-lime-600 dark:text-lime-400',
+  PRODUCT_CHANGE: 'bg-sky-500/15 text-sky-600 dark:text-sky-400',
+  INVENTORY_ITEM_CHANGE: 'bg-orange-500/15 text-orange-600 dark:text-orange-400',
   LEGACY: 'bg-zinc-500/15 text-zinc-600 dark:text-zinc-400',
 }
 

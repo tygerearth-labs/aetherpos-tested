@@ -1,11 +1,11 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
-import { safeAuditLog } from '@/lib/safe-audit'
 import { assertOutletWithinLimits } from '@/lib/api/plan-enforcement'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 import { generateUniqueSKU, generateVariantSKU } from '@/lib/sku-generator'
 import { validateCompositionStock } from '@/lib/comp-stock'
+import { emitAuditEvent, buildProductChangeEvent } from '@/lib/audit-v2'
 
 interface VariantPayload {
   name: string
@@ -370,16 +370,26 @@ export async function PUT(
 
       // Create audit log only if there are actual changes
       if (Object.keys(changes).length > 0) {
-        await tx.auditLog.create({
-          data: {
-            action: 'UPDATE',
-            entityType: 'PRODUCT',
-            entityId: id,
-            details: JSON.stringify({ productName: updated.name, productSku: existing.sku || null, changes }),
+        const before: Record<string, unknown> = {}
+        const after: Record<string, unknown> = {}
+        for (const [k, v] of Object.entries(changes)) {
+          before[k] = v.from
+          after[k] = v.to
+        }
+        await emitAuditEvent(
+          tx,
+          buildProductChangeEvent({
+            productId: id,
+            productName: updated.name,
+            sku: existing.sku,
+            changeType: 'updated',
+            before,
+            after,
+            source: 'manual',
             outletId,
             userId,
-          },
-        })
+          }),
+        )
       }
 
       return updated
@@ -434,32 +444,47 @@ export async function DELETE(
       return safeJsonError('Product not found', 404)
     }
 
-    // Create audit log before deleting (non-blocking)
-    await safeAuditLog({
-      action: 'DELETE',
-      entityType: 'PRODUCT',
-      entityId: id,
-      details: JSON.stringify({
-        productName: existing.name,
+    // Delete product — explicitly clean up compositions & variants to avoid orphan FK refs in SQLite
+    // V2: audit INSIDE the tx (atomic with the delete), replaces legacy pre-tx safeAuditLog.
+    await db.$transaction(async (tx) => {
+      // Capture before snapshot for the V2 audit event (fields available on existing).
+      const beforeSnapshot = {
+        name: existing.name,
+        sku: existing.sku,
+        barcode: existing.barcode,
+        hpp: existing.hpp,
         price: existing.price,
         stock: existing.stock,
-        sku: existing.sku,
+        lowStockAlert: existing.lowStockAlert,
+        unit: existing.unit,
+        categoryId: existing.categoryId,
         hasVariants: !!existing.hasVariants,
         variantCount: existing.variants.length,
         variantNames: existing.variants.map((v) => v.name),
-      }),
-      outletId,
-      userId,
-    })
+      }
 
-    // Delete product — explicitly clean up compositions & variants to avoid orphan FK refs in SQLite
-    await db.$transaction(async (tx) => {
       // 1. Explicitly delete all compositions referencing this product
       if (existing._count.compositions > 0) {
         await tx.productComposition.deleteMany({ where: { productId: id } })
       }
       // 2. Delete product (variants auto-delete via onDelete: Cascade)
       await tx.product.delete({ where: { id } })
+
+      // 3. Emit ONE V2 PRODUCT_CHANGE event (changeType='deleted'), atomic with the delete.
+      await emitAuditEvent(
+        tx,
+        buildProductChangeEvent({
+          productId: id,
+          productName: existing.name,
+          sku: existing.sku,
+          changeType: 'deleted',
+          before: beforeSnapshot,
+          source: 'manual',
+          note: 'Manual delete',
+          outletId,
+          userId,
+        }),
+      )
     }, { timeout: 30000 })
 
     return safeJson({ success: true })

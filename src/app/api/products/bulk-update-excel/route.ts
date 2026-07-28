@@ -3,8 +3,8 @@ import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { getOutletPlan } from '@/lib/config/plan-config'
 import * as XLSX from 'xlsx'
-import { safeAuditLog } from '@/lib/safe-audit'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
+import { emitAuditEvent, buildBulkBatchEvent, type BulkChangeInput } from '@/lib/audit-v2'
 import {
   sanitizeNumber,
   normalizeHeader,
@@ -78,6 +78,9 @@ export async function POST(request: NextRequest) {
     // V15.1 FIX: Add explicit timeout — default Prisma interactive tx timeout is 5s,
     // which is way too short for 500 rows × multiple DB ops each. After timeout,
     // Prisma closes the tx and any subsequent tx.* call throws "Transaction not found".
+    // V2 Audit: ONE BULK_BATCH event inside the tx replaces per-row tx.auditLog.create spam.
+    const operationId = `product-edit-${file.name}-${Date.now()}`
+    const bulkChanges: BulkChangeInput[] = []
     await db.$transaction(async (tx) => {
       const categoryCache = new Map<string, string | null>()
 
@@ -278,18 +281,21 @@ export async function POST(request: NextRequest) {
 
         await tx.product.update({ where: { id: productId }, data: updateData })
 
-        // FIX-P1-1 (AUDIT-2): Use tx.auditLog.create (transactional) instead of safeAuditLog (global db).
-        // safeAuditLog uses the GLOBAL db client, so audit logs would persist even if the
-        // surrounding transaction rolls back → phantom audit logs for updates that never committed.
-        await tx.auditLog.create({
-          data: {
-            action: 'BULK_UPDATE',
-            entityType: 'PRODUCT',
-            entityId: productId,
-            details: JSON.stringify({ bulkUpdateExcel: true, changes, fileName: file.name }),
-            outletId,
-            userId,
-          },
+        // V2: collect per-product before/after for ONE BULK_BATCH event emitted after the loop.
+        // Previously this was a per-row tx.auditLog.create (N rows of audit spam on a 500-row upload).
+        const before: Record<string, unknown> = {}
+        const after: Record<string, unknown> = {}
+        for (const [k, v] of Object.entries(changes)) {
+          before[k] = v.from
+          after[k] = v.to
+        }
+        bulkChanges.push({
+          entity: 'PRODUCT',
+          identifier: existing.sku || productId,
+          action: 'updated',
+          before,
+          after,
+          note: `${existing.name} (row ${rowNum})`,
         })
 
         result.updated++
@@ -529,28 +535,44 @@ export async function POST(request: NextRequest) {
           }
         }
       }
+
+      // V2: emit ONE BULK_BATCH event INSIDE the tx (atomic with the bulk update).
+      // Replaces N per-row tx.auditLog.create calls + 1 after-tx safeAuditLog summary.
+      const hasAnyUpdate = result.updated > 0 || result.variantsUpdated > 0
+      await emitAuditEvent(
+        tx,
+        buildBulkBatchEvent({
+          adapterKind: 'product-edit',
+          operationId,
+          jobId: operationId,
+          batchIndex: 1,
+          payloadHash: '',
+          status: hasAnyUpdate ? 'completed' : 'failed',
+          stats: {
+            processed: rows.length,
+            updated: result.updated,
+            skipped: result.notFound,
+            failed: result.errors.length,
+          },
+          changes: bulkChanges,
+          errors: result.errors,
+          outletId,
+          userId,
+          markerDetails: {
+            bulkUpdateExcel: true,
+            fileName: file.name,
+            updated: result.updated,
+            notFound: result.notFound,
+            variantsUpdated: result.variantsUpdated,
+            variantsNotFound: result.variantsNotFound,
+            success: hasAnyUpdate,
+          },
+        }),
+      )
     }, {
       timeout: 55_000,  // 55s — well above default 5s, under maxDuration=60
       maxWait: 5_000,   // 5s to acquire a connection from the pool
     }) // End transaction
-
-    // Audit log (Fix Bug #14)
-    await safeAuditLog({
-      action: result.updated > 0 ? 'BULK_UPDATE' : 'UPDATE_ATTEMPT',
-      entityType: 'PRODUCT',
-      details: JSON.stringify({
-        bulkUpdateExcel: true,
-        updated: result.updated,
-        notFound: result.notFound,
-        variantsUpdated: result.variantsUpdated,
-        variantsNotFound: result.variantsNotFound,
-        errors: result.errors.length,
-        fileName: file.name,
-        success: result.updated > 0 || result.variantsUpdated > 0,
-      }),
-      outletId,
-      userId,
-    })
 
     return safeJson(result)
   } catch (error) {

@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
-import { safeAuditLog } from '@/lib/safe-audit'
+import { safeEmitAuditEvent, buildBulkBatchEvent } from '@/lib/audit-v2'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 
 const MAX_ITEMS = 200
@@ -43,23 +43,61 @@ export async function PATCH(request: NextRequest) {
       if (!cat) return safeJsonError('Kategori tidak ditemukan', 404)
     }
 
+    // Fetch before-snapshots so we can record per-item diffs in the audit event.
+    const beforeItems = await db.inventoryItem.findMany({
+      where: { id: { in: ids }, outletId: user.outletId },
+      select: { id: true, name: true, sku: true, categoryId: true },
+    })
+
     const result = await db.inventoryItem.updateMany({
       where: { id: { in: ids }, outletId: user.outletId },
       data: { categoryId: categoryId || null },
     })
 
-    await safeAuditLog({
-      action: 'BULK_UPDATE',
-      entityType: 'INVENTORY_ITEM',
-      details: JSON.stringify({
-        bulkCategoryChange: true,
-        categoryId: categoryId || null,
-        targetCount: ids.length,
-        updatedCount: result.count,
+    // AuditLog V2 — ONE BULK_BATCH event for the bulk-category change.
+    // Emitted AFTER the updateMany commits via safeEmitAuditEvent (non-tx, never throws).
+    const operationId = `INV-BULK-CAT-${user.outletId.slice(-6)}-${Date.now()}`
+    const changes = beforeItems.map((it) => ({
+      entity: 'INVENTORY_ITEM',
+      identifier: it.id,
+      action: 'updated' as const,
+      before: {
+        name: it.name,
+        sku: it.sku ?? '',
+        categoryId: it.categoryId ?? '',
+      },
+      after: {
+        name: it.name,
+        sku: it.sku ?? '',
+        categoryId: categoryId || '',
+      },
+      note: it.name,
+    }))
+
+    await safeEmitAuditEvent(
+      buildBulkBatchEvent({
+        adapterKind: 'inventory-category',
+        operationId,
+        jobId: operationId,
+        batchIndex: 0,
+        payloadHash: `${operationId}-${ids.length}`,
+        status: 'completed',
+        stats: {
+          processed: ids.length,
+          updated: result.count,
+        },
+        changes,
+        errors: [],
+        outletId: user.outletId,
+        userId: user.id,
+        markerDetails: {
+          bulkCategoryChange: true,
+          categoryId: categoryId || null,
+          targetCount: ids.length,
+          updatedCount: result.count,
+        },
       }),
-      outletId: user.outletId,
-      userId: user.id,
-    })
+    )
 
     return safeJson({ updated: result.count })
   } catch (error) {

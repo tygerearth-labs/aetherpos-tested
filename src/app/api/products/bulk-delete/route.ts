@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
-import { safeAuditLogMany } from '@/lib/safe-audit'
+import { emitAuditEvent, buildBulkBatchEvent, type BulkChangeInput } from '@/lib/audit-v2'
 import { withInsensitiveMode } from '@/lib/api/api-helpers'
 
 export async function POST(request: NextRequest) {
@@ -60,7 +60,10 @@ export async function POST(request: NextRequest) {
     // TransactionItem rows are preserved — Prisma's onDelete: SetNull
     // will nullify productId/variantId, but snapshot fields (productName,
     // variantName, price, qty, subtotal) remain intact.
-    const { count, productsForAudit, variantIds } = await db.$transaction(async (tx) => {
+    // V2 Audit: ONE BULK_BATCH event inside the tx (atomic with the delete),
+    // replaces N per-row safeAuditLogMany calls emitted after the tx.
+    const operationId = `product-delete-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const count = await db.$transaction(async (tx) => {
       // Get all product IDs to delete (using filters when selectAllMode)
       const idsToDelete = selectAllMode
         ? (await tx.product.findMany({
@@ -69,7 +72,7 @@ export async function POST(request: NextRequest) {
           })).map((p) => p.id)
         : productIds
 
-      if (idsToDelete.length === 0) return { count: 0, productsForAudit: [], variantIds: [] }
+      if (idsToDelete.length === 0) return 0
 
       // Delete product compositions (avoid orphan FK refs in SQLite)
       await tx.productComposition.deleteMany({
@@ -93,47 +96,70 @@ export async function POST(request: NextRequest) {
         where: { id: { in: idsToDelete }, outletId },
       })
 
-      return { count: result.count, productsForAudit, variantIds: variantInfo }
+      // V2: emit ONE BULK_BATCH event INSIDE the tx (atomic with the delete).
+      // The `before` snapshot for each deleted product is taken from productsForAudit.
+      const variantByProduct = new Map<string, typeof variantInfo>()
+      for (const v of variantInfo) {
+        const list = variantByProduct.get(v.productId) ?? []
+        list.push(v)
+        variantByProduct.set(v.productId, list)
+      }
+      const deleteChanges: BulkChangeInput[] = productsForAudit.map((p) => {
+        const pVariants = variantByProduct.get(p.id) ?? []
+        return {
+          entity: 'PRODUCT',
+          identifier: p.id,
+          action: 'deleted' as const,
+          before: {
+            name: p.name,
+            sku: p.sku,
+            price: p.price,
+            stock: p.stock,
+            hasVariants: !!p.hasVariants,
+            variantCount: pVariants.length,
+            variantNames: pVariants.map((v) => v.name),
+          },
+          note: 'BULK',
+        }
+      })
+
+      await emitAuditEvent(
+        tx,
+        buildBulkBatchEvent({
+          adapterKind: 'product-delete',
+          operationId,
+          jobId: operationId,
+          batchIndex: 1,
+          payloadHash: '',
+          status: 'completed',
+          stats: {
+            processed: idsToDelete.length,
+            deleted: result.count,
+            failed: idsToDelete.length - result.count,
+          },
+          changes: deleteChanges,
+          errors: [],
+          outletId,
+          userId,
+          markerDetails: {
+            bulkDelete: true,
+            deleteType: 'BULK',
+            selectAllMode: !!selectAllMode,
+            deletedCount: result.count,
+            requestedCount: idsToDelete.length,
+          },
+        }),
+      )
+
+      return result.count
     }, {
       timeout: 30_000,  // V15.1 FIX: 30s — default 5s too short for large batch deletes
       maxWait: 5_000,
     })
 
     // Store deletedCount IMMEDIATELY after successful transaction
-    // This ensures we return success even if audit logging fails
+    // (audit is now atomic with the delete — no separate post-tx step).
     deletedCount = count
-
-    // Create audit logs for deleted products (non-blocking, outside transaction)
-    // Wrapped in try/catch to prevent audit failures from affecting the response
-    if (productsForAudit.length > 0) {
-      try {
-        const variantMap = new Map(variantIds.map((v) => [v.productId, v]))
-        await safeAuditLogMany(productsForAudit.map((p) => {
-          const productVariants = variantMap.get(p.id)
-          return {
-            action: 'DELETE' as const,
-            entityType: 'PRODUCT' as const,
-            entityId: p.id,
-            details: JSON.stringify({
-              productName: p.name,
-              price: p.price,
-              stock: p.stock,
-              sku: p.sku,
-              hasVariants: !!p.hasVariants,
-              variantCount: productVariants ? productVariants.filter((v) => v.productId === p.id).length : 0,
-              variantNames: productVariants?.filter((v) => v.productId === p.id).map((v) => v.name) || [],
-              deleteType: 'BULK',
-            }),
-            outletId,
-            userId: user.id,
-          }
-        }))
-      } catch (auditError) {
-        // Audit log failure should NOT cause the delete to appear failed
-        // Products are already deleted, just log the warning
-        console.warn('[bulk-delete] Failed to create audit logs (non-critical):', auditError)
-      }
-    }
 
     // Return success with the actual deleted count
     return safeJson({ deletedCount })
