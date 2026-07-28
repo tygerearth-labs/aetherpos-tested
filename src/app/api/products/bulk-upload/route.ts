@@ -1186,6 +1186,18 @@ export async function POST(request: NextRequest) {
           processingTimeMs: totalTime,
           success: result.created > 0 || result.variantsCreated > 0 || result.compCreated > 0,
         },
+        // Concise sub-entity breakdown rendered in the Summary section so the
+        // human reader sees "50 produk dibuat · 120 varian · 50 komposisi"
+        // WITHOUT expanding the (truncated) Changes table.
+        breakdown: [
+          { label: 'Produk Dibuat', value: result.created, tone: 'success' },
+          ...(result.variantsCreated > 0 ? [{ label: 'Varian Dibuat', value: result.variantsCreated, tone: 'success' as const }] : []),
+          ...(result.compCreated > 0 ? [{ label: 'Link Komposisi', value: result.compCreated, tone: 'info' as const }] : []),
+          ...(result.skipped > 0 ? [{ label: 'Produk Skipped', value: result.skipped, tone: 'warning' as const }] : []),
+          ...(result.variantsSkipped > 0 ? [{ label: 'Varian Skipped', value: result.variantsSkipped, tone: 'warning' as const }] : []),
+          ...(result.compSkipped > 0 ? [{ label: 'Komposisi Skipped', value: result.compSkipped, tone: 'warning' as const }] : []),
+          ...(result.warnings.length > 0 ? [{ label: 'Warning', value: result.warnings.length, tone: 'warning' as const }] : []),
+        ],
       }),
     )
 
@@ -1256,6 +1268,12 @@ export async function POST(request: NextRequest) {
             success: false,
             errorMessage: message,
           },
+          breakdown: [
+            { label: 'Produk Dibuat', value: result.created, tone: result.created > 0 ? 'success' : 'danger' },
+            ...(result.variantsCreated > 0 ? [{ label: 'Varian Dibuat', value: result.variantsCreated, tone: 'success' as const }] : []),
+            ...(result.compCreated > 0 ? [{ label: 'Link Komposisi', value: result.compCreated, tone: 'info' as const }] : []),
+            ...(result.errors.length > 0 ? [{ label: 'Error', value: result.errors.length + 1, tone: 'danger' as const }] : []),
+          ],
         }),
       )
     } catch (auditErr) {

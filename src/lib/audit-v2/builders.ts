@@ -8,6 +8,17 @@
  *
  * Builders are PURE — no DB access — so they are trivially testable and
  * cannot fail the surrounding transaction.
+ *
+ * v2.1: BULK_BATCH now supports an optional `breakdown` field for concise
+ * sub-entity counts (e.g. "Varian Dibuat: 120") rendered in the Summary.
+ *
+ * v2.2: Concise before→after diffs. The audit log no longer dumps full
+ * object JSON into the UI. Single-entity events (PRODUCT_CHANGE,
+ * INVENTORY_ITEM_CHANGE, CUSTOMER_CHANGE, PURCHASE change) render only
+ * CHANGED fields. BULK_BATCH renders a one-line "field: before → after"
+ * summary per row instead of JSON blobs. Full objects remain in the
+ * downloadable JSON log. VOID inventoryRestored/orphanedVariantItems now
+ * truncate at 50 (matches SALE pattern).
  */
 
 import { EventType, type AuditEvent, type AuditField, type AuditItem, type AuditSection } from './types'
@@ -53,6 +64,87 @@ function errorsSection(errors: Array<string | { row?: string | number; message: 
   }
   if (omitted > 0) section.label = `Errors (${errors.length}, ${omitted} hidden)`
   return section
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Concise before→after diff helpers (v2.2)
+//
+// Rule: the audit log must NOT dump full object JSON into the UI. Instead it
+// renders a concise, human-readable field-level diff ("price: 10000 → 12000").
+// Full before/after objects remain available in the downloadable JSON log for
+// bulk batches and in the row's `metadata` for single-entity events when the
+// route chooses to include them.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Field name → display formatter hint. Keeps diffs scannable. */
+const CURRENCY_FIELDS = new Set(['price', 'hpp', 'avgCost', 'unitCost', 'totalCost', 'totalValue', 'subtotal', 'total', 'paidAmount', 'change', 'lineTotal', 'materialCost', 'modal', 'lowStockAlert'])
+
+function fmtVal(k: string, v: unknown): string {
+  if (v === null || v === undefined) return '—'
+  if (CURRENCY_FIELDS.has(k) && (typeof v === 'number' || (typeof v === 'string' && v !== '' && !isNaN(Number(v))))) {
+    return rp(v)
+  }
+  return toDisplay(v)
+}
+
+/**
+ * Compute a concise field-level diff between before/after objects.
+ * Returns ONLY fields whose values differ (or that exist on only one side).
+ */
+export function diffChangedFields(
+  before?: Record<string, unknown>,
+  after?: Record<string, unknown>,
+): Array<{ field: string; before: string; after: string }> {
+  const b = before || {}
+  const a = after || {}
+  const keys = new Set([...Object.keys(b), ...Object.keys(a)])
+  const out: Array<{ field: string; before: string; after: string }> = []
+  for (const k of keys) {
+    const bv = b[k]
+    const av = a[k]
+    // Skip identical values (deep-ish compare for primitives + JSON for objects)
+    const bs = typeof bv === 'object' && bv !== null ? JSON.stringify(bv) : bv
+    const as = typeof av === 'object' && av !== null ? JSON.stringify(av) : av
+    if (bs === as) continue
+    out.push({ field: k, before: fmtVal(k, bv), after: fmtVal(k, av) })
+  }
+  return out
+}
+
+/**
+ * Build a one-line concise diff summary string for a bulk change row.
+ * - updated: "price: Rp 10.000 → Rp 12.000, stock: 50 → 60"
+ * - created (after only): "Kopi · Rp 10.000 · 50 stk" (name + key fields)
+ * - deleted (before only): "Kopi (SKU001)" (identity)
+ * - skipped/failed: returns '' (use the `note` column instead)
+ */
+export function diffSummary(
+  action: 'created' | 'updated' | 'skipped' | 'deleted' | 'failed',
+  before?: Record<string, unknown>,
+  after?: Record<string, unknown>,
+): string {
+  if (action === 'updated') {
+    const diffs = diffChangedFields(before, after)
+    if (diffs.length === 0) return ''
+    return diffs.map((d) => `${d.field}: ${d.before} → ${d.after}`).join(', ')
+  }
+  if (action === 'created') {
+    const a = after || {}
+    const name = a.name || a.itemName || a.productName || ''
+    const parts: string[] = []
+    if (name) parts.push(String(name))
+    for (const k of ['price', 'hpp', 'stock', 'qty', 'unit', 'sku']) {
+      if (a[k] !== undefined && a[k] !== null && a[k] !== '') parts.push(fmtVal(k, a[k]))
+    }
+    return parts.join(' · ')
+  }
+  if (action === 'deleted') {
+    const b = before || {}
+    const name = b.name || b.itemName || b.productName || ''
+    const sku = b.sku || ''
+    return [name, sku].filter(Boolean).join(' · ')
+  }
+  return ''
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -272,36 +364,43 @@ export function buildVoidEvent(input: VoidEventInput): AuditEvent {
   })
   if (omittedItems > 0) sections[sections.length - 1].label = `Restored Items (${input.itemsRestored.length}, ${omittedItems} hidden)`
 
-  // Inventory Impact — raw material restore
+  // Inventory Impact — raw material restore (truncated to 50 for UI safety)
   if (input.inventoryRestored.length > 0) {
     const invRows = input.inventoryRestored.map((r) => ({
       item: r.itemName,
       restored: `${r.quantityRestored} ${r.baseUnit}`,
       method: r.method || input.inventoryRestoreMethod,
     }))
-    sections.push({
+    const { shown: shownInv, omitted: omittedInv } = truncate(invRows, 50)
+    const invSection: AuditSection = {
       type: 'inventory',
       label: `Inventory Restored (${input.inventoryRestored.length})`,
       tone: 'info',
-      items: invRows,
+      items: shownInv,
       columns: ['item', 'restored', 'method'],
       collapsed: invRows.length > 5,
-    })
+    }
+    if (omittedInv > 0) invSection.label = `Inventory Restored (${input.inventoryRestored.length}, ${omittedInv} hidden)`
+    sections.push(invSection)
   }
 
   if (input.orphanedVariantItems && input.orphanedVariantItems.length > 0) {
-    sections.push({
+    const orphRows = input.orphanedVariantItems.map((o) => ({
+      product: [o.productName, o.variantName].filter(Boolean).join(' · '),
+      qty: String(o.qty),
+      note: 'Variant deleted after sale; variant stock NOT restored',
+    }))
+    const { shown: shownOrph, omitted: omittedOrph } = truncate(orphRows, 50)
+    const orphSection: AuditSection = {
       type: 'errors',
       label: `Orphaned Variants (${input.orphanedVariantItems.length})`,
       tone: 'warning',
-      items: input.orphanedVariantItems.map((o) => ({
-        product: [o.productName, o.variantName].filter(Boolean).join(' · '),
-        qty: String(o.qty),
-        note: 'Variant deleted after sale; variant stock NOT restored',
-      })),
+      items: shownOrph,
       columns: ['product', 'qty', 'note'],
       collapsed: true,
-    })
+    }
+    if (omittedOrph > 0) orphSection.label = `Orphaned Variants (${input.orphanedVariantItems.length}, ${omittedOrph} hidden)`
+    sections.push(orphSection)
   }
 
   return {
@@ -458,6 +557,13 @@ export interface BulkChangeInput {
   after?: Record<string, unknown>
   note?: string
 }
+export interface BulkBatchBreakdownItem {
+  label: string
+  value: string | number
+  /** Optional tone hint (e.g. "warning" for skipped sub-counts). */
+  tone?: 'default' | 'info' | 'success' | 'warning' | 'danger'
+}
+
 export interface BulkBatchEventInput {
   adapterKind: string
   operationId: string
@@ -472,6 +578,14 @@ export interface BulkBatchEventInput {
   userId: string
   /** Raw marker JSON written to V1 `details` so findMarker() still works. */
   markerDetails: Record<string, unknown>
+  /**
+   * Optional concise sub-entity breakdown rendered in the Summary section
+   * (e.g. "Variants Created: 120", "Compositions Created: 50"). Use this
+   * instead of dumping every object into `changes` when the human reader
+   * only needs aggregate counts. The per-entity `changes` array remains
+   * the detailed ledger (truncated + downloadable).
+   */
+  breakdown?: BulkBatchBreakdownItem[]
 }
 
 export function buildBulkBatchEvent(input: BulkBatchEventInput): AuditEvent {
@@ -490,33 +604,48 @@ export function buildBulkBatchEvent(input: BulkBatchEventInput): AuditEvent {
 
   const sections: AuditSection[] = []
 
+  // Base summary fields (standard stats)
+  const summaryFields: AuditField[] = fields({
+    Operation: input.adapterKind,
+    'Operation ID': input.operationId,
+    'Job ID': input.jobId,
+    Batch: String(input.batchIndex),
+    Status: input.status,
+    Processed: input.stats.processed ?? input.changes.length,
+    Created: input.stats.created ?? 0,
+    Updated: input.stats.updated ?? 0,
+    Skipped: input.stats.skipped ?? 0,
+    Failed: input.stats.failed ?? 0,
+    Deleted: input.stats.deleted ?? 0,
+  })
+
+  // Optional concise breakdown (sub-entity counts like "Variants Created: 120").
+  // Rendered as additional summary fields so the human reader sees aggregate
+  // counts WITHOUT having to expand the (potentially huge) Changes table.
+  if (input.breakdown && input.breakdown.length > 0) {
+    for (const b of input.breakdown) {
+      summaryFields.push({ k: b.label, v: toDisplay(b.value) })
+    }
+  }
+
   sections.push({
     type: 'summary',
     label: 'Summary',
     tone: input.status === 'completed' ? 'success' : 'danger',
-    fields: fields({
-      Operation: input.adapterKind,
-      'Operation ID': input.operationId,
-      'Job ID': input.jobId,
-      Batch: String(input.batchIndex),
-      Status: input.status,
-      Processed: input.stats.processed ?? input.changes.length,
-      Created: input.stats.created ?? 0,
-      Updated: input.stats.updated ?? 0,
-      Skipped: input.stats.skipped ?? 0,
-      Failed: input.stats.failed ?? 0,
-      Deleted: input.stats.deleted ?? 0,
-    }),
+    fields: summaryFields,
   })
 
-  // Changes — before/after per entity
+  // Changes — concise per-entity diff (NOT full JSON dumps).
+  // Each row shows entity + action + a one-line "field: before → after" summary.
+  // The full before/after objects remain in the downloadable JSON log below.
   if (input.changes.length > 0) {
     const changeRows = input.changes.map((c) => ({
       entity: c.entity,
       id: c.identifier,
       action: c.action,
-      before: c.before ? toDisplay(c.before) : '',
-      after: c.after ? toDisplay(c.after) : '',
+      // Concise diff: "price: Rp 10.000 → Rp 12.000, stock: 50 → 60"
+      // For created/deleted rows, shows identity + key fields.
+      change: diffSummary(c.action, c.before, c.after),
       note: c.note || '',
     }))
     const { shown, omitted } = truncate(changeRows, 50)
@@ -524,14 +653,14 @@ export function buildBulkBatchEvent(input: BulkBatchEventInput): AuditEvent {
       type: 'changes',
       label: `Changes (${input.changes.length})`,
       items: shown,
-      columns: ['entity', 'id', 'action', 'before', 'after', 'note'],
+      columns: ['entity', 'id', 'action', 'change', 'note'],
       collapsed: changeRows.length > 8,
     }
     if (omitted > 0) section.label = `Changes (${input.changes.length}, ${omitted} hidden)`
     sections.push(section)
 
-    // Provide a downloadable full change list for very large batches
-    if (input.changes.length > 50) {
+    // Full before/after objects available as a downloadable JSON log for traceability.
+    if (input.changes.length > 0) {
       sections.push({
         type: 'changes',
         label: 'Full Change Log (download)',
@@ -962,19 +1091,15 @@ export function buildCustomerChangeEvent(input: CustomerChangeEventInput): Audit
     }),
   })
 
-  if (input.before || input.after) {
-    const beforeKeys = new Set([...Object.keys(input.before || {}), ...Object.keys(input.after || {})])
-    const rows = Array.from(beforeKeys).map((k) => ({
-      field: k,
-      before: toDisplay((input.before as Record<string, unknown>)?.[k]),
-      after: toDisplay((input.after as Record<string, unknown>)?.[k]),
-    }))
+  // Concise diff: only CHANGED fields are shown (not the full object dump).
+  const diffs = diffChangedFields(input.before, input.after)
+  if (diffs.length > 0) {
     sections.push({
       type: 'changes',
-      label: 'Changes',
-      items: rows,
+      label: `Changes (${diffs.length} field${diffs.length > 1 ? 's' : ''})`,
+      items: diffs.map((d) => ({ field: d.field, before: d.before, after: d.after })),
       columns: ['field', 'before', 'after'],
-      collapsed: rows.length > 8,
+      collapsed: diffs.length > 8,
     })
   }
 
@@ -1042,19 +1167,17 @@ export function buildProductChangeEvent(input: ProductChangeEventInput): AuditEv
     }),
   })
 
-  if (input.before || input.after) {
-    const beforeKeys = new Set([...Object.keys(input.before || {}), ...Object.keys(input.after || {})])
-    const rows = Array.from(beforeKeys).map((k) => ({
-      field: k,
-      before: toDisplay((input.before as Record<string, unknown>)?.[k]),
-      after: toDisplay((input.after as Record<string, unknown>)?.[k]),
-    }))
+  // Concise diff: only CHANGED fields are shown (not the full object dump).
+  // For 'created' (after-only) and 'deleted' (before-only), all keys appear
+  // as a one-side snapshot — this is intentional (no diff to compute).
+  const diffs = diffChangedFields(input.before, input.after)
+  if (diffs.length > 0) {
     sections.push({
       type: 'changes',
-      label: 'Changes',
-      items: rows,
+      label: `Changes (${diffs.length} field${diffs.length > 1 ? 's' : ''})`,
+      items: diffs.map((d) => ({ field: d.field, before: d.before, after: d.after })),
       columns: ['field', 'before', 'after'],
-      collapsed: rows.length > 8,
+      collapsed: diffs.length > 8,
     })
   }
 
@@ -1131,19 +1254,15 @@ export function buildInventoryItemChangeEvent(input: InventoryItemChangeEventInp
     }),
   })
 
-  if (input.before || input.after) {
-    const beforeKeys = new Set([...Object.keys(input.before || {}), ...Object.keys(input.after || {})])
-    const rows = Array.from(beforeKeys).map((k) => ({
-      field: k,
-      before: toDisplay((input.before as Record<string, unknown>)?.[k]),
-      after: toDisplay((input.after as Record<string, unknown>)?.[k]),
-    }))
+  // Concise diff: only CHANGED fields are shown (not the full object dump).
+  const diffs = diffChangedFields(input.before, input.after)
+  if (diffs.length > 0) {
     sections.push({
       type: 'changes',
-      label: 'Changes',
-      items: rows,
+      label: `Changes (${diffs.length} field${diffs.length > 1 ? 's' : ''})`,
+      items: diffs.map((d) => ({ field: d.field, before: d.before, after: d.after })),
       columns: ['field', 'before', 'after'],
-      collapsed: rows.length > 8,
+      collapsed: diffs.length > 8,
     })
   }
 
@@ -1228,19 +1347,15 @@ export function buildPurchaseChangeEvent(input: PurchaseChangeEventInput): Audit
     }),
   })
 
-  if (input.before || input.after) {
-    const beforeKeys = new Set([...Object.keys(input.before || {}), ...Object.keys(input.after || {})])
-    const rows = Array.from(beforeKeys).map((k) => ({
-      field: k,
-      before: toDisplay((input.before as Record<string, unknown>)?.[k]),
-      after: toDisplay((input.after as Record<string, unknown>)?.[k]),
-    }))
+  // Concise diff: only CHANGED fields are shown (not the full object dump).
+  const diffs = diffChangedFields(input.before, input.after)
+  if (diffs.length > 0) {
     sections.push({
       type: 'changes',
-      label: 'Changes',
-      items: rows,
+      label: `Changes (${diffs.length} field${diffs.length > 1 ? 's' : ''})`,
+      items: diffs.map((d) => ({ field: d.field, before: d.before, after: d.after })),
       columns: ['field', 'before', 'after'],
-      collapsed: rows.length > 8,
+      collapsed: diffs.length > 8,
     })
   }
 
