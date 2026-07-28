@@ -112,10 +112,61 @@ export function diffChangedFields(
 }
 
 /**
+ * Extract a human-readable identity (name, sku/barcode) from a bulk change
+ * row. The bulk routes are inconsistent about WHERE they stash the name/sku:
+ *   - product-add (created): after.name + after.sku
+ *   - inventory-bulk (created): after.name + after.sku
+ *   - product-edit (updated): name is in note ("Kopi (row 5)"), sku is identifier
+ *   - inventory-edit (updated): name is in note (just the raw name), identifier is UUID
+ *   - product-bulk-delete: identifier is SKU, name might be in note
+ *
+ * This helper normalises all of those into a single { name, sku } shape so the
+ * BULK_BATCH Changes table can render dedicated Name + SKU columns instead of
+ * the opaque `identifier` (which is often a UUID cuid).
+ */
+export function extractBulkIdentity(c: {
+  identifier: string
+  before?: Record<string, unknown>
+  after?: Record<string, unknown>
+  note?: string
+}): { name: string; sku: string } {
+  const b = c.before || {}
+  const a = c.after || {}
+
+  // Name — try after first (created), then before (deleted), then parse from note
+  let name = String(
+    a.name ?? b.name ?? a.productName ?? b.productName ?? a.itemName ?? b.itemName ?? '',
+  )
+  if (!name && c.note) {
+    // Routes like product-edit stash `note: "Kopi Susu (row 5)"`
+    // Routes like inventory-edit stash `note: "Kopi Bubuk"` (raw name)
+    const m = c.note.match(/^([^(]+?)(?:\s*\(row\s*\d+\))?\s*$/i)
+    if (m) name = m[1].trim()
+  }
+
+  // SKU/Barcode — try after first, then before, then identifier (if NOT a cuid/uuid)
+  let sku = String(a.sku ?? b.sku ?? a.barcode ?? b.barcode ?? '')
+  if (!sku && c.identifier) {
+    const id = c.identifier
+    const looksLikeCuid = /^c[a-z0-9]{20,}$/i.test(id)
+    const looksLikeUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+    if (!looksLikeCuid && !looksLikeUuid) {
+      // identifier is a human-readable code (SKU/order number) — surface it
+      sku = id
+    }
+  }
+
+  return { name: name || '', sku: sku || '' }
+}
+
+/**
  * Build a one-line concise diff summary string for a bulk change row.
  * - updated: "price: Rp 10.000 → Rp 12.000, stock: 50 → 60"
- * - created (after only): "Kopi · Rp 10.000 · 50 stk" (name + key fields)
- * - deleted (before only): "Kopi (SKU001)" (identity)
+ * - created (after only): "Rp 10.000 · 50 · stk" (key fields only; name/sku
+ *   are rendered in dedicated columns by buildBulkBatchEvent, so we skip them
+ *   here to avoid duplication)
+ * - deleted (before only): "" (identity is in dedicated columns)
  * - skipped/failed: returns '' (use the `note` column instead)
  */
 export function diffSummary(
@@ -130,19 +181,18 @@ export function diffSummary(
   }
   if (action === 'created') {
     const a = after || {}
-    const name = a.name || a.itemName || a.productName || ''
     const parts: string[] = []
-    if (name) parts.push(String(name))
-    for (const k of ['price', 'hpp', 'stock', 'qty', 'unit', 'sku']) {
+    // Key business fields only — name/sku are surfaced in dedicated columns
+    // by buildBulkBatchEvent, so we skip them here to avoid duplication.
+    for (const k of ['price', 'hpp', 'stock', 'qty', 'unit', 'baseUnit', 'avgCost']) {
       if (a[k] !== undefined && a[k] !== null && a[k] !== '') parts.push(fmtVal(k, a[k]))
     }
     return parts.join(' · ')
   }
   if (action === 'deleted') {
-    const b = before || {}
-    const name = b.name || b.itemName || b.productName || ''
-    const sku = b.sku || ''
-    return [name, sku].filter(Boolean).join(' · ')
+    // Identity (name/sku) is rendered in dedicated columns by buildBulkBatchEvent,
+    // so the change column is empty for deleted rows — same as skipped/failed.
+    return ''
   }
   return ''
 }
@@ -636,24 +686,30 @@ export function buildBulkBatchEvent(input: BulkBatchEventInput): AuditEvent {
   })
 
   // Changes — concise per-entity diff (NOT full JSON dumps).
-  // Each row shows entity + action + a one-line "field: before → after" summary.
-  // The full before/after objects remain in the downloadable JSON log below.
+  // Each row shows dedicated Name + SKU columns (extracted from before/after/note)
+  // PLUS a one-line "field: before → after" change summary. The full before/after
+  // objects remain in the downloadable JSON log below.
   if (input.changes.length > 0) {
-    const changeRows = input.changes.map((c) => ({
-      entity: c.entity,
-      id: c.identifier,
-      action: c.action,
-      // Concise diff: "price: Rp 10.000 → Rp 12.000, stock: 50 → 60"
-      // For created/deleted rows, shows identity + key fields.
-      change: diffSummary(c.action, c.before, c.after),
-      note: c.note || '',
-    }))
+    const changeRows = input.changes.map((c) => {
+      const { name, sku } = extractBulkIdentity(c)
+      return {
+        entity: c.entity,
+        name: name || '—',
+        sku: sku || '—',
+        action: c.action,
+        // Concise diff: "price: Rp 10.000 → Rp 12.000, stock: 50 → 60"
+        // For created rows, shows key business fields (name/sku excluded —
+        // they're in the dedicated columns above).
+        change: diffSummary(c.action, c.before, c.after),
+        note: c.note || '',
+      }
+    })
     const { shown, omitted } = truncate(changeRows, 50)
     const section: AuditSection = {
       type: 'changes',
       label: `Changes (${input.changes.length})`,
       items: shown,
-      columns: ['entity', 'id', 'action', 'change', 'note'],
+      columns: ['entity', 'name', 'sku', 'action', 'change', 'note'],
       collapsed: changeRows.length > 8,
     }
     if (omitted > 0) section.label = `Changes (${input.changes.length}, ${omitted} hidden)`

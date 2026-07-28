@@ -66,10 +66,21 @@ export async function GET(request: NextRequest) {
       where.createdAt = dateFilter
     }
     if (search) {
+      // V2: Search MUST also look inside the JSON-as-text columns `sections`
+      // and `metadata`, because that's where the user-visible business data
+      // actually lives — product names, SKUs, barcodes, invoice numbers,
+      // customer names, order numbers, supplier names, batch numbers, etc.
+      // The `title`/`summary`/`details` columns only carry a short headline,
+      // so a SKU like "SKU001" or an invoice like "INV-2024-001" would never
+      // match without searching the JSON payload. Both columns are `String?`
+      // (JSON serialised to text), so `contains` + `mode: 'insensitive'`
+      // (ILIKE) does substring matching on the raw JSON text.
       where.OR = withInsensitiveMode([
         { title: { contains: search } },
         { summary: { contains: search } },
         { details: { contains: search } },
+        { sections: { contains: search } },
+        { metadata: { contains: search } },
         { user: { name: { contains: search } } },
         { entityType: { contains: search } },
         { action: { contains: search } },
