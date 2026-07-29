@@ -1373,14 +1373,25 @@ export default function ProductsPage() {
     if (selectedCatIds.size === 0) return
     setBulkDeletingCats(true)
     try {
-      for (const catId of selectedCatIds) {
-        const res = await fetch(`/api/categories/${catId}`, { method: 'DELETE' })
-        if (!res.ok) throw new Error(`Failed to delete ${catId}`)
+      // Single bulk endpoint — emits ONE BULK_BATCH audit log for the whole
+      // batch instead of N per-row logs (1 delete = 1 log spam fixed).
+      const catIds = Array.from(selectedCatIds)
+      const res = await fetch('/api/categories/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ categoryIds: catIds }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err?.error || 'Failed to bulk delete categories')
       }
-      toast.success(`${selectedCatIds.size} kategori berhasil dihapus`)
+      const data = await res.json().catch(() => ({}))
+      const deleted = data?.deletedCount ?? catIds.length
+      toast.success(`${deleted} kategori berhasil dihapus`)
+      const hadActive = selectedCatIds.has(activeCategoryId || '')
       setSelectedCatIds(new Set())
       setBulkCatDeleteOpen(false)
-      if (selectedCatIds.has(activeCategoryId || '')) setActiveCategoryId(null)
+      if (hadActive) setActiveCategoryId(null)
       void fetchCategories()
       void fetchProducts(true) // FIX-102: bust cache after bulk category delete
     } catch {
