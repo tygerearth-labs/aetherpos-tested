@@ -70,6 +70,23 @@ export interface AuditSkippedRow {
   identifier?: string
   message: string
 }
+/**
+ * v2.3 — Successfully-created items in a MIGRATION_BATCH event.
+ *
+ * Unlike errors/warnings/skipped (which use `identifier` + `message`),
+ * created rows use `name` + `sku` + `detail` — the natural identity for
+ * a successfully imported product / inventory item / variant. This is
+ * what the user wants to see when they ask "what did the migration
+ * actually create?" instead of just a count in the Summary.
+ */
+export interface MigrationCreatedRow {
+  row?: number
+  sheet?: string
+  entity: string
+  name: string
+  sku?: string
+  detail?: string
+}
 
 /**
  * Build an Errors section from object rows.
@@ -139,6 +156,34 @@ function skippedSection(skipped: AuditSkippedRow[]): AuditSection | null {
     collapsed: items.length > 5,
   }
   if (omitted > 0) section.label = `Skipped (${skipped.length}, ${omitted} hidden)`
+  return section
+}
+
+/**
+ * Build a Created section (successfully-created items) for MIGRATION_BATCH.
+ * v2.3: Renders BEFORE errors/warnings/skipped so the user sees positive
+ * results first. Uses name+sku+detail columns (not identifier+message)
+ * because that's the natural identity for a created product/item/variant.
+ */
+function createdSection(created: MigrationCreatedRow[]): AuditSection | null {
+  if (!created || created.length === 0) return null
+  const items: AuditItem[] = created.map((c) => ({
+    row: c.row != null ? toDisplay(c.row) : '—',
+    entity: toDisplay(c.entity ?? ''),
+    name: c.name || '—',
+    sku: toDisplay(c.sku ?? ''),
+    detail: c.detail || '—',
+  }))
+  const { shown, omitted } = truncate(items, 100)
+  const section: AuditSection = {
+    type: 'changes',
+    label: `Created (${created.length})`,
+    tone: 'success',
+    items: shown,
+    columns: ['row', 'entity', 'name', 'sku', 'detail'],
+    collapsed: items.length > 10,
+  }
+  if (omitted > 0) section.label = `Created (${created.length}, ${omitted} hidden)`
   return section
 }
 
@@ -586,6 +631,10 @@ export interface MigrationBatchEventInput {
   /** v2.3 — intentionally-skipped rows (duplicates, validation-passed-but-skipped).
    *  Invariant: productsSkipped === skipped.length (when provided). */
   skipped?: AuditSkippedRow[]
+  /** v2.3 — successfully-created items (products, inventory items, variants).
+   *  Rendered as a Created section BEFORE errors/warnings/skipped so the user
+   *  sees what the migration actually built, not just a count in the Summary. */
+  created?: MigrationCreatedRow[]
   batchError?: string | null
   outletId: string
   userId: string
@@ -628,6 +677,12 @@ export function buildMigrationBatchEvent(input: MigrationBatchEventInput): Audit
     summaryFields.push(field('Total Modal Value', rp(input.totalModalValue ?? 0)))
   }
   sections.push({ type: 'summary', label: 'Summary', tone: input.status === 'COMPLETED' || input.status === 'BATCH_LAST_OK' || input.status === 'BATCH_OK' ? 'success' : 'warning', fields: summaryFields })
+
+  // v2.3: Created section — successfully-created items (products, inventory,
+  // variants). Rendered BEFORE errors/warnings/skipped so the user sees what
+  // the migration actually built, not just a count in the Summary.
+  const createdSec = createdSection(input.created ?? [])
+  if (createdSec) sections.push(createdSec)
 
   // v2.3: Errors / Warnings / Skipped are SEPARATE sections.
   // Invariant: summary.failed === errors.length (only real failures in errors[]).
@@ -676,6 +731,7 @@ export function buildMigrationBatchEvent(input: MigrationBatchEventInput): Audit
       errorCount: input.errors.length,
       warningCount: input.warnings?.length ?? 0,
       skippedCount: input.skipped?.length ?? 0,
+      createdCount: input.created?.length ?? 0,
     },
     operationId: input.operationId ?? `mig:${input.fileName}:${input.batchIndex}`,
     sourceEntityType: 'PRODUCT',
