@@ -47,10 +47,21 @@ export async function GET(request: NextRequest) {
     // etc. from pre-V2) are NOT filtered — they stay visible in the Legacy tab.
     where.action = { notIn: ['SYNC_DEDUP', 'STOCK_OPNAME_DEDUP'] }
 
-    // V2: filter by eventType (preferred). Keep V1 action/entityType filters
-    // for backward compatibility with existing UI tabs.
+    // V2: filter by eventType (preferred). The UI now uses GROUPED tabs that
+    // pass a comma-separated list of eventTypes (e.g. `eventType=SALE,VOID`).
+    // We split on commas and use `in` so a single tab can cover multiple
+    // event types while still being a single Prisma query.
+    // Backward compat: a single eventType value (no comma) still works.
     if (eventType && eventType !== 'ALL') {
-      where.eventType = eventType
+      const types = eventType
+        .split(',')
+        .map((t) => t.trim())
+        .filter(Boolean)
+      if (types.length === 1) {
+        where.eventType = types[0]
+      } else if (types.length > 1) {
+        where.eventType = { in: types }
+      }
     } else {
       if (action && action !== 'ALL') {
         // Caller explicitly wants a specific action — drop the technical-marker

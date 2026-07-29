@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
-import { safeAuditLog } from '@/lib/safe-audit'
+import { emitAuditEvent, buildSupplierChangeEvent } from '@/lib/audit-v2'
 
 // GET /api/suppliers/[id] — get single supplier
 export async function GET(
@@ -63,6 +63,30 @@ export async function PUT(
       data: updateData,
     })
 
+    await emitAuditEvent(
+      db,
+      buildSupplierChangeEvent({
+        supplierId: id,
+        supplierName: updated.name,
+        phone: updated.phone,
+        changeType: 'updated',
+        before: {
+          name: existing.name,
+          phone: existing.phone,
+          address: existing.address,
+          notes: existing.notes,
+        },
+        after: {
+          name: updated.name,
+          phone: updated.phone,
+          address: updated.address,
+          notes: updated.notes,
+        },
+        outletId: user.outletId,
+        userId: user.id,
+      }),
+    )
+
     return safeJson(updated)
   } catch (error) {
     console.error('Supplier PUT error:', error)
@@ -87,19 +111,26 @@ export async function DELETE(
       return safeJsonError('Supplier not found', 404)
     }
 
-    // Create audit log before deleting (non-blocking)
-    await safeAuditLog({
-      action: 'DELETE',
-      entityType: 'SUPPLIER',
-      entityId: id,
-      details: JSON.stringify({
+    // Count POs that will be detached, then emit V2 audit before the tx.
+    const purchaseOrdersAffected = await db.purchaseOrder.count({ where: { supplierId: id } })
+    await emitAuditEvent(
+      db,
+      buildSupplierChangeEvent({
+        supplierId: id,
         supplierName: existing.name,
         phone: existing.phone,
-        address: existing.address,
+        changeType: 'deleted',
+        before: {
+          name: existing.name,
+          phone: existing.phone,
+          address: existing.address,
+          notes: existing.notes,
+        },
+        purchaseOrdersAffected,
+        outletId: user.outletId,
+        userId: user.id,
       }),
-      outletId: user.outletId,
-      userId: user.id,
-    })
+    )
 
     // Supplier has purchases — set supplierId to null on those POs, then delete
     await db.$transaction([

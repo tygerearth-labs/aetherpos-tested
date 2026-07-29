@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { db } from '@/lib/db'
-import { safeAuditLog } from '@/lib/safe-audit'
+import { emitAuditEvent, safeEmitAuditEvent, buildPromoChangeEvent } from '@/lib/audit-v2'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 
 // PUT /api/settings/promos/[id] — update promo
@@ -102,16 +102,20 @@ export async function PUT(
       })
 
       if (Object.keys(changes).length > 0) {
-        await tx.auditLog.create({
-          data: {
-            action: 'UPDATE',
-            entityType: 'PROMO',
-            entityId: id,
-            details: JSON.stringify({ promoName: updated.name, changes }),
+        await emitAuditEvent(
+          tx,
+          buildPromoChangeEvent({
+            promoId: id,
+            promoName: updated.name,
+            promoType: updated.type,
+            value: updated.value,
+            changeType: 'updated',
+            before: JSON.parse(JSON.stringify(existing)),
+            after: JSON.parse(JSON.stringify(updated)),
             outletId: user.outletId,
             userId: user.id,
-          },
-        })
+          }),
+        )
       }
 
       return updated
@@ -146,15 +150,19 @@ export async function DELETE(
       return safeJsonError('Promo tidak ditemukan', 404)
     }
 
-    // L4: Audit log before delete
-    await safeAuditLog({
-      action: 'DELETE',
-      entityType: 'PROMO',
-      entityId: id,
-      details: JSON.stringify({ promoName: existing.name, type: existing.type, value: existing.value }),
-      outletId: user.outletId,
-      userId: user.id,
-    })
+    // V2 audit log before delete (non-blocking — matches original placement).
+    await safeEmitAuditEvent(
+      buildPromoChangeEvent({
+        promoId: id,
+        promoName: existing.name,
+        promoType: existing.type,
+        value: existing.value,
+        changeType: 'deleted',
+        before: JSON.parse(JSON.stringify(existing)),
+        outletId: user.outletId,
+        userId: user.id,
+      }),
+    )
 
     await db.promo.delete({ where: { id } })
 

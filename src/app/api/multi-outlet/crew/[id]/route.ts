@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
-import { safeAuditLog } from '@/lib/safe-audit'
+import { safeEmitAuditEvent, buildCrewChangeEvent } from '@/lib/audit-v2'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 
 /**
@@ -77,18 +77,25 @@ export async function PUT(
       },
     })
 
-    await safeAuditLog({
-      action: 'UPDATE',
-      entityType: 'CREW',
-      entityId: crewId,
-      details: JSON.stringify({
-        changes: Object.keys(updateData),
+    // V2 audit log. Redact password value if changed.
+    const auditAfter: Record<string, unknown> = { ...updateData }
+    if (updateData.password) {
+      auditAfter.password = '[REDACTED]'
+    }
+    await safeEmitAuditEvent(
+      buildCrewChangeEvent({
+        crewId: crewId,
+        crewName: updatedCrew.name,
+        email: updatedCrew.email,
         outletName: crew.outlet.name,
-        updatedBy: user.name,
+        changeType: 'updated',
+        before: { name: crew.name, email: crew.email },
+        after: auditAfter,
+        changedFields: Object.keys(updateData),
+        outletId: crew.outletId,
+        userId: user.id,
       }),
-      outletId: crew.outletId,
-      userId: user.id,
-    })
+    )
 
     return safeJson({ crew: updatedCrew })
   } catch (error) {
@@ -131,19 +138,19 @@ export async function DELETE(
       db.user.delete({ where: { id: crewId } }),
     ])
 
-    await safeAuditLog({
-      action: 'DELETE',
-      entityType: 'CREW',
-      entityId: crewId,
-      details: JSON.stringify({
-        name: crew.name,
+    // V2 audit log (non-blocking — emitted AFTER tx commits).
+    await safeEmitAuditEvent(
+      buildCrewChangeEvent({
+        crewId: crewId,
+        crewName: crew.name,
         email: crew.email,
         outletName: crew.outlet.name,
-        deletedBy: user.name,
+        changeType: 'deleted',
+        before: { name: crew.name, email: crew.email },
+        outletId: crew.outletId,
+        userId: user.id,
       }),
-      outletId: crew.outletId,
-      userId: user.id,
-    })
+    )
 
     return safeJson({ success: true })
   } catch (error) {

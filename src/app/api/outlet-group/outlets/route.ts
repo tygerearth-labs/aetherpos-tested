@@ -4,6 +4,7 @@ import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonCreated, safeJsonError } from '@/lib/api/safe-response'
 import { getOutletPlan, isUnlimited } from '@/lib/config/plan-config'
 import bcrypt from 'bcryptjs'
+import { emitAuditEvent, buildOutletChangeEvent } from '@/lib/audit-v2'
 
 /**
  * POST /api/outlet-group/outlets — Add a new branch outlet to the group
@@ -353,24 +354,24 @@ export async function DELETE(request: NextRequest) {
       // 10. Delete the outlet itself
       await tx.outlet.delete({ where: { id: targetOutletId } })
 
-      // 10b. Audit log at main outlet — records the branch deletion event with
-      //     full context (outletId, outletName, txCount migrated, auditLogCount migrated)
-      await tx.auditLog.create({
-        data: {
-          action: 'DELETE',
-          entityType: 'OUTLET',
-          entityId: targetOutletId,
-          details: JSON.stringify({
-            action: 'DELETE_BRANCH',
-            outletName: targetOutlet.name,
-            migratedAuditLogCount: auditLogsToMigrate.length,
-            preservedAuditLogs: true,   // contract Section 12 compliance
-            note: 'Audit logs migrated to main outlet; transactions/products/inventory were hard-deleted.',
-          }),
-          outletId: user.outletId,
+      // 10b. V2 audit log at main outlet — records the branch deletion event
+      //     with full context (outletId, outletName, auditLogCount migrated).
+      //     Emitted INSIDE the tx so the audit row commits atomically with the
+      //     branch deletion + audit-log migration above.
+      await emitAuditEvent(
+        tx,
+        buildOutletChangeEvent({
+          outletId: targetOutletId,
+          outletName: targetOutlet.name,
+          changeType: 'deleted',
+          subType: 'DELETE_BRANCH',
+          migratedAuditLogCount: auditLogsToMigrate.length,
+          preservedAuditLogs: true,
+          note: 'Audit logs migrated to main outlet; transactions/products/inventory were hard-deleted.',
+          outletIdContext: user.outletId,
           userId: user.id,
-        },
-      })
+        }),
+      )
     })
 
     return safeJson({ message: `Outlet "${targetOutlet.name}" berhasil dihapus beserta seluruh datanya.` })

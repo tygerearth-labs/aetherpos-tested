@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonCreated, safeJsonError } from '@/lib/api/safe-response'
-import { safeAuditLog } from '@/lib/safe-audit'
+import { emitAuditEvent, buildProductChangeEvent } from '@/lib/audit-v2'
 import { generateVariantSKU } from '@/lib/sku-generator'
 
 // ─── GET ─── List all variants for a product ─────────────────────────────────
@@ -290,24 +290,27 @@ export async function DELETE(
         })
       }
 
-      // Create audit log
-      await tx.auditLog.create({
-        data: {
-          action: 'DELETE',
-          entityType: 'VARIANT',
-          entityId: variantId,
-          details: JSON.stringify({
-            productName: product.name,
-            productId: id,
+      // V2 audit log — emitted INSIDE the tx so it commits atomically with the
+      // variant deletion + hasVariants flag update. Uses the existing
+      // buildProductChangeEvent (variant sub-action, no new event type).
+      await emitAuditEvent(
+        tx,
+        buildProductChangeEvent({
+          productId: id,
+          productName: product.name,
+          changeType: 'deleted',
+          source: 'manual',
+          before: {
             variantName: variant.name,
             variantPrice: variant.price,
             variantStock: variant.stock,
             remainingVariants: remainingCount,
-          }),
+          },
+          note: `Deleted variant "${variant.name}" from product "${product.name}"`,
           outletId,
           userId,
-        },
-      })
+        }),
+      )
     })
 
     return safeJson({ success: true })

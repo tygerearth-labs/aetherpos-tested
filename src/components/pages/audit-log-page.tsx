@@ -36,18 +36,13 @@ import {
   X,
   RotateCcw,
   Loader2,
-  FileText,
   Package,
   ShoppingCart,
-  Ban,
   Boxes,
-  SlidersHorizontal,
   Users,
-  Beaker,
   Layers,
   History,
   Tag,
-  Box,
 } from 'lucide-react'
 
 // ==================== TYPES ====================
@@ -62,6 +57,13 @@ type EventType =
   | 'CUSTOMER_CHANGE'
   | 'PRODUCT_CHANGE'
   | 'INVENTORY_ITEM_CHANGE'
+  // v2.3 — entity-specific change events
+  | 'PRODUCT_CATEGORY_CHANGE'
+  | 'INVENTORY_CATEGORY_CHANGE'
+  | 'SUPPLIER_CHANGE'
+  | 'CREW_CHANGE'
+  | 'PROMO_CHANGE'
+  | 'OUTLET_CHANGE'
   | 'LEGACY'
   | null
 
@@ -90,7 +92,7 @@ interface AuditField {
   v: string
 }
 
-type AuditSectionType = 'summary' | 'changes' | 'inventory' | 'errors' | 'metadata'
+type AuditSectionType = 'summary' | 'changes' | 'inventory' | 'errors' | 'warnings' | 'skipped' | 'metadata'
 type AuditSectionTone = 'default' | 'info' | 'success' | 'warning' | 'danger'
 
 interface AuditSection {
@@ -118,20 +120,35 @@ interface AuditLogListResponse {
 // ==================== CONSTANTS ====================
 const PAGE_SIZE = 20
 
-const EVENT_TYPE_TABS: { value: string; label: string; icon: React.ElementType }[] = [
-  { value: 'ALL', label: 'Semua', icon: History },
-  { value: 'MIGRATION_BATCH', label: 'Migrasi', icon: Boxes },
-  { value: 'BULK_BATCH', label: 'Massal', icon: Layers },
-  { value: 'SALE', label: 'Penjualan', icon: ShoppingCart },
-  { value: 'VOID', label: 'Void', icon: Ban },
-  { value: 'PURCHASE', label: 'Pembelian', icon: FileText },
-  { value: 'INVENTORY_ADJUSTMENT', label: 'Stok', icon: SlidersHorizontal },
-  { value: 'COMPOSITION_UPDATE', label: 'Komposisi', icon: Beaker },
-  { value: 'CUSTOMER_CHANGE', label: 'Customer', icon: Users },
-  { value: 'PRODUCT_CHANGE', label: 'Produk', icon: Tag },
-  { value: 'INVENTORY_ITEM_CHANGE', label: 'Item', icon: Box },
-  { value: 'LEGACY', label: 'Legacy', icon: Package },
+/**
+ * Grouped tabs — 18 raw event types collapsed into 7 business-domain groups.
+ *
+ * Each tab carries the list of `eventType`s it covers. The API accepts a
+ * comma-separated `eventType` query (e.g. `eventType=SALE,VOID`) and runs a
+ * single Prisma `in` query — so one tab = one DB filter, no client-side
+ * filtering. The `ALL` group has an empty list and skips the filter entirely.
+ */
+const EVENT_GROUP_TABS: {
+  value: string
+  label: string
+  icon: React.ElementType
+  eventTypes: string[]
+}[] = [
+  { value: 'ALL', label: 'Semua', icon: History, eventTypes: [] },
+  { value: 'SALES', label: 'Penjualan', icon: ShoppingCart, eventTypes: ['SALE', 'VOID'] },
+  { value: 'STOCK', label: 'Stok & Pembelian', icon: Boxes, eventTypes: ['PURCHASE', 'INVENTORY_ADJUSTMENT'] },
+  { value: 'PRODUCT', label: 'Produk & Item', icon: Tag, eventTypes: ['PRODUCT_CHANGE', 'PRODUCT_CATEGORY_CHANGE', 'INVENTORY_ITEM_CHANGE', 'INVENTORY_CATEGORY_CHANGE', 'COMPOSITION_UPDATE'] },
+  { value: 'MASTER', label: 'Master Data', icon: Users, eventTypes: ['CUSTOMER_CHANGE', 'SUPPLIER_CHANGE', 'CREW_CHANGE', 'PROMO_CHANGE', 'OUTLET_CHANGE'] },
+  { value: 'BULK', label: 'Operasi Massal', icon: Layers, eventTypes: ['MIGRATION_BATCH', 'BULK_BATCH'] },
+  { value: 'LEGACY', label: 'Legacy', icon: Package, eventTypes: ['LEGACY'] },
 ]
+
+/** Resolve the current group key → comma-separated eventType string for the API. */
+function groupToEventTypeParam(group: string): string {
+  if (group === 'ALL') return ''
+  const tab = EVENT_GROUP_TABS.find((t) => t.value === group)
+  return tab && tab.eventTypes.length > 0 ? tab.eventTypes.join(',') : ''
+}
 
 const EVENT_TYPE_BADGE: Record<string, string> = {
   MIGRATION_BATCH: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
@@ -144,6 +161,12 @@ const EVENT_TYPE_BADGE: Record<string, string> = {
   CUSTOMER_CHANGE: 'bg-lime-500/15 text-lime-600 dark:text-lime-400',
   PRODUCT_CHANGE: 'bg-sky-500/15 text-sky-600 dark:text-sky-400',
   INVENTORY_ITEM_CHANGE: 'bg-orange-500/15 text-orange-600 dark:text-orange-400',
+  PRODUCT_CATEGORY_CHANGE: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
+  INVENTORY_CATEGORY_CHANGE: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
+  SUPPLIER_CHANGE: 'bg-teal-500/15 text-teal-600 dark:text-teal-400',
+  CREW_CHANGE: 'bg-fuchsia-500/15 text-fuchsia-600 dark:text-fuchsia-400',
+  PROMO_CHANGE: 'bg-rose-500/15 text-rose-600 dark:text-rose-400',
+  OUTLET_CHANGE: 'bg-violet-500/15 text-violet-600 dark:text-violet-400',
   LEGACY: 'bg-zinc-500/15 text-zinc-600 dark:text-zinc-400',
 }
 
@@ -168,6 +191,8 @@ const SECTION_ORDER: AuditSectionType[] = [
   'changes',
   'inventory',
   'errors',
+  'warnings',
+  'skipped',
   'metadata',
 ]
 
@@ -704,7 +729,8 @@ export default function AuditLogPage() {
         page: String(page),
         limit: String(PAGE_SIZE),
       })
-      if (activeTab !== 'ALL') params.set('eventType', activeTab)
+      const eventTypeParam = groupToEventTypeParam(activeTab)
+      if (eventTypeParam) params.set('eventType', eventTypeParam)
       if (dateFrom) params.set('from', dateFrom)
       if (dateTo) params.set('to', dateTo)
       if (search) params.set('search', search)
@@ -794,7 +820,8 @@ export default function AuditLogPage() {
 
   const handleExport = () => {
     const params = new URLSearchParams()
-    if (activeTab !== 'ALL') params.set('eventType', activeTab)
+    const eventTypeParam = groupToEventTypeParam(activeTab)
+    if (eventTypeParam) params.set('eventType', eventTypeParam)
     if (search) params.set('search', search)
     if (dateFrom) params.set('from', dateFrom)
     if (dateTo) params.set('to', dateTo)
@@ -832,12 +859,12 @@ export default function AuditLogPage() {
         </Button>
       </div>
 
-      {/* Tabs (eventType filter) */}
+      {/* Tabs (event-group filter) — 7 business-domain groups instead of 18 raw event types */}
       <div className="shrink-0">
         <Tabs value={activeTab} onValueChange={handleTabChange}>
           <div className="overflow-x-auto -mx-1 px-1 pb-1">
             <TabsList className="bg-white/[0.04] border border-white/[0.06] h-9 p-0.5 rounded-lg inline-flex w-max">
-              {EVENT_TYPE_TABS.map((tab) => {
+              {EVENT_GROUP_TABS.map((tab) => {
                 const Icon = tab.icon
                 return (
                   <TabsTrigger
@@ -907,7 +934,7 @@ export default function AuditLogPage() {
               variant="outline"
               className="bg-white/[0.04] border-white/[0.08] text-slate-300 text-[11px] gap-1 px-2 py-0.5"
             >
-              Event: {EVENT_TYPE_TABS.find((t) => t.value === activeTab)?.label || activeTab}
+              Grup: {EVENT_GROUP_TABS.find((t) => t.value === activeTab)?.label || activeTab}
               <button onClick={() => { setActiveTab('ALL'); setPage(1) }}>
                 <X className="h-2.5 w-2.5 ml-0.5" />
               </button>

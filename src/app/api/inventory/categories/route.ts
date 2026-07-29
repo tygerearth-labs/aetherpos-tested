@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonCreated, safeJsonError } from '@/lib/api/safe-response'
+import { emitAuditEvent, buildInventoryCategoryChangeEvent } from '@/lib/audit-v2'
 
 // GET /api/inventory/categories — list all inventory categories for outlet
 export async function GET(request: NextRequest) {
@@ -54,6 +55,19 @@ export async function POST(request: NextRequest) {
         outletId: user.outletId,
       },
     })
+
+    await emitAuditEvent(
+      db,
+      buildInventoryCategoryChangeEvent({
+        categoryId: category.id,
+        categoryName: category.name,
+        color: category.color,
+        changeType: 'created',
+        after: { name: category.name, color: category.color },
+        outletId: user.outletId,
+        userId: user.id,
+      }),
+    )
 
     return safeJsonCreated(category)
   } catch (error) {

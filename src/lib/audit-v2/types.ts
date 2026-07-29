@@ -24,6 +24,13 @@ export const EventType = {
   CUSTOMER_CHANGE: 'CUSTOMER_CHANGE',
   PRODUCT_CHANGE: 'PRODUCT_CHANGE',
   INVENTORY_ITEM_CHANGE: 'INVENTORY_ITEM_CHANGE',
+  /** v2.3 — entity-specific change events (replace LEGACY emitters). */
+  PRODUCT_CATEGORY_CHANGE: 'PRODUCT_CATEGORY_CHANGE',
+  INVENTORY_CATEGORY_CHANGE: 'INVENTORY_CATEGORY_CHANGE',
+  SUPPLIER_CHANGE: 'SUPPLIER_CHANGE',
+  CREW_CHANGE: 'CREW_CHANGE',
+  PROMO_CHANGE: 'PROMO_CHANGE',
+  OUTLET_CHANGE: 'OUTLET_CHANGE',
   /** Legacy V1 audit rows (un-converted callers). */
   LEGACY: 'LEGACY',
 } as const
@@ -31,7 +38,7 @@ export const EventType = {
 export type EventTypeValue = (typeof EventType)[keyof typeof EventType]
 
 /** Grouped detail-section kinds shown in the detail drawer. */
-export type SectionType = 'summary' | 'changes' | 'inventory' | 'errors' | 'metadata'
+export type SectionType = 'summary' | 'changes' | 'inventory' | 'errors' | 'warnings' | 'skipped' | 'metadata'
 
 /**
  * A single key/value pair. `v` is ALWAYS a pre-formatted string

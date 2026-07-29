@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
-import { safeAuditLog } from '@/lib/safe-audit'
+import { safeEmitAuditEvent, buildCrewChangeEvent } from '@/lib/audit-v2'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 
 /**
@@ -73,15 +73,24 @@ export async function PUT(
       },
     })
 
-    // Audit log
-    await safeAuditLog({
-      action: 'UPDATE',
-      entityType: 'CREW',
-      entityId: id,
-      details: JSON.stringify({ changes: Object.keys(updateData) }),
-      outletId: user.outletId,
-      userId: user.id,
-    })
+    // Audit log (V2). Redact password value if it was changed.
+    const auditAfter: Record<string, unknown> = { ...updateData }
+    if (updateData.password) {
+      auditAfter.password = '[REDACTED]'
+    }
+    await safeEmitAuditEvent(
+      buildCrewChangeEvent({
+        crewId: id,
+        crewName: updatedCrew.name,
+        email: updatedCrew.email,
+        changeType: 'updated',
+        before: { name: crew.name, email: crew.email },
+        after: auditAfter,
+        changedFields: Object.keys(updateData),
+        outletId: user.outletId,
+        userId: user.id,
+      }),
+    )
 
     return safeJson({ crew: updatedCrew })
   } catch (error) {
@@ -154,15 +163,18 @@ export async function DELETE(
       await tx.user.delete({ where: { id } })
     }, { timeout: 30000 })
 
-    // Audit log
-    await safeAuditLog({
-      action: 'DELETE',
-      entityType: 'CREW',
-      entityId: id,
-      details: JSON.stringify({ name: crew.name, email: crew.email }),
-      outletId: user.outletId,
-      userId: user.id,
-    })
+    // Audit log (V2, non-blocking — emitted AFTER tx commits).
+    await safeEmitAuditEvent(
+      buildCrewChangeEvent({
+        crewId: id,
+        crewName: crew.name,
+        email: crew.email,
+        changeType: 'deleted',
+        before: { name: crew.name, email: crew.email },
+        outletId: user.outletId,
+        userId: user.id,
+      }),
+    )
 
     return safeJson({ success: true })
   } catch (error) {

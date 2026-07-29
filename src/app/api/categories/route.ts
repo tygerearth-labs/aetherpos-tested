@@ -4,6 +4,7 @@ import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { getFeaturesForOutlet, isUnlimited } from '@/lib/config/plan-config'
 import { assertOutletWithinLimits } from '@/lib/api/plan-enforcement'
 import { safeJson, safeJsonCreated, safeJsonError } from '@/lib/api/safe-response'
+import { emitAuditEvent, buildProductCategoryChangeEvent } from '@/lib/audit-v2'
 
 // GET /api/categories — list all categories for the outlet
 export async function GET(request: NextRequest) {
@@ -69,6 +70,19 @@ export async function POST(request: NextRequest) {
         outletId: user.outletId,
       },
     })
+
+    await emitAuditEvent(
+      db,
+      buildProductCategoryChangeEvent({
+        categoryId: category.id,
+        categoryName: category.name,
+        color: category.color,
+        changeType: 'created',
+        after: { name: category.name, color: category.color },
+        outletId: user.outletId,
+        userId: user.id,
+      }),
+    )
 
     return safeJsonCreated(category)
   } catch (error) {

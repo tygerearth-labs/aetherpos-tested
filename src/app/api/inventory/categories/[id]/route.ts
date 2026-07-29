@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
-import { safeAuditLog } from '@/lib/safe-audit'
+import { emitAuditEvent, buildInventoryCategoryChangeEvent } from '@/lib/audit-v2'
 
 // PUT /api/inventory/categories/[id] — update inventory category
 export async function PUT(
@@ -43,6 +43,20 @@ export async function PUT(
       },
     })
 
+    await emitAuditEvent(
+      db,
+      buildInventoryCategoryChangeEvent({
+        categoryId: id,
+        categoryName: updated.name,
+        color: updated.color,
+        changeType: 'updated',
+        before: { name: existing.name, color: existing.color },
+        after: { name: updated.name, color: updated.color },
+        outletId: user.outletId,
+        userId: user.id,
+      }),
+    )
+
     return safeJson(updated)
   } catch (error) {
     console.error('Inventory category PUT error:', error)
@@ -68,15 +82,22 @@ export async function DELETE(
       return safeJsonError('Category not found', 404)
     }
 
-    // Create audit log before deleting (non-blocking)
-    await safeAuditLog({
-      action: 'DELETE',
-      entityType: 'INVENTORY_CATEGORY',
-      entityId: id,
-      details: JSON.stringify({ categoryName: existing.name, color: existing.color }),
-      outletId: user.outletId,
-      userId: user.id,
-    })
+    // Count items that will be detached, then emit V2 audit before the tx.
+    const itemsAffected = await db.inventoryItem.count({ where: { categoryId: id } })
+    await emitAuditEvent(
+      db,
+      buildInventoryCategoryChangeEvent({
+        categoryId: id,
+        categoryName: existing.name,
+        color: existing.color,
+        changeType: 'deleted',
+        before: { name: existing.name, color: existing.color },
+        itemsAffected,
+        deleteType: 'HARD_DELETE',
+        outletId: user.outletId,
+        userId: user.id,
+      }),
+    )
 
     // Set items' categoryId to null, then delete category — atomic transaction
     await db.$transaction([

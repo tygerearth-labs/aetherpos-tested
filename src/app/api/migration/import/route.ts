@@ -613,8 +613,16 @@ export async function POST(request: NextRequest) {
     let compositionsCreated = 0
     let totalStock = 0
     let totalModalValue = 0
-    const errors: string[] = []
-    const warnings: string[] = []        // Warnings for re-migration events
+    // v2.3 audit log contract: errors/warnings/skipped are now object arrays.
+    // See src/lib/audit-v2/builders.ts → AuditIssueRow / AuditWarningRow / AuditSkippedRow.
+    // Invariant: productsFailed === errors.length (errors contains ONLY real row-level failures).
+    // Invariant: productsSkipped === skippedRows.length (when skippedRows is provided).
+    type MigrationIssueRow = { row: number; sheet?: string; entity?: string; identifier?: string; message: string }
+    type MigrationWarningRow = { row?: number; sheet?: string; entity?: string; identifier?: string; message: string }
+    type MigrationSkippedRow = { row: number; sheet?: string; entity?: string; identifier?: string; message: string }
+    const errors: MigrationIssueRow[] = []
+    const warnings: MigrationWarningRow[] = []        // Warnings for re-migration events / non-fatal soft-failures
+    const skippedRows: MigrationSkippedRow[] = []      // Intentionally-skipped rows (duplicates, existing-data reuse)
 
     // ==================== CACHES (outside tx — shared across batch txs) ====================
     const categoryCache = new Map<string, string | null>()
@@ -717,7 +725,17 @@ export async function POST(request: NextRequest) {
       for (const comp of parsed) {
         const invItemId = await findInventoryItemByName(tx, comp.name)
         if (!invItemId) {
-          errors.push(`Komposisi inline: bahan "${comp.name}" tidak ditemukan di inventory`)
+          // v2.3: composition-engine soft-failure. The product was still created
+          // successfully — this is a WARNING, not a row-level failure. The inline
+          // composition helper has no row context (called from deferred batch),
+          // so we use row: 0 + sheet: 'inline-composition'.
+          warnings.push({
+            row: 0,
+            sheet: 'inline-composition',
+            entity: 'composition',
+            identifier: comp.name,
+            message: `Bahan "${comp.name}" tidak ditemukan di inventory`,
+          })
           continue
         }
         try {
@@ -1057,20 +1075,20 @@ export async function POST(request: NextRequest) {
 
             // ── Validation (unchanged) ──
             if (!name) {
-              errors.push(`Baris ${rowNum}: Nama produk wajib diisi`)
+              errors.push({ row: rowNum, entity: 'product', identifier: name || undefined, message: 'Nama produk wajib diisi' })
               continue
             }
             if (!price || price < 0) {
-              errors.push(`Baris ${rowNum}: Harga Jual tidak valid (Nama: ${name})`)
+              errors.push({ row: rowNum, entity: 'product', identifier: name, message: 'Harga Jual tidak valid' })
               continue
             }
             // MIG-003 (P1): Negative value validation.
             if (hpp < 0) {
-              errors.push(`Baris ${rowNum}: HPP tidak boleh negatif (Nama: ${name})`)
+              errors.push({ row: rowNum, entity: 'product', identifier: name, message: 'HPP tidak boleh negatif' })
               continue
             }
             if (stock < 0) {
-              errors.push(`Baris ${rowNum}: Stok tidak boleh negatif (Nama: ${name})`)
+              errors.push({ row: rowNum, entity: 'product', identifier: name, message: 'Stok tidak boleh negatif' })
               continue
             }
 
@@ -1084,6 +1102,7 @@ export async function POST(request: NextRequest) {
             if (existingProductId) {
               productCache.set(name, existingProductId)
               productsSkipped++
+              skippedRows.push({ row: rowNum, entity: 'product', identifier: name, message: 'Produk sudah ada di database — dilewati' })
               continue
             }
 
@@ -1098,8 +1117,14 @@ export async function POST(request: NextRequest) {
             // Mode 2 / composition collection blocks below.
             const nameKey = name.trim().toLowerCase()
             if (batchProductNamesSeen.has(nameKey)) {
-              warnings.push(`\u2139\ufe0f Baris ${rowNum}: Produk "${name}" muncul lebih dari sekali di batch ini \u2014 duplikat dilewati (baris pertama yang diproses).`)
+              warnings.push({
+                row: rowNum,
+                entity: 'product',
+                identifier: name,
+                message: `ℹ️ Produk "${name}" muncul lebih dari sekali di batch ini — duplikat dilewati (baris pertama yang diproses).`,
+              })
               productsSkipped++
+              skippedRows.push({ row: rowNum, entity: 'product', identifier: name, message: 'Duplikat dalam batch ini — dilewati' })
               continue
             }
             batchProductNamesSeen.add(nameKey)
@@ -1267,7 +1292,12 @@ export async function POST(request: NextRequest) {
                   // Has real history: use existing, skip full update, warn
                   inventoryItemCache.set(name, existingInv.id)
                   inventoryItemsSkipped++
-                  warnings.push(`⚠️ "${name}" menggunakan data existing: ${analysis.reason}`)
+                  warnings.push({
+                    row: rowNum,
+                    entity: 'inventory',
+                    identifier: name,
+                    message: `⚠️ "${name}" menggunakan data existing: ${analysis.reason}`,
+                  })
 
                   // Partial update: lowStockAlert is NOT part of the authoritative ledger,
                   // safe to update even for items with real history (fixes "alert = 0" bug)
@@ -1321,7 +1351,11 @@ export async function POST(request: NextRequest) {
             // Push per-item warnings using preloaded analysis data (no extra queries)
             for (const id of invIdsToCleanup) {
               const { name, analysis } = cleanupWarningData.get(id)!
-              warnings.push(`🔄 "${name}": di-update (data migrasi lama dibersihkan: ${analysis.migrationOnlyData.movements} stok, ${analysis.migrationOnlyData.compositions} link)`)
+              warnings.push({
+                entity: 'inventory',
+                identifier: name,
+                message: `🔄 "${name}": di-update (data migrasi lama dibersihkan: ${analysis.migrationOnlyData.movements} stok, ${analysis.migrationOnlyData.compositions} link)`,
+              })
             }
           }
 
@@ -1429,7 +1463,11 @@ export async function POST(request: NextRequest) {
               const validCompData = compData.filter(c => {
                 if (!validInvIdSet.has(c.inventoryItemId)) {
                   console.warn(`[migration] FK skip: composition for product "${c.productName}" references inventoryItemId "${c.inventoryItemId}" which does not exist in DB. Skipping.`)
-                  warnings.push(`⚠️ Komposisi produk "${c.productName}" dilewati: bahan inventori tidak ditemukan di database`)
+                  warnings.push({
+                    entity: 'composition',
+                    identifier: c.productName,
+                    message: `⚠️ Komposisi produk "${c.productName}" dilewati: bahan inventori tidak ditemukan di database`,
+                  })
                   return false
                 }
                 return true
@@ -1843,6 +1881,7 @@ export async function POST(request: NextRequest) {
                     currentParentId = existingParent.id
                     currentParentIsNew = false
                     productsSkipped++
+                    skippedRows.push({ row: rowNum, sheet: 'varian', entity: 'variant-parent', identifier: currentParentName, message: 'Parent produk sudah ada di DB — gunakan existing' })
                   } else if (batchParentNamesSeen.has(r.parentName)) {
                     // In-batch duplicate parent — already collected for createMany.
                     // Don't create again (would violate unique constraint).
@@ -1851,6 +1890,7 @@ export async function POST(request: NextRequest) {
                     currentParentId = null
                     currentParentIsNew = true
                     productsSkipped++
+                    skippedRows.push({ row: rowNum, sheet: 'varian', entity: 'variant-parent', identifier: r.parentName, message: 'Duplikat parent dalam batch — ID akan diresolve setelah createMany' })
                   } else {
                     // New parent — collect for createMany (ID resolved after re-query)
                     batchParentNamesSeen.add(r.parentName)
@@ -1889,29 +1929,29 @@ export async function POST(request: NextRequest) {
                 // === Variant row (NAMA VARIAN must be filled) ===
                 if (r.variantName && currentParentName) {
                   if (!r.variantPrice || r.variantPrice < 0) {
-                    errors.push(`Baris ${rowNum}: Harga Jual Varian tidak valid (Produk: ${currentParentName}, Varian: ${r.variantName})`)
+                    errors.push({ row: rowNum, sheet: 'varian', entity: 'variant', identifier: `${currentParentName} / ${r.variantName}`, message: 'Harga Jual Varian tidak valid' })
                     continue
                   }
 
                   // MIG-003 (P1): Negative value validation for variant HPP and stock.
                   if (r.variantHpp < 0) {
-                    errors.push(`Baris ${rowNum}: HPP Varian tidak boleh negatif (Produk: ${currentParentName}, Varian: ${r.variantName})`)
+                    errors.push({ row: rowNum, sheet: 'varian', entity: 'variant', identifier: `${currentParentName} / ${r.variantName}`, message: 'HPP Varian tidak boleh negatif' })
                     continue
                   }
                   if (r.variantStock < 0) {
-                    errors.push(`Baris ${rowNum}: Stok Varian tidak boleh negatif (Produk: ${currentParentName}, Varian: ${r.variantName})`)
+                    errors.push({ row: rowNum, sheet: 'varian', entity: 'variant', identifier: `${currentParentName} / ${r.variantName}`, message: 'Stok Varian tidak boleh negatif' })
                     continue
                   }
 
                   // Duplicate variant check (in-batch + existing)
                   const variantKey = `${currentParentName}||${r.variantName}`
                   if (batchVariantKeys.has(variantKey)) {
-                    errors.push(`Baris ${rowNum}: Varian "${r.variantName}" sudah ada untuk produk "${currentParentName}"`)
+                    errors.push({ row: rowNum, sheet: 'varian', entity: 'variant', identifier: `${currentParentName} / ${r.variantName}`, message: `Varian "${r.variantName}" sudah ada untuk produk "${currentParentName}"` })
                     continue
                   }
                   // Check existing variants (for existing parents only)
                   if (currentParentId && existingVariantKeySet.has(`${currentParentId}||${r.variantName}`)) {
-                    errors.push(`Baris ${rowNum}: Varian "${r.variantName}" sudah ada untuk produk "${currentParentName}"`)
+                    errors.push({ row: rowNum, sheet: 'varian', entity: 'variant', identifier: `${currentParentName} / ${r.variantName}`, message: `Varian "${r.variantName}" sudah ada untuk produk "${currentParentName}"` })
                     continue
                   }
                   batchVariantKeys.add(variantKey)
@@ -2047,7 +2087,13 @@ export async function POST(request: NextRequest) {
                         // Has real history: use existing, skip full update, warn
                         inventoryItemCache.set(variantInvName, existingVariantInv.id)
                         inventoryItemsSkipped++
-                        warnings.push(`⚠️ "${variantInvName}" menggunakan data existing: ${variantAnalysis.reason}`)
+                        warnings.push({
+                          row: rowNum,
+                          sheet: 'varian',
+                          entity: 'inventory',
+                          identifier: variantInvName,
+                          message: `⚠️ "${variantInvName}" menggunakan data existing: ${variantAnalysis.reason}`,
+                        })
 
                         // Partial update: lowStockAlert is NOT part of the authoritative ledger,
                         // safe to update even for items with real history (fixes "alert = 0" bug)
@@ -2084,7 +2130,7 @@ export async function POST(request: NextRequest) {
                     })
                   }
                 } else if (r.variantName && !currentParentName) {
-                  errors.push(`Baris ${rowNum}: Varian "${r.variantName}" tidak memiliki produk induk`)
+                  errors.push({ row: rowNum, sheet: 'varian', entity: 'variant', identifier: r.variantName, message: `Varian "${r.variantName}" tidak memiliki produk induk` })
                 }
               }
 
@@ -2114,7 +2160,12 @@ export async function POST(request: NextRequest) {
                 // Push per-item warnings using preloaded analysis data (no extra queries)
                 for (const id of variantInvIdsToCleanup) {
                   const { name, analysis } = variantCleanupWarnings.get(id)!
-                  warnings.push(`🔄 "${name}": di-update (data migrasi lama dibersihkan: ${analysis.migrationOnlyData.movements} stok, ${analysis.migrationOnlyData.compositions} link)`)
+                  warnings.push({
+                    sheet: 'varian',
+                    entity: 'inventory',
+                    identifier: name,
+                    message: `🔄 "${name}": di-update (data migrasi lama dibersihkan: ${analysis.migrationOnlyData.movements} stok, ${analysis.migrationOnlyData.compositions} link)`,
+                  })
                 }
               }
 
@@ -2404,17 +2455,17 @@ export async function POST(request: NextRequest) {
                 const lowStockAlert = sanitizeNumber(findColumn(row, ['LOW STOCK ALERT', 'Low Stock Alert', 'low stock alert', 'Low Stock', 'LOW STOCK', 'Stock Alert', 'STOK MINIMUM']))
 
                 if (!name) {
-                  errors.push(`Baris ${rowNum}: Nama item stok wajib diisi`)
+                  errors.push({ row: rowNum, sheet: 'inventory', entity: 'inventory', message: 'Nama item stok wajib diisi' })
                   continue
                 }
 
                 // MIG-003 (P1): Negative value validation for inventory stock and avgCost.
                 if (stock < 0) {
-                  errors.push(`Baris ${rowNum}: Stok tidak boleh negatif (Nama: ${name})`)
+                  errors.push({ row: rowNum, sheet: 'inventory', entity: 'inventory', identifier: name, message: 'Stok tidak boleh negatif' })
                   continue
                 }
                 if (avgCost < 0) {
-                  errors.push(`Baris ${rowNum}: HPP Rata-rata tidak boleh negatif (Nama: ${name})`)
+                  errors.push({ row: rowNum, sheet: 'inventory', entity: 'inventory', identifier: name, message: 'HPP Rata-rata tidak boleh negatif' })
                   continue
                 }
 
@@ -2480,12 +2531,24 @@ export async function POST(request: NextRequest) {
                     totalStock += stock
                     totalModalValue += avgCost * stock
 
-                    warnings.push(`🔄 "${name}": di-update (data migrasi lama dibersihkan: ${cleaned.movementsDeleted} stok, ${cleaned.compositionsDeleted} link)`)
+                    warnings.push({
+                      row: rowNum,
+                      sheet: 'inventory',
+                      entity: 'inventory',
+                      identifier: name,
+                      message: `🔄 "${name}": di-update (data migrasi lama dibersihkan: ${cleaned.movementsDeleted} stok, ${cleaned.compositionsDeleted} link)`,
+                    })
                   } else {
                     // Has real history: skip with warning
                     console.log(`[migration] sheet3_inventory: SKIP "${name}" - ${analysis.reason}`)
                     inventoryItemsSkipped++
-                    warnings.push(`⚠️ "${name}" dilewati: ${analysis.reason}`)
+                    warnings.push({
+                      row: rowNum,
+                      sheet: 'inventory',
+                      entity: 'inventory',
+                      identifier: name,
+                      message: `⚠️ "${name}" dilewati: ${analysis.reason}`,
+                    })
                   }
 
                   inventoryItemCache.set(name, existing.id)
@@ -2557,17 +2620,17 @@ export async function POST(request: NextRequest) {
                 const catatan = String(findColumn(row, ['CATATAN', 'Catatan', 'catatan', 'Note', 'note', 'Notes', 'Notes']) || '').trim()
 
                 if (!productName) {
-                  errors.push(`Baris ${rowNum}: Nama produk wajib diisi`)
+                  errors.push({ row: rowNum, sheet: 'komposisi', entity: 'composition', message: 'Nama produk wajib diisi' })
                   continue
                 }
 
                 if (!bahanName) {
-                  errors.push(`Baris ${rowNum}: Nama bahan wajib diisi (Produk: ${productName})`)
+                  errors.push({ row: rowNum, sheet: 'komposisi', entity: 'composition', identifier: productName, message: 'Nama bahan wajib diisi' })
                   continue
                 }
 
                 if (!qty || qty <= 0) {
-                  errors.push(`Baris ${rowNum}: QTY per batch harus > 0 (Produk: ${productName}, Bahan: ${bahanName})`)
+                  errors.push({ row: rowNum, sheet: 'komposisi', entity: 'composition', identifier: `${productName} / ${bahanName}`, message: 'QTY per batch harus > 0' })
                   continue
                 }
 
@@ -2576,7 +2639,7 @@ export async function POST(request: NextRequest) {
                 if (!productId) {
                   const product = await tx.product.findFirst({ where: { name: productName, outletId }, select: { id: true } })
                   if (!product) {
-                    errors.push(`Baris ${rowNum}: Produk "${productName}" tidak ditemukan`)
+                    errors.push({ row: rowNum, sheet: 'komposisi', entity: 'composition', identifier: productName, message: `Produk "${productName}" tidak ditemukan` })
                     continue
                   }
                   productId = product.id
@@ -2596,7 +2659,7 @@ export async function POST(request: NextRequest) {
                       variantId = variant.id
                       variantCache.set(`${productName}||${variantName}`, variantId)
                     } else {
-                      errors.push(`Baris ${rowNum}: Varian "${variantName}" tidak ditemukan untuk produk "${productName}"`)
+                      errors.push({ row: rowNum, sheet: 'komposisi', entity: 'composition', identifier: `${productName} / ${variantName}`, message: `Varian "${variantName}" tidak ditemukan untuk produk "${productName}"` })
                       continue
                     }
                   }
@@ -2610,7 +2673,7 @@ export async function POST(request: NextRequest) {
                     select: { id: true },
                   })
                   if (!item) {
-                    errors.push(`Baris ${rowNum}: Bahan "${bahanName}" tidak ditemukan di inventory`)
+                    errors.push({ row: rowNum, sheet: 'komposisi', entity: 'composition', identifier: bahanName, message: `Bahan "${bahanName}" tidak ditemukan di inventory` })
                     continue
                   }
                   inventoryItemId = item.id
@@ -2624,7 +2687,7 @@ export async function POST(request: NextRequest) {
                     select: { id: true },
                   })
                   if (!itemCheck) {
-                    errors.push(`Baris ${rowNum}: SKU bahan "${bahanSku}" tidak cocok dengan "${bahanName}"`)
+                    errors.push({ row: rowNum, sheet: 'komposisi', entity: 'composition', identifier: `${bahanName} (SKU: ${bahanSku})`, message: `SKU bahan "${bahanSku}" tidak cocok dengan "${bahanName}"` })
                   }
                 }
 
@@ -2680,7 +2743,15 @@ export async function POST(request: NextRequest) {
               } catch (compErr) {
                 console.error(`[migration] Failed to process deferred composition for product ${deferred.productId}:`, compErr)
                 const errMsg = compErr instanceof Error ? compErr.message : String(compErr)
-                errors.push(`Gagal proses komposisi inline: ${errMsg}`)
+                // v2.3: composition-engine soft-failure — the product was already
+                // created successfully. This is a WARNING, not a row-level failure.
+                warnings.push({
+                  row: 0,
+                  sheet: 'inline-composition',
+                  entity: 'composition',
+                  identifier: deferred.productId,
+                  message: `Gagal proses komposisi inline: ${errMsg}`,
+                })
               }
             }
           }
@@ -2737,10 +2808,13 @@ export async function POST(request: NextRequest) {
                     if (rowCap < capacity) capacity = rowCap
                   }
                   if (capacity !== Infinity && product.stock > capacity) {
-                    warnings.push(
-                      `ℹ️ "${product.name}": stok produk ${product.stock} melebihi estimasi kapasitas BOM ${Math.floor(capacity)} unit. ` +
-                      `Bahan mungkin dipakai bersama produk lain; validasi runtime saat penjualan bersifat otoritatif.`
-                    )
+                    warnings.push({
+                      entity: 'composition',
+                      identifier: product.name,
+                      message:
+                        `ℹ️ "${product.name}": stok produk ${product.stock} melebihi estimasi kapasitas BOM ${Math.floor(capacity)} unit. ` +
+                        `Bahan mungkin dipakai bersama produk lain; validasi runtime saat penjualan bersifat otoritatif.`,
+                    })
                   }
                 }
                 // Variant-level compositions
@@ -2755,10 +2829,13 @@ export async function POST(request: NextRequest) {
                     if (rowCap < capacity) capacity = rowCap
                   }
                   if (capacity !== Infinity && variant.stock > capacity) {
-                    warnings.push(
-                      `ℹ️ "${product.name}" varian "${variant.name}": stok varian ${variant.stock} melebihi estimasi kapasitas BOM ${Math.floor(capacity)} unit. ` +
-                      `Bahan mungkin dipakai bersama produk lain; validasi runtime saat penjualan bersifat otoritatif.`
-                    )
+                    warnings.push({
+                      entity: 'composition',
+                      identifier: `${product.name} / ${variant.name}`,
+                      message:
+                        `ℹ️ "${product.name}" varian "${variant.name}": stok varian ${variant.stock} melebihi estimasi kapasitas BOM ${Math.floor(capacity)} unit. ` +
+                        `Bahan mungkin dipakai bersama produk lain; validasi runtime saat penjualan bersifat otoritatif.`,
+                    })
                   }
                 }
               }
@@ -2820,7 +2897,10 @@ export async function POST(request: NextRequest) {
           status: batchFailed ? 'FAILED' : (errors.length > 0 ? 'COMPLETED_WITH_ERRORS' : 'COMPLETED'),
           productsCreated,
           productsSkipped,
-          productsFailed: errors.filter((e) => e.startsWith('Baris')).length,
+          // v2.3: errors[] now contains ONLY real row-level failures
+          // (composition-engine soft-failures moved to warnings[]), so
+          // productsFailed === errors.length invariant holds.
+          productsFailed: errors.length,
           variantsCreated,
           categoriesCreated,
           barcodeCount,
@@ -2831,6 +2911,8 @@ export async function POST(request: NextRequest) {
           totalStock: hasInventory ? totalStock : 0,
           totalModalValue: hasInventory ? totalModalValue : 0,
           errors,
+          warnings, // v2.3 — non-fatal warnings (composition soft-failures, existing-data reuse)
+          skipped: skippedRows, // v2.3 — intentionally-skipped rows (duplicates, existing data)
           batchError,
           outletId,
           userId,
@@ -2843,7 +2925,8 @@ export async function POST(request: NextRequest) {
     // Frontend loops through batches 0..N-1, accumulating stats locally.
     // Each response returns THIS batch's stats + global context.
     if (singleBatchMode) {
-      const failedRowsThisBatch = errors.filter(e => e.startsWith('Baris')).length
+      // v2.3: errors[] now contains ONLY real row-level failures.
+      const failedRowsThisBatch = errors.length
       const batchProcessed = productsCreated + productsSkipped + failedRowsThisBatch
       const remainingProductsAfter = Math.max(0, totalProducts - ((targetBatch + 1) * BATCH_SIZE))
       const batchStatus = batchFailed
@@ -2865,7 +2948,10 @@ export async function POST(request: NextRequest) {
         isLastBatch: isLastBatchTarget,
         status: batchStatus,
         batchError,
+        // v2.3: errors[] is now an object array (AuditIssueRow). For backward-compat
+        // with any frontend still expecting strings, also expose `errorsText`.
         errors,
+        errorsText: errors.map(e => `Baris ${e.row}: ${e.message}`),
         categoriesCreated,
         barcodeCount,
         // Include remaining-sheets stats only on last batch (when they were processed)
@@ -2880,6 +2966,7 @@ export async function POST(request: NextRequest) {
           totalModalValue,
           totalCategories: await db.category.count({ where: { outletId } }),
           warnings,
+          skipped: skippedRows,
           mode,
         } : {}),
       })
@@ -2894,7 +2981,8 @@ export async function POST(request: NextRequest) {
       productsCreated,
       variantsCreated,
       productsSkipped,
-      failedRows: errors.filter(e => e.startsWith('Baris')).length,
+      // v2.3: errors[] now contains ONLY real row-level failures.
+      failedRows: errors.length,
       remainingProducts,
       categoriesCreated,
       barcodeCount,
@@ -2905,8 +2993,12 @@ export async function POST(request: NextRequest) {
       compositionsCreated,
       totalStock,
       totalModalValue,
+      // v2.3: errors[] is now an object array (AuditIssueRow). For backward-compat
+      // with any frontend still expecting strings, also expose `errorsText`.
       errors,
+      errorsText: errors.map(e => `Baris ${e.row}: ${e.message}`),
       warnings,
+      skipped: skippedRows,
       mode,
       totalInputRows: totalSheetRows,
       effectiveMaxBulkUploadRows: planMaxRows,

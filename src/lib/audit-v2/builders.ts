@@ -46,23 +46,99 @@ function truncate<T>(arr: T[], limit = 25): { shown: T[]; omitted: number } {
   return { shown: arr.slice(0, limit), omitted: arr.length - limit }
 }
 
-/** Build an Errors section from a string[] (or {row,message}[]). */
-function errorsSection(errors: Array<string | { row?: string | number; message: string }>): AuditSection | null {
+/** v2.3 — locked error/warning/skipped row contract.
+ *  Invariant: summary.failed === errors.length (only real failures).
+ *  Warnings live in warnings[]. Skipped lives in skipped[]. */
+export interface AuditIssueRow {
+  row: number
+  sheet?: string
+  entity?: string
+  identifier?: string
+  message: string
+}
+export interface AuditWarningRow {
+  row?: number
+  sheet?: string
+  entity?: string
+  identifier?: string
+  message: string
+}
+export interface AuditSkippedRow {
+  row: number
+  sheet?: string
+  entity?: string
+  identifier?: string
+  message: string
+}
+
+/**
+ * Build an Errors section from object rows.
+ * v2.3: drops the legacy `string` variant — every error MUST be an object
+ * with at least { row, message }. entity/identifier are optional but
+ * recommended for readability.
+ */
+function errorsSection(errors: AuditIssueRow[]): AuditSection | null {
   if (!errors || errors.length === 0) return null
-  const items: AuditItem[] = errors.map((e): AuditItem => {
-    if (typeof e === 'string') return { error: e }
-    return { row: toDisplay(e.row ?? ''), message: e.message }
-  })
+  const items: AuditItem[] = errors.map((e) => ({
+    row: toDisplay(e.row ?? ''),
+    entity: toDisplay(e.entity ?? ''),
+    identifier: toDisplay(e.identifier ?? ''),
+    message: e.message,
+  }))
   const { shown, omitted } = truncate(items, 50)
   const section: AuditSection = {
     type: 'errors',
     label: `Errors (${errors.length})`,
     tone: 'danger',
     items: shown,
-    columns: ['row', 'message'],
+    columns: ['row', 'entity', 'identifier', 'message'],
     collapsed: items.length > 5,
   }
   if (omitted > 0) section.label = `Errors (${errors.length}, ${omitted} hidden)`
+  return section
+}
+
+/** Build a Warnings section (non-fatal issues). */
+function warningsSection(warnings: AuditWarningRow[]): AuditSection | null {
+  if (!warnings || warnings.length === 0) return null
+  const items: AuditItem[] = warnings.map((w) => ({
+    row: w.row != null ? toDisplay(w.row) : '—',
+    entity: toDisplay(w.entity ?? ''),
+    identifier: toDisplay(w.identifier ?? ''),
+    message: w.message,
+  }))
+  const { shown, omitted } = truncate(items, 50)
+  const section: AuditSection = {
+    type: 'warnings',
+    label: `Warnings (${warnings.length})`,
+    tone: 'warning',
+    items: shown,
+    columns: ['row', 'entity', 'identifier', 'message'],
+    collapsed: items.length > 5,
+  }
+  if (omitted > 0) section.label = `Warnings (${warnings.length}, ${omitted} hidden)`
+  return section
+}
+
+/** Build a Skipped section (intentionally-processed-but-skipped rows). */
+function skippedSection(skipped: AuditSkippedRow[]): AuditSection | null {
+  if (!skipped || skipped.length === 0) return null
+  const items: AuditItem[] = skipped.map((s) => ({
+    row: toDisplay(s.row ?? ''),
+    entity: toDisplay(s.entity ?? ''),
+    identifier: toDisplay(s.identifier ?? ''),
+    message: s.message,
+  }))
+  const { shown, omitted } = truncate(items, 50)
+  const section: AuditSection = {
+    type: 'skipped',
+    label: `Skipped (${skipped.length})`,
+    tone: 'info',
+    items: shown,
+    columns: ['row', 'entity', 'identifier', 'message'],
+    collapsed: items.length > 5,
+  }
+  if (omitted > 0) section.label = `Skipped (${skipped.length}, ${omitted} hidden)`
   return section
 }
 
@@ -502,7 +578,14 @@ export interface MigrationBatchEventInput {
   compositionsCreated?: number
   totalStock?: number
   totalModalValue?: number
-  errors: Array<string | { row?: string | number; message: string }>
+  /** v2.3 — REAL row-level failures only. Invariant: productsFailed === errors.length. */
+  errors: AuditIssueRow[]
+  /** v2.3 — non-fatal warnings (e.g. composition-engine soft-failures, existing-data reuse).
+   *  NOT counted in productsFailed. */
+  warnings?: AuditWarningRow[]
+  /** v2.3 — intentionally-skipped rows (duplicates, validation-passed-but-skipped).
+   *  Invariant: productsSkipped === skipped.length (when provided). */
+  skipped?: AuditSkippedRow[]
   batchError?: string | null
   outletId: string
   userId: string
@@ -546,8 +629,16 @@ export function buildMigrationBatchEvent(input: MigrationBatchEventInput): Audit
   }
   sections.push({ type: 'summary', label: 'Summary', tone: input.status === 'COMPLETED' || input.status === 'BATCH_LAST_OK' || input.status === 'BATCH_OK' ? 'success' : 'warning', fields: summaryFields })
 
+  // v2.3: Errors / Warnings / Skipped are SEPARATE sections.
+  // Invariant: summary.failed === errors.length (only real failures in errors[]).
   const errSection = errorsSection(input.errors)
   if (errSection) sections.push(errSection)
+
+  const warnSection = warningsSection(input.warnings ?? [])
+  if (warnSection) sections.push(warnSection)
+
+  const skipSection = skippedSection(input.skipped ?? [])
+  if (skipSection) sections.push(skipSection)
 
   if (input.batchError) {
     sections.push({
@@ -583,6 +674,8 @@ export function buildMigrationBatchEvent(input: MigrationBatchEventInput): Audit
       totalStock: input.totalStock ?? 0,
       totalModalValue: input.totalModalValue ?? 0,
       errorCount: input.errors.length,
+      warningCount: input.warnings?.length ?? 0,
+      skippedCount: input.skipped?.length ?? 0,
     },
     operationId: input.operationId ?? `mig:${input.fileName}:${input.batchIndex}`,
     sourceEntityType: 'PRODUCT',
@@ -623,7 +716,8 @@ export interface BulkBatchEventInput {
   status: 'completed' | 'failed'
   stats: { processed?: number; created?: number; updated?: number; skipped?: number; failed?: number; deleted?: number }
   changes: BulkChangeInput[]
-  errors: Array<string | { row?: string | number; message: string }>
+  /** v2.3 — accepts both legacy strings (coerced to {row:0,message:str}) and object rows. */
+  errors: Array<string | AuditIssueRow>
   outletId: string
   userId: string
   /** Raw marker JSON written to V1 `details` so findMarker() still works. */
@@ -731,7 +825,11 @@ export function buildBulkBatchEvent(input: BulkBatchEventInput): AuditEvent {
     }
   }
 
-  const errSection = errorsSection(input.errors)
+  // v2.3: coerce legacy string errors to object rows so the locked contract holds.
+  const normalizedErrors: AuditIssueRow[] = input.errors.map((e) =>
+    typeof e === 'string' ? { row: 0, message: e } : { row: Number(e.row ?? 0), sheet: e.sheet, entity: e.entity, identifier: e.identifier, message: e.message }
+  )
+  const errSection = errorsSection(normalizedErrors)
   if (errSection) sections.push(errSection)
 
   return {
@@ -1441,6 +1539,473 @@ export function buildPurchaseChangeEvent(input: PurchaseChangeEventInput): Audit
     entityType: 'PURCHASE_ORDER',
     entityId: input.purchaseOrderId,
     outletId: input.outletId,
+    userId: input.userId,
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// v2.3 — Entity-specific change events (replace LEGACY emitters)
+//
+// These follow the same pattern as CUSTOMER_CHANGE / PRODUCT_CHANGE:
+// one row per create/update/delete, concise before→after diff, no full
+// object dumps. Each builder is pure (no DB access).
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PRODUCT_CATEGORY_CHANGE — one row per category create/update/delete
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ProductCategoryChangeEventInput {
+  categoryId: string
+  categoryName: string
+  color?: string | null
+  changeType: 'created' | 'updated' | 'deleted'
+  before?: Record<string, unknown>
+  after?: Record<string, unknown>
+  /** For DELETE: how many products had their categoryId nulled. */
+  productsAffected?: number
+  /** For DELETE: HARD_DELETE (default) or SOFT_DELETE. */
+  deleteType?: 'HARD_DELETE' | 'SOFT_DELETE'
+  outletId: string
+  userId: string
+}
+
+export function buildProductCategoryChangeEvent(input: ProductCategoryChangeEventInput): AuditEvent {
+  const title = `Product Category ${input.changeType} · ${input.categoryName}`
+  const summary = [
+    input.changeType,
+    `· ${input.categoryName}`,
+    input.color ? `(${input.color})` : '',
+    input.productsAffected != null && input.productsAffected > 0 ? `· ${input.productsAffected} product(s) affected` : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  const sections: AuditSection[] = []
+  sections.push({
+    type: 'summary',
+    label: 'Summary',
+    tone: input.changeType === 'deleted' ? 'danger' : input.changeType === 'created' ? 'success' : 'info',
+    fields: fields({
+      Category: input.categoryName,
+      Color: input.color || 'zinc',
+      Action: input.changeType,
+      ...(input.deleteType ? { 'Delete Type': input.deleteType } : {}),
+      ...(input.productsAffected != null ? { 'Products Affected': input.productsAffected } : {}),
+    }),
+  })
+
+  const diffs = diffChangedFields(input.before, input.after)
+  if (diffs.length > 0) {
+    sections.push({
+      type: 'changes',
+      label: `Changes (${diffs.length} field${diffs.length > 1 ? 's' : ''})`,
+      items: diffs.map((d) => ({ field: d.field, before: d.before, after: d.after })),
+      columns: ['field', 'before', 'after'],
+      collapsed: diffs.length > 8,
+    })
+  }
+
+  return {
+    eventType: EventType.PRODUCT_CATEGORY_CHANGE,
+    title,
+    summary,
+    sections,
+    metadata: {
+      categoryId: input.categoryId,
+      categoryName: input.categoryName,
+      color: input.color ?? null,
+      changeType: input.changeType,
+      productsAffected: input.productsAffected ?? 0,
+      deleteType: input.deleteType ?? null,
+    },
+    sourceEntityType: 'PRODUCT_CATEGORY',
+    sourceEntityId: input.categoryId,
+    action: input.changeType === 'created' ? 'CREATE' : input.changeType === 'deleted' ? 'DELETE' : 'UPDATE',
+    entityType: 'PRODUCT_CATEGORY',
+    entityId: input.categoryId,
+    outletId: input.outletId,
+    userId: input.userId,
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INVENTORY_CATEGORY_CHANGE — one row per inventory category create/update/delete
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface InventoryCategoryChangeEventInput {
+  categoryId: string
+  categoryName: string
+  color?: string | null
+  changeType: 'created' | 'updated' | 'deleted'
+  before?: Record<string, unknown>
+  after?: Record<string, unknown>
+  /** For DELETE: how many inventory items had their categoryId nulled. */
+  itemsAffected?: number
+  deleteType?: 'HARD_DELETE' | 'SOFT_DELETE'
+  outletId: string
+  userId: string
+}
+
+export function buildInventoryCategoryChangeEvent(input: InventoryCategoryChangeEventInput): AuditEvent {
+  const title = `Inventory Category ${input.changeType} · ${input.categoryName}`
+  const summary = [
+    input.changeType,
+    `· ${input.categoryName}`,
+    input.color ? `(${input.color})` : '',
+    input.itemsAffected != null && input.itemsAffected > 0 ? `· ${input.itemsAffected} item(s) affected` : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  const sections: AuditSection[] = []
+  sections.push({
+    type: 'summary',
+    label: 'Summary',
+    tone: input.changeType === 'deleted' ? 'danger' : input.changeType === 'created' ? 'success' : 'info',
+    fields: fields({
+      Category: input.categoryName,
+      Color: input.color || 'zinc',
+      Action: input.changeType,
+      ...(input.deleteType ? { 'Delete Type': input.deleteType } : {}),
+      ...(input.itemsAffected != null ? { 'Items Affected': input.itemsAffected } : {}),
+    }),
+  })
+
+  const diffs = diffChangedFields(input.before, input.after)
+  if (diffs.length > 0) {
+    sections.push({
+      type: 'changes',
+      label: `Changes (${diffs.length} field${diffs.length > 1 ? 's' : ''})`,
+      items: diffs.map((d) => ({ field: d.field, before: d.before, after: d.after })),
+      columns: ['field', 'before', 'after'],
+      collapsed: diffs.length > 8,
+    })
+  }
+
+  return {
+    eventType: EventType.INVENTORY_CATEGORY_CHANGE,
+    title,
+    summary,
+    sections,
+    metadata: {
+      categoryId: input.categoryId,
+      categoryName: input.categoryName,
+      color: input.color ?? null,
+      changeType: input.changeType,
+      itemsAffected: input.itemsAffected ?? 0,
+      deleteType: input.deleteType ?? null,
+    },
+    sourceEntityType: 'INVENTORY_CATEGORY',
+    sourceEntityId: input.categoryId,
+    action: input.changeType === 'created' ? 'CREATE' : input.changeType === 'deleted' ? 'DELETE' : 'UPDATE',
+    entityType: 'INVENTORY_CATEGORY',
+    entityId: input.categoryId,
+    outletId: input.outletId,
+    userId: input.userId,
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SUPPLIER_CHANGE — one row per supplier create/update/delete
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface SupplierChangeEventInput {
+  supplierId: string
+  supplierName: string
+  phone?: string | null
+  changeType: 'created' | 'updated' | 'deleted'
+  before?: Record<string, unknown>
+  after?: Record<string, unknown>
+  /** For DELETE: how many purchase orders had their supplierId nulled. */
+  purchaseOrdersAffected?: number
+  outletId: string
+  userId: string
+}
+
+export function buildSupplierChangeEvent(input: SupplierChangeEventInput): AuditEvent {
+  const title = `Supplier ${input.changeType} · ${input.supplierName}`
+  const summary = [
+    input.changeType,
+    `· ${input.supplierName}`,
+    input.phone ? `(${input.phone})` : '',
+    input.purchaseOrdersAffected != null && input.purchaseOrdersAffected > 0 ? `· ${input.purchaseOrdersAffected} PO(s) detached` : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  const sections: AuditSection[] = []
+  sections.push({
+    type: 'summary',
+    label: 'Summary',
+    tone: input.changeType === 'deleted' ? 'danger' : input.changeType === 'created' ? 'success' : 'info',
+    fields: fields({
+      Supplier: input.supplierName,
+      Phone: input.phone || '-',
+      Action: input.changeType,
+      ...(input.purchaseOrdersAffected != null ? { 'POs Detached': input.purchaseOrdersAffected } : {}),
+    }),
+  })
+
+  const diffs = diffChangedFields(input.before, input.after)
+  if (diffs.length > 0) {
+    sections.push({
+      type: 'changes',
+      label: `Changes (${diffs.length} field${diffs.length > 1 ? 's' : ''})`,
+      items: diffs.map((d) => ({ field: d.field, before: d.before, after: d.after })),
+      columns: ['field', 'before', 'after'],
+      collapsed: diffs.length > 8,
+    })
+  }
+
+  return {
+    eventType: EventType.SUPPLIER_CHANGE,
+    title,
+    summary,
+    sections,
+    metadata: {
+      supplierId: input.supplierId,
+      supplierName: input.supplierName,
+      phone: input.phone ?? null,
+      changeType: input.changeType,
+      purchaseOrdersAffected: input.purchaseOrdersAffected ?? 0,
+    },
+    sourceEntityType: 'SUPPLIER',
+    sourceEntityId: input.supplierId,
+    action: input.changeType === 'created' ? 'CREATE' : input.changeType === 'deleted' ? 'DELETE' : 'UPDATE',
+    entityType: 'SUPPLIER',
+    entityId: input.supplierId,
+    outletId: input.outletId,
+    userId: input.userId,
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CREW_CHANGE — one row per crew member create/update/delete
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface CrewChangeEventInput {
+  crewId: string
+  crewName: string
+  email?: string | null
+  outletName?: string | null
+  changeType: 'created' | 'updated' | 'deleted'
+  before?: Record<string, unknown>
+  after?: Record<string, unknown>
+  /** For DELETE: which fields were changed (e.g. ['name','email','password']). */
+  changedFields?: string[]
+  outletId: string
+  userId: string
+}
+
+export function buildCrewChangeEvent(input: CrewChangeEventInput): AuditEvent {
+  const title = `Crew ${input.changeType} · ${input.crewName}`
+  const summary = [
+    input.changeType,
+    `· ${input.crewName}`,
+    input.email ? `(${input.email})` : '',
+    input.outletName ? `@ ${input.outletName}` : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  const sections: AuditSection[] = []
+  sections.push({
+    type: 'summary',
+    label: 'Summary',
+    tone: input.changeType === 'deleted' ? 'danger' : input.changeType === 'created' ? 'success' : 'info',
+    fields: fields({
+      Crew: input.crewName,
+      Email: input.email || '-',
+      ...(input.outletName ? { Outlet: input.outletName } : {}),
+      Action: input.changeType,
+      ...(input.changedFields && input.changedFields.length > 0 ? { 'Changed Fields': input.changedFields.join(', ') } : {}),
+    }),
+  })
+
+  const diffs = diffChangedFields(input.before, input.after)
+  if (diffs.length > 0) {
+    sections.push({
+      type: 'changes',
+      label: `Changes (${diffs.length} field${diffs.length > 1 ? 's' : ''})`,
+      items: diffs.map((d) => ({ field: d.field, before: d.before, after: d.after })),
+      columns: ['field', 'before', 'after'],
+      collapsed: diffs.length > 8,
+    })
+  }
+
+  return {
+    eventType: EventType.CREW_CHANGE,
+    title,
+    summary,
+    sections,
+    metadata: {
+      crewId: input.crewId,
+      crewName: input.crewName,
+      email: input.email ?? null,
+      outletName: input.outletName ?? null,
+      changeType: input.changeType,
+      changedFields: input.changedFields ?? [],
+    },
+    sourceEntityType: 'CREW',
+    sourceEntityId: input.crewId,
+    action: input.changeType === 'created' ? 'CREATE' : input.changeType === 'deleted' ? 'DELETE' : 'UPDATE',
+    entityType: 'CREW',
+    entityId: input.crewId,
+    outletId: input.outletId,
+    userId: input.userId,
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PROMO_CHANGE — one row per promo create/update/delete
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface PromoChangeEventInput {
+  promoId: string
+  promoName: string
+  promoType?: string | null
+  value?: number | null
+  changeType: 'created' | 'updated' | 'deleted'
+  before?: Record<string, unknown>
+  after?: Record<string, unknown>
+  outletId: string
+  userId: string
+}
+
+export function buildPromoChangeEvent(input: PromoChangeEventInput): AuditEvent {
+  const title = `Promo ${input.changeType} · ${input.promoName}`
+  const summary = [
+    input.changeType,
+    `· ${input.promoName}`,
+    input.promoType ? `(${input.promoType})` : '',
+    input.value != null ? `· ${input.value}` : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  const sections: AuditSection[] = []
+  sections.push({
+    type: 'summary',
+    label: 'Summary',
+    tone: input.changeType === 'deleted' ? 'danger' : input.changeType === 'created' ? 'success' : 'info',
+    fields: fields({
+      Promo: input.promoName,
+      Type: input.promoType || '-',
+      ...(input.value != null ? { Value: input.value } : {}),
+      Action: input.changeType,
+    }),
+  })
+
+  const diffs = diffChangedFields(input.before, input.after)
+  if (diffs.length > 0) {
+    sections.push({
+      type: 'changes',
+      label: `Changes (${diffs.length} field${diffs.length > 1 ? 's' : ''})`,
+      items: diffs.map((d) => ({ field: d.field, before: d.before, after: d.after })),
+      columns: ['field', 'before', 'after'],
+      collapsed: diffs.length > 8,
+    })
+  }
+
+  return {
+    eventType: EventType.PROMO_CHANGE,
+    title,
+    summary,
+    sections,
+    metadata: {
+      promoId: input.promoId,
+      promoName: input.promoName,
+      promoType: input.promoType ?? null,
+      value: input.value ?? null,
+      changeType: input.changeType,
+    },
+    sourceEntityType: 'PROMO',
+    sourceEntityId: input.promoId,
+    action: input.changeType === 'created' ? 'CREATE' : input.changeType === 'deleted' ? 'DELETE' : 'UPDATE',
+    entityType: 'PROMO',
+    entityId: input.promoId,
+    outletId: input.outletId,
+    userId: input.userId,
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OUTLET_CHANGE — one row per outlet create/delete/plan-change/settings-update
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface OutletChangeEventInput {
+  outletId: string
+  outletName: string
+  changeType: 'created' | 'updated' | 'deleted' | 'plan-changed' | 'settings-updated'
+  /** Sub-type for clarity (e.g. 'CREATE_BRANCH', 'DELETE_BRANCH', 'PLAN_DOWNGRADE'). */
+  subType?: string
+  before?: Record<string, unknown>
+  after?: Record<string, unknown>
+  /** For DELETE: counts of migrated/hard-deleted entities. */
+  migratedAuditLogCount?: number
+  preservedAuditLogs?: boolean
+  note?: string
+  outletIdContext?: string  // The "acting" outlet (e.g. main outlet for branch delete)
+  userId: string
+}
+
+export function buildOutletChangeEvent(input: OutletChangeEventInput): AuditEvent {
+  const title = `Outlet ${input.changeType} · ${input.outletName}`
+  const summary = [
+    input.changeType,
+    input.subType ? `(${input.subType})` : '',
+    `· ${input.outletName}`,
+    input.migratedAuditLogCount != null && input.migratedAuditLogCount > 0 ? `· ${input.migratedAuditLogCount} audit log(s) migrated` : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  const sections: AuditSection[] = []
+  sections.push({
+    type: 'summary',
+    label: 'Summary',
+    tone: input.changeType === 'deleted' ? 'danger' : input.changeType === 'created' ? 'success' : input.changeType === 'plan-changed' ? 'warning' : 'info',
+    fields: fields({
+      Outlet: input.outletName,
+      Action: input.changeType,
+      ...(input.subType ? { 'Sub-Type': input.subType } : {}),
+      ...(input.migratedAuditLogCount != null ? { 'Migrated Audit Logs': input.migratedAuditLogCount } : {}),
+      ...(input.preservedAuditLogs != null ? { 'Audit Logs Preserved': input.preservedAuditLogs ? 'Yes' : 'No' } : {}),
+      ...(input.note ? { Note: input.note } : {}),
+    }),
+  })
+
+  const diffs = diffChangedFields(input.before, input.after)
+  if (diffs.length > 0) {
+    sections.push({
+      type: 'changes',
+      label: `Changes (${diffs.length} field${diffs.length > 1 ? 's' : ''})`,
+      items: diffs.map((d) => ({ field: d.field, before: d.before, after: d.after })),
+      columns: ['field', 'before', 'after'],
+      collapsed: diffs.length > 8,
+    })
+  }
+
+  return {
+    eventType: EventType.OUTLET_CHANGE,
+    title,
+    summary,
+    sections,
+    metadata: {
+      outletId: input.outletId,
+      outletName: input.outletName,
+      changeType: input.changeType,
+      subType: input.subType ?? null,
+      migratedAuditLogCount: input.migratedAuditLogCount ?? 0,
+      preservedAuditLogs: input.preservedAuditLogs ?? null,
+    },
+    sourceEntityType: 'OUTLET',
+    sourceEntityId: input.outletId,
+    action: input.changeType === 'created' ? 'CREATE' : input.changeType === 'deleted' ? 'DELETE' : input.changeType === 'plan-changed' ? 'PLAN_CHANGE' : 'UPDATE',
+    entityType: 'OUTLET',
+    entityId: input.outletId,
+    outletId: input.outletIdContext ?? input.outletId,
     userId: input.userId,
   }
 }

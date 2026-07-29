@@ -37,17 +37,31 @@ export async function GET(request: NextRequest) {
     const { searchParams } = request.nextUrl
     const action = searchParams.get('action') || ''
     const entityType = searchParams.get('entityType') || ''
+    const eventType = searchParams.get('eventType') || ''
     const dateFrom = searchParams.get('from') || ''
     const dateTo = searchParams.get('to') || ''
     const search = searchParams.get('search') || ''
 
     const where: Record<string, unknown> = { outletId }
 
-    if (action && action !== 'ALL') {
-      where.action = action
-    }
-    if (entityType && entityType !== 'ALL') {
-      where.entityType = entityType
+    // V2: filter by eventType (supports comma-separated list for grouped tabs).
+    if (eventType && eventType !== 'ALL') {
+      const types = eventType
+        .split(',')
+        .map((t) => t.trim())
+        .filter(Boolean)
+      if (types.length === 1) {
+        where.eventType = types[0]
+      } else if (types.length > 1) {
+        where.eventType = { in: types }
+      }
+    } else {
+      if (action && action !== 'ALL') {
+        where.action = action
+      }
+      if (entityType && entityType !== 'ALL') {
+        where.entityType = entityType
+      }
     }
     const dateFilter = buildDateFilter(dateFrom, dateTo)
     if (Object.keys(dateFilter).length > 0) {
