@@ -7,7 +7,7 @@ import * as XLSX from 'xlsx'
 import { safeAuditLog } from '@/lib/safe-audit'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 import { generateUniqueSKU, generateVariantSKU } from '@/lib/sku-generator'
-import { safeEmitAuditEvent, buildMigrationBatchEvent } from '@/lib/audit-v2'
+import { safeEmitAuditEvent, buildMigrationBatchEvent, type MigrationCreatedRow } from '@/lib/audit-v2'
 
 export const maxDuration = 300
 
@@ -623,6 +623,7 @@ export async function POST(request: NextRequest) {
     const errors: MigrationIssueRow[] = []
     const warnings: MigrationWarningRow[] = []        // Warnings for re-migration events / non-fatal soft-failures
     const skippedRows: MigrationSkippedRow[] = []      // Intentionally-skipped rows (duplicates, existing-data reuse)
+    const createdRows: MigrationCreatedRow[] = []      // v2.3 — successfully-created items (products, inventory, variants)
 
     // ==================== CACHES (outside tx — shared across batch txs) ====================
     const categoryCache = new Map<string, string | null>()
@@ -1160,6 +1161,16 @@ export async function POST(request: NextRequest) {
             productsCreated++
             if (finalBarcode) barcodeCount++
 
+            // v2.3 — record what was actually created (not just a counter)
+            createdRows.push({
+              row: rowNum,
+              sheet: 'produk',
+              entity: 'product',
+              name,
+              sku: finalSku || undefined,
+              detail: `harga ${price} · stok ${stock} ${unit}`,
+            })
+
             // Collect opening stock audit log (entityId resolved after createMany)
             if (stock > 0) {
               batchAuditLogs.push({
@@ -1233,6 +1244,16 @@ export async function POST(request: NextRequest) {
                 inventoryItemsCreated++
                 totalStock += stock
                 totalModalValue += hpp * stock
+
+                // v2.3 — record what was actually created (not just a counter)
+                createdRows.push({
+                  row: rowNum,
+                  sheet: 'inventory',
+                  entity: 'inventory',
+                  name,
+                  sku: finalSku || undefined,
+                  detail: `${stock} ${unit} · hpp ${hpp}`,
+                })
 
                 // Collect 1:1 composition link (both IDs resolved after createMany)
                 compositionsToCreate.push({
@@ -1923,6 +1944,16 @@ export async function POST(request: NextRequest) {
                     })
                     productsCreated++
                     if (finalBarcode) barcodeCount++
+
+                    // v2.3 — record the variant parent product
+                    createdRows.push({
+                      row: rowNum,
+                      sheet: 'varian',
+                      entity: 'product',
+                      name: r.parentName,
+                      sku: finalSku || undefined,
+                      detail: 'parent varian',
+                    })
                   }
                 }
 
@@ -1973,6 +2004,16 @@ export async function POST(request: NextRequest) {
 
                   variantsCreated++
                   if (finalVariantBarcode) barcodeCount++
+
+                  // v2.3 — record the variant
+                  createdRows.push({
+                    row: rowNum,
+                    sheet: 'varian',
+                    entity: 'variant',
+                    name: `${currentParentName} / ${r.variantName}`,
+                    sku: finalVariantSku || undefined,
+                    detail: `harga ${r.variantPrice} · stok ${r.variantStock}`,
+                  })
 
                   // Collect opening stock audit log (entityId resolved after variant createMany)
                   if (r.variantStock > 0) {
@@ -2913,6 +2954,7 @@ export async function POST(request: NextRequest) {
           errors,
           warnings, // v2.3 — non-fatal warnings (composition soft-failures, existing-data reuse)
           skipped: skippedRows, // v2.3 — intentionally-skipped rows (duplicates, existing data)
+          created: createdRows, // v2.3 — successfully-created items (products, inventory, variants)
           batchError,
           outletId,
           userId,
