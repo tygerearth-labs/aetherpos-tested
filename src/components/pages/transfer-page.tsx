@@ -63,7 +63,6 @@ import {
   FlaskConical,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useCriticalActivity } from '@/hooks/use-critical-activity'
 
 // ── Types ──
 type TransferStatus = 'DRAFT' | 'IN_TRANSIT' | 'RECEIVED' | 'CANCELLED'
@@ -277,20 +276,6 @@ export default function TransferPage() {
   const [invSearchRef] = useState({ current: null as HTMLDivElement | null })
   const [invAddQty, setInvAddQty] = useState('1')
   const [invActionLoading, setInvActionLoading] = useState<string | null>(null)
-
-  // Domain-mutation critical activity covers the in-flight API call when
-  // the user creates or commits a stock transfer (POST /api/transfers or
-  // PATCH /api/transfers/[id] with status IN_TRANSIT/RECEIVED/CANCELLED).
-  // Covers both PRODUCT and INVENTORY transfer flows. Severity `in-flight`
-  // — reloading mid-request leaves the user unsure whether the transfer
-  // commit was applied (cross-outlet stock impact).
-  useCriticalActivity(
-    'domain-mutation',
-    'domain-mutation-stock-transfer',
-    'Transfer stok sedang diproses',
-    createLoading || invCreateLoading || actionLoading !== null || invActionLoading !== null,
-    'in-flight',
-  )
 
   // ── Fetch outlet group ──
   useEffect(() => {

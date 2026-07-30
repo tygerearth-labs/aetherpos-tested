@@ -41,9 +41,6 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { Pagination } from '@/components/shared/pagination'
 import { DateFilter } from '@/components/shared/date-filter'
-import { OfflineDataNotice } from '@/components/shared/offline-data-notice'
-import { useOfflineData, recordDataFetch } from '@/hooks/use-offline-data'
-import { useCriticalActivity } from '@/hooks/use-critical-activity'
 import { cn } from '@/lib/utils'
 import {
   Search,
@@ -173,8 +170,6 @@ export default function TransactionsPage() {
   const isOwner = session?.user?.role === 'OWNER'
   const { plan } = usePlan()
   const isPro = plan?.type === 'pro' || plan?.type === 'enterprise'
-  const offlineData = useOfflineData('transactions')
-  const isOffline = offlineData.isOffline
 
   // Active tab
   const [activeTab, setActiveTab] = useState('transactions')
@@ -216,18 +211,6 @@ export default function TransactionsPage() {
   const [voidOpen, setVoidOpen] = useState(false)
   const [voidReason, setVoidReason] = useState('')
   const [voidSubmitting, setVoidSubmitting] = useState(false)
-
-  // Domain-mutation critical activity covers the in-flight API call when
-  // the user clicks "Void" (POST /api/transactions/[id]/void). Severity
-  // `in-flight` — reloading mid-request leaves the user unsure whether
-  // the void was applied (financial impact: refunds, restocks, audit).
-  useCriticalActivity(
-    'domain-mutation',
-    'domain-mutation-void-transaction',
-    'Void transaksi sedang diproses',
-    voidSubmitting,
-    'in-flight',
-  )
 
   // Filter panel toggle
   const [filterOpen, setFilterOpen] = useState(false)
@@ -359,7 +342,6 @@ export default function TransactionsPage() {
         const data: TransactionListResponse = await res.json()
         setTransactions(data.transactions)
         setTotalPages(data.totalPages)
-        void recordDataFetch('transactions')
 
         // Update cashier list from response (only if not already populated)
         if (!cashiersPopulated.current) {
@@ -374,15 +356,15 @@ export default function TransactionsPage() {
             setCashiers(Array.from(uniqueCashiers.entries()).map(([id, name]) => ({ id, name })))
           }
         }
-      } else if (!isOffline) {
+      } else {
         toast.error('Failed to load transactions')
       }
     } catch {
-      if (!isOffline) toast.error('Failed to load transactions')
+      toast.error('Failed to load transactions')
     } finally {
       setLoading(false)
     }
-  }, [page, search, dateFrom, dateTo, cashierId, paymentMethod, voidFilter, sortField, sortDir, isOffline])
+  }, [page, search, dateFrom, dateTo, cashierId, paymentMethod, voidFilter, sortField, sortDir])
 
   useEffect(() => {
      
@@ -1010,7 +992,7 @@ export default function TransactionsPage() {
           variant="outline"
           size="sm"
           onClick={handleExport}
-          disabled={!isPro || exporting || isOffline}
+          disabled={!isPro || exporting}
           className="bg-white/[0.04] border-white/[0.08] text-slate-300 hover:text-white hover:bg-white/[0.06] h-8 text-xs rounded-lg shrink-0"
         >
           {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : isPro ? <Download className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
@@ -1201,7 +1183,7 @@ export default function TransactionsPage() {
                       >
                         <Eye className="h-3.5 w-3.5" />
                       </Button>
-                      {isOwner && !isVoid && !isOffline && (
+                      {isOwner && !isVoid && (
                         <Button
                           variant="ghost"
                           size="icon"
@@ -1298,7 +1280,7 @@ export default function TransactionsPage() {
                           >
                             <Eye className="h-3.5 w-3.5" />
                           </Button>
-                          {isOwner && !isVoid && !isOffline && (
+                          {isOwner && !isVoid && (
                             <Button
                               variant="ghost"
                               size="icon"
@@ -1325,10 +1307,6 @@ export default function TransactionsPage() {
 
   return (
     <div className="space-y-4">
-      <OfflineDataNotice
-        isOffline={offlineData.isOffline}
-        lastUpdatedLabel={offlineData.lastUpdatedLabel}
-      />
       <div>
         <h1 className="text-lg font-semibold text-white">Transaksi</h1>
         <p className="text-xs text-slate-500 mt-0.5">Lihat semua transaksi dan ringkasan harian</p>
@@ -1596,7 +1574,7 @@ export default function TransactionsPage() {
                     <Printer className="mr-1.5 h-3.5 w-3.5" />
                     Cetak Struk
                   </Button>
-                  {isOwner && detailTransaction.voidStatus !== 'void' && !isOffline && (
+                  {isOwner && detailTransaction.voidStatus !== 'void' && (
                     <Button
                       variant="outline"
                       size="sm"

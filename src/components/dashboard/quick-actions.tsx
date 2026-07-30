@@ -2,7 +2,7 @@
 
 import { Button } from '@/components/ui/button'
 import { PlusCircle, ShoppingCart, FileBarChart } from 'lucide-react'
-import { navigate } from '@/lib/navigate'
+import { usePageStore } from '@/hooks/use-page-store'
 import { motion } from 'framer-motion'
 
 const itemVariants = {
@@ -14,6 +14,8 @@ const itemVariants = {
 }
 
 export function QuickActions() {
+  const { setCurrentPage } = usePageStore()
+
   return (
     <motion.div variants={itemVariants}>
       <div className="grid grid-cols-3 gap-2.5">
@@ -26,7 +28,7 @@ export function QuickActions() {
             key={item.page}
             variant="outline"
             className="h-auto py-2.5 px-2 bg-nebula border-white/[0.06] hover:bg-white/[0.04] hover:border-white/[0.06] text-slate-300 hover:text-white transition-all rounded-xl gap-2 justify-center"
-            onClick={() => navigate(item.page)}
+            onClick={() => setCurrentPage(item.page)}
           >
             {item.icon}
             <span className="text-[11px] font-medium">{item.label}</span>

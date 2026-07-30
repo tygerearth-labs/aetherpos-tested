@@ -58,9 +58,6 @@ import {
   PopoverContent,
 } from '@/components/ui/popover'
 import { Pagination } from '@/components/shared/pagination'
-import { OfflineDataNotice } from '@/components/shared/offline-data-notice'
-import { useOfflineData, recordDataFetch } from '@/hooks/use-offline-data'
-import { useCriticalActivity } from '@/hooks/use-critical-activity'
 import {
   Table,
   TableBody,
@@ -471,8 +468,6 @@ export default function ProductsPage() {
   const { plan } = usePlan()
   const isPro = plan?.type === 'pro' || plan?.type === 'enterprise'
   const { openDialog: openBulkDialog } = useBulkWorker()
-  const offlineData = useOfflineData('products')
-  const isOffline = offlineData.isOffline
 
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
@@ -573,33 +568,6 @@ export default function ProductsPage() {
     variantsNotFound: number
     errors: string[]
   } | null>(null)
-
-  // File-upload critical activity covers BOTH product Excel import windows:
-  //   - `uploading`     → /api/products/bulk-upload (new products)
-  //   - `editExcelUploading` → /api/products/bulk-update-excel (edit existing)
-  // Severity `interrupt` — re-upload restarts cleanly (no committed state).
-  // NOTE: product-form-dialog.tsx has NO file upload (image field is a URL
-  // string), so the genuine file-import window lives here.
-  useCriticalActivity(
-    'file-upload',
-    'file-upload-product-import',
-    'Upload file produk sedang berjalan',
-    uploading || editExcelUploading,
-    'interrupt',
-  )
-
-  // Domain-mutation critical activity covers the in-flight API call when
-  // the user submits a manual stock adjustment (POST /api/products/[id]/adjust).
-  // Severity `in-flight` — reloading mid-request leaves the user unsure
-  // whether the adjustment was applied. NOTE: inventory-movement-page.tsx
-  // is read-only (no commit); the genuine adjustment form lives here.
-  useCriticalActivity(
-    'domain-mutation',
-    'domain-mutation-inventory-adjust',
-    'Penyesuaian stok sedang diproses',
-    adjusting,
-    'in-flight',
-  )
   const [editExcelDragOver, setEditExcelDragOver] = useState(false)
   const editExcelProgressRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -697,16 +665,15 @@ export default function ProductsPage() {
         if (data.stats) {
           setStats(data.stats)
         }
-        void recordDataFetch('products')
-      } else if (!isOffline) {
+      } else {
         toast.error('Gagal memuat produk')
       }
     } catch {
-      if (!isOffline) toast.error('Gagal memuat produk')
+      toast.error('Gagal memuat produk')
     } finally {
       setLoading(false)
     }
-  }, [page, search, sort, activeCategoryId, isOffline])
+  }, [page, search, sort, activeCategoryId])
 
   useEffect(() => {
      
@@ -1477,12 +1444,6 @@ export default function ProductsPage() {
   return (
     <div className="space-y-6">
 
-      {/* Offline data notice (READ_ONLY route — shows cached snapshot when offline) */}
-      <OfflineDataNotice
-        isOffline={offlineData.isOffline}
-        lastUpdatedLabel={offlineData.lastUpdatedLabel}
-      />
-
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -1493,9 +1454,7 @@ export default function ProductsPage() {
           {isPro && isOwner && (
             <Button
               variant={bulkMode ? 'default' : 'outline'}
-              disabled={isOffline}
               onClick={() => {
-                if (isOffline) return
                 setBulkMode(!bulkMode)
                 setSelectedIds(new Set())
                 setSelectAllMode(false)
@@ -1547,8 +1506,7 @@ export default function ProductsPage() {
               </DropdownMenuItem>
               <DropdownMenuSeparator className="bg-white/[0.06] my-1" />
               <DropdownMenuItem
-                onClick={() => { if (!isOffline) openBulkDialog('product:add') }}
-                disabled={isOffline}
+                onClick={() => openBulkDialog('product:add')}
                 className="flex items-center gap-3 px-2.5 py-2.5 text-xs text-slate-300 hover:bg-white/[0.05] hover:text-white rounded-lg cursor-pointer focus:bg-white/[0.05] focus:text-white group"
               >
                 <Upload className="h-4 w-4 text-slate-500 group-hover:text-amber-400 transition-colors" />
@@ -1559,8 +1517,7 @@ export default function ProductsPage() {
               </DropdownMenuItem>
               <DropdownMenuSeparator className="bg-white/[0.06] my-1" />
               <DropdownMenuItem
-                onClick={() => { if (!isOffline) openBulkDialog('product:edit') }}
-                disabled={isOffline}
+                onClick={() => openBulkDialog('product:edit')}
                 className="flex items-center gap-3 px-2.5 py-2.5 text-xs text-slate-300 hover:bg-white/[0.05] hover:text-white rounded-lg cursor-pointer focus:bg-white/[0.05] focus:text-white group"
               >
                 <FilePenLine className="h-4 w-4 text-slate-500 group-hover:text-cyan-400 transition-colors" />
@@ -1571,7 +1528,7 @@ export default function ProductsPage() {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          <Button onClick={handleAdd} disabled={isOffline} className="theme-bg theme-hover text-white h-9 text-xs font-medium shadow-lg theme-shadow shrink-0">
+          <Button onClick={handleAdd} className="theme-bg theme-hover text-white h-9 text-xs font-medium shadow-lg theme-shadow shrink-0">
             <Plus className="mr-1.5 h-3.5 w-3.5" />
             Tambah Produk
           </Button>
@@ -2203,10 +2160,8 @@ export default function ProductsPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            disabled={isOffline}
                             className="h-7 w-7 rounded-lg text-slate-500 hover:theme-text hover:theme-bg-very-light"
                             onClick={() => {
-                              if (isOffline) return
                               setRestockProduct(product)
                               setRestockQty('')
                               setVariantRestocks([])
@@ -2218,27 +2173,24 @@ export default function ProductsPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            disabled={isOffline}
                             className="h-7 w-7 text-slate-500 hover:text-orange-400 hover:bg-orange-500/10 rounded-lg"
-                            onClick={() => { if (!isOffline) openAdjustDialog(product) }}
+                            onClick={() => openAdjustDialog(product)}
                           >
                             <FilePenLine className="h-3.5 w-3.5" />
                           </Button>
                           <Button
                             variant="ghost"
                             size="icon"
-                            disabled={isOffline}
                             className="h-7 w-7 text-slate-500 hover:text-white hover:bg-white/[0.04] rounded-lg"
-                            onClick={() => { if (!isOffline) handleEdit(product) }}
+                            onClick={() => handleEdit(product)}
                           >
                             <Edit className="h-3.5 w-3.5" />
                           </Button>
                           <Button
                             variant="ghost"
                             size="icon"
-                            disabled={isOffline}
                             className="h-7 w-7 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg"
-                            onClick={() => { if (!isOffline) setDeleteId(product.id) }}
+                            onClick={() => setDeleteId(product.id)}
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
@@ -2519,10 +2471,8 @@ export default function ProductsPage() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        disabled={isOffline}
                         className="h-9 w-9 text-slate-500 hover:theme-text hover:theme-bg-very-light rounded-lg transition-colors"
                         onClick={() => {
-                          if (isOffline) return
                           setRestockProduct(product)
                           setRestockQty('')
                           setVariantRestocks([])
@@ -2534,9 +2484,8 @@ export default function ProductsPage() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        disabled={isOffline}
                         className="h-9 w-9 text-slate-500 hover:text-orange-400 hover:bg-orange-500/10 rounded-lg transition-colors"
-                        onClick={() => { if (!isOffline) openAdjustDialog(product) }}
+                        onClick={() => openAdjustDialog(product)}
                         title="Penyesuaian Stok"
                       >
                         <FilePenLine className="h-4 w-4" />
@@ -2544,9 +2493,8 @@ export default function ProductsPage() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        disabled={isOffline}
                         className="h-9 w-9 text-slate-500 hover:text-white hover:bg-white/[0.06] rounded-lg transition-colors"
-                        onClick={() => { if (!isOffline) handleEdit(product) }}
+                        onClick={() => handleEdit(product)}
                         title="Edit"
                       >
                         <Edit className="h-4 w-4" />
@@ -2554,9 +2502,8 @@ export default function ProductsPage() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        disabled={isOffline}
                         className="h-9 w-9 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
-                        onClick={() => { if (!isOffline) setDeleteId(product.id) }}
+                        onClick={() => setDeleteId(product.id)}
                         title="Hapus"
                       >
                         <Trash2 className="h-4 w-4" />

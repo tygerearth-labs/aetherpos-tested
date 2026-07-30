@@ -16,7 +16,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { toast } from 'sonner'
 import { tryGetPosDB, type CachedCustomer, type CustomerOutboxRow } from '@/lib/pos/pos-db'
-import { useCriticalActivity } from '@/hooks/use-critical-activity'
 import type { Customer } from './use-pos-customers'
 
 // ==================== INTERFACES ====================
@@ -60,18 +59,6 @@ export function usePosCustomers(options: { isOnline: boolean }): UsePosCustomers
   const [addCustomerOpen, setAddCustomerOpen] = useState(false)
   const [newCustomer, setNewCustomer] = useState({ name: '', whatsapp: '' })
   const [addingCustomer, setAddingCustomer] = useState(false)
-
-  // ── Critical activity: customer create mid-POS is an in-flight domain
-  // mutation. Reloading mid-call leaves the user unsure whether the new
-  // customer was created (and which customer the in-flight POS cart will
-  // be attributed to).
-  useCriticalActivity(
-    'domain-mutation',
-    'domain-mutation-pos-customer-create',
-    'Penambahan pelanggan sedang diproses',
-    addingCustomer,
-    'in-flight',
-  )
 
   // ── Load customers (online: /api/customers; offline: Dexie) ──
   const loadCustomersFromCache = useCallback(async () => {

@@ -22,7 +22,6 @@ import { toast } from 'sonner'
 import { useBulkWorker } from './bulk-worker-context'
 import { getClientAdapter } from '@/lib/bulk-engine/registry-client'
 import { generateTemplate } from '@/lib/bulk-engine/sheet-parse'
-import { useCriticalActivity } from '@/hooks/use-critical-activity'
 import type { ParsedRow } from '@/lib/bulk-engine/types'
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -137,18 +136,6 @@ function UploadView({
   const [config, setConfig] = useState<Record<string, unknown>>({})
   const [dragOver, setDragOver] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
-
-  // File-upload critical activity covers the *parsing* window between the
-  // user picking a file and the bulk job entering 'processing' state. Once
-  // the job is processing, bulk-job takes over (handled by the worker
-  // provider). Severity `interrupt` — parsing restarts cleanly on reload.
-  useCriticalActivity(
-    'file-upload',
-    'file-upload-bulk-dialog',
-    'Parsing file bulk sedang berjalan',
-    parsing,
-    'interrupt',
-  )
 
   const isMigration = kind === 'migration-products'
 

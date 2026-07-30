@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
 import { toast } from 'sonner'
 import { formatDate } from '@/lib/format'
-import { useCriticalActivity } from '@/hooks/use-critical-activity'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -166,16 +165,6 @@ function CrewManagement() {
   // Form
   const [formData, setFormData] = useState<CrewFormData>(DEFAULT_FORM)
   const [saving, setSaving] = useState(false)
-
-  // ── Critical activity: crew create/edit/delete is an in-flight domain mutation.
-  // Reloading mid-API-call leaves the user unsure whether the crew was saved/deleted.
-  useCriticalActivity(
-    'domain-mutation',
-    'domain-mutation-crew-save',
-    'Penyimpanan crew sedang diproses',
-    saving || deleting,
-    'in-flight',
-  )
 
   // Fetch crew list
   const fetchCrew = useCallback(async () => {

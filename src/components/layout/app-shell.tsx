@@ -6,7 +6,6 @@ import { usePageStore } from '@/hooks/use-page-store'
 import { useSidebarStore } from '@/components/layout/sidebar'
 import { useOnlineStatus, useBlockRefresh } from '@/hooks/use-online-status'
 import { usePlan } from '@/hooks/use-plan'
-import { useRoutePrefetch } from '@/hooks/use-route-prefetch'
 import { PlanProvider } from '@/context/plan-context'
 import Sidebar from '@/components/layout/sidebar'
 import MobileBottomNav from '@/components/layout/mobile-bottom-nav'
@@ -14,7 +13,6 @@ import AuthView from '@/components/auth/auth-view'
 import LandingPage from '@/components/landing/landing-page'
 import { Loader2, WifiOff, ShieldCheck } from 'lucide-react'
 import { ErrorBoundary } from '@/components/shared/error-boundary'
-import { OfflineRouteBlocker } from '@/components/shared/offline-route-blocker'
 import { MigrationProcessorProvider } from '@/components/migration/migration-processor-provider'
 import { MigrationWizard } from '@/components/migration/migration-wizard'
 import { MigrationFloatingWidget } from '@/components/migration/migration-floating-widget'
@@ -22,13 +20,6 @@ import { BulkWorkerProvider } from '@/components/bulk-engine/bulk-worker-provide
 import { BulkUploadDialog } from '@/components/bulk-engine/bulk-upload-dialog'
 import { BulkFloatingWidget } from '@/components/bulk-engine/bulk-floating-widget'
 import { BulkQueueDrawer } from '@/components/bulk-engine/bulk-queue-drawer'
-import { navigateUnchecked } from '@/lib/navigate'
-import { getRouteCapability } from '@/lib/route-capability'
-import { hasCriticalActivity } from '@/lib/build-guard/critical-activity-registry'
-import { useBuildVersionStore, resetBuildUpdateReloadGuard } from '@/lib/build-guard/build-version-store'
-import { UpdateBanner } from '@/components/shared/update-banner'
-import { useCriticalActivity } from '@/hooks/use-critical-activity'
-import { useOutboxPending } from '@/hooks/use-outbox-pending'
 
 // ── Lazy-loaded pages (code splitting for faster initial load) ──
 const DashboardPage = lazy(() => import('@/components/pages/dashboard-page'))
@@ -79,25 +70,11 @@ function InitScreen() {
 }
 
 // ── App Ready Gate — waits for plan + permissions before rendering UI ──
-//
-// v3.0 fix: Added a bounded timeout (4s) + cached entitlement fallback so the
-// "Verifying account plan..." bootstrap screen never hangs indefinitely. If
-// the plan API doesn't respond within 4s (e.g. slow network, SW serving stale
-// response, or the API errored), we fall back to a permissive entitlement
-// (treat the user as OWNER with full access) so the app shell renders. The
-// real plan data will refresh in the background via PlanProvider's polling
-// and ProGate will re-evaluate once it arrives.
-//
-// This prevents the unstyled "Verifying account plan..." screen from being
-// the last thing the user sees when a stale SW serves a broken HTML shell.
-const PLAN_BOOTSTRAP_TIMEOUT_MS = 4000
-
 function AppReadyGate({ children }: { children: React.ReactNode }) {
   const { plan, features, isLoading: planLoading } = usePlan()
   const { data: session } = useSession()
   const isOwner = session?.user?.role === 'OWNER'
   const [permissionsReady, setPermissionsReady] = useState(false)
-  const [timedOut, setTimedOut] = useState(false)
 
   // Fetch permissions for crew users
   useEffect(() => {
@@ -116,17 +93,7 @@ function AppReadyGate({ children }: { children: React.ReactNode }) {
     return () => { cancelled = true }
   }, [isOwner])
 
-  // Bounded timeout — if the plan API doesn't respond within 4s, proceed
-  // with a permissive fallback so the app shell renders.
-  useEffect(() => {
-    if (!planLoading) return
-    const id = setTimeout(() => {
-      setTimedOut(true)
-    }, PLAN_BOOTSTRAP_TIMEOUT_MS)
-    return () => clearTimeout(id)
-  }, [planLoading])
-
-  const ready = (!planLoading || timedOut) && permissionsReady
+  const ready = !planLoading && permissionsReady
 
   if (!ready) {
     return (
@@ -160,108 +127,14 @@ function AppContent() {
     refetchInterval: 5 * 60 * 1000,
     refetchOnWindowFocus: true,
   })
-  const { currentPage, blockedPage, setBlockedPage } = usePageStore()
+  const { currentPage } = usePageStore()
   const { collapsed } = useSidebarStore()
   const [showAuth, setShowAuth] = useState(false)
   const isOnline = useOnlineStatus()
-  const updateStatus = useBuildVersionStore((s) => s.status)
-  const updateBannerVisible = updateStatus === 'ready' || updateStatus === 'pending'
 
-  // ── Critical activity: outbox has unsynced local transactions ──
-  //
-  // The Dexie `syncQueue` table holds PENDING/FAILED rows for transactions
-  // and other mutations written locally while offline (or while a sync was
-  // in flight). Reloading doesn't lose them (Dexie survives reload) but a
-  // build update applied mid-outbox could mask a sync failure. Register as
-  // 'interrupt' — warn the user, but allow the update to apply once they
-  // acknowledge (the outbox will retry on next online window).
-  const pendingOutboxCount = useOutboxPending()
-  useCriticalActivity(
-    'outbox-sync',
-    'outbox-sync',
-    'Sinkronisasi transaksi lokal',
-    pendingOutboxCount > 0,
-    'interrupt',
-  )
-
-  // Prefetch priority route chunks while online + idle
-  useRoutePrefetch()
-
-  // Block refresh (F5, Ctrl+R, Cmd+R, beforeunload) when offline OR when
-  // critical activities are active (POS cart, bulk job, dirty form, etc.) so
-  // the user doesn't accidentally lose unsaved work.
-  const shouldBlock = useCallback(() => {
-    if (!isOnline) return true
-    return hasCriticalActivity()
-  }, [isOnline])
-  useBlockRefresh(shouldBlock)
-
-  // ── Build update lifecycle: auto-apply when 'ready', reset guard on mount ──
-  //
-  // On mount, clear the build-update reload guard so a fresh session can
-  // auto-apply future updates (prevents a stale guard from blocking the next
-  // update after a successful reload).
-  useEffect(() => {
-    resetBuildUpdateReloadGuard()
-    // E2E TEST DEBUG HOOK — expose build-guard stores on window so the
-    // agent-browser E2E test can drive the update lifecycle without needing a
-    // real build deployment. Safe to keep in production (read-only-ish — only
-    // exposes store getters + existing actions, no new mutations).
-    try {
-      const w = window as unknown as { __aetherBuildGuard?: unknown }
-      w.__aetherBuildGuard = {
-        setClientBuildId: (id: string) =>
-          useBuildVersionStore.getState().setClientBuildId(id),
-        reportServerBuildId: (id: string) =>
-          useBuildVersionStore.getState().reportServerBuildId(id),
-        markReady: () => useBuildVersionStore.getState().markReady(),
-        markPending: () => useBuildVersionStore.getState().markPending(),
-        markApplying: () => useBuildVersionStore.getState().markApplying(),
-        clearUpdate: () => useBuildVersionStore.getState().clearUpdate(),
-        getStatus: () => useBuildVersionStore.getState(),
-        resetReloadGuard: () => resetBuildUpdateReloadGuard(),
-      }
-    } catch {
-      /* best-effort — window may be unavailable in some test contexts */
-    }
-    // Expose critical-activity store via dynamic import (avoids circular dep)
-    void import('@/lib/build-guard/critical-activity-registry').then(
-      ({ useCriticalActivityStore }) => {
-        try {
-          const w = window as unknown as {
-            __aetherBuildGuard?: Record<string, unknown>
-          }
-          w.__aetherBuildGuard = {
-            ...(w.__aetherBuildGuard || {}),
-            registerActivity: (
-              id: string,
-              type: string,
-              label: string,
-              severity: string,
-            ) =>
-              useCriticalActivityStore.getState().register(
-                id,
-                type as never,
-                label,
-                severity as never,
-              ),
-            unregisterActivity: (id: string) =>
-              useCriticalActivityStore.getState().unregister(id),
-            getActivities: () => useCriticalActivityStore.getState().activities,
-          }
-        } catch {
-          /* ignore */
-        }
-      },
-    )
-  }, [])
-
-  // Auto-clear blocked page when we come back online
-  useEffect(() => {
-    if (isOnline && blockedPage) {
-      setBlockedPage(null)
-    }
-  }, [isOnline, blockedPage, setBlockedPage])
+  // Block refresh (F5, Ctrl+R, Cmd+R, beforeunload) when offline
+  const isOffline = useCallback(() => !isOnline, [isOnline])
+  useBlockRefresh(isOffline)
 
   // Gate 1: Session loading
   if (status === 'loading') {
@@ -318,14 +191,12 @@ function AppContent() {
         <BulkWorkerProvider>
           <AppReadyGate>
             <div className={`bg-deep-space ${currentPage === 'pos' ? 'md:h-screen md:overflow-y-hidden' : 'min-h-screen'}`} data-offline-block>
-              {/* Build Update Banner — activity-aware (shows when ready/pending) */}
-              <UpdateBanner />
               {/* Offline Banner */}
               {!isOnline && (
-                <div className={`fixed left-0 right-0 z-[100] bg-red-600/95 backdrop-blur-sm border-b border-red-500/50 ${updateBannerVisible ? 'top-14' : 'top-0'}`}>
+                <div className="fixed top-0 left-0 right-0 z-[100] bg-red-600/95 backdrop-blur-sm border-b border-red-500/50">
                   <div className="flex items-center justify-center gap-2 py-1.5 px-4">
                     <WifiOff className="h-3.5 w-3.5 text-white shrink-0" />
-                    <span className="text-[11px] text-white font-medium">Mode Offline — POS tersedia, transaksi tersimpan lokal. Beberapa halaman memerlukan koneksi.</span>
+                    <span className="text-[11px] text-white font-medium">Mode Offline — Data terakhir yang dimuat masih bisa dilihat. Refresh dinonaktifkan.</span>
                   </div>
                 </div>
               )}
@@ -348,13 +219,6 @@ function AppContent() {
               </main>
             </div>
           </AppReadyGate>
-          {/* OfflineRouteBlocker: intentional dialog when the user tries to
-              navigate to an ONLINE_ONLY route while offline. The navigation
-              is blocked BEFORE the dynamic import, so no ChunkLoadError. */}
-          <OfflineRouteBlocker
-            blocked={blockedPage ? { page: blockedPage, capability: getRouteCapability(blockedPage) } : null}
-            onDismiss={() => setBlockedPage(null)}
-          />
           {/* MIG-BATCH-V3: migration dialog + floating widget live in the
               authenticated shell so the batch loop survives page navigation. */}
           <MigrationWizard />
@@ -370,14 +234,9 @@ function AppContent() {
   )
 }
 
-interface AppShellProps {
-  /** Initial session from the server (avoids client-side fetch round-trip). */
-  session?: ReturnType<typeof useSession>['data'] | null
-}
-
-export default function AppShell({ session }: AppShellProps) {
+export default function AppShell() {
   return (
-    <SessionProvider session={session}>
+    <SessionProvider>
       <AppContent />
     </SessionProvider>
   )

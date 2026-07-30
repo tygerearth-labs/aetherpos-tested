@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react'
 import { usePageStore, type PageType } from '@/hooks/use-page-store'
 import { usePlan } from '@/hooks/use-plan'
-import { navigate } from '@/lib/navigate'
 import { useSession } from 'next-auth/react'
 import { getPlanLabel, getPlanBadgeClass } from '@/lib/config/plan-config'
 import { Badge } from '@/components/ui/badge'
@@ -90,7 +89,7 @@ const allMoreMenuItems: MoreMenuItem[] = [
 ]
 
 export default function MobileBottomNav() {
-  const { currentPage } = usePageStore()
+  const { currentPage, setCurrentPage } = usePageStore()
   const { data: session } = useSession()
   const { plan, isSuspended, features, isLoading: planLoading } = usePlan()
   const router = useRouter()
@@ -157,11 +156,8 @@ export default function MobileBottomNav() {
   }
 
   const handleNav = (page: PageType) => {
-    // Use central navigate() — blocks ONLINE_ONLY routes when offline
-    const proceeded = navigate(page)
-    if (proceeded) {
-      setMoreOpen(false)
-    }
+    setCurrentPage(page)
+    setMoreOpen(false)
   }
 
   const handleSignOut = async () => {

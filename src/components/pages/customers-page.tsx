@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { toast } from 'sonner'
 import { formatCurrency, formatNumber, formatDate } from '@/lib/format'
 import { usePlan, useFeatureGate } from '@/hooks/use-plan'
-import { navigate } from '@/lib/navigate'
+import { usePageStore } from '@/hooks/use-page-store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -43,9 +43,6 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Pagination } from '@/components/shared/pagination'
-import { OfflineDataNotice } from '@/components/shared/offline-data-notice'
-import { useOfflineData, recordDataFetch } from '@/hooks/use-offline-data'
-import { useCriticalActivity } from '@/hooks/use-critical-activity'
 import {
   Table,
   TableBody,
@@ -180,8 +177,6 @@ export default function CustomersPage() {
   const [search, setSearch] = useState('')
   const [formOpen, setFormOpen] = useState(false)
   const [editCustomer, setEditCustomer] = useState<Customer | null>(null)
-  const offlineData = useOfflineData('customers')
-  const isOffline = offlineData.isOffline
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
 
@@ -206,22 +201,8 @@ export default function CustomersPage() {
   const [adjustReason, setAdjustReason] = useState('')
   const [adjusting, setAdjusting] = useState(false)
 
-  // Domain-mutation critical activity covers the in-flight API call when
-  // the user submits a loyalty points adjustment (POST
-  // /api/customers/[id]/loyalty/adjust). Severity `in-flight` — reloading
-  // mid-request leaves the user unsure whether the points mutation was
-  // applied. NOTE: the dedicated /api/customers/merge endpoint has NO UI
-  // caller in this page; the loyalty-adjust flow is the closest customer
-  // domain mutation that actually exists in the UI today.
-  useCriticalActivity(
-    'domain-mutation',
-    'domain-mutation-customer-loyalty-adjust',
-    'Penyesuaian poin pelanggan sedang diproses',
-    adjusting,
-    'in-flight',
-  )
-
   // Plan gating
+  const { setCurrentPage } = usePageStore()
   const { plan, features } = usePlan()
   const isPro = plan?.type === 'pro' || plan?.type === 'enterprise'
 
@@ -262,16 +243,15 @@ export default function CustomersPage() {
         setCustomers(data.customers)
         setTotalPages(data.totalPages)
         if (data.stats) setStats(data.stats)
-        void recordDataFetch('customers')
-      } else if (!isOffline) {
+      } else {
         toast.error('Failed to load customers')
       }
     } catch {
-      if (!isOffline) toast.error('Failed to load customers')
+      toast.error('Failed to load customers')
     } finally {
       setLoading(false)
     }
-  }, [page, search, isOffline])
+  }, [page, search])
 
   useEffect(() => {
      
@@ -408,14 +388,6 @@ export default function CustomersPage() {
 
   return (
     <div className="space-y-4">
-      {/* Offline data notice (READ_ONLY route — shows cached snapshot when offline).
-          Rendered FIRST so the user sees offline status + "last updated" time
-          immediately, before any stats cards or content. */}
-      <OfflineDataNotice
-        isOffline={offlineData.isOffline}
-        lastUpdatedLabel={offlineData.lastUpdatedLabel}
-      />
-
       {/* Stats Cards */}
       {!loading && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -588,9 +560,9 @@ export default function CustomersPage() {
             <p className="text-xs text-slate-500 mt-0.5">Kelola database pelanggan & program loyalti</p>
           </div>
           <div className="flex items-center gap-2">
-            <BulkEngineTrigger kind="customer:add" label="Tambah Excel" variant="compact" disabled={isOffline} />
-            <BulkEngineTrigger kind="customer:edit" label="Edit Excel" variant="compact" disabled={isOffline} />
-            <Button onClick={handleAdd} disabled={isOffline} className="theme-bg hover:theme-hover text-white h-8 text-xs">
+            <BulkEngineTrigger kind="customer:add" label="Tambah Excel" variant="compact" />
+            <BulkEngineTrigger kind="customer:edit" label="Edit Excel" variant="compact" />
+            <Button onClick={handleAdd} className="theme-bg hover:theme-hover text-white h-8 text-xs">
               <Plus className="mr-1.5 h-3.5 w-3.5" />
               Tambah Pelanggan
             </Button>
@@ -669,7 +641,7 @@ export default function CustomersPage() {
           <p className="text-xs text-slate-400 max-w-sm mx-auto leading-relaxed mb-4">
             Mulai tambahkan pelanggan untuk mengaktifkan program loyalti, tracking pembelian, dan analitik pelanggan.
           </p>
-          <Button onClick={handleAdd} disabled={isOffline} variant="outline" className="theme-bg hover:theme-hover text-white border-transparent h-8 text-xs gap-1.5">
+          <Button onClick={handleAdd} variant="outline" className="theme-bg hover:theme-hover text-white border-transparent h-8 text-xs gap-1.5">
             <UserPlus className="h-3.5 w-3.5" />
             Tambah Pelanggan Pertama
           </Button>
@@ -727,9 +699,8 @@ export default function CustomersPage() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        disabled={isOffline}
                         className="h-7 w-7 text-slate-400 hover:text-white hover:bg-white/[0.04]"
-                        onClick={() => { if (!isOffline) handleEdit(customer) }}
+                        onClick={() => handleEdit(customer)}
                         title="Edit"
                       >
                         <Edit className="h-3.5 w-3.5" />
@@ -737,9 +708,8 @@ export default function CustomersPage() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        disabled={isOffline}
                         className="h-7 w-7 text-slate-400 hover:text-red-400 hover:bg-red-500/10"
-                        onClick={() => { if (!isOffline) setDeleteId(customer.id) }}
+                        onClick={() => setDeleteId(customer.id)}
                         title="Delete"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -811,9 +781,8 @@ export default function CustomersPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            disabled={isOffline}
                             className="h-7 w-7 text-slate-400 hover:text-white hover:bg-white/[0.04]"
-                            onClick={() => { if (!isOffline) handleEdit(customer) }}
+                            onClick={() => handleEdit(customer)}
                             title="Edit"
                           >
                             <Edit className="h-3.5 w-3.5" />
@@ -821,9 +790,8 @@ export default function CustomersPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            disabled={isOffline}
                             className="h-7 w-7 text-slate-400 hover:text-red-400 hover:bg-red-500/10"
-                            onClick={() => { if (!isOffline) setDeleteId(customer.id) }}
+                            onClick={() => setDeleteId(customer.id)}
                             title="Delete"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
@@ -1051,7 +1019,7 @@ export default function CustomersPage() {
                   </div>
                   <Button
                     className="bg-violet-500 hover:bg-violet-600 text-white h-8 text-xs"
-                    onClick={() => navigate('plan')}
+                    onClick={() => setCurrentPage('plan')}
                   >
                     <Sparkles className="mr-1.5 h-3.5 w-3.5" />
                     Upgrade ke Pro

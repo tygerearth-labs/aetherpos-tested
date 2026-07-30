@@ -38,7 +38,6 @@ import type { ImportMode, ImportResult, MigrationStatus } from './migration-bann
 import { ImportModeDialog } from './import-mode-dialog'
 import { useMigrationProcessor } from './migration-context'
 import type { MigrationJob, MigrationBatch } from '@/lib/migration/dexie-db'
-import { useCriticalActivity } from '@/hooks/use-critical-activity'
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -120,19 +119,6 @@ export function MigrationWizard() {
   const [duplicateJob, setDuplicateJob] = useState<MigrationJob | null>(null)
   const [isCheckingDup, setIsCheckingDup] = useState(false)
   const [isStarting, setIsStarting] = useState(false)
-
-  // File-upload critical activity covers the *parsing* window between the
-  // user picking a file and the migration job entering PROCESSING state.
-  // Once the job is PROCESSING, migration-job takes over (handled by the
-  // processor provider). Severity `interrupt` — parsing restarts cleanly
-  // on reload (no committed state to lose).
-  useCriticalActivity(
-    'file-upload',
-    'file-upload-migration-wizard',
-    'Parsing file migrasi sedang berjalan',
-    isCheckingDup || isStarting,
-    'interrupt',
-  )
 
   // Reset upload state when modal reopens to the upload step.
   useEffect(() => {

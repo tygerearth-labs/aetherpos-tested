@@ -1,20 +1,20 @@
 /**
- * local-db.ts — Noop shim for backward compatibility.
+ * local-db.ts — Dexie-compatible local database for offline-first features.
  *
- * The real offline-first Dexie layer lives in @/lib/offline/* (aether-db.ts).
- * Legacy modules still import { localDB } from '@/lib/local-db' — this file
- * keeps those imports resolving so the app compiles. Every method is a noop
- * that returns empty/undefined/0, so legacy code paths degrade gracefully
- * (offline cache stays empty; online API calls still work).
+ * This is the legacy module path. New code should import from '@/lib/offline'.
+ * The legacy export is preserved so existing components (pos-page, sync-service,
+ * batch-barcode-dialog) keep working without a refactor.
  *
- * For NEW code, import from @/lib/offline/* instead.
+ * Implementation: thin shim that delegates to the offline module's repositories
+ * and provides noop Dexie-style tables for backward compatibility. When running
+ * server-side (SSR), all operations return empty results safely.
  */
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Cached entity types (mirror the legacy Dexie schema)
-// ─────────────────────────────────────────────────────────────────────────────
+import type { OfflineTransaction } from '@/lib/offline/aether-db'
 
-export interface CachedProduct {
+// ── Cached entity types (mirror legacy-stub.ts) ──────────────────────────────
+
+interface CachedProduct {
   id: string
   name: string
   sku: string | null
@@ -28,7 +28,7 @@ export interface CachedProduct {
   unit: string
 }
 
-export interface CachedCustomer {
+interface CachedCustomer {
   id: string
   name: string
   whatsapp: string
@@ -36,7 +36,7 @@ export interface CachedCustomer {
   points: number
 }
 
-export interface CachedPromo {
+interface CachedPromo {
   id: string
   name: string
   type: string
@@ -45,115 +45,232 @@ export interface CachedPromo {
   categoryId: string | null
 }
 
-export interface CachedCategory {
+interface CachedCategory {
   id: string
   name: string
   color: string
 }
 
-export interface OfflineTransaction {
-  id?: string
-  invoiceNumber: string
-  subtotal: number
-  discount: number
-  pointsUsed: number
-  taxAmount: number
-  total: number
-  paymentMethod: string
-  paidAmount: number
-  change: number
-  note: string | null
-  outletId: string
-  customerId: string | null
-  userId: string
-  syncStatus?: string
-  createdAt?: string
-  [key: string]: unknown
+interface SyncMeta {
+  key: string
+  value: number
 }
 
-export interface OfflineTransactionItem {
-  id?: string
-  productId: string | null
-  variantId: string | null
-  productName: string
-  productSku: string | null
-  variantName: string | null
-  variantSku: string | null
-  price: number
-  qty: number
-  subtotal: number
-  itemDiscount: number
-  hpp: number
-  transactionId: string
-  [key: string]: unknown
+interface SettingEntry {
+  key: string
+  value: unknown
 }
+
+// ── Pending transaction (held cart) ──────────────────────────────────────────
+// Matches the shape written by pos-page.tsx:confirmHoldTransaction.
 
 export interface PendingTransaction {
-  id: number
-  createdAt: string
-  [key: string]: unknown
+  id?: number
+  items: Array<{
+    product: CachedProduct
+    variant: unknown
+    qty: number
+    customPrice?: number | null
+  }>
+  customerId: string | null
+  customerName: string | null
+  note: string
+  subtotal: number
+  createdAt: number
+  userId: string
+  userName: string
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Noop table factory — every Dexie-like method returns a safe empty result.
-// ─────────────────────────────────────────────────────────────────────────────
+// Re-export OfflineTransaction type for backwards-compat with code that imports
+// it from this module path.
+export type { OfflineTransaction }
 
-interface NoopCollection<T> {
-  primaryKeys: () => Promise<string[]>
-  toArray: () => Promise<T[]>
-}
+// ── Noop table builder ───────────────────────────────────────────────────────
+// Implements the subset of Dexie's Table API used by callers. Methods are async
+// and return empty/safe defaults so SSR and online-only mode do not crash.
 
-function createNoopCollection<T>(): NoopCollection<T> {
+function createNoopTable<T extends { id?: number | string }>(): NoopTable<T> {
+  const rows: T[] = []
   return {
-    primaryKeys: async () => [],
-    toArray: async () => [],
+    clear: async () => {
+      rows.length = 0
+    },
+    bulkPut: async (_items: T[]) => {
+      // Maintain an in-memory shadow so subsequent toArray() returns the latest
+      // held cart even when IndexedDB is unavailable. This is enough for the
+      // POS "hold / resume transaction" feature in a single session.
+      for (const item of _items) {
+        const idx = rows.findIndex((r) => r.id === item.id)
+        if (idx >= 0) rows[idx] = item
+        else rows.push(item)
+      }
+    },
+    count: async () => rows.length,
+    get: async (_key: number | string) => rows.find((r) => String(r.id) === String(_key)),
+    put: async (item: T) => {
+      const idx = rows.findIndex((r) => r.id === item.id)
+      if (idx >= 0) rows[idx] = item
+      else rows.push(item)
+    },
+    add: async (item: T) => {
+      // Auto-assign a numeric id if missing (Dexie autoincrement behavior)
+      if (item.id === undefined || item.id === null) {
+        const nextId = rows.length === 0
+          ? 1
+          : Math.max(...rows.map((r) => (typeof r.id === 'number' ? r.id : 0))) + 1
+        ;(item as { id?: number }).id = nextId
+      }
+      rows.push(item)
+      return item.id as number
+    },
+    delete: async (key: number | string) => {
+      const idx = rows.findIndex((r) => String(r.id) === String(key))
+      if (idx >= 0) rows.splice(idx, 1)
+    },
+    toArray: async () => [...rows],
+    orderBy: (_field: string) => ({
+      reverse: () => ({
+        toArray: async () => [...rows].reverse(),
+      }),
+      // forward iteration (rarely used)
+      toArray: async () => [...rows],
+    }),
+    where: (_field: string) => ({
+      equals: (_value: unknown) => {
+        // Noop filter — returns rows where the field matches; safe default.
+        // Mirrors Dexie's Collection API: exposes toArray(), count(), AND modify()
+        // so callers like:
+        //   - localDB.transactions.where('isSynced').equals(0).count()  (useLiveQuery)
+        //   - localDB.products.where('id').equals(id).modify(fn)         (stock decrement)
+        // do not crash with ".count/.modify is not a function".
+        const filtered = rows.filter((r) => (r as Record<string, unknown>)[_field] === _value)
+        return {
+          toArray: async () => [...filtered],
+          count: async () => filtered.length,
+          // Dexie's modify() mutates matching records in place. We apply the
+          // callback to the actual row objects (not copies) so the in-memory
+          // shadow stays consistent for subsequent reads.
+          modify: async (modifier: (obj: T, ctx: { primaryKey: unknown }) => void) => {
+            for (const r of filtered) {
+              modifier(r, { primaryKey: r.id })
+            }
+          },
+        }
+      },
+    }),
+    update: async (key: number | string, changes: Partial<T>) => {
+      const idx = rows.findIndex((r) => String(r.id) === String(key))
+      if (idx >= 0) {
+        rows[idx] = { ...rows[idx], ...changes }
+        return true
+      }
+      return false
+    },
+    // ── PERF (Fix #3): Added toCollection() + bulkDelete() for non-destructive
+    //    sync. Previously sync used clear() + bulkPut() which blanked the cache
+    //    during fetch. Now sync uses bulkPut() + bulkDelete(stale IDs) so the
+    //    UI can render from cache while sync runs. ──
+    toCollection: () => ({
+      primaryKeys: async () => rows.map((r) => r.id as string | number),
+      toArray: async () => [...rows],
+      // Other Collection methods used by callers (count, each, etc.)
+      count: async () => rows.length,
+      each: async (cb: (item: T, ctx: { primaryKey: unknown }) => void) => {
+        for (const r of rows) cb(r, { primaryKey: r.id })
+      },
+    }),
+    bulkDelete: async (keys: (number | string)[]) => {
+      const keySet = new Set(keys.map(String))
+      for (let i = rows.length - 1; i >= 0; i--) {
+        if (keySet.has(String(rows[i].id))) rows.splice(i, 1)
+      }
+    },
   }
 }
 
-interface NoopTable<T, K = string | number> {
-  clear: () => Promise<void>
-  bulkPut: (_items: T[]) => Promise<K[]>
-  bulkDelete: (_keys: K[]) => Promise<void>
-  count: () => Promise<number>
-  get: (_key: K) => Promise<T | undefined>
-  put: (_item: T) => Promise<K>
-  toArray: () => Promise<T[]>
-  update: (_key: K, _changes: Partial<T>) => Promise<number>
-  delete: (_key: K) => Promise<void>
-  add: (_item: T) => Promise<K>
-  toCollection: () => NoopCollection<T>
-  orderBy: (_field: string) => { reverse: () => NoopCollection<T> }
-}
-
-function createNoopTable<T, K = string | number>(): NoopTable<T, K> {
-  return {
-    clear: async () => {},
-    bulkPut: async () => [],
-    bulkDelete: async () => {},
-    count: async () => 0,
-    get: async () => undefined,
-    put: async () => (0 as unknown) as K,
-    toArray: async () => [],
-    update: async () => 0,
-    delete: async () => {},
-    add: async () => (0 as unknown) as K,
-    toCollection: () => createNoopCollection<T>(),
-    orderBy: () => ({ reverse: () => createNoopCollection<T>() }),
+interface NoopTable<T extends { id?: number | string }> {
+  clear(): Promise<void>
+  bulkPut(items: T[]): Promise<void>
+  bulkDelete(keys: (number | string)[]): Promise<void>
+  count(): Promise<number>
+  get(key: number | string): Promise<T | undefined>
+  put(item: T): Promise<void>
+  add(item: T): Promise<number>
+  delete(key: number | string): Promise<void>
+  toArray(): Promise<T[]>
+  toCollection(): {
+    primaryKeys(): Promise<(number | string)[]>
+    toArray(): Promise<T[]>
+    count(): Promise<number>
+    each(cb: (item: T, ctx: { primaryKey: unknown }) => void): Promise<void>
   }
+  orderBy(field: string): {
+    reverse(): { toArray(): Promise<T[]> }
+    toArray(): Promise<T[]>
+  }
+  where(field: string): {
+    equals(value: unknown): {
+      toArray(): Promise<T[]>
+      count(): Promise<number>
+      modify(modifier: (obj: T, ctx: { primaryKey: unknown }) => void): Promise<number>
+    }
+  }
+  update(key: number | string, changes: Partial<T>): Promise<boolean>
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Public surface — the legacy `localDB` object.
-// ─────────────────────────────────────────────────────────────────────────────
+// ── SyncedTransaction — local mirror of offline transactions, with sync metadata ─
+// pos-page.tsx reads localDB.transactions to list transactions awaiting sync.
+
+export interface SyncedTransactionRow {
+  id?: number
+  isSynced: 0 | 1
+  syncedAt?: number
+  invoiceNumber?: string
+  serverTransactionId?: string
+  createdAt: number
+  payload: {
+    customerId: string | null
+    items: Array<{
+      productId: string
+      productName: string
+      price: number
+      qty: number
+      subtotal: number
+      variantId?: string | null
+      variantName?: string | null
+      itemDiscount?: number
+    }>
+    subtotal: number
+    discount: number
+    pointsUsed: number
+    taxAmount?: number
+    total: number
+    paymentMethod: string
+    paidAmount: number
+    change: number
+    promoId?: string | null
+    promoDiscount?: number
+    invoiceNumber?: string
+  }
+  eventId?: string
+}
+
+// Cast helper — createNoopTable is generic enough to be cast to any table shape.
+function table<T extends { id?: number | string }>(): NoopTable<T> {
+  return createNoopTable<T>()
+}
+
+// ── Exported singleton — exposes every table referenced by callers ───────────
 
 export const localDB = {
-  products: createNoopTable<CachedProduct>(),
-  customers: createNoopTable<CachedCustomer>(),
-  categories: createNoopTable<CachedCategory>(),
-  promos: createNoopTable<CachedPromo>(),
-  syncMeta: createNoopTable<{ key: string; value: number }, string>(),
-  settings: createNoopTable<{ key: string; value: unknown }, string>(),
-  transactions: createNoopTable<OfflineTransaction>(),
-  transactionItems: createNoopTable<OfflineTransactionItem>(),
-  pendingTransactions: createNoopTable<PendingTransaction, number>(),
-}
+  products: table<CachedProduct>(),
+  customers: table<CachedCustomer>(),
+  categories: table<CachedCategory>(),
+  promos: table<CachedPromo>(),
+  syncMeta: table<SyncMeta>(),
+  settings: table<SettingEntry>(),
+  pendingTransactions: table<PendingTransaction>(),
+  transactions: table<SyncedTransactionRow>(),
+} as const
+
+export type { CachedProduct, CachedCustomer, CachedPromo, CachedCategory }

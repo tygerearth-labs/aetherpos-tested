@@ -54,7 +54,6 @@ import { computeBulkFileHash, computeRowsPayloadHash } from '@/lib/bulk-engine/f
 import { getClientAdapter } from '@/lib/bulk-engine/registry-client'
 import { exportErrorsToXlsx, downloadErrorsBlob } from '@/lib/bulk-engine/error-export'
 import type { BatchResult, BatchStats, ParsedRow } from '@/lib/bulk-engine/types'
-import { useCriticalActivity } from '@/hooks/use-critical-activity'
 import { BulkWorkerContext, type BulkModalState, type BulkWorkerContextValue } from './bulk-worker-context'
 
 // ── Provider ───────────────────────────────────────────────────────────────
@@ -102,16 +101,6 @@ export function BulkWorkerProvider({ children }: { children: React.ReactNode }) 
     },
     [openJobId],
     [] as BulkBatch[],
-  )
-
-  // ── Build guard: register a critical activity while any bulk job is processing ──
-  const hasProcessingBulkJob = (jobs || []).some((j) => j.status === 'processing')
-  useCriticalActivity(
-    'bulk-job',
-    'bulk-job',
-    'Bulk engine sedang memproses',
-    hasProcessingBulkJob,
-    'interrupt',
   )
 
   useEffect(() => {

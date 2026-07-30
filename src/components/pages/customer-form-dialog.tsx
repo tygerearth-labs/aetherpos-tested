@@ -7,7 +7,6 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ResponsiveDialog, ResponsiveDialogContent, ResponsiveDialogHeader, ResponsiveDialogTitle, ResponsiveDialogDescription, ResponsiveDialogFooter } from '@/components/ui/responsive-dialog'
 import { Loader2 } from 'lucide-react'
-import { useCriticalActivity } from '@/hooks/use-critical-activity'
 
 interface Customer {
   id: string
@@ -28,18 +27,6 @@ export default function CustomerFormDialog({ open, onOpenChange, customer, onSav
   const [name, setName] = useState('')
   const [whatsapp, setWhatsapp] = useState('')
   const [error, setError] = useState('')
-
-  // Build Guard: register a critical activity while this dialog is open
-  // (form has potentially unsaved user input). No precise dirty flag
-  // exists on this simple form, so we use `open` as the proxy signal —
-  // better to over-warn than to miss data loss.
-  useCriticalActivity(
-    'dirty-form',
-    'customer-form',
-    'Form pelanggan belum disimpan',
-    open,
-    'data-loss',
-  )
 
   useEffect(() => {
      

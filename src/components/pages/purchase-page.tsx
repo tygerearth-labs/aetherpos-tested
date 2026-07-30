@@ -126,7 +126,6 @@ import {
 import { cn } from '@/lib/utils'
 import { useBulkWorker } from '@/components/bulk-engine/bulk-worker-context'
 import SupplierSearchInput from '@/components/purchase/supplier-search-input'
-import { useCriticalActivity } from '@/hooks/use-critical-activity'
 
 // ════════════════════════════════════════════════════════════
 // Types
@@ -896,35 +895,6 @@ export default function PurchasePage() {
   const [retailHasVariants, setRetailHasVariants] = useState(false)
   const [retailVariants, setRetailVariants] = useState<Record<string, Array<{ name: string; price: string }>>>({})
   const [retailExpandedVariant, setRetailExpandedVariant] = useState<string | null>(null) // Which item's variant panel is expanded
-
-  // ══════════════════════════════════════════════════════════
-  // Build Guard: register a critical activity while a purchase
-  // draft (create dialog, edit dialog, or import preview) is open
-  // with potentially unsaved line items / notes / supplier.
-  // ══════════════════════════════════════════════════════════
-  const isPurchaseDraftDirty = poCreateOpen || poEditOpen || showImportPreview
-  useCriticalActivity(
-    'purchase-draft',
-    'purchase-draft',
-    'Draft pembelian belum disimpan',
-    isPurchaseDraftDirty,
-    'data-loss',
-  )
-
-  // Domain-mutation critical activity covers the in-flight API call when
-  // the user submits a purchase receive/edit/cancel:
-  //   - `poCreateLoading` → POST /api/purchases (receive new PO + stock)
-  //   - `poEditLoading`   → PUT  /api/purchases/[id] (edit received PO)
-  //   - `deletingPo`      → DELETE /api/purchases/[id] (cancel PO + restock)
-  // Severity `in-flight` — reloading mid-request leaves the user unsure
-  // whether the receive/cancel was applied (financial + stock impact).
-  useCriticalActivity(
-    'domain-mutation',
-    'domain-mutation-purchase-receive-cancel',
-    'Pembelian sedang diproses',
-    poCreateLoading || poEditLoading || deletingPo,
-    'in-flight',
-  )
 
   // ══════════════════════════════════════════════════════════
   // Fetch: Purchase Orders

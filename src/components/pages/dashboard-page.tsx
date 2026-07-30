@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef } from 'react'
 import { useSession } from 'next-auth/react'
 import { usePlan } from '@/hooks/use-plan'
-import { navigate } from '@/lib/navigate'
+import { usePageStore } from '@/hooks/use-page-store'
 import { useDashboard, useInsights, useForecast } from '@/hooks/use-dashboard'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -17,8 +17,6 @@ import { AnalyticsTabs } from '@/components/dashboard/analytics-tabs'
 import { SalesProductsCard, InsightsSection, InventoryAlertsSection, ScoreExplanationDialog, InventoryFreshnessWidget, ExpiryHeatmapWidget, ExpiryAlertBanner } from '@/components/dashboard/dashboard-sections'
 import { EnterpriseBubbleChart, PendingTransfersSection, InventoryPredictionSection } from '@/components/dashboard/enterprise-sections'
 import { MigrationBanner } from '@/components/migration/migration-banner'
-import { useOfflineData, recordDataFetch } from '@/hooks/use-offline-data'
-import { OfflineDataNotice } from '@/components/shared/offline-data-notice'
 
 // ── Animation variants ──
 const containerVariants = {
@@ -64,6 +62,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 // ════════════════════════════════════════════════════════════
 export default function DashboardPage() {
   const { data: session } = useSession()
+  const { setCurrentPage } = usePageStore()
   const { plan, features, isLoading: planLoading } = usePlan()
   const isOwner = session?.user?.role === 'OWNER'
   const isPro = plan?.type === 'pro' || plan?.type === 'enterprise'
@@ -71,7 +70,6 @@ export default function DashboardPage() {
   const hasForecasting = features?.forecasting === true
   const hasAiInsights = features?.aiInsights === true
   const hasMultiOutlet = features?.multiOutlet === true
-  const offlineData = useOfflineData('dashboard')
   const showEnterprise = isOwner && isEnterprise && hasMultiOutlet
 
   // ── TanStack Query data ──
@@ -81,13 +79,6 @@ export default function DashboardPage() {
   const [scoreDialogOpen, setScoreDialogOpen] = useState(false)
   const expiryHeatmapRef = useRef<HTMLDivElement>(null)
 
-  // Record successful dashboard fetch time for offline "last updated" display
-  useEffect(() => {
-    if (stats) {
-      void recordDataFetch('dashboard')
-    }
-  }, [stats])
-
   // ── Migration Banner: show only for OWNER when 0 products ──
   // IMPORTANT: Always render <MigrationBanner /> so its internal dialog state
   // survives dashboard refetches (refetchInterval / refetchOnWindowFocus).
@@ -95,19 +86,9 @@ export default function DashboardPage() {
   const showMigrationBanner = isOwner && (stats?.totalProducts ?? 0) === 0
 
   // ── Loading Skeleton ──
-  // CRITICAL: The OfflineDataNotice renders BEFORE the loading check so the
-  // user sees the offline status + "last updated" time immediately — not a
-  // blank skeleton that implies live data is loading. When offline, the
-  // dashboard may show a skeleton briefly (TanStack Query has no cached
-  // data yet), but the notice is already visible explaining the situation.
   if (isLoading || !stats) {
     return (
       <div className="space-y-4">
-        {/* Offline notice ALWAYS renders first — before any loading check */}
-        <OfflineDataNotice
-          isOffline={offlineData.isOffline}
-          lastUpdatedLabel={offlineData.lastUpdatedLabel}
-        />
         <div className="space-y-1.5">
           <Skeleton className="h-7 w-52 bg-white/[0.04]" />
           <Skeleton className="h-3.5 w-64 bg-white/[0.04]" />
@@ -126,12 +107,6 @@ export default function DashboardPage() {
 
   return (
     <motion.div className="space-y-4" variants={containerVariants} initial="hidden" animate="visible">
-
-      {/* Offline data notice (READ_ONLY route — shows cached snapshot when offline) */}
-      <OfflineDataNotice
-        isOffline={offlineData.isOffline}
-        lastUpdatedLabel={offlineData.lastUpdatedLabel}
-      />
 
       {/* ═══════════════════════════════════════════════════
           SECTION 1 — Header & Health
@@ -172,7 +147,7 @@ export default function DashboardPage() {
                 Buka fitur <span className="font-medium text-slate-200">Forecasting & Prediksi</span> — upgrade ke Pro atau Enterprise
               </p>
             </div>
-            <Button size="sm" className="shrink-0 theme-bg hover:theme-hover-light text-white text-xs font-medium h-7 px-3 rounded-lg gap-1.5" onClick={() => navigate('plan')}>
+            <Button size="sm" className="shrink-0 theme-bg hover:theme-hover-light text-white text-xs font-medium h-7 px-3 rounded-lg gap-1.5" onClick={() => setCurrentPage('plan')}>
               <Crown className="h-3 w-3" />Upgrade
             </Button>
           </div>
