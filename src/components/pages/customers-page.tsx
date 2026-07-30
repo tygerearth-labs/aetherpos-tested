@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { toast } from 'sonner'
 import { formatCurrency, formatNumber, formatDate } from '@/lib/format'
 import { usePlan, useFeatureGate } from '@/hooks/use-plan'
-import { usePageStore } from '@/hooks/use-page-store'
+import { navigate } from '@/lib/navigate'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -45,6 +45,7 @@ import {
 import { Pagination } from '@/components/shared/pagination'
 import { OfflineDataNotice } from '@/components/shared/offline-data-notice'
 import { useOfflineData, recordDataFetch } from '@/hooks/use-offline-data'
+import { useCriticalActivity } from '@/hooks/use-critical-activity'
 import {
   Table,
   TableBody,
@@ -205,8 +206,22 @@ export default function CustomersPage() {
   const [adjustReason, setAdjustReason] = useState('')
   const [adjusting, setAdjusting] = useState(false)
 
+  // Domain-mutation critical activity covers the in-flight API call when
+  // the user submits a loyalty points adjustment (POST
+  // /api/customers/[id]/loyalty/adjust). Severity `in-flight` — reloading
+  // mid-request leaves the user unsure whether the points mutation was
+  // applied. NOTE: the dedicated /api/customers/merge endpoint has NO UI
+  // caller in this page; the loyalty-adjust flow is the closest customer
+  // domain mutation that actually exists in the UI today.
+  useCriticalActivity(
+    'domain-mutation',
+    'domain-mutation-customer-loyalty-adjust',
+    'Penyesuaian poin pelanggan sedang diproses',
+    adjusting,
+    'in-flight',
+  )
+
   // Plan gating
-  const { setCurrentPage } = usePageStore()
   const { plan, features } = usePlan()
   const isPro = plan?.type === 'pro' || plan?.type === 'enterprise'
 
@@ -1036,7 +1051,7 @@ export default function CustomersPage() {
                   </div>
                   <Button
                     className="bg-violet-500 hover:bg-violet-600 text-white h-8 text-xs"
-                    onClick={() => setCurrentPage('plan')}
+                    onClick={() => navigate('plan')}
                   >
                     <Sparkles className="mr-1.5 h-3.5 w-3.5" />
                     Upgrade ke Pro

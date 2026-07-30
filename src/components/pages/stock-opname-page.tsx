@@ -77,6 +77,7 @@ import {
   type OpnameSession,
   type CompleteResult,
 } from '@/lib/stock-opname/service'
+import { useCriticalActivity } from '@/hooks/use-critical-activity'
 
 // ==================== STATUS CONFIG ====================
 const STATUS_CONFIG: Record<OpnameStatus, {
@@ -154,6 +155,20 @@ export default function StockOpnamePage() {
     uncounted: 0,
     variance: 0,
   })
+
+  // ════════════════════════════════════════════════════════════
+  // Build Guard: register a critical activity while an opname session
+  // is in progress (DRAFT / COUNTING / REVIEW / COMPLETING). On
+  // completion or cancellation, `status` and `session` are both
+  // cleared to null, which deactivates this activity automatically.
+  // ════════════════════════════════════════════════════════════
+  useCriticalActivity(
+    'stock-opname',
+    'stock-opname',
+    'Stock opname sedang berjalan',
+    status !== null,
+    'data-loss',
+  )
 
   // ════════════════════════════════════════════════════════════
   // Initialize / Resume

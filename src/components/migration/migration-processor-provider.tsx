@@ -50,6 +50,7 @@ import {
   type MigrationProcessorContextValue,
 } from './migration-context'
 import type { ImportMode } from '@/components/migration/migration-banner'
+import { useCriticalActivity } from '@/hooks/use-critical-activity'
 
 // ── Provider ───────────────────────────────────────────────────────────────
 
@@ -94,6 +95,16 @@ export function MigrationProcessorProvider({ children }: { children: React.React
     },
     [openJobId],
     [] as MigrationBatch[],
+  )
+
+  // ── Build guard: register a critical activity while any migration job is processing ──
+  const hasProcessingMigrationJob = (jobs || []).some((j) => j.status === 'PROCESSING')
+  useCriticalActivity(
+    'migration-job',
+    'migration-job',
+    'Migrasi produk sedang berjalan',
+    hasProcessingMigrationJob,
+    'interrupt',
   )
 
   // Mark DB ready once IndexedDB is available (client-only).

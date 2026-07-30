@@ -47,6 +47,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { ProGate } from '@/components/shared/pro-gate'
+import { useCriticalActivity } from '@/hooks/use-critical-activity'
 import {
   Banknote,
   QrCode,
@@ -256,6 +257,18 @@ function useSettings() {
   const [settings, setSettings] = useState<SettingsData | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+
+  // Domain-mutation critical activity covers the in-flight API call when
+  // the user clicks "Simpan" on any settings tab that uses this hook
+  // (PUT /api/settings). Severity `in-flight` — reloading mid-request
+  // leaves the user unsure whether the settings mutation was applied.
+  useCriticalActivity(
+    'domain-mutation',
+    'domain-mutation-settings-save',
+    'Pengaturan sedang disimpan',
+    saving,
+    'in-flight',
+  )
 
   const fetchSettings = useCallback(async () => {
     setLoading(true)
@@ -907,6 +920,16 @@ function PromoTab() {
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([])
+
+  // Domain-mutation critical activity for the Promo tab's in-flight
+  // POST/PUT/DELETE /api/settings/promos API calls. Severity `in-flight`.
+  useCriticalActivity(
+    'domain-mutation',
+    'domain-mutation-settings-promo-save',
+    'Pengaturan promo sedang disimpan',
+    saving || deleting,
+    'in-flight',
+  )
 
   const fetchPromos = useCallback(async () => {
     setLoading(true)
@@ -2355,6 +2378,16 @@ function MultiOutletTab() {
   const [saving, setSaving] = useState(false)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
+
+  // Domain-mutation critical activity for the Multi-Outlet tab's in-flight
+  // POST/DELETE /api/outlets API calls. Severity `in-flight`.
+  useCriticalActivity(
+    'domain-mutation',
+    'domain-mutation-settings-outlet-save',
+    'Pengaturan outlet sedang disimpan',
+    saving || deleting,
+    'in-flight',
+  )
 
   const fetchOutlets = useCallback(async () => {
     setOutletsLoading(true)

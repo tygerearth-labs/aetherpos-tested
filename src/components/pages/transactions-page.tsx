@@ -43,6 +43,7 @@ import { Pagination } from '@/components/shared/pagination'
 import { DateFilter } from '@/components/shared/date-filter'
 import { OfflineDataNotice } from '@/components/shared/offline-data-notice'
 import { useOfflineData, recordDataFetch } from '@/hooks/use-offline-data'
+import { useCriticalActivity } from '@/hooks/use-critical-activity'
 import { cn } from '@/lib/utils'
 import {
   Search,
@@ -215,6 +216,18 @@ export default function TransactionsPage() {
   const [voidOpen, setVoidOpen] = useState(false)
   const [voidReason, setVoidReason] = useState('')
   const [voidSubmitting, setVoidSubmitting] = useState(false)
+
+  // Domain-mutation critical activity covers the in-flight API call when
+  // the user clicks "Void" (POST /api/transactions/[id]/void). Severity
+  // `in-flight` — reloading mid-request leaves the user unsure whether
+  // the void was applied (financial impact: refunds, restocks, audit).
+  useCriticalActivity(
+    'domain-mutation',
+    'domain-mutation-void-transaction',
+    'Void transaksi sedang diproses',
+    voidSubmitting,
+    'in-flight',
+  )
 
   // Filter panel toggle
   const [filterOpen, setFilterOpen] = useState(false)

@@ -21,6 +21,7 @@ import {
   getEffectivePrice, getItemHpp, type CalcCartItem, type CalcSettings, type CalcPromo,
 } from '@/lib/pos/pos-calc'
 import { tryGetPosDB, saveCart, loadCart, clearCart, type CartRow } from '@/lib/pos/pos-db'
+import { useCriticalActivity } from '@/hooks/use-critical-activity'
 
 // ==================== INTERFACES ====================
 
@@ -105,6 +106,21 @@ export function usePosCart(options: UsePosCartOptions): UsePosCartReturn {
   const qtyInputRef = useRef<HTMLInputElement | null>(null)
   const priceInputRef = useRef<HTMLInputElement | null>(null)
   const didLoadCartRef = useRef(false)
+
+  // ── Critical activity: warn mildly when cart has items ──
+  //
+  // The cart IS persisted to Dexie (saveCart) so a reload does NOT lose data.
+  // However a reload mid-POS-session is still disruptive (the cashier loses
+  // their flow, the customer's checkout is delayed). So we register this as
+  // an 'interrupt' severity — warn the user, but don't hard-block a build
+  // update from applying.
+  useCriticalActivity(
+    'pos-cart',
+    'pos-cart',
+    'Keranjang POS',
+    cart.length > 0,
+    'interrupt',
+  )
 
   // ── PR 3: Load persisted cart on mount ──
   useEffect(() => {

@@ -60,6 +60,7 @@ import {
 import { Pagination } from '@/components/shared/pagination'
 import { OfflineDataNotice } from '@/components/shared/offline-data-notice'
 import { useOfflineData, recordDataFetch } from '@/hooks/use-offline-data'
+import { useCriticalActivity } from '@/hooks/use-critical-activity'
 import {
   Table,
   TableBody,
@@ -572,6 +573,33 @@ export default function ProductsPage() {
     variantsNotFound: number
     errors: string[]
   } | null>(null)
+
+  // File-upload critical activity covers BOTH product Excel import windows:
+  //   - `uploading`     → /api/products/bulk-upload (new products)
+  //   - `editExcelUploading` → /api/products/bulk-update-excel (edit existing)
+  // Severity `interrupt` — re-upload restarts cleanly (no committed state).
+  // NOTE: product-form-dialog.tsx has NO file upload (image field is a URL
+  // string), so the genuine file-import window lives here.
+  useCriticalActivity(
+    'file-upload',
+    'file-upload-product-import',
+    'Upload file produk sedang berjalan',
+    uploading || editExcelUploading,
+    'interrupt',
+  )
+
+  // Domain-mutation critical activity covers the in-flight API call when
+  // the user submits a manual stock adjustment (POST /api/products/[id]/adjust).
+  // Severity `in-flight` — reloading mid-request leaves the user unsure
+  // whether the adjustment was applied. NOTE: inventory-movement-page.tsx
+  // is read-only (no commit); the genuine adjustment form lives here.
+  useCriticalActivity(
+    'domain-mutation',
+    'domain-mutation-inventory-adjust',
+    'Penyesuaian stok sedang diproses',
+    adjusting,
+    'in-flight',
+  )
   const [editExcelDragOver, setEditExcelDragOver] = useState(false)
   const editExcelProgressRef = useRef<ReturnType<typeof setInterval> | null>(null)
 

@@ -28,6 +28,7 @@ import {
   saveLastReceipt, getLastReceipt,
 } from '@/lib/pos/pos-db'
 import { buildCheckoutPayload, type CalcResult } from '@/lib/pos/pos-calc'
+import { useCriticalActivity } from '@/hooks/use-critical-activity'
 
 // ==================== INTERFACES ====================
 
@@ -124,6 +125,22 @@ export function usePosCheckout(options: UsePosCheckoutOptions): UsePosCheckoutRe
   // Live pending list + count (auto-updates when Dexie changes)
   const pendingList = useLiveQuery(() => getPendingTransactions(), []) ?? []
   const pendingCount = pendingList.length
+
+  // ── Critical activity: payment in flight ──
+  //
+  // `checkingOut` is true between the cashier clicking "Bayar Sekarang" and
+  // the API call resolving (success → receipt dialog, or failure → toast +
+  // dialog stays open). This is the in-flight mutation window: reloading
+  // mid-API-call leaves the user unsure whether the transaction succeeded or
+  // failed (double-charge risk). Severity `in-flight` → force-reload is
+  // DISABLED until the request completes/timeouts.
+  useCriticalActivity(
+    'pos-payment',
+    'pos-payment',
+    'Pembayaran POS sedang berjalan',
+    checkingOut,
+    'in-flight',
+  )
 
   useEffect(() => {
     if (availablePaymentMethods.length > 0 && !availablePaymentMethods.includes(paymentMethod)) {

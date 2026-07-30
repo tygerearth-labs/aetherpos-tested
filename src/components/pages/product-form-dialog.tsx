@@ -29,6 +29,7 @@ import {
 } from 'lucide-react'
 import { formatCurrency, formatNumber } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { useCriticalActivity } from '@/hooks/use-critical-activity'
 
 interface ProductVariant {
   id?: string
@@ -411,6 +412,17 @@ export default function ProductFormDialog({ open, onOpenChange, product, onSaved
     })
     return current !== initialSnapshot.current
   }, [open, form, hasVariants, hasComposition, variants])
+
+  // Build Guard: register a critical activity whenever this dialog has
+  // unsaved user edits. Uses the precise `isDirty` flag (form/variants/
+  // composition toggle diverged from the open-time snapshot).
+  useCriticalActivity(
+    'dirty-form',
+    'product-form',
+    'Form produk belum disimpan',
+    isDirty,
+    'data-loss',
+  )
 
   // Batch 1 — capture snapshot when dialog opens. setTimeout(0) ensures form/variants state
   // (set synchronously in the load useEffect) is committed before snapshot is taken.

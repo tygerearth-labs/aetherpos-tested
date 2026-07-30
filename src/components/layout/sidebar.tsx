@@ -36,7 +36,7 @@ import {
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { create } from 'zustand'
-import { navigate } from '@/lib/navigate'
+import { navigate, navigateUnchecked } from '@/lib/navigate'
 import { useOnlineStatus } from '@/hooks/use-online-status'
 import { getRouteCapability } from '@/lib/route-capability'
 
@@ -121,7 +121,7 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
   isMobile?: boolean
 }) {
   const { data: session } = useSession()
-  const { currentPage, setCurrentPage } = usePageStore()
+  const { currentPage } = usePageStore()
   const { plan, isSuspended, features } = usePlan()
   const router = useRouter()
   const isOnline = useOnlineStatus()
@@ -192,13 +192,16 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
   }, [fetchPermissions])
 
   // Page guard: redirect crew if they navigate to unauthorized page
+  // This is a programmatic access-control redirect (not user-initiated nav),
+  // so it bypasses the offline guard via navigateUnchecked. POS is FULL
+  // offline so it's always safe.
   useEffect(() => {
     if (permissionsLoaded && !isOwner && allowedPages && currentPage) {
       if (!allowedPages.includes(currentPage)) {
-        setCurrentPage('pos')
+        navigateUnchecked('pos')
       }
     }
-  }, [permissionsLoaded, isOwner, allowedPages, currentPage, setCurrentPage])
+  }, [permissionsLoaded, isOwner, allowedPages, currentPage])
 
   // Build access map
   const navItemAccess = useMemo(() => {

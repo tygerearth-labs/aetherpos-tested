@@ -90,7 +90,7 @@ const allMoreMenuItems: MoreMenuItem[] = [
 ]
 
 export default function MobileBottomNav() {
-  const { currentPage, setCurrentPage } = usePageStore()
+  const { currentPage } = usePageStore()
   const { data: session } = useSession()
   const { plan, isSuspended, features, isLoading: planLoading } = usePlan()
   const router = useRouter()

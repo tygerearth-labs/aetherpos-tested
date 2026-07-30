@@ -5,6 +5,7 @@ import { useSession } from 'next-auth/react'
 import { toast } from 'sonner'
 import { formatCurrency, formatNumber } from '@/lib/format'
 import { motion, AnimatePresence } from 'framer-motion'
+import { useCriticalActivity } from '@/hooks/use-critical-activity'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -561,6 +562,18 @@ function OutletDetailDialog({
   const [addCrewOpen, setAddCrewOpen] = useState(false)
   const [editCrew, setEditCrew] = useState<CrewMember | null>(null)
   const [deleteCrew, setDeleteCrew] = useState<CrewMember | null>(null)
+  const [deletingCrew, setDeletingCrew] = useState(false)
+
+  // ── Critical activity: crew delete inside outlet detail is an in-flight
+  // domain mutation. Reloading mid-call leaves the user unsure whether the
+  // crew was removed.
+  useCriticalActivity(
+    'domain-mutation',
+    'domain-mutation-multi-outlet-crew-delete',
+    'Penghapusan crew sedang diproses',
+    deletingCrew,
+    'in-flight',
+  )
 
   // Version counter to prevent stale fetch responses from overwriting fresh data
   const fetchVersionRef = useRef(0)
@@ -697,6 +710,7 @@ function OutletDetailDialog({
 
   const handleDeleteCrew = async () => {
     if (!deleteCrew) return
+    setDeletingCrew(true)
     try {
       const res = await fetch(`/api/multi-outlet/crew/${deleteCrew.id}`, { method: 'DELETE' })
       const data = await res.json()
@@ -706,6 +720,8 @@ function OutletDetailDialog({
       setTimeout(() => void fetchCrew(), 300)
     } catch {
       toast.error('Gagal menghapus crew')
+    } finally {
+      setDeletingCrew(false)
     }
   }
 
@@ -1394,6 +1410,17 @@ export default function MultiOutletTerminalPage() {
   const [deleteOutlet, setDeleteOutlet] = useState<OutletSummary | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [horizontalScroll, setHorizontalScroll] = useState(false)
+
+  // ── Critical activity: outlet delete is a destructive in-flight domain
+  // mutation (removes the outlet + all its transactions/products/customers/crew).
+  // Reloading mid-call leaves the user unsure whether the outlet was removed.
+  useCriticalActivity(
+    'domain-mutation',
+    'domain-mutation-multi-outlet-delete',
+    'Penghapusan outlet sedang diproses',
+    deleting,
+    'in-flight',
+  )
 
   // ── Fetch group + data ──
   const fetchData = useCallback(async () => {

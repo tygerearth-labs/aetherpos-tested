@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
 import { usePlan } from '@/hooks/use-plan'
-import { usePageStore } from '@/hooks/use-page-store'
+import { navigate } from '@/lib/navigate'
 import { useDashboard, useInsights, useForecast } from '@/hooks/use-dashboard'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -64,7 +64,6 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 // ════════════════════════════════════════════════════════════
 export default function DashboardPage() {
   const { data: session } = useSession()
-  const { setCurrentPage } = usePageStore()
   const { plan, features, isLoading: planLoading } = usePlan()
   const isOwner = session?.user?.role === 'OWNER'
   const isPro = plan?.type === 'pro' || plan?.type === 'enterprise'
@@ -173,7 +172,7 @@ export default function DashboardPage() {
                 Buka fitur <span className="font-medium text-slate-200">Forecasting & Prediksi</span> — upgrade ke Pro atau Enterprise
               </p>
             </div>
-            <Button size="sm" className="shrink-0 theme-bg hover:theme-hover-light text-white text-xs font-medium h-7 px-3 rounded-lg gap-1.5" onClick={() => setCurrentPage('plan')}>
+            <Button size="sm" className="shrink-0 theme-bg hover:theme-hover-light text-white text-xs font-medium h-7 px-3 rounded-lg gap-1.5" onClick={() => navigate('plan')}>
               <Crown className="h-3 w-3" />Upgrade
             </Button>
           </div>

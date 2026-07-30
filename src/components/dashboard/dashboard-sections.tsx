@@ -15,7 +15,7 @@ import { Sheet, SheetTrigger, SheetContent, SheetHeader, SheetTitle, SheetDescri
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { formatCurrency, formatNumber } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import { usePageStore } from '@/hooks/use-page-store'
+import { navigate } from '@/lib/navigate'
 import type { DashboardStats, InsightEngineData, InsightItem } from '@/hooks/use-dashboard'
 import { useSalesSummary } from '@/hooks/use-dashboard'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -709,13 +709,12 @@ export function InsightsSection({
 
 /** Small CTA button used inside floating insight sheet */
 function InsightCtaButton({ cta }: { cta: InsightItem['cta'][number] }) {
-  const { setCurrentPage } = usePageStore()
   return (
     <Button
       size="sm"
       variant="outline"
       className="h-7 text-[10px] font-medium bg-white/[0.04] border-white/[0.06] hover:bg-white/[0.06] hover:border-white/[0.1] text-slate-300 rounded-lg gap-1"
-      onClick={() => setCurrentPage(cta.page as Parameters<typeof setCurrentPage>[0])}
+      onClick={() => navigate(cta.page as Parameters<typeof navigate>[0])}
     >
       {cta.label}
       <ArrowRight className="h-2.5 w-2.5" />

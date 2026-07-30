@@ -2,7 +2,7 @@
 
 import { WifiOff, ShoppingCart, CheckCircle2 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { usePageStore } from '@/hooks/use-page-store'
+import { navigateUnchecked } from '@/lib/navigate'
 import { OFFLINE_AVAILABLE_LABELS } from '@/lib/route-capability'
 import type { RouteCapability } from '@/lib/route-capability'
 import type { PageType } from '@/hooks/use-page-store'
@@ -28,10 +28,10 @@ interface OfflineRouteBlockerProps {
  * The dialog explains that locally stored transactions remain safe.
  */
 export function OfflineRouteBlocker({ blocked, onDismiss }: OfflineRouteBlockerProps) {
-  const setCurrentPage = usePageStore((s) => s.setCurrentPage)
-
   const goBackToPOS = () => {
-    setCurrentPage('pos')
+    // Recovery path: POS is FULL offline (chunk already cached), so bypass
+    // the guard. This is a user-initiated "go to safe page" action.
+    navigateUnchecked('pos')
     onDismiss()
   }
 
