@@ -54,7 +54,6 @@ import { computeBulkFileHash, computeRowsPayloadHash } from '@/lib/bulk-engine/f
 import { getClientAdapter } from '@/lib/bulk-engine/registry-client'
 import { exportErrorsToXlsx, downloadErrorsBlob } from '@/lib/bulk-engine/error-export'
 import type { BatchResult, BatchStats, ParsedRow } from '@/lib/bulk-engine/types'
-import { useCriticalActivity } from '@/hooks/use-critical-activity'
 import { BulkWorkerContext, type BulkModalState, type BulkWorkerContextValue } from './bulk-worker-context'
 
 // ── Provider ───────────────────────────────────────────────────────────────
@@ -102,16 +101,6 @@ export function BulkWorkerProvider({ children }: { children: React.ReactNode }) 
     },
     [openJobId],
     [] as BulkBatch[],
-  )
-
-  // ── Build guard: register a critical activity while any bulk job is processing ──
-  const hasProcessingBulkJob = (jobs || []).some((j) => j.status === 'processing')
-  useCriticalActivity(
-    'bulk-job',
-    'bulk-job',
-    'Bulk engine sedang memproses',
-    hasProcessingBulkJob,
-    'interrupt',
   )
 
   useEffect(() => {
@@ -345,7 +334,14 @@ export function BulkWorkerProvider({ children }: { children: React.ReactNode }) 
           }
 
           if (result.status === 'failed') {
-            const errMsg = result.errors[0]?.message || 'Batch gagal'
+            // Guard against a non-string `message` (e.g. a raw
+            // MigrationIssueRow object that slipped through an adapter). An
+            // object here would propagate to `batch.error` and
+            // `job.lastBatchError` and crash the UI with React #31.
+            const rawMsg = result.errors[0]?.message
+            const errMsg =
+              (typeof rawMsg === 'string' ? rawMsg : rawMsg ? String(rawMsg) : '') ||
+              'Batch gagal'
             await updateBatch(batch.id, {
               status: 'failed',
               stats: result.stats,

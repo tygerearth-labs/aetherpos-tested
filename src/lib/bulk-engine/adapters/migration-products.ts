@@ -12,13 +12,60 @@
  * per batch — exactly as the legacy MigrationProcessorProvider did.
  */
 
-import type { BatchResult, BulkClientAdapter, ParsedRow, RowValidation } from '../types'
+import type { BatchError, BatchResult, BulkClientAdapter, ParsedRow, RowValidation } from '../types'
 import { countProductsInFile } from '@/lib/migration/sheet-count'
+
+/**
+ * Shape of a single row in the migration API's `errors[]` / `warnings[]`
+ * arrays. Matches `MigrationIssueRow` from `lib/migration/dexie-db.ts` and
+ * `MigrationWarningRow` from the import route. The API NEVER sends plain
+ * strings here (v2.3 contract), but we accept strings too as a defence
+ * against any legacy / partial response.
+ */
+type MigrationIssueLike = {
+  row?: number
+  sheet?: string
+  entity?: string
+  identifier?: string
+  message?: string
+}
+
+/**
+ * Flatten a migration issue object (or legacy string) into a single
+ * human-readable line. Mirrors the `formatMigrationIssue` helper used by the
+ * migration wizard so both surfaces show identical wording.
+ */
+function stringifyMigrationIssue(issue: MigrationIssueLike | string, fallbackIndex: number): string {
+  if (typeof issue === 'string') return issue
+  const row = typeof issue?.row === 'number' ? issue.row : fallbackIndex
+  const sheet = issue?.sheet ? `[${issue.sheet}] ` : ''
+  const ident = issue?.identifier ? ` (${issue.identifier})` : ''
+  const msg = issue?.message ?? ''
+  return `Baris ${row} ${sheet}${msg}${ident}`.replace(/\s+/g, ' ').trim()
+}
 
 function mapMigrationResponse(data: Record<string, unknown>): BatchResult {
   const status = (data.status as string) === 'BATCH_FAILED' ? 'failed' : 'completed'
   const hasError = Boolean(data.error) || status === 'failed'
-  const errors = (data.errors as string[]) || []
+
+  // CRITICAL: the migration API returns errors[] / warnings[] as arrays of
+  // issue OBJECTS ({row, sheet, entity, identifier, message}), NOT strings.
+  // Earlier code cast them to `string[]` and stuffed each object straight into
+  // BatchError.message — which then leaked into `job.lastBatchError` and got
+  // rendered as a React child, crashing with React error #31
+  // ("Objects are not valid as a React child"). Coerce every entry to a real
+  // string here at the boundary so downstream code (worker, Dexie, UI, xlsx
+  // export) only ever sees strings.
+  const rawErrors = (data.errors as Array<MigrationIssueLike | string>) || []
+  const errors: BatchError[] = rawErrors.map((e, i) => ({
+    rowIndex: typeof e === 'object' && e && typeof e.row === 'number' ? e.row : i + 1,
+    code: 'MIGRATION_ROW_ERROR',
+    message: stringifyMigrationIssue(e, i + 1),
+  }))
+
+  const rawWarnings = (data.warnings as Array<MigrationIssueLike | string>) || []
+  const warnings = rawWarnings.map((w, i) => stringifyMigrationIssue(w, i + 1))
+
   return {
     status: hasError ? 'failed' : 'completed',
     stats: {
@@ -29,12 +76,8 @@ function mapMigrationResponse(data: Record<string, unknown>): BatchResult {
       failed: (data.batchFailed as number) || 0,
       deleted: 0,
     },
-    errors: errors.map((msg, i) => ({
-      rowIndex: i + 1,
-      code: 'MIGRATION_ROW_ERROR',
-      message: msg,
-    })),
-    warnings: (data.warnings as string[]) || undefined,
+    errors,
+    warnings: warnings.length > 0 ? warnings : undefined,
     extras: {
       variantsCreated: data.variantsCreated,
       inventoryItemsCreated: data.inventoryItemsCreated,

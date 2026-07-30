@@ -686,7 +686,15 @@ function JobView({
         {job.lastBatchError && (
           <div className="rounded-xl bg-red-500/[0.06] border border-red-500/20 p-3">
             <div className="text-[10px] text-red-400 font-semibold mb-0.5">Error terakhir</div>
-            <div className="text-[10px] text-red-300/80 break-words">{job.lastBatchError}</div>
+            <div className="text-[10px] text-red-300/80 break-words">
+              {/* Defense in depth: lastBatchError is typed `string | null` but
+                  older Dexie-persisted jobs (pre-fix) may hold a raw
+                  MigrationIssueRow object here. Never render an object as a
+                  React child (React error #31). */}
+              {typeof job.lastBatchError === 'string'
+                ? job.lastBatchError
+                : String(job.lastBatchError ?? '')}
+            </div>
           </div>
         )}
       </div>
