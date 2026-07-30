@@ -71,6 +71,16 @@ export function UpdateBanner() {
   const [confirmTier, setConfirmTier] = useState<ConfirmTier>('none')
 
   // ── Apply the build update (controlled reload) ────────────────────────
+  //
+  // v3.0: This function ONLY flips the store to 'applying'. The actual SW
+  // activation + reload is handled by `useServiceWorker`'s store-subscription
+  // (which sends AETHER_ACTIVATE_UPDATE to the waiting SW, waits for
+  // controllerchange, and reloads once — with an emergency-recovery fallback
+  // if the SW doesn't respond within 8s).
+  //
+  // We do NOT postMessage or reload directly here — that would race with
+  // useServiceWorker's coordinated activation and could cause a double reload
+  // or a reload before controllerchange (which is the stale-shell bug).
   const applyUpdate = useCallback(() => {
     if (applyingRef.current) return
     applyingRef.current = true
@@ -81,23 +91,9 @@ export function UpdateBanner() {
     // explicitly clicks apply — never auto).
     toast.loading('Memperbarui aplikasi ke versi terbaru…', { duration: 4000 })
 
-    if (!('serviceWorker' in navigator) || !navigator.serviceWorker.controller) {
-      // No SW controller — just reload directly
-      window.location.reload()
-      return
-    }
-
-    // Ask the SW to take over immediately. The controllerchange listener in
-    // useServiceWorker does the reload. As a safety net, also schedule a
-    // fallback reload in case the SW doesn't respond in time.
-    navigator.serviceWorker.controller.postMessage({
-      type: 'AETHER_ACTIVATE_UPDATE',
-    })
-
-    // Safety-net: if controllerchange doesn't fire within 4s, reload anyway.
-    setTimeout(() => {
-      window.location.reload()
-    }, 4000)
+    // If there's no SW controller at all, useServiceWorker's activation
+    // handler will detect `!registration.waiting` and fall back to a plain
+    // reload via emergencyRecover(). No direct reload here.
   }, [markApplying])
 
   // ── Dismiss (only for 'pending' — hide the banner until activities change) ──

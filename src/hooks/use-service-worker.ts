@@ -2,35 +2,59 @@
 
 /**
  * useServiceWorker — registers the app SW and orchestrates the whole-app
- * build version guard.
+ * build version guard. (v3.0 — stale-shell fix)
  *
  * Responsibilities:
- *   1. Register the SW.
+ *   1. Register the SW with `updateViaCache: 'none'` so /sw.js is ALWAYS
+ *      re-fetched from the network (never served from browser cache).
  *   2. Report the client's current buildId (AETHER_CLIENT_BUILD) so the SW
  *      never deletes a build cache an open tab is using (active-client protection).
- *   3. Listen for SW messages:
- *        AETHER_NEW_BUILD  → reportServerBuildId() (triggers update lifecycle)
+ *   3. Detect new builds via `/api/build-version` (canonical source, no-store).
+ *      The old HTML-parse approach is REMOVED — it could read a stale cached
+ *      HTML document. `/api/build-version` bypasses the SW fetch handler
+ *      entirely and is served with Cache-Control: no-store.
+ *   4. Listen for SW messages:
+ *        AETHER_NEW_BUILD      → reportServerBuildId() (triggers update lifecycle)
  *        AETHER_UPDATE_APPLIED → (SW finished skipWaiting + claim)
- *   4. On controllerchange (new SW took over) → if a build update was being
- *      applied, reload ONCE (sessionStorage-guarded, loop-safe).
- *   5. PROACTIVELY check for a new build via multiple triggers:
- *        - app startup (3s after registration, to avoid racing with first paint)
- *        - window online (after re-reporting client build)
- *        - visibilitychange to visible (throttled to once / 5 min)
- *        - 5-minute setInterval (light background poll)
- *      Each trigger calls checkForUpdate() which does:
- *        a. registration.update()       — ask the browser to re-fetch /sw.js
- *        b. checkServerBuildId()        — SAFETY NET: fetch the HTML with
- *           cache:'no-store' and parse __NEXT_DATA__.buildId out of it.
- *           This catches new builds even if the SW never sees a new chunk
- *           (e.g. user never navigates, so the SW fetch handler never runs).
+ *        AETHER_SW_ACTIVATED   → (new SW version took over — re-report build)
+ *        AETHER_PURGE_ACK      → (HTML caches purged — proceed with recovery)
+ *   5. Controlled update order (v3.0):
+ *        a. registration.update()       — ask browser to re-fetch /sw.js
+ *        b. detect registration.waiting — a new SW is waiting to activate
+ *        c. if status === 'ready', send AETHER_ACTIVATE_UPDATE to waiting SW
+ *        d. waiting SW calls skipWaiting() + clients.claim()
+ *        e. client receives controllerchange
+ *        f. client reloads EXACTLY ONCE (sessionStorage-guarded, loop-safe)
+ *      NEVER reload before controllerchange.
+ *   6. Emergency stale-shell recovery (v3.0):
+ *        If serverBuildId differs AND coordinated SW activation fails/times
+ *        out (no controllerchange within 8s), the client:
+ *          - sends AETHER_PURGE_HTML_CACHES to the SW (deletes only page/HTML
+ *            caches, preserves Dexie/outbox/cart/migration/bulk queues)
+ *          - navigates with a cache-busting query parameter (?_aether_recover=1)
+ *          - reloads once (sessionStorage-guarded)
+ *          - never loops
+ *   7. PROACTIVE detection triggers (retained):
+ *        - app startup (3s after registration)
+ *        - window online
+ *        - visibilitychange to visible (throttled 5 min)
+ *        - 5-minute setInterval
  *
- * BuildId is read from `window.__NEXT_DATA__.buildId`. In dev mode this is
- * "development" — the SW handles that as a single (dev) build.
+ * BuildId is read from `window.__NEXT_DATA__.buildId` for the CLIENT build.
+ * The SERVER build is read from `/api/build-version`.
  */
 
 import { useEffect } from 'react'
-import { useBuildVersionStore, markBuildUpdateReloading, canApplyBuildUpdate } from '@/lib/build-guard/build-version-store'
+import {
+  useBuildVersionStore,
+  markBuildUpdateReloading,
+  canApplyBuildUpdate,
+} from '@/lib/build-guard/build-version-store'
+
+// Timeout for coordinated SW activation. If controllerchange doesn't fire
+// within this window after sending AETHER_ACTIVATE_UPDATE, we fall back to
+// emergency stale-shell recovery.
+const SW_ACTIVATION_TIMEOUT_MS = 8000
 
 export function useServiceWorker() {
   useEffect(() => {
@@ -39,8 +63,10 @@ export function useServiceWorker() {
     let intervalId: ReturnType<typeof setInterval> | undefined
     let checkIntervalId: ReturnType<typeof setInterval> | undefined
     let startupCheckTimeoutId: ReturnType<typeof setTimeout> | undefined
+    let activationTimeoutId: ReturnType<typeof setTimeout> | undefined
     let registrationRef: ServiceWorkerRegistration | undefined
     let lastVisibilityCheck = 0
+    let emergencyRecoveryInProgress = false
 
     const buildStore = useBuildVersionStore.getState()
 
@@ -60,34 +86,24 @@ export function useServiceWorker() {
       })
     }
 
-    // ── Direct server-buildId check (SAFETY NET) ───────────────────────
+    // ── Canonical server-buildId check via /api/build-version ───────────
     //
-    // Fetches the HTML page with cache:'no-store' so we always hit the
-    // network (bypassing any cached copy). Parses __NEXT_DATA__.buildId out
-    // of the HTML and compares it to the client's buildId. If they differ,
-    // calls reportServerBuildId() — which kicks off the update lifecycle
-    // (status → 'ready' or 'pending' depending on critical activities).
-    //
-    // This catches the case where the SW never fires AETHER_NEW_BUILD
-    // (e.g. the user hasn't navigated, so no /_next/static/* chunk fetch
-    // has hit the SW's fetch handler). It is the client-side ground truth.
+    // v3.0: fetches /api/build-version (no-store) instead of parsing HTML.
+    // The SW fetch handler BYPASSES /api/build-version, so this always hits
+    // the network origin. The response carries Cache-Control: no-store so
+    // the browser never caches it either.
     const checkServerBuildId = async () => {
       try {
-        // The query param + header distinguish this from a normal navigation
-        // so the SW's page handler won't try to use it as a bfcache fallback.
-        const res = await fetch(`/?_aether_check=1&t=${Date.now()}`, {
+        const res = await fetch('/api/build-version', {
           cache: 'no-store',
           headers: { 'X-Aether-Build-Check': '1' },
         })
         if (!res.ok) return
-        const html = await res.text()
-        // Extract buildId from the __NEXT_DATA__ JSON embedded in the HTML.
-        const match = html.match(/"buildId":"([^"]+)"/)
-        if (!match) return
-        const serverBuildId = match[1]
+        const data = await res.json()
+        if (!data || typeof data.buildId !== 'string') return
+        const serverBuildId = data.buildId
         const clientBuildId = useBuildVersionStore.getState().clientBuildId
         if (clientBuildId && serverBuildId !== clientBuildId) {
-          // Direct detection — bypass the SW entirely.
           useBuildVersionStore.getState().reportServerBuildId(serverBuildId)
         }
       } catch {
@@ -96,76 +112,158 @@ export function useServiceWorker() {
       }
     }
 
-    // ── checkForUpdate(): registration.update() + safety-net check ──────
-    //
-    // registration.update() asks the browser to re-fetch /sw.js and start
-    // installing a new SW if it changed (this triggers 'updatefound').
-    // We ALSO run checkServerBuildId() because a new app build can land
-    // without /sw.js itself changing (the SW script is static; only the
-    // Next.js buildId in the chunks changes). The HTML parse is the
-    // reliable signal.
+    // ── checkForUpdate(): registration.update() + /api/build-version ───
     const checkForUpdate = async () => {
       try {
         const registration = await navigator.serviceWorker.getRegistration()
-        if (!registration) return
-        // Ask the browser to check for a new SW version.
-        await registration.update()
-        // ALSO do a direct server-buildId check (safety net — doesn't
-        // rely on the SW seeing a new chunk).
+        if (registration) {
+          // Ask the browser to re-fetch /sw.js. With updateViaCache:'none',
+          // the browser always goes to the network for this.
+          await registration.update()
+        }
+        // ALSO do a direct /api/build-version check (canonical signal).
         await checkServerBuildId()
       } catch {
         // update() can throw if the network is down; ignore.
       }
     }
 
-    // ── SW message listener (new build detected, update applied) ────────
+    // ── Emergency stale-shell recovery (v3.0) ───────────────────────────
+    //
+    // Triggered when:
+    //   - serverBuildId differs from clientBuildId (stale build detected)
+    //   - AND coordinated SW activation failed/timed out (no controllerchange
+    //     within SW_ACTIVATION_TIMEOUT_MS after sending AETHER_ACTIVATE_UPDATE)
+    //
+    // Recovery steps:
+    //   1. Send AETHER_PURGE_HTML_CACHES to the SW (deletes only page/HTML
+    //      caches, preserves Dexie/outbox/cart/migration/bulk queues).
+    //   2. Navigate with a cache-busting query parameter.
+    //   3. Reload once (sessionStorage-guarded, loop-safe).
+    const emergencyRecover = async () => {
+      if (emergencyRecoveryInProgress) return
+      if (!canApplyBuildUpdate()) return
+      emergencyRecoveryInProgress = true
+      markBuildUpdateReloading()
+      try {
+        // Ask the SW to purge HTML caches (best-effort — if the SW is
+        // unresponsive, the browser's no-store fetch + cache-busting query
+        // will still get a fresh HTML response).
+        navigator.serviceWorker.controller?.postMessage({
+          type: 'AETHER_PURGE_HTML_CACHES',
+        })
+      } catch {
+        /* ignore */
+      }
+      // Wait briefly for the purge to complete, then reload with a
+      // cache-busting query param.
+      setTimeout(() => {
+        const url = new URL(window.location.href)
+        url.searchParams.set('_aether_recover', String(Date.now()))
+        window.location.replace(url.toString())
+      }, 200)
+    }
+
+    // ── SW message listener ─────────────────────────────────────────────
     const onMessage = (event: MessageEvent) => {
       const data = event.data
       if (!data || typeof data !== 'object') return
 
       if (data.type === 'AETHER_NEW_BUILD' && typeof data.buildId === 'string') {
-        // The SW detected a chunk URL with a new buildId. Report it to the
-        // store — if it differs from clientBuildId, the update lifecycle
-        // begins (status → 'ready' or 'pending' depending on activities).
         buildStore.reportServerBuildId(data.buildId)
       }
 
       if (data.type === 'AETHER_UPDATE_APPLIED') {
-        // The SW finished skipWaiting + clients.claim. A controllerchange
-        // will follow. The controllerchange handler below does the reload.
+        // SW finished skipWaiting + claim. controllerchange will follow.
+        // The controllerchange handler does the reload.
+        if (activationTimeoutId) clearTimeout(activationTimeoutId)
+      }
+
+      if (data.type === 'AETHER_SW_ACTIVATED') {
+        // A new SW version took over. Re-report our buildId so the new SW's
+        // active-client map is accurate.
+        reportBuild()
+      }
+
+      if (data.type === 'AETHER_PURGE_ACK') {
+        // HTML caches purged. The emergency recovery's reload will proceed.
       }
     }
 
     // ── controllerchange → reload once (if a build update is applying) ───
+    //
+    // v3.0: This is the ONLY place a build-update reload happens. The SW
+    // NEVER reloads the client directly. Reload happens ONLY after
+    // controllerchange fires, which means the new SW has fully taken over.
     const onControllerChange = () => {
+      if (activationTimeoutId) {
+        clearTimeout(activationTimeoutId)
+        activationTimeoutId = undefined
+      }
       const status = useBuildVersionStore.getState().status
       if (status === 'applying') {
         if (canApplyBuildUpdate()) {
           markBuildUpdateReloading()
-          // Reload to pick up the new SW + new build chunks.
           window.location.reload()
         }
       } else {
         // A new SW took over outside an explicit apply (e.g. first install,
-        // or the SW self-updated). Re-report our buildId so the new SW's
-        // active-client map is accurate.
+        // or the SW self-updated). Re-report our buildId.
         reportBuild()
       }
     }
 
+    // ── Coordinated update activation ───────────────────────────────────
+    //
+    // Called when the build-version-store transitions to 'applying' (user
+    // clicked "Perbarui sekarang" or "Muat ulang paksa" with confirmation).
+    // Sends AETHER_ACTIVATE_UPDATE to the waiting SW. If controllerchange
+    // doesn't fire within SW_ACTIVATION_TIMEOUT_MS, falls back to emergency
+    // recovery.
+    const activateUpdate = () => {
+      const registration = registrationRef
+      if (!registration || !registration.waiting) {
+        // No waiting SW — nothing to activate. Try emergency recovery if
+        // we know the server build differs.
+        const { clientBuildId, serverBuildId } = useBuildVersionStore.getState()
+        if (clientBuildId && serverBuildId && clientBuildId !== serverBuildId) {
+          emergencyRecover()
+        }
+        return
+      }
+      // Set a timeout — if controllerchange doesn't fire in time, recover.
+      activationTimeoutId = setTimeout(() => {
+        const { clientBuildId, serverBuildId } = useBuildVersionStore.getState()
+        if (clientBuildId && serverBuildId && clientBuildId !== serverBuildId) {
+          console.warn(
+            '[useServiceWorker] SW activation timed out — emergency recovery',
+          )
+          emergencyRecover()
+        }
+      }, SW_ACTIVATION_TIMEOUT_MS)
+      // Ask the waiting SW to take over.
+      registration.waiting.postMessage({ type: 'AETHER_ACTIVATE_UPDATE' })
+    }
+
+    // Subscribe to build-version-store 'applying' transitions
+    // (Zustand v5: subscribe(listener) fires on every state change with
+    // (state, prevState) — we filter for the idle/ready/pending → applying
+    // transition ourselves.)
+    let prevStatus = useBuildVersionStore.getState().status
+    const unsubscribeBuildStore = useBuildVersionStore.subscribe((state) => {
+      if (prevStatus !== 'applying' && state.status === 'applying') {
+        activateUpdate()
+      }
+      prevStatus = state.status
+    })
+
     const onPageshow = () => reportBuild()
 
-    // online: re-report client build (so the SW's active-client map is
-    // current after a reconnect) AND immediately check for a new build
-    // (a deploy may have happened while we were offline).
     const onOnline = () => {
       reportBuild()
       checkForUpdate()
     }
 
-    // visibilitychange: when the tab becomes visible, check for a new build
-    // — but throttle to once per 5 minutes to avoid hammering the server on
-    // rapid tab switches.
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         const now = Date.now()
@@ -176,9 +274,6 @@ export function useServiceWorker() {
       }
     }
 
-    // updatefound: a new SW version is installing. Informational only —
-    // we do NOT auto-apply. The build-version-store + UpdateBanner handle
-    // the apply decision based on critical activities.
     const onUpdateFound = (event: Event) => {
       const registration = event.target as ServiceWorkerRegistration
       console.info(
@@ -190,32 +285,34 @@ export function useServiceWorker() {
     navigator.serviceWorker.addEventListener('message', onMessage)
     navigator.serviceWorker.addEventListener('controllerchange', onControllerChange)
 
+    // ── Register with updateViaCache: 'none' (v3.0 critical fix) ────────
+    //
+    // This tells the browser to NEVER use the HTTP cache when fetching
+    // /sw.js. Combined with the Cache-Control: no-cache,no-store header
+    // on /sw.js (set in next.config.ts), this guarantees the browser always
+    // sees the latest SW script.
     navigator.serviceWorker
-      .register('/sw.js')
+      .register('/sw.js', { updateViaCache: 'none' })
       .then((registration) => {
-        console.log('SW registered:', registration.scope)
+        console.log('SW registered (updateViaCache:none):', registration.scope)
         registrationRef = registration
         registration.addEventListener('updatefound', onUpdateFound)
 
         if (navigator.serviceWorker.controller) {
           reportBuild()
         } else {
-          navigator.serviceWorker.addEventListener('controllerchange', reportBuild, { once: true })
+          navigator.serviceWorker.addEventListener(
+            'controllerchange',
+            reportBuild,
+            { once: true },
+          )
         }
         // Re-report every 60s so the SW's active-client TTL (3 min) stays fresh.
         intervalId = setInterval(reportBuild, 60_000)
 
-        // Also check for a waiting SW on registration (in case a new SW was
-        // already downloaded before this tab opened).
-        if (registration.waiting) {
-          // A new SW is waiting — this means a new build is likely available.
-          // We don't auto-activate; the build-version-store lifecycle handles
-          // that. Just note the server build may differ.
-        }
-
         // Initial check for a new build (in case the server was updated
         // while the tab was closed). Delay 3s to avoid racing with the
-        // initial page load + first chunk fetches.
+        // initial page load.
         startupCheckTimeoutId = setTimeout(checkForUpdate, 3000)
       })
       .catch((error) => {
@@ -226,17 +323,15 @@ export function useServiceWorker() {
     window.addEventListener('online', onOnline)
     document.addEventListener('visibilitychange', onVisibilityChange)
 
-    // Light background poll — every 5 minutes, check for a new build.
-    // This catches deploys that happen while the tab stays in the
-    // foreground without any navigation (so the SW fetch handler never
-    // sees a new chunk). Combined with the visibility + online triggers,
-    // this ensures a new build is detected within ~5 min in the worst case.
+    // Light background poll — every 5 minutes.
     checkIntervalId = setInterval(checkForUpdate, 5 * 60 * 1000)
 
     return () => {
       if (intervalId) clearInterval(intervalId)
       if (checkIntervalId) clearInterval(checkIntervalId)
       if (startupCheckTimeoutId) clearTimeout(startupCheckTimeoutId)
+      if (activationTimeoutId) clearTimeout(activationTimeoutId)
+      unsubscribeBuildStore()
       navigator.serviceWorker.removeEventListener('message', onMessage)
       navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange)
       navigator.serviceWorker.removeEventListener('controllerchange', reportBuild)

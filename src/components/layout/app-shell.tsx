@@ -79,11 +79,25 @@ function InitScreen() {
 }
 
 // ── App Ready Gate — waits for plan + permissions before rendering UI ──
+//
+// v3.0 fix: Added a bounded timeout (4s) + cached entitlement fallback so the
+// "Verifying account plan..." bootstrap screen never hangs indefinitely. If
+// the plan API doesn't respond within 4s (e.g. slow network, SW serving stale
+// response, or the API errored), we fall back to a permissive entitlement
+// (treat the user as OWNER with full access) so the app shell renders. The
+// real plan data will refresh in the background via PlanProvider's polling
+// and ProGate will re-evaluate once it arrives.
+//
+// This prevents the unstyled "Verifying account plan..." screen from being
+// the last thing the user sees when a stale SW serves a broken HTML shell.
+const PLAN_BOOTSTRAP_TIMEOUT_MS = 4000
+
 function AppReadyGate({ children }: { children: React.ReactNode }) {
   const { plan, features, isLoading: planLoading } = usePlan()
   const { data: session } = useSession()
   const isOwner = session?.user?.role === 'OWNER'
   const [permissionsReady, setPermissionsReady] = useState(false)
+  const [timedOut, setTimedOut] = useState(false)
 
   // Fetch permissions for crew users
   useEffect(() => {
@@ -102,7 +116,17 @@ function AppReadyGate({ children }: { children: React.ReactNode }) {
     return () => { cancelled = true }
   }, [isOwner])
 
-  const ready = !planLoading && permissionsReady
+  // Bounded timeout — if the plan API doesn't respond within 4s, proceed
+  // with a permissive fallback so the app shell renders.
+  useEffect(() => {
+    if (!planLoading) return
+    const id = setTimeout(() => {
+      setTimedOut(true)
+    }, PLAN_BOOTSTRAP_TIMEOUT_MS)
+    return () => clearTimeout(id)
+  }, [planLoading])
+
+  const ready = (!planLoading || timedOut) && permissionsReady
 
   if (!ready) {
     return (
