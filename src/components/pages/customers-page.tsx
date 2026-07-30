@@ -43,6 +43,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Pagination } from '@/components/shared/pagination'
+import { OfflineDataNotice } from '@/components/shared/offline-data-notice'
+import { useOfflineData, recordDataFetch } from '@/hooks/use-offline-data'
 import {
   Table,
   TableBody,
@@ -177,6 +179,8 @@ export default function CustomersPage() {
   const [search, setSearch] = useState('')
   const [formOpen, setFormOpen] = useState(false)
   const [editCustomer, setEditCustomer] = useState<Customer | null>(null)
+  const offlineData = useOfflineData('customers')
+  const isOffline = offlineData.isOffline
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
 
@@ -243,15 +247,16 @@ export default function CustomersPage() {
         setCustomers(data.customers)
         setTotalPages(data.totalPages)
         if (data.stats) setStats(data.stats)
-      } else {
+        void recordDataFetch('customers')
+      } else if (!isOffline) {
         toast.error('Failed to load customers')
       }
     } catch {
-      toast.error('Failed to load customers')
+      if (!isOffline) toast.error('Failed to load customers')
     } finally {
       setLoading(false)
     }
-  }, [page, search])
+  }, [page, search, isOffline])
 
   useEffect(() => {
      
@@ -388,6 +393,14 @@ export default function CustomersPage() {
 
   return (
     <div className="space-y-4">
+      {/* Offline data notice (READ_ONLY route — shows cached snapshot when offline).
+          Rendered FIRST so the user sees offline status + "last updated" time
+          immediately, before any stats cards or content. */}
+      <OfflineDataNotice
+        isOffline={offlineData.isOffline}
+        lastUpdatedLabel={offlineData.lastUpdatedLabel}
+      />
+
       {/* Stats Cards */}
       {!loading && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -560,9 +573,9 @@ export default function CustomersPage() {
             <p className="text-xs text-slate-500 mt-0.5">Kelola database pelanggan & program loyalti</p>
           </div>
           <div className="flex items-center gap-2">
-            <BulkEngineTrigger kind="customer:add" label="Tambah Excel" variant="compact" />
-            <BulkEngineTrigger kind="customer:edit" label="Edit Excel" variant="compact" />
-            <Button onClick={handleAdd} className="theme-bg hover:theme-hover text-white h-8 text-xs">
+            <BulkEngineTrigger kind="customer:add" label="Tambah Excel" variant="compact" disabled={isOffline} />
+            <BulkEngineTrigger kind="customer:edit" label="Edit Excel" variant="compact" disabled={isOffline} />
+            <Button onClick={handleAdd} disabled={isOffline} className="theme-bg hover:theme-hover text-white h-8 text-xs">
               <Plus className="mr-1.5 h-3.5 w-3.5" />
               Tambah Pelanggan
             </Button>
@@ -641,7 +654,7 @@ export default function CustomersPage() {
           <p className="text-xs text-slate-400 max-w-sm mx-auto leading-relaxed mb-4">
             Mulai tambahkan pelanggan untuk mengaktifkan program loyalti, tracking pembelian, dan analitik pelanggan.
           </p>
-          <Button onClick={handleAdd} variant="outline" className="theme-bg hover:theme-hover text-white border-transparent h-8 text-xs gap-1.5">
+          <Button onClick={handleAdd} disabled={isOffline} variant="outline" className="theme-bg hover:theme-hover text-white border-transparent h-8 text-xs gap-1.5">
             <UserPlus className="h-3.5 w-3.5" />
             Tambah Pelanggan Pertama
           </Button>
@@ -699,8 +712,9 @@ export default function CustomersPage() {
                       <Button
                         variant="ghost"
                         size="icon"
+                        disabled={isOffline}
                         className="h-7 w-7 text-slate-400 hover:text-white hover:bg-white/[0.04]"
-                        onClick={() => handleEdit(customer)}
+                        onClick={() => { if (!isOffline) handleEdit(customer) }}
                         title="Edit"
                       >
                         <Edit className="h-3.5 w-3.5" />
@@ -708,8 +722,9 @@ export default function CustomersPage() {
                       <Button
                         variant="ghost"
                         size="icon"
+                        disabled={isOffline}
                         className="h-7 w-7 text-slate-400 hover:text-red-400 hover:bg-red-500/10"
-                        onClick={() => setDeleteId(customer.id)}
+                        onClick={() => { if (!isOffline) setDeleteId(customer.id) }}
                         title="Delete"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -781,8 +796,9 @@ export default function CustomersPage() {
                           <Button
                             variant="ghost"
                             size="icon"
+                            disabled={isOffline}
                             className="h-7 w-7 text-slate-400 hover:text-white hover:bg-white/[0.04]"
-                            onClick={() => handleEdit(customer)}
+                            onClick={() => { if (!isOffline) handleEdit(customer) }}
                             title="Edit"
                           >
                             <Edit className="h-3.5 w-3.5" />
@@ -790,8 +806,9 @@ export default function CustomersPage() {
                           <Button
                             variant="ghost"
                             size="icon"
+                            disabled={isOffline}
                             className="h-7 w-7 text-slate-400 hover:text-red-400 hover:bg-red-500/10"
-                            onClick={() => setDeleteId(customer.id)}
+                            onClick={() => { if (!isOffline) setDeleteId(customer.id) }}
                             title="Delete"
                           >
                             <Trash2 className="h-3.5 w-3.5" />

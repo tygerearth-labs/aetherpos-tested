@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
 import { usePlan } from '@/hooks/use-plan'
 import { usePageStore } from '@/hooks/use-page-store'
@@ -17,6 +17,8 @@ import { AnalyticsTabs } from '@/components/dashboard/analytics-tabs'
 import { SalesProductsCard, InsightsSection, InventoryAlertsSection, ScoreExplanationDialog, InventoryFreshnessWidget, ExpiryHeatmapWidget, ExpiryAlertBanner } from '@/components/dashboard/dashboard-sections'
 import { EnterpriseBubbleChart, PendingTransfersSection, InventoryPredictionSection } from '@/components/dashboard/enterprise-sections'
 import { MigrationBanner } from '@/components/migration/migration-banner'
+import { useOfflineData, recordDataFetch } from '@/hooks/use-offline-data'
+import { OfflineDataNotice } from '@/components/shared/offline-data-notice'
 
 // ── Animation variants ──
 const containerVariants = {
@@ -70,6 +72,7 @@ export default function DashboardPage() {
   const hasForecasting = features?.forecasting === true
   const hasAiInsights = features?.aiInsights === true
   const hasMultiOutlet = features?.multiOutlet === true
+  const offlineData = useOfflineData('dashboard')
   const showEnterprise = isOwner && isEnterprise && hasMultiOutlet
 
   // ── TanStack Query data ──
@@ -79,6 +82,13 @@ export default function DashboardPage() {
   const [scoreDialogOpen, setScoreDialogOpen] = useState(false)
   const expiryHeatmapRef = useRef<HTMLDivElement>(null)
 
+  // Record successful dashboard fetch time for offline "last updated" display
+  useEffect(() => {
+    if (stats) {
+      void recordDataFetch('dashboard')
+    }
+  }, [stats])
+
   // ── Migration Banner: show only for OWNER when 0 products ──
   // IMPORTANT: Always render <MigrationBanner /> so its internal dialog state
   // survives dashboard refetches (refetchInterval / refetchOnWindowFocus).
@@ -86,9 +96,19 @@ export default function DashboardPage() {
   const showMigrationBanner = isOwner && (stats?.totalProducts ?? 0) === 0
 
   // ── Loading Skeleton ──
+  // CRITICAL: The OfflineDataNotice renders BEFORE the loading check so the
+  // user sees the offline status + "last updated" time immediately — not a
+  // blank skeleton that implies live data is loading. When offline, the
+  // dashboard may show a skeleton briefly (TanStack Query has no cached
+  // data yet), but the notice is already visible explaining the situation.
   if (isLoading || !stats) {
     return (
       <div className="space-y-4">
+        {/* Offline notice ALWAYS renders first — before any loading check */}
+        <OfflineDataNotice
+          isOffline={offlineData.isOffline}
+          lastUpdatedLabel={offlineData.lastUpdatedLabel}
+        />
         <div className="space-y-1.5">
           <Skeleton className="h-7 w-52 bg-white/[0.04]" />
           <Skeleton className="h-3.5 w-64 bg-white/[0.04]" />
@@ -107,6 +127,12 @@ export default function DashboardPage() {
 
   return (
     <motion.div className="space-y-4" variants={containerVariants} initial="hidden" animate="visible">
+
+      {/* Offline data notice (READ_ONLY route — shows cached snapshot when offline) */}
+      <OfflineDataNotice
+        isOffline={offlineData.isOffline}
+        lastUpdatedLabel={offlineData.lastUpdatedLabel}
+      />
 
       {/* ═══════════════════════════════════════════════════
           SECTION 1 — Header & Health

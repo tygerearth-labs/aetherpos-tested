@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { usePageStore, type PageType } from '@/hooks/use-page-store'
 import { usePlan } from '@/hooks/use-plan'
+import { navigate } from '@/lib/navigate'
 import { useSession } from 'next-auth/react'
 import { getPlanLabel, getPlanBadgeClass } from '@/lib/config/plan-config'
 import { Badge } from '@/components/ui/badge'
@@ -156,8 +157,11 @@ export default function MobileBottomNav() {
   }
 
   const handleNav = (page: PageType) => {
-    setCurrentPage(page)
-    setMoreOpen(false)
+    // Use central navigate() — blocks ONLINE_ONLY routes when offline
+    const proceeded = navigate(page)
+    if (proceeded) {
+      setMoreOpen(false)
+    }
   }
 
   const handleSignOut = async () => {

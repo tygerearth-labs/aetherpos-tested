@@ -6,6 +6,7 @@ import { usePageStore } from '@/hooks/use-page-store'
 import { useSidebarStore } from '@/components/layout/sidebar'
 import { useOnlineStatus, useBlockRefresh } from '@/hooks/use-online-status'
 import { usePlan } from '@/hooks/use-plan'
+import { useRoutePrefetch } from '@/hooks/use-route-prefetch'
 import { PlanProvider } from '@/context/plan-context'
 import Sidebar from '@/components/layout/sidebar'
 import MobileBottomNav from '@/components/layout/mobile-bottom-nav'
@@ -13,6 +14,7 @@ import AuthView from '@/components/auth/auth-view'
 import LandingPage from '@/components/landing/landing-page'
 import { Loader2, WifiOff, ShieldCheck } from 'lucide-react'
 import { ErrorBoundary } from '@/components/shared/error-boundary'
+import { OfflineRouteBlocker } from '@/components/shared/offline-route-blocker'
 import { MigrationProcessorProvider } from '@/components/migration/migration-processor-provider'
 import { MigrationWizard } from '@/components/migration/migration-wizard'
 import { MigrationFloatingWidget } from '@/components/migration/migration-floating-widget'
@@ -20,6 +22,7 @@ import { BulkWorkerProvider } from '@/components/bulk-engine/bulk-worker-provide
 import { BulkUploadDialog } from '@/components/bulk-engine/bulk-upload-dialog'
 import { BulkFloatingWidget } from '@/components/bulk-engine/bulk-floating-widget'
 import { BulkQueueDrawer } from '@/components/bulk-engine/bulk-queue-drawer'
+import { getRouteCapability } from '@/lib/route-capability'
 
 // ── Lazy-loaded pages (code splitting for faster initial load) ──
 const DashboardPage = lazy(() => import('@/components/pages/dashboard-page'))
@@ -127,14 +130,24 @@ function AppContent() {
     refetchInterval: 5 * 60 * 1000,
     refetchOnWindowFocus: true,
   })
-  const { currentPage } = usePageStore()
+  const { currentPage, blockedPage, setBlockedPage } = usePageStore()
   const { collapsed } = useSidebarStore()
   const [showAuth, setShowAuth] = useState(false)
   const isOnline = useOnlineStatus()
 
+  // Prefetch priority route chunks while online + idle
+  useRoutePrefetch()
+
   // Block refresh (F5, Ctrl+R, Cmd+R, beforeunload) when offline
   const isOffline = useCallback(() => !isOnline, [isOnline])
   useBlockRefresh(isOffline)
+
+  // Auto-clear blocked page when we come back online
+  useEffect(() => {
+    if (isOnline && blockedPage) {
+      setBlockedPage(null)
+    }
+  }, [isOnline, blockedPage, setBlockedPage])
 
   // Gate 1: Session loading
   if (status === 'loading') {
@@ -196,7 +209,7 @@ function AppContent() {
                 <div className="fixed top-0 left-0 right-0 z-[100] bg-red-600/95 backdrop-blur-sm border-b border-red-500/50">
                   <div className="flex items-center justify-center gap-2 py-1.5 px-4">
                     <WifiOff className="h-3.5 w-3.5 text-white shrink-0" />
-                    <span className="text-[11px] text-white font-medium">Mode Offline — Data terakhir yang dimuat masih bisa dilihat. Refresh dinonaktifkan.</span>
+                    <span className="text-[11px] text-white font-medium">Mode Offline — POS tersedia, transaksi tersimpan lokal. Beberapa halaman memerlukan koneksi.</span>
                   </div>
                 </div>
               )}
@@ -219,6 +232,13 @@ function AppContent() {
               </main>
             </div>
           </AppReadyGate>
+          {/* OfflineRouteBlocker: intentional dialog when the user tries to
+              navigate to an ONLINE_ONLY route while offline. The navigation
+              is blocked BEFORE the dynamic import, so no ChunkLoadError. */}
+          <OfflineRouteBlocker
+            blocked={blockedPage ? { page: blockedPage, capability: getRouteCapability(blockedPage) } : null}
+            onDismiss={() => setBlockedPage(null)}
+          />
           {/* MIG-BATCH-V3: migration dialog + floating widget live in the
               authenticated shell so the batch loop survives page navigation. */}
           <MigrationWizard />

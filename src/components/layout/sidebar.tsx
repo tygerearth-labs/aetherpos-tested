@@ -31,10 +31,14 @@ import {
   Building2,
   PackagePlus,
   Send,
+  WifiOff,
 } from 'lucide-react'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { create } from 'zustand'
+import { navigate } from '@/lib/navigate'
+import { useOnlineStatus } from '@/hooks/use-online-status'
+import { getRouteCapability } from '@/lib/route-capability'
 
 // ============================================================
 // Sidebar Collapsed State (shared with AppShell for margin)
@@ -120,6 +124,7 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
   const { currentPage, setCurrentPage } = usePageStore()
   const { plan, isSuspended, features } = usePlan()
   const router = useRouter()
+  const isOnline = useOnlineStatus()
 
   // ---- Crew permission-based filtering ----
   const userRole = session?.user?.role || 'CREW'
@@ -227,8 +232,13 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
 
   const handleNav = (page: PageType) => {
     if (isOwner || !allowedPages || allowedPages.includes(page)) {
-      setCurrentPage(page)
-      onNavigate?.()
+      // Use central navigate() — blocks ONLINE_ONLY routes when offline
+      // (sets blockedPage → app-shell renders OfflineRouteBlocker).
+      // setCurrentPage is called by navigate() itself on success.
+      const proceeded = navigate(page)
+      if (proceeded) {
+        onNavigate?.()
+      }
     }
   }
 
@@ -263,6 +273,9 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
     const isActive = currentPage === item.page
     const isCompact = collapsed && !isMobile
     const isLocked = permissionsLoaded && !navItemAccess.get(item.page)
+    // Offline-blocked: ONLINE_ONLY route while offline
+    const cap = getRouteCapability(item.page)
+    const isOfflineBlocked = !isOnline && cap.offlineMode === 'ONLINE_ONLY'
 
     const btn = (
       <motion.button
@@ -273,12 +286,15 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
         } ${
           isLocked
             ? 'opacity-30 cursor-not-allowed pointer-events-none'
-            : isActive
-              ? 'bg-white/[0.06] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]'
-              : 'text-slate-400 hover:bg-white/[0.03] hover:text-slate-200'
+            : isOfflineBlocked
+              ? 'opacity-50 text-slate-500'
+              : isActive
+                ? 'bg-white/[0.06] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]'
+                : 'text-slate-400 hover:bg-white/[0.03] hover:text-slate-200'
         }`}
+        title={isOfflineBlocked ? `${item.label} tidak tersedia offline` : undefined}
       >
-        {isActive && !isCompact && !isLocked && (
+        {isActive && !isCompact && !isLocked && !isOfflineBlocked && (
           <motion.span
             layoutId="sidebar-active-indicator"
             className="absolute left-0 top-1/2 -translate-y-1/2 w-[2.5px] h-4 rounded-r-full"
@@ -291,9 +307,11 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
         <span className={`shrink-0 transition-colors duration-200 ${
           isLocked
             ? 'text-slate-600'
-            : isActive
-              ? 'text-white'
-              : 'text-slate-500 group-hover:text-slate-300'
+            : isOfflineBlocked
+              ? 'text-slate-600'
+              : isActive
+                ? 'text-white'
+                : 'text-slate-500 group-hover:text-slate-300'
         }`}>
           {item.icon}
         </span>
@@ -303,8 +321,14 @@ function SidebarContent({ collapsed = false, onNavigate, onToggleCollapse, isMob
         {!isCompact && isLocked && (
           <Lock className="h-3 w-3 shrink-0 text-slate-600" />
         )}
+        {!isCompact && !isLocked && isOfflineBlocked && (
+          <WifiOff className="h-3 w-3 shrink-0 text-slate-600" />
+        )}
         {isCompact && isLocked && (
           <Lock className="h-3 w-3 absolute -top-0.5 -right-0.5 text-slate-500" />
+        )}
+        {isCompact && !isLocked && isOfflineBlocked && (
+          <WifiOff className="h-2.5 w-2.5 absolute -top-0.5 -right-0.5 text-slate-600" />
         )}
       </motion.button>
     )
