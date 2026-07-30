@@ -16,7 +16,7 @@ import { QuickActions } from '@/components/dashboard/quick-actions'
 import { AnalyticsTabs } from '@/components/dashboard/analytics-tabs'
 import { SalesProductsCard, InsightsSection, InventoryAlertsSection, ScoreExplanationDialog, InventoryFreshnessWidget, ExpiryHeatmapWidget, ExpiryAlertBanner } from '@/components/dashboard/dashboard-sections'
 import { EnterpriseBubbleChart, PendingTransfersSection, InventoryPredictionSection } from '@/components/dashboard/enterprise-sections'
-import { MigrationBanner } from '@/components/migration/migration-banner'
+import { MigrationBanner, PartialMigrationCard } from '@/components/migration/migration-banner'
 
 // ── Animation variants ──
 const containerVariants = {
@@ -79,11 +79,16 @@ export default function DashboardPage() {
   const [scoreDialogOpen, setScoreDialogOpen] = useState(false)
   const expiryHeatmapRef = useRef<HTMLDivElement>(null)
 
-  // ── Migration Banner: show only for OWNER when 0 products ──
-  // IMPORTANT: Always render <MigrationBanner /> so its internal dialog state
-  // survives dashboard refetches (refetchInterval / refetchOnWindowFocus).
-  // The component itself decides when to show the banner card vs dialogs.
-  const showMigrationBanner = isOwner && (stats?.totalProducts ?? 0) === 0
+  // ── Migration Banner: two states, both owner-only ──
+  // State 1 (INITIAL_MIGRATION): productCount === 0 → full onboarding banner
+  //   (unchanged from original — "Migrasi dari POS Lama?" / "Import Sekarang")
+  // State 2 (PARTIAL_MIGRATION): productCount > 0 → compact dismissible card
+  //   ("Masih ada data di POS lama?" / "Lanjutkan Migrasi")
+  // A permanent entry point also lives in the Products page Excel dropdown so
+  // migration is always reachable after the partial card is dismissed.
+  const productCount = stats?.totalProducts ?? 0
+  const migrationState: 'INITIAL_MIGRATION' | 'PARTIAL_MIGRATION' =
+    productCount === 0 ? 'INITIAL_MIGRATION' : 'PARTIAL_MIGRATION'
 
   // ── Loading Skeleton ──
   if (isLoading || !stats) {
@@ -132,10 +137,18 @@ export default function DashboardPage() {
         )}
       </motion.div>
 
-      {/* Migration Banner (New User: 0 Products) */}
-      <motion.div variants={itemVariants}>
-        <MigrationBanner showBanner={showMigrationBanner} />
-      </motion.div>
+      {/* Migration Banner — two states, both owner-only:
+          INITIAL (0 products): full onboarding banner
+          PARTIAL (>0 products): compact dismissible card */}
+      {isOwner && (
+        <motion.div variants={itemVariants}>
+          {migrationState === 'INITIAL_MIGRATION' ? (
+            <MigrationBanner showBanner />
+          ) : (
+            <PartialMigrationCard />
+          )}
+        </motion.div>
+      )}
 
       {/* Upgrade Banner (FREE only) */}
       {!planLoading && plan?.type === 'free' && (
