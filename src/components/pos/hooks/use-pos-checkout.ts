@@ -125,11 +125,20 @@ export function usePosCheckout(options: UsePosCheckoutOptions): UsePosCheckoutRe
   const pendingList = useLiveQuery(() => getPendingTransactions(), []) ?? []
   const pendingCount = pendingList.length
 
+  // AUTO-SWITCH: if the currently selected payment method is no longer in the
+  // outlet's enabled list (e.g. owner disabled CASH via Settings → Pembayaran &
+  // Promo), fall back to the first available method so POS never renders a
+  // payment method the server will reject at checkout.
+  // NOTE: the option is named `onSetPaymentMethod` here (renamed to
+  // `setPaymentMethod` only on the public return object at the bottom of this
+  // hook). Previously this called `setPaymentMethod` directly, which is not in
+  // scope → ReferenceError → <PosPage> crashed whenever CASH (the default
+  // initial state) was disabled in settings.
   useEffect(() => {
     if (availablePaymentMethods.length > 0 && !availablePaymentMethods.includes(paymentMethod)) {
-      setPaymentMethod(availablePaymentMethods[0])
+      onSetPaymentMethod(availablePaymentMethods[0])
     }
-  }, [availablePaymentMethods, paymentMethod])
+  }, [availablePaymentMethods, paymentMethod, onSetPaymentMethod])
 
   const handlePointsChange = (value: string) => {
     onSetPointsToUse(Math.min(Number(value) || 0, calcResult.maxPointsToUse))
