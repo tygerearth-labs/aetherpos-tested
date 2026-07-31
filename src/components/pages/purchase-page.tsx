@@ -4,6 +4,13 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useSession } from 'next-auth/react'
 import { toast } from 'sonner'
 import { formatCurrency, formatNumber, formatDate } from '@/lib/format'
+import {
+  isSameUnit,
+  resolveConversionUnit,
+  getConversionFactor,
+  getConvertibleUnits,
+  areUnitsCompatible,
+} from '@/lib/unit-conversion'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -67,6 +74,7 @@ import {
   Package,
   PackagePlus,
   PackageOpen,
+  ArrowLeftRight,
   BookOpen,
   Calculator,
   ChefHat,
@@ -150,6 +158,7 @@ interface PurchaseOrderItem {
   qty: string
   unit: string
   baseQty: string
+  conversionUnit: string  // unit the user enters package contents in (e.g. "gram"). Defaults to baseUnit. Frontend-only — not sent to API.
   pricePerItem: string  // harga per unit pembelian (e.g., 72000 per ekor)
   batch: string
   expiredDate: string
@@ -667,7 +676,7 @@ export default function PurchasePage() {
   const [poCreateNotes, setPoCreateNotes] = useState('')
   const [poCreateItems, setPoCreateItems] = useState<PurchaseOrderItem[]>([
     // UX-SIMPLIFY: baseQty defaults to '1' (retail mode: 1 beli = 1 dasar)
-    { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '1', pricePerItem: '0', batch: '', expiredDate: '' },
+    { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '1', conversionUnit: '', pricePerItem: '0', batch: '', expiredDate: '' },
   ])
 
   // Item picker for purchase dialog (pre-loaded)
@@ -751,7 +760,7 @@ export default function PurchasePage() {
   const [poEditLoading, setPoEditLoading] = useState(false)
   const [poEditNotes, setPoEditNotes] = useState('')
   const [poEditItems, setPoEditItems] = useState<PurchaseOrderItem[]>([
-    { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '1', pricePerItem: '0', batch: '', expiredDate: '' },
+    { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '1', conversionUnit: '', pricePerItem: '0', batch: '', expiredDate: '' },
   ])
 
   // ══════════════════════════════════════════════════════════
@@ -1145,8 +1154,11 @@ export default function PurchasePage() {
       baseUnit: item.baseUnit,
       qty: String(item.purchaseQty),
       unit: item.purchaseUnit,
-      // Derive baseQty: baseQty = totalBaseQty / purchaseQty if possible (with rounding to avoid floating point issues)
+      // Legacy PO data stored baseQty in the inventory base unit (API contract unchanged).
+      // For the edit form we default conversionUnit = baseUnit so the displayed value
+      // equals the stored value (factor 1). User can switch conversionUnit if needed.
       baseQty: item.purchaseQty > 0 ? String(Math.round((item.baseQty / item.purchaseQty) * 10000) / 10000) : String(item.baseQty),
+      conversionUnit: item.baseUnit,
       // Derive pricePerItem: totalCost / purchaseQty
       pricePerItem: item.purchaseQty > 0 ? String(Math.round((item.totalCost / item.purchaseQty) * 100) / 100) : String(item.unitCost * item.baseQty),
       batch: item.batch || '',
@@ -1160,7 +1172,23 @@ export default function PurchasePage() {
   }
 
   const handleUpdatePoEditItem = (idx: number, field: keyof PurchaseOrderItem, value: string) => {
-    setPoEditItems(prev => prev.map((item, i) => (i === idx ? { ...item, [field]: value } : item)))
+    setPoEditItems(prev => prev.map((item, i) => {
+      if (i !== idx) return item
+      const next = { ...item, [field]: value }
+      if (field === 'unit') {
+        const trimmed = value.trim()
+        if (trimmed && isSameUnit(trimmed, item.baseUnit)) {
+          next.baseQty = '1'
+          next.conversionUnit = item.baseUnit
+        } else if (trimmed) {
+          next.conversionUnit = resolveConversionUnit(item.conversionUnit || item.baseUnit, item.baseUnit)
+        }
+      }
+      if (field === 'conversionUnit') {
+        next.conversionUnit = resolveConversionUnit(value, item.baseUnit)
+      }
+      return next
+    }))
   }
 
   const handleRemovePoEditItem = (idx: number) => {
@@ -1171,7 +1199,7 @@ export default function PurchasePage() {
   const handleAddPoEditItem = () => {
     setPoEditItems(prev => [
       ...prev,
-      { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '1', pricePerItem: '0', batch: '', expiredDate: '' },
+      { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '1', conversionUnit: '', pricePerItem: '0', batch: '', expiredDate: '' },
     ])
   }
 
@@ -1193,19 +1221,10 @@ export default function PurchasePage() {
     for (let idx = 0; idx < poEditItems.length; idx++) {
       const i = poEditItems[idx]
       if (!i.inventoryItemId) continue
-      const purchaseQty = parseFloat(i.qty) || 0
-      const isiPerUnit = parseFloat(i.baseQty) || 0
-      const pricePerItem = parseFloat(i.pricePerItem) || 0
-      if (purchaseQty <= 0) {
-        toast.error(`Item baris ${idx + 1}: jumlah harus lebih dari 0`)
-        return
-      }
-      if (isiPerUnit <= 0) {
-        toast.error(`Item baris ${idx + 1}: isi per unit harus lebih dari 0`)
-        return
-      }
-      if (pricePerItem <= 0) {
-        toast.error(`Item baris ${idx + 1}: harga harus lebih dari 0`)
+      const v = poEditValidation[idx]
+      if (!v.isValid) {
+        const msg = v.qtyError || v.unitError || v.priceError || v.conversionError || v.baseUnitError || 'Item tidak valid'
+        toast.error(`Item ${idx + 1} (${i.inventoryItemName || 'tanpa nama'}): ${msg}`)
         return
       }
     }
@@ -1218,10 +1237,11 @@ export default function PurchasePage() {
           notes: poEditNotes || undefined,
           items: validItems.map(i => {
             const purchaseQty = parseFloat(i.qty) || 0
-            const isiPerUnit = parseFloat(i.baseQty) || 0
+            // Convert user-entered package contents into the inventory base unit.
+            const effPerUnit = effectiveBaseQtyPerPurchaseUnit(i) ?? 0
             const pricePerItem = parseFloat(i.pricePerItem) || 0
             const totalCost = pricePerItem * purchaseQty
-            const totalBaseQty = purchaseQty * isiPerUnit
+            const totalBaseQty = purchaseQty * effPerUnit
             const unitCost = totalBaseQty > 0 ? totalCost / totalBaseQty : 0
             return {
               inventoryItemId: i.inventoryItemId,
@@ -1263,23 +1283,14 @@ export default function PurchasePage() {
       toast.error('Pilih minimal 1 item')
       return
     }
-    // Frontend validation: check qty and baseQty
+    // Frontend validation: field-specific errors via the shared validator.
     for (let idx = 0; idx < poCreateItems.length; idx++) {
       const i = poCreateItems[idx]
       if (!i.inventoryItemId) continue
-      const purchaseQty = parseFloat(i.qty) || 0
-      const isiPerUnit = parseFloat(i.baseQty) || 0
-      const pricePerItem = parseFloat(i.pricePerItem) || 0
-      if (purchaseQty <= 0) {
-        toast.error(`Item baris ${idx + 1}: jumlah harus lebih dari 0`)
-        return
-      }
-      if (isiPerUnit <= 0) {
-        toast.error(`Item baris ${idx + 1}: isi per unit harus lebih dari 0`)
-        return
-      }
-      if (pricePerItem <= 0) {
-        toast.error(`Item baris ${idx + 1}: harga harus lebih dari 0`)
+      const v = poCreateValidation[idx]
+      if (!v.isValid) {
+        const msg = v.qtyError || v.unitError || v.priceError || v.conversionError || v.baseUnitError || 'Item tidak valid'
+        toast.error(`Item ${idx + 1} (${i.inventoryItemName || 'tanpa nama'}): ${msg}`)
         return
       }
     }
@@ -1337,10 +1348,12 @@ export default function PurchasePage() {
           notes: poCreateNotes || undefined,
           items: validItems.map(i => {
             const purchaseQty = parseFloat(i.qty) || 0
-            const isiPerUnit = parseFloat(i.baseQty) || 0
+            // Convert user-entered package contents into the inventory base unit
+            // (e.g. 1 box = 1000 gram -> effective 1 kg). API contract unchanged.
+            const effPerUnit = effectiveBaseQtyPerPurchaseUnit(i) ?? 0
             const pricePerItem = parseFloat(i.pricePerItem) || 0
             const totalCost = pricePerItem * purchaseQty
-            const totalBaseQty = purchaseQty * isiPerUnit
+            const totalBaseQty = purchaseQty * effPerUnit
             const unitCost = totalBaseQty > 0 ? totalCost / totalBaseQty : 0
             return {
               inventoryItemId: idMap.get(i.inventoryItemId) || i.inventoryItemId,
@@ -1390,7 +1403,7 @@ export default function PurchasePage() {
     setInputMethod(null)
     setPoCreateNotes('')
     setPoCreateSupplierId('')
-    setPoCreateItems([{ inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '1', pricePerItem: '0', batch: '', expiredDate: '' }])
+    setPoCreateItems([{ inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '1', conversionUnit: '', pricePerItem: '0', batch: '', expiredDate: '' }])
     setShowItemPicker(false)
     setActiveItemSearchIdx(null)
     setItemPickerFilter('')
@@ -1520,6 +1533,7 @@ export default function PurchasePage() {
         qty: String(item.qty || 1),
         unit: item.purchaseUnit || '',
         baseQty: String(item.baseQty || 1),
+        conversionUnit: item.baseUnit || item.matchedItemUnit || '',
         pricePerItem: String(item.pricePerUnit || 0),
         batch: item.batch || '',
         expiredDate: item.expiredDate || '',
@@ -1672,7 +1686,7 @@ export default function PurchasePage() {
     setPoCreateItems(prev => [
       ...prev,
       // UX-SIMPLIFY: baseQty defaults to '1' (retail mode: 1 beli = 1 dasar)
-      { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '1', pricePerItem: '0', batch: '', expiredDate: '' },
+      { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '1', conversionUnit: '', pricePerItem: '0', batch: '', expiredDate: '' },
     ])
   }
 
@@ -1682,7 +1696,27 @@ export default function PurchasePage() {
   }
 
   const handleUpdatePoItem = (idx: number, field: keyof PurchaseOrderItem, value: string) => {
-    setPoCreateItems(prev => prev.map((item, i) => (i === idx ? { ...item, [field]: value } : item)))
+    setPoCreateItems(prev => prev.map((item, i) => {
+      if (i !== idx) return item
+      const next = { ...item, [field]: value }
+      // When Satuan Beli matches the inventory base unit, conversion is trivial:
+      // force baseQty = 1 and conversionUnit = baseUnit so the math stays consistent.
+      if (field === 'unit') {
+        const trimmed = value.trim()
+        if (trimmed && isSameUnit(trimmed, item.baseUnit)) {
+          next.baseQty = '1'
+          next.conversionUnit = item.baseUnit
+        } else if (trimmed) {
+          // Ensure conversionUnit stays compatible with the base unit.
+          next.conversionUnit = resolveConversionUnit(item.conversionUnit || item.baseUnit, item.baseUnit)
+        }
+      }
+      // When conversionUnit changes, resolve it against baseUnit (in case user typed a custom value).
+      if (field === 'conversionUnit') {
+        next.conversionUnit = resolveConversionUnit(value, item.baseUnit)
+      }
+      return next
+    }))
     if (field === 'batch') checkDuplicateBatch(idx, value)
     if (field === 'expiredDate') checkExpiredDate(idx, value)
   }
@@ -1697,10 +1731,12 @@ export default function PurchasePage() {
             inventoryItemSku: item.sku,
             baseUnit: item.baseUnit,
             // UX-SIMPLIFY: Auto-fill retail defaults
-            // Default: 1 unit beli = 1 unit dasar (retail mode)
-            // User can change in "Opsi Lanjutan" if buying in bulk (e.g., 1 sak = 25 kg)
+            // Default: 1 unit beli = 1 unit dasar (retail mode, no conversion needed).
+            // User changes "Satuan beli" to a different unit (e.g. box) to reveal the
+            // "Konversi ke Inventory" section.
             unit: it.unit || item.baseUnit,  // Satuan beli defaults to base unit
             baseQty: it.baseQty && it.baseQty !== '0' ? it.baseQty : '1',  // Default isi = 1
+            conversionUnit: resolveConversionUnit(it.conversionUnit, item.baseUnit),
           }
         : it
     ))
@@ -1712,7 +1748,7 @@ export default function PurchasePage() {
   const handleSelectInvItemForEdit = (idx: number, item: InventoryItemOption) => {
     setPoEditItems(prev => prev.map((it, i) =>
       i === idx
-        ? { ...it, inventoryItemId: item.id, inventoryItemName: item.name, inventoryItemSku: item.sku, baseUnit: item.baseUnit }
+        ? { ...it, inventoryItemId: item.id, inventoryItemName: item.name, inventoryItemSku: item.sku, baseUnit: item.baseUnit, conversionUnit: resolveConversionUnit(it.conversionUnit, item.baseUnit) }
         : it
     ))
     setShowItemPicker(false)
@@ -1762,7 +1798,7 @@ export default function PurchasePage() {
       if (nextEmpty >= 0) {
         setQuickAddTargetIdx(nextEmpty)
       } else {
-        setPoCreateItems(prev => [...prev, { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '1', pricePerItem: '0', batch: '', expiredDate: '' }])
+        setPoCreateItems(prev => [...prev, { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '1', conversionUnit: '', pricePerItem: '0', batch: '', expiredDate: '' }])
         setQuickAddTargetIdx(poCreateItems.length)
       }
       toast.success(`Item "${newItem.name}" ditambahkan — lanjut ${remaining.length} item lagi`)
@@ -1833,7 +1869,7 @@ export default function PurchasePage() {
         if (emptyIdx >= 0) {
           handleSelectInvItem(emptyIdx, skuMatch)
         } else {
-          setPoCreateItems(prev => [...prev, { inventoryItemId: skuMatch.id, inventoryItemName: skuMatch.name, inventoryItemSku: skuMatch.sku, baseUnit: skuMatch.baseUnit, qty: '1', unit: skuMatch.baseUnit, baseQty: '1', pricePerItem: '0', batch: '', expiredDate: '' }])
+          setPoCreateItems(prev => [...prev, { inventoryItemId: skuMatch.id, inventoryItemName: skuMatch.name, inventoryItemSku: skuMatch.sku, baseUnit: skuMatch.baseUnit, qty: '1', unit: skuMatch.baseUnit, baseQty: '1', conversionUnit: skuMatch.baseUnit, pricePerItem: '0', batch: '', expiredDate: '' }])
         }
         toast.success(`${skuMatch.name} ditambahkan (scan)`)
       }
@@ -1884,7 +1920,7 @@ export default function PurchasePage() {
           if (emptyIdx >= 0) {
             handleSelectInvItem(emptyIdx, skuMatch)
           } else {
-            setPoCreateItems(prev => [...prev, { inventoryItemId: skuMatch.id, inventoryItemName: skuMatch.name, inventoryItemSku: skuMatch.sku, baseUnit: skuMatch.baseUnit, qty: '1', unit: skuMatch.baseUnit, baseQty: '1', pricePerItem: '0', batch: '', expiredDate: '' }])
+            setPoCreateItems(prev => [...prev, { inventoryItemId: skuMatch.id, inventoryItemName: skuMatch.name, inventoryItemSku: skuMatch.sku, baseUnit: skuMatch.baseUnit, qty: '1', unit: skuMatch.baseUnit, baseQty: '1', conversionUnit: skuMatch.baseUnit, pricePerItem: '0', batch: '', expiredDate: '' }])
           }
         }
         setSmartInput('')
@@ -1904,7 +1940,7 @@ export default function PurchasePage() {
           if (emptyIdx >= 0) {
             handleSelectInvItem(emptyIdx, nameMatch)
           } else {
-            setPoCreateItems(prev => [...prev, { inventoryItemId: nameMatch.id, inventoryItemName: nameMatch.name, inventoryItemSku: nameMatch.sku, baseUnit: nameMatch.baseUnit, qty: '1', unit: nameMatch.baseUnit, baseQty: '1', pricePerItem: '0', batch: '', expiredDate: '' }])
+            setPoCreateItems(prev => [...prev, { inventoryItemId: nameMatch.id, inventoryItemName: nameMatch.name, inventoryItemSku: nameMatch.sku, baseUnit: nameMatch.baseUnit, qty: '1', unit: nameMatch.baseUnit, baseQty: '1', conversionUnit: nameMatch.baseUnit, pricePerItem: '0', batch: '', expiredDate: '' }])
           }
         }
         setSmartInput('')
@@ -1917,7 +1953,7 @@ export default function PurchasePage() {
       const emptyIdx = poCreateItems.findIndex(i => !i.inventoryItemId)
       const targetIdx = emptyIdx >= 0 ? emptyIdx : poCreateItems.length
       if (emptyIdx < 0) {
-        setPoCreateItems(prev => [...prev, { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '1', pricePerItem: '0', batch: '', expiredDate: '' }])
+        setPoCreateItems(prev => [...prev, { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '1', conversionUnit: '', pricePerItem: '0', batch: '', expiredDate: '' }])
       }
       setQuickAddTargetIdx(targetIdx)
       setQuickAddQueue([names[0]])
@@ -1943,7 +1979,7 @@ export default function PurchasePage() {
       const matched = poItemOptions.find(i => i.sku && i.sku.toLowerCase() === query)
         || poItemOptions.find(i => i.name.toLowerCase() === query)
       if (matched) {
-        matchedItems.push({ inventoryItemId: matched.id, inventoryItemName: matched.name, inventoryItemSku: matched.sku, baseUnit: matched.baseUnit, qty: '1', unit: matched.baseUnit, baseQty: '1', pricePerItem: '0', batch: '', expiredDate: '' })
+        matchedItems.push({ inventoryItemId: matched.id, inventoryItemName: matched.name, inventoryItemSku: matched.sku, baseUnit: matched.baseUnit, qty: '1', unit: matched.baseUnit, baseQty: '1', conversionUnit: matched.baseUnit, pricePerItem: '0', batch: '', expiredDate: '' })
       } else {
         unmatchedNames.push(name)
       }
@@ -1972,7 +2008,7 @@ export default function PurchasePage() {
       const targetIdx = poCreateItems.findIndex(i => !i.inventoryItemId)
       const actualTarget = targetIdx >= 0 ? targetIdx : poCreateItems.length
       if (targetIdx < 0) {
-        setPoCreateItems(prev => [...prev, { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '1', pricePerItem: '0', batch: '', expiredDate: '' }])
+        setPoCreateItems(prev => [...prev, { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '1', conversionUnit: '', pricePerItem: '0', batch: '', expiredDate: '' }])
       }
       setQuickAddTargetIdx(actualTarget)
       setQuickAddQueue(unmatchedNames)
@@ -1997,6 +2033,128 @@ export default function PurchasePage() {
       return sum + (price * qty)
     }, 0)
   }, [poCreateItems])
+
+  // ══════════════════════════════════════════════════════════
+  // Unit Conversion & Validation helpers (UX-only — does NOT change API)
+  //
+  // The purchase API still receives `baseQty` expressed in the inventory base
+  // unit. These helpers convert the user-facing "1 box = 1000 gram" input into
+  // the base-unit equivalent (e.g. 1 kg) right before submission, and drive
+  // the real-time stock-impact / HPP preview shown in the dialog.
+  // ══════════════════════════════════════════════════════════
+
+  /** Whether the "Konversi ke Inventory" section should be shown for an item. */
+  const needsConversion = (item: PurchaseOrderItem): boolean => {
+    const unit = item.unit.trim()
+    const base = item.baseUnit.trim()
+    if (!unit || !base) return false
+    return !isSameUnit(unit, base)
+  }
+
+  /**
+   * Effective base qty (in inventory base unit) for ONE purchase unit.
+   * Returns 1 when no conversion is needed (unit === baseUnit).
+   * Returns null when the conversion unit is incompatible with the base unit
+   * (e.g. user picked "gram" but base is "pcs") — the UI shows a validation
+   * error in that case.
+   */
+  const effectiveBaseQtyPerPurchaseUnit = (item: PurchaseOrderItem): number | null => {
+    if (!needsConversion(item)) return 1
+    const rawBaseQty = parseFloat(item.baseQty) || 0
+    if (rawBaseQty <= 0) return 0
+    const convUnit = resolveConversionUnit(item.conversionUnit, item.baseUnit)
+    const factor = getConversionFactor(convUnit, item.baseUnit)
+    if (factor == null) return null
+    return rawBaseQty * factor
+  }
+
+  /** Total stock impact (qty × effectiveBaseQty) in inventory base unit. null = invalid. */
+  const stockImpact = (item: PurchaseOrderItem): number | null => {
+    const qty = parseFloat(item.qty) || 0
+    const perUnit = effectiveBaseQtyPerPurchaseUnit(item)
+    if (perUnit == null) return null
+    return qty * perUnit
+  }
+
+  /** Estimated HPP (cost per base unit) = pricePerItem / effectiveBaseQty. null = invalid. */
+  const estimatedHpp = (item: PurchaseOrderItem): number | null => {
+    const price = parseFloat(item.pricePerItem) || 0
+    const perUnit = effectiveBaseQtyPerPurchaseUnit(item)
+    if (perUnit == null || perUnit <= 0) return null
+    return price / perUnit
+  }
+
+  type PoItemValidation = {
+    qtyError: string | null
+    unitError: string | null
+    priceError: string | null
+    conversionError: string | null
+    baseUnitError: string | null
+    isValid: boolean
+  }
+
+  const validatePoItem = (item: PurchaseOrderItem): PoItemValidation => {
+    const qtyError: string | null =
+      (parseFloat(item.qty) || 0) <= 0 ? 'Jumlah dibeli harus lebih dari 0' : null
+    const unitError: string | null =
+      !item.unit.trim() ? 'Satuan beli belum diisi' : null
+    const priceError: string | null =
+      (parseFloat(item.pricePerItem) || 0) <= 0 ? `Harga per ${item.unit || 'satuan'} belum diisi` : null
+    const baseUnitError: string | null =
+      !item.baseUnit.trim() ? 'Unit inventory belum dipilih' : null
+
+    let conversionError: string | null = null
+    if (needsConversion(item)) {
+      const rawBaseQty = parseFloat(item.baseQty) || 0
+      if (rawBaseQty <= 0) {
+        conversionError = `Isi per ${item.unit} harus lebih dari 0`
+      } else {
+        const convUnit = resolveConversionUnit(item.conversionUnit, item.baseUnit)
+        if (!areUnitsCompatible(convUnit, item.baseUnit)) {
+          conversionError = `Satuan konversi "${convUnit}" tidak kompatibel dengan unit inventory "${item.baseUnit}"`
+        } else {
+          const perUnit = effectiveBaseQtyPerPurchaseUnit(item)
+          if (perUnit == null) conversionError = 'Konversi satuan tidak valid'
+        }
+      }
+    }
+
+    const isValid = !qtyError && !unitError && !priceError && !conversionError && !baseUnitError
+    return { qtyError, unitError, priceError, conversionError, baseUnitError, isValid }
+  }
+
+  const poCreateValidation = useMemo(
+    () => poCreateItems.map(validatePoItem),
+    [poCreateItems],
+  )
+  const poCreateCanSubmit = useMemo(() => {
+    const selected = poCreateItems.filter(i => i.inventoryItemId)
+    if (selected.length === 0) return false
+    return poCreateItems.every((item, idx) => !item.inventoryItemId || poCreateValidation[idx].isValid)
+  }, [poCreateItems, poCreateValidation])
+
+  const poEditValidation = useMemo(
+    () => poEditItems.map(validatePoItem),
+    [poEditItems],
+  )
+  const poEditCanSubmit = useMemo(() => {
+    const selected = poEditItems.filter(i => i.inventoryItemId)
+    if (selected.length === 0) return false
+    return poEditItems.every((item, idx) => !item.inventoryItemId || poEditValidation[idx].isValid)
+  }, [poEditItems, poEditValidation])
+
+  /** Aggregate stock impact per item (for the footer "Dampak ke Inventory" block). */
+  const poCreateInventoryImpact = useMemo(() => {
+    return poCreateItems
+      .filter(i => i.inventoryItemId)
+      .map(i => ({ name: i.inventoryItemName, baseUnit: i.baseUnit, impact: stockImpact(i), isNew: i.inventoryItemId.startsWith('__pending_') }))
+  }, [poCreateItems])
+
+  const poEditInventoryImpact = useMemo(() => {
+    return poEditItems
+      .filter(i => i.inventoryItemId)
+      .map(i => ({ name: i.inventoryItemName, baseUnit: i.baseUnit, impact: stockImpact(i) }))
+  }, [poEditItems])
 
   // ══════════════════════════════════════════════════════════
   // Purchase Order: Delete
@@ -4961,6 +5119,12 @@ export default function PurchasePage() {
         }}
       >
         <ResponsiveDialogContent className="sm:max-w-2xl flex flex-col max-h-[90vh]">
+          {/* Datalist for Satuan Beli suggestions (free-text input with hints) */}
+          <datalist id="po-purchase-unit-options">
+            {['box', 'sak', 'karung', 'dus', 'pack', 'ikat', 'lusin', 'kodi', 'rim', 'galon', 'pail', 'roll'].map((u) => (
+              <option key={u} value={u} />
+            ))}
+          </datalist>
           {/* ── Rich Header with Purpose ── */}
           <ResponsiveDialogHeader>
             <ResponsiveDialogTitle className="text-white text-base flex items-center gap-2">
@@ -5208,7 +5372,7 @@ export default function PurchasePage() {
                           if (nextEmpty >= 0) {
                             setQuickAddTargetIdx(nextEmpty)
                           } else {
-                            setPoCreateItems(prev => [...prev, { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '1', pricePerItem: '0', batch: '', expiredDate: '' }])
+                            setPoCreateItems(prev => [...prev, { inventoryItemId: '', inventoryItemName: '', inventoryItemSku: null, baseUnit: '', qty: '1', unit: '', baseQty: '1', conversionUnit: '', pricePerItem: '0', batch: '', expiredDate: '' }])
                             setQuickAddTargetIdx(poCreateItems.length)
                           }
                         } else {
@@ -5235,58 +5399,67 @@ export default function PurchasePage() {
 
               {/* ── Item Rows ── */}
               <div className="space-y-2.5">
-                {poCreateItems.map((item, idx) => (
+                {poCreateItems.map((item, idx) => {
+                  const v = poCreateValidation[idx]
+                  const showConversion = needsConversion(item)
+                  const impact = stockImpact(item)
+                  const estHpp = estimatedHpp(item)
+                  return (
                   <div
                     key={idx}
                     id={`po-item-${idx}`}
                     className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.04] space-y-2.5"
                   >
-                    {/* Item picker / selected display */}
+                    {/* ── ITEM HEADER: name + Barang Baru badge, SKU muted, helper ── */}
                     <div className="relative" ref={(el) => { invItemSearchRefs.current[idx] = el }}>
                       {item.inventoryItemId ? (
                         <div className={cn(
-                          "flex items-center gap-2 rounded-lg px-2.5 h-9 border",
+                          "rounded-lg px-3 py-2.5 border space-y-0.5",
                           item.inventoryItemId.startsWith('__pending_')
                             ? "bg-amber-500/[0.06] border-amber-500/10"
                             : "bg-emerald-500/[0.06] border-emerald-500/10"
                         )}>
-                          <CheckCircle2 className={cn(
-                            "h-3.5 w-3.5 shrink-0",
-                            item.inventoryItemId.startsWith('__pending_') ? "text-amber-400" : "text-emerald-400"
-                          )} />
-                          <div className="flex-1 min-w-0 flex items-center gap-1.5">
+                          <div className="flex items-center gap-2">
+                            <CheckCircle2 className={cn(
+                              "h-3.5 w-3.5 shrink-0",
+                              item.inventoryItemId.startsWith('__pending_') ? "text-amber-400" : "text-emerald-400"
+                            )} />
                             <span className={cn(
-                              "text-xs truncate font-medium",
+                              "text-xs truncate font-medium flex-1 min-w-0",
                               item.inventoryItemId.startsWith('__pending_') ? "text-amber-300" : "text-emerald-300"
                             )}>{item.inventoryItemName}</span>
                             {item.inventoryItemId.startsWith('__pending_') && (
-                              <span className="text-[9px] bg-amber-500/15 text-amber-400 px-1.5 py-0.5 rounded font-medium shrink-0">Baru</span>
+                              <span className="text-[9px] bg-amber-500/15 text-amber-400 px-1.5 py-0.5 rounded font-medium shrink-0">Barang Baru</span>
                             )}
-                            {item.inventoryItemSku && (
-                              <span className="text-[10px] text-emerald-400/50 bg-emerald-500/10 px-1 py-0.5 rounded font-mono shrink-0">{item.inventoryItemSku}</span>
+                            {poCreateItems.length > 1 && (
+                              <button
+                                className="w-5 h-5 rounded bg-red-500/10 flex items-center justify-center text-red-400 hover:text-red-300 hover:bg-red-500/20 transition-colors mr-0.5"
+                                onClick={() => handleRemovePoItem(idx)}
+                                title="Hapus item ini"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </button>
                             )}
-                          </div>
-                          {poCreateItems.length > 1 && (
                             <button
-                              className="w-5 h-5 rounded bg-red-500/10 flex items-center justify-center text-red-400 hover:text-red-300 hover:bg-red-500/20 transition-colors mr-0.5"
-                              onClick={() => handleRemovePoItem(idx)}
-                              title="Hapus item ini"
+                              className="w-5 h-5 rounded hover:bg-white/[0.08] flex items-center justify-center text-slate-400 hover:text-white"
+                              onClick={() => {
+                                handleUpdatePoItem(idx, 'inventoryItemId', '')
+                                handleUpdatePoItem(idx, 'inventoryItemName', '')
+                                handleUpdatePoItem(idx, 'inventoryItemSku', '')
+                                handleUpdatePoItem(idx, 'baseUnit', '')
+                                handleUpdatePoItem(idx, 'conversionUnit', '')
+                              }}
+                              title="Ganti item"
                             >
-                              <Trash2 className="h-3 w-3" />
+                              <X className="h-3 w-3" />
                             </button>
+                          </div>
+                          {item.inventoryItemSku && (
+                            <p className="text-[10px] text-slate-500 font-mono pl-6 truncate">SKU: {item.inventoryItemSku}</p>
                           )}
-                          <button
-                            className="w-5 h-5 rounded hover:bg-white/[0.08] flex items-center justify-center text-slate-400 hover:text-white"
-                            onClick={() => {
-                              handleUpdatePoItem(idx, 'inventoryItemId', '')
-                              handleUpdatePoItem(idx, 'inventoryItemName', '')
-                              handleUpdatePoItem(idx, 'inventoryItemSku', null)
-                              handleUpdatePoItem(idx, 'baseUnit', '')
-                            }}
-                            title="Ganti item"
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
+                          {item.inventoryItemId.startsWith('__pending_') && (
+                            <p className="text-[10px] text-amber-400/60 pl-6">Item inventory akan dibuat otomatis saat pembelian disimpan.</p>
+                          )}
                         </div>
                       ) : (
                         <div
@@ -5298,44 +5471,120 @@ export default function PurchasePage() {
                       )}
                     </div>
 
-                    {/* Compact fields: simplified essential + expandable advanced */}
+                    {/* ── PURCHASE INFORMATION + CONVERSION + BATCH ── */}
                     {item.inventoryItemId && (
-                      <div className="space-y-2 pl-0.5">
-                        {/* ── ESSENTIAL: Qty + Price (always visible) ── */}
-                        <div className="grid grid-cols-2 gap-2">
-                          {/* Jumlah Beli */}
-                          <div className="space-y-1">
-                            <label className="text-[10px] text-slate-400 font-medium">
-                              Jumlah Beli
-                            </label>
-                            <Input
-                              type="number"
-                              min="0"
-                              step="any"
-                              value={item.qty}
-                              onChange={(e) => handleUpdatePoItem(idx, 'qty', e.target.value)}
-                              className={cn(inputClass, 'text-center')}
-                              placeholder="1"
-                              autoFocus
-                            />
+                      <div className="space-y-2.5 pl-0.5">
+                        {/* ── 1. INFORMASI PEMBELIAN (always visible) ── */}
+                        <div className="space-y-1.5">
+                          <div className="flex items-center gap-1.5">
+                            <ShoppingCart className="h-3 w-3 text-slate-500" />
+                            <span className="text-[10px] text-slate-400 font-medium uppercase tracking-wide">Informasi Pembelian</span>
                           </div>
-                          {/* Harga Total / per Satuan */}
-                          <div className="space-y-1">
-                            <label className="text-[10px] text-slate-400 font-medium">
-                              Harga per {item.unit || 'satuan'}
-                            </label>
-                            <Input
-                              type="number"
-                              min="0"
-                              value={item.pricePerItem}
-                              onChange={(e) => handleUpdatePoItem(idx, 'pricePerItem', e.target.value)}
-                              className={inputClass}
-                              placeholder="cth: 320000"
-                            />
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            {/* Jumlah dibeli */}
+                            <div className="space-y-1">
+                              <label className="text-[10px] text-slate-400 font-medium">Jumlah dibeli</label>
+                              <Input
+                                type="number"
+                                min="0"
+                                step="any"
+                                value={item.qty}
+                                onChange={(e) => handleUpdatePoItem(idx, 'qty', e.target.value)}
+                                className={cn(inputClass, 'text-center', v.qtyError && 'border-red-500/50')}
+                                placeholder="1"
+                                autoFocus
+                              />
+                              {v.qtyError && <p className="text-[10px] text-red-400">{v.qtyError}</p>}
+                            </div>
+                            {/* Satuan beli */}
+                            <div className="space-y-1">
+                              <label className="text-[10px] text-slate-400 font-medium">Satuan beli</label>
+                              <Input
+                                value={item.unit}
+                                onChange={(e) => handleUpdatePoItem(idx, 'unit', e.target.value)}
+                                className={cn(inputClass, v.unitError && 'border-red-500/50')}
+                                placeholder="cth: box"
+                                list="po-purchase-unit-options"
+                              />
+                              {v.unitError && <p className="text-[10px] text-red-400">{v.unitError}</p>}
+                            </div>
+                            {/* Harga per {unit} */}
+                            <div className="space-y-1">
+                              <label className="text-[10px] text-slate-400 font-medium truncate">
+                                Harga per {item.unit || 'satuan'}
+                              </label>
+                              <Input
+                                type="number"
+                                min="0"
+                                value={item.pricePerItem}
+                                onChange={(e) => handleUpdatePoItem(idx, 'pricePerItem', e.target.value)}
+                                className={cn(inputClass, v.priceError && 'border-red-500/50')}
+                                placeholder="cth: 500000"
+                              />
+                              {v.priceError && <p className="text-[10px] text-red-400">{v.priceError}</p>}
+                            </div>
                           </div>
+                          {/* Inline stock preview when no conversion needed (unit === baseUnit) */}
+                          {!showConversion && (parseFloat(item.qty) > 0) && item.baseUnit && (
+                            <div className="bg-emerald-500/[0.04] rounded-md px-2.5 py-1.5 text-[11px] flex items-center gap-1.5 border border-emerald-500/[0.06]">
+                              <PackagePlus className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                              <span className="text-slate-400">Stok akan bertambah:</span>
+                              <span className="text-emerald-400 font-semibold">+{formatNumber(parseFloat(item.qty))} {item.baseUnit}</span>
+                            </div>
+                          )}
                         </div>
 
-                        {/* ── Expandable Advanced Options ── */}
+                        {/* ── 2. KONVERSI KE INVENTORY (only when unit ≠ baseUnit) ── */}
+                        {showConversion && (
+                          <div className="space-y-1.5 rounded-lg bg-sky-500/[0.04] border border-sky-500/10 p-2.5">
+                            <div className="flex items-center gap-1.5">
+                              <ArrowLeftRight className="h-3 w-3 text-sky-400" />
+                              <span className="text-[10px] text-sky-300 font-medium uppercase tracking-wide">Konversi ke Inventory</span>
+                            </div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[11px] text-slate-300 whitespace-nowrap">1 {item.unit} berisi</span>
+                              <Input
+                                type="number"
+                                min="0"
+                                step="any"
+                                value={item.baseQty}
+                                onChange={(e) => handleUpdatePoItem(idx, 'baseQty', e.target.value)}
+                                className={cn(inputClass, 'w-20 text-center', v.conversionError && 'border-red-500/50')}
+                                placeholder="1000"
+                              />
+                              <Select
+                                value={resolveConversionUnit(item.conversionUnit, item.baseUnit)}
+                                onValueChange={(val) => handleUpdatePoItem(idx, 'conversionUnit', val)}
+                              >
+                                <SelectTrigger className={cn(inputClass, 'w-[88px] px-2')}>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent className="bg-nebula border-white/[0.06] max-h-48">
+                                  {getConvertibleUnits(item.baseUnit).map((u) => (
+                                    <SelectItem key={u} value={u} className="text-slate-200 text-xs">{u}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <p className="text-[10px] text-slate-500">Disimpan di inventory sebagai <span className="text-slate-300 font-medium">{item.baseUnit}</span></p>
+                            {/* Realtime stock-impact preview */}
+                            <div className="bg-emerald-500/[0.06] rounded-md px-2.5 py-1.5 text-[11px] flex items-center gap-1.5 border border-emerald-500/[0.08]">
+                              <PackagePlus className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                              <span className="text-slate-400">Stok akan bertambah:</span>
+                              <span className="text-emerald-400 font-semibold">
+                                {impact == null ? '?' : `+${formatNumber(impact)}`} {item.baseUnit}
+                              </span>
+                            </div>
+                            {v.conversionError && (
+                              <p className="text-[10px] text-red-400 flex items-center gap-1">
+                                <AlertCircle className="h-3 w-3 shrink-0" />
+                                {v.conversionError}
+                              </p>
+                            )}
+                          </div>
+                        )}
+
+                        {/* ── 3. BATCH & KEDALUWARSA (accordion) ── */}
                         <button
                           type="button"
                           className="flex items-center gap-1.5 text-[10px] text-slate-500 hover:text-slate-300 transition-colors w-full"
@@ -5345,113 +5594,68 @@ export default function PurchasePage() {
                           }}
                         >
                           <Settings2 className="h-3 w-3" />
-                          <span>Opsi Lanjutan (Beli grosir, Batch, Expired)</span>
+                          <span>Batch &amp; Kedaluwarsa</span>
+                          <span className="text-slate-600 font-normal ml-1">(opsional)</span>
                           <ChevronDown className="h-3 w-3 ml-auto" />
                         </button>
-                        <div id={`po-advanced-${idx}`} className="hidden space-y-2">
-                          <div className="grid grid-cols-2 gap-2">
-                            {/* Satuan Beli */}
-                            <div className="space-y-1">
-                              <label className="text-[10px] text-slate-400 font-medium">
-                                Satuan Beli
-                                <span className="text-slate-600 font-normal ml-1">(cth: sak, karung)</span>
-                              </label>
-                              <Input
-                                value={item.unit}
-                                onChange={(e) => handleUpdatePoItem(idx, 'unit', e.target.value)}
-                                className={inputClass}
-                                placeholder="cth: sak"
-                              />
-                            </div>
-                            {/* Isi per 1 Satuan Beli */}
-                            <div className="space-y-1">
-                              <label className="text-[10px] text-slate-400 font-medium">
-                                Isi dalam 1 {item.unit || 'satuan beli'}
-                                <span className="text-slate-600 font-normal ml-1">({item.baseUnit || 'satuan dasar'})</span>
-                              </label>
-                              <div className="relative">
-                                <Input
-                                  type="number"
-                                  min="0"
-                                  step="any"
-                                  value={item.baseQty}
-                                  onChange={(e) => handleUpdatePoItem(idx, 'baseQty', e.target.value)}
-                                  className={cn(inputClass, 'pr-10 text-center')}
-                                  placeholder="1"
-                                />
-                                <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-500 pointer-events-none">{item.baseUnit || 'kg'}</span>
-                              </div>
-                            </div>
-                            {/* Batch / No. Lot */}
-                            <div className="space-y-1">
-                              <label className="text-[10px] text-slate-400 font-medium">
-                                Batch / No. Lot
-                                <span className="text-slate-600 font-normal ml-1">(opsional)</span>
-                              </label>
-                              <Input
-                                value={item.batch}
-                                onChange={(e) => handleUpdatePoItem(idx, 'batch', e.target.value)}
-                                className={inputClass}
-                                placeholder="cth: B2025-001"
-                              />
-                            </div>
-                            {/* Expired Date */}
-                            <div className="space-y-1">
-                              <label className="text-[10px] text-slate-400 font-medium">
-                                Expired
-                                <span className="text-slate-600 font-normal ml-1">(opsional)</span>
-                              </label>
-                              <Input
-                                type="date"
-                                value={item.expiredDate}
-                                onChange={(e) => handleUpdatePoItem(idx, 'expiredDate', e.target.value)}
-                                className={cn(inputClass, expiredWarnings[idx] ? 'border-red-500/40 text-red-300' : 'text-slate-300')}
-                              />
-                              {expiredWarnings[idx] && (
-                                <p className="text-[10px] text-red-400 flex items-center gap-1 mt-1">
-                                  <AlertCircle className="h-3 w-3 shrink-0" />
-                                  Barang sudah kadaluarsa
-                                </p>
-                              )}
-                            </div>
+                        <div id={`po-advanced-${idx}`} className="hidden grid grid-cols-2 gap-2">
+                          {/* Batch / No. Lot */}
+                          <div className="space-y-1">
+                            <label className="text-[10px] text-slate-400 font-medium">Batch / No. Lot</label>
+                            <Input
+                              value={item.batch}
+                              onChange={(e) => handleUpdatePoItem(idx, 'batch', e.target.value)}
+                              className={inputClass}
+                              placeholder="cth: B2025-001"
+                            />
+                          </div>
+                          {/* Expired Date */}
+                          <div className="space-y-1">
+                            <label className="text-[10px] text-slate-400 font-medium">Expired</label>
+                            <Input
+                              type="date"
+                              value={item.expiredDate}
+                              onChange={(e) => handleUpdatePoItem(idx, 'expiredDate', e.target.value)}
+                              className={cn(inputClass, expiredWarnings[idx] ? 'border-red-500/40 text-red-300' : 'text-slate-300')}
+                            />
+                            {expiredWarnings[idx] && (
+                              <p className="text-[10px] text-red-400 flex items-center gap-1 mt-1">
+                                <AlertCircle className="h-3 w-3 shrink-0" />
+                                Barang sudah kadaluarsa
+                              </p>
+                            )}
                           </div>
                         </div>
 
-                        {/* Smart Purchase Warnings */}
+                        {/* Smart Purchase Warnings (batch duplicate) */}
                         {batchWarnings[idx]?.warning && batchWarnings[idx].duplicate && (
                           <div className="bg-amber-500/[0.06] rounded-lg px-3 py-2 border border-amber-500/15 text-[10px] text-amber-300 flex items-start gap-1.5">
                             <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                             <span>
-                              ⚠ Batch sudah pernah ada (sisa {formatNumber(batchWarnings[idx].duplicate!.remainingQty)} {batchWarnings[idx].duplicate!.baseUnit}
+                              Batch sudah pernah ada (sisa {formatNumber(batchWarnings[idx].duplicate!.remainingQty)} {batchWarnings[idx].duplicate!.baseUnit}
                               {batchWarnings[idx].duplicate!.expiredDate && `, Exp ${formatDate(batchWarnings[idx].duplicate!.expiredDate).split(' ')[0]}`}
                               {batchWarnings[idx].duplicate!.purchaseOrderNumber && `, PO-${batchWarnings[idx].duplicate!.purchaseOrderNumber}`})
                             </span>
                           </div>
                         )}
 
-                        {/* Consolidated summary line — enriched */}
-                        {(parseFloat(item.qty) > 0 && parseFloat(item.pricePerItem) > 0 && parseFloat(item.baseQty) > 0) ? (
-                          <div className="bg-emerald-500/[0.04] rounded-lg px-3 py-2.5 text-[10px] text-slate-400 space-y-1 border border-emerald-500/[0.06]">
-                            <div className="flex items-center justify-between">
-                              <span>{item.qty} {item.unit} × {formatCurrency(parseFloat(item.pricePerItem))}</span>
-                              <span className="text-white font-semibold">{formatCurrency((parseFloat(item.pricePerItem) || 0) * (parseFloat(item.qty) || 0))}</span>
-                            </div>
-                            <div className="flex items-center justify-between pt-0.5 border-t border-emerald-500/[0.06]">
-                              <div className="flex items-center gap-3">
-                                <span>📦 Stok masuk: <span className="text-emerald-400 font-medium">{formatNumber(parseFloat(item.qty) * parseFloat(item.baseQty))} {item.baseUnit}</span></span>
-                              </div>
-                              <span>📊 HPP: <span className="text-amber-400 font-medium">Rp{formatNumber(Math.round((parseFloat(item.pricePerItem) || 0) / (parseFloat(item.baseQty) || 0)))}/{item.baseUnit}</span></span>
-                            </div>
+                        {/* Per-item mini summary: subtotal + est. HPP */}
+                        {(parseFloat(item.qty) > 0 && parseFloat(item.pricePerItem) > 0) && (
+                          <div className="bg-white/[0.03] rounded-md px-2.5 py-1.5 text-[10px] text-slate-400 flex items-center justify-between gap-2 border border-white/[0.03]">
+                            <span>{item.qty} {item.unit || 'unit'} × {formatCurrency(parseFloat(item.pricePerItem))}</span>
+                            <span className="text-white font-semibold">{formatCurrency((parseFloat(item.pricePerItem) || 0) * (parseFloat(item.qty) || 0))}</span>
                           </div>
-                        ) : (parseFloat(item.qty) > 0 && parseFloat(item.pricePerItem) > 0) ? (
-                          <div className="text-[10px] text-slate-500 px-1">
-                            {item.qty} {item.unit || 'unit'} × {formatCurrency(parseFloat(item.pricePerItem))} = <span className="text-slate-300 font-medium">{formatCurrency((parseFloat(item.pricePerItem) || 0) * (parseFloat(item.qty) || 0))}</span>
-                          </div>
-                        ) : null}
+                        )}
+                        {estHpp != null && estHpp > 0 && item.baseUnit && (
+                          <p className="text-[10px] text-amber-400/70 px-0.5">
+                            Estimasi HPP: <span className="font-medium">{formatCurrency(estHpp)}/{item.baseUnit}</span>
+                          </p>
+                        )}
                       </div>
                     )}
                   </div>
-                ))}
+                  )
+                })}
 
                 {/* ── Tambah Item Lain button ── */}
                 <button
@@ -5683,9 +5887,10 @@ export default function PurchasePage() {
             )}
           </div>
 
-          {/* ── Sticky Total Biaya + Footer ── */}
+          {/* ── Sticky Summary + Footer ── */}
           <div className="pt-3 mt-auto border-t border-white/[0.06]">
-            <div className="bg-emerald-500/[0.06] rounded-xl p-3.5 border border-emerald-500/[0.1] mb-3">
+            <div className="rounded-xl p-3.5 border border-white/[0.06] bg-white/[0.02] mb-3 space-y-2.5">
+              {/* Total Pembelian */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Banknote className="h-4 w-4 text-emerald-400" />
@@ -5693,18 +5898,59 @@ export default function PurchasePage() {
                 </div>
                 <span className="text-lg font-bold text-emerald-400">{formatCurrency(poTotalCost)}</span>
               </div>
-              {poCreateItems.filter(i => i.inventoryItemId).length > 0 && (
-                <div className="mt-2 space-y-1">
-                  <p className="text-[10px] text-slate-500">
-                    {poCreateItems.filter(i => i.inventoryItemId).length} barang akan dicatat
-                  </p>
-                  {poCreateItems.some(i => i.inventoryItemId.startsWith('__pending_')) && (
-                    <p className="text-[10px] text-amber-400/70 flex items-center gap-1">
-                      <PackageOpen className="h-3 w-3" />
-                      Barang baru otomatis terdaftar di inventory saat disimpan
-                    </p>
-                  )}
+
+              {/* Dampak ke Inventory */}
+              {poCreateInventoryImpact.length > 0 && (
+                <div className="space-y-1 pt-1 border-t border-white/[0.04]">
+                  <div className="flex items-center gap-1.5 pt-1">
+                    <PackagePlus className="h-3 w-3 text-sky-400" />
+                    <span className="text-[10px] text-slate-500 font-medium uppercase tracking-wide">Dampak ke Inventory</span>
+                  </div>
+                  <div className="space-y-0.5 max-h-32 overflow-y-auto">
+                    {poCreateInventoryImpact.map((imp, i) => (
+                      <div key={i} className="flex items-center justify-between text-[11px]">
+                        <span className="text-slate-300 truncate flex-1 min-w-0 pr-2">
+                          {imp.name}
+                          {imp.isNew && <span className="text-amber-400/70 ml-1">(baru)</span>}
+                        </span>
+                        <span className={cn('font-semibold shrink-0', imp.impact == null ? 'text-red-400' : 'text-emerald-400')}>
+                          {imp.impact == null ? 'konversi invalid' : `+${formatNumber(imp.impact)} ${imp.baseUnit}`}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
+              )}
+
+              {/* Estimasi HPP */}
+              {poCreateItems.filter(i => i.inventoryItemId).some(i => estimatedHpp(i) != null && (estimatedHpp(i) || 0) > 0) && (
+                <div className="space-y-1 pt-1 border-t border-white/[0.04]">
+                  <div className="flex items-center gap-1.5 pt-1">
+                    <Calculator className="h-3 w-3 text-amber-400" />
+                    <span className="text-[10px] text-slate-500 font-medium uppercase tracking-wide">Estimasi HPP</span>
+                  </div>
+                  <div className="space-y-0.5 max-h-24 overflow-y-auto">
+                    {poCreateItems.filter(i => i.inventoryItemId).map((i, mapIdx) => {
+                      const hpp = estimatedHpp(i)
+                      if (hpp == null || hpp <= 0 || !i.baseUnit) return null
+                      return (
+                        <div key={mapIdx} className="flex items-center justify-between text-[11px]">
+                          <span className="text-slate-300 truncate flex-1 min-w-0 pr-2">{i.inventoryItemName}</span>
+                          <span className="text-amber-400/90 font-medium shrink-0">{formatCurrency(hpp)}/{i.baseUnit}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <p className="text-[9px] text-slate-600 pt-0.5">HPP final dihitung backend setelah simpan (weighted average untuk item existing).</p>
+                </div>
+              )}
+
+              {/* Helper notes */}
+              {poCreateItems.some(i => i.inventoryItemId.startsWith('__pending_')) && (
+                <p className="text-[10px] text-amber-400/70 flex items-center gap-1 pt-1 border-t border-white/[0.04]">
+                  <PackageOpen className="h-3 w-3" />
+                  Barang baru otomatis terdaftar di inventory saat disimpan
+                </p>
               )}
             </div>
             <div className="flex gap-2">
@@ -5717,7 +5963,7 @@ export default function PurchasePage() {
               </Button>
               <Button
                 className="flex-1 h-10 text-xs theme-bg theme-hover text-white font-medium"
-                disabled={poCreateLoading || poCreateItems.filter(i => i.inventoryItemId).length === 0}
+                disabled={poCreateLoading || !poCreateCanSubmit}
                 onClick={handlePoCreateSubmit}
               >
                 {poCreateLoading ? (
@@ -5972,38 +6218,46 @@ export default function PurchasePage() {
               </div>
 
               <div className="space-y-2">
-                {poEditItems.map((item, idx) => (
+                {poEditItems.map((item, idx) => {
+                  const v = poEditValidation[idx]
+                  const showConversion = needsConversion(item)
+                  const impact = stockImpact(item)
+                  const estHpp = estimatedHpp(item)
+                  return (
                   <div key={idx} className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.04] space-y-2.5">
-                    {/* Item picker / selected display */}
+                    {/* ── ITEM HEADER ── */}
                     <div className="relative" ref={(el) => { invItemEditSearchRefs.current[idx] = el }}>
                       {item.inventoryItemId ? (
-                        <div className="flex items-center gap-2 bg-emerald-500/[0.06] rounded-lg px-2.5 h-9 border border-emerald-500/10">
-                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-                          <span className="text-xs text-emerald-300 truncate flex-1 font-medium">{item.inventoryItemName}</span>
-                          {item.inventoryItemSku && (
-                            <span className="text-[9px] font-mono text-emerald-400/60 bg-emerald-500/10 px-1.5 py-0.5 rounded shrink-0">{item.inventoryItemSku}</span>
-                          )}
-                          {poEditItems.length > 1 && (
+                        <div className="rounded-lg px-3 py-2.5 border border-emerald-500/10 bg-emerald-500/[0.06] space-y-0.5">
+                          <div className="flex items-center gap-2">
+                            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                            <span className="text-xs text-emerald-300 truncate flex-1 font-medium">{item.inventoryItemName}</span>
+                            {poEditItems.length > 1 && (
+                              <button
+                                className="w-5 h-5 rounded bg-red-500/10 flex items-center justify-center text-red-400 hover:text-red-300 hover:bg-red-500/20 transition-colors mr-0.5"
+                                onClick={() => handleRemovePoEditItem(idx)}
+                                title="Hapus item ini"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </button>
+                            )}
                             <button
-                              className="w-5 h-5 rounded bg-red-500/10 flex items-center justify-center text-red-400 hover:text-red-300 hover:bg-red-500/20 transition-colors mr-0.5"
-                              onClick={() => handleRemovePoEditItem(idx)}
-                              title="Hapus item ini"
+                              className="w-5 h-5 rounded hover:bg-white/[0.08] flex items-center justify-center text-slate-400 hover:text-white"
+                              onClick={() => {
+                                handleUpdatePoEditItem(idx, 'inventoryItemId', '')
+                                handleUpdatePoEditItem(idx, 'inventoryItemName', '')
+                                handleUpdatePoEditItem(idx, 'inventoryItemSku', '')
+                                handleUpdatePoEditItem(idx, 'baseUnit', '')
+                                handleUpdatePoEditItem(idx, 'conversionUnit', '')
+                              }}
+                              title="Ganti item"
                             >
-                              <Trash2 className="h-3 w-3" />
+                              <X className="h-3 w-3" />
                             </button>
+                          </div>
+                          {item.inventoryItemSku && (
+                            <p className="text-[10px] text-slate-500 font-mono pl-6 truncate">SKU: {item.inventoryItemSku}</p>
                           )}
-                          <button
-                            className="w-5 h-5 rounded hover:bg-white/[0.08] flex items-center justify-center text-slate-400 hover:text-white"
-                            onClick={() => {
-                              handleUpdatePoEditItem(idx, 'inventoryItemId', '')
-                              handleUpdatePoEditItem(idx, 'inventoryItemName', '')
-                              handleUpdatePoEditItem(idx, 'inventoryItemSku', 'null')
-                              handleUpdatePoEditItem(idx, 'baseUnit', '')
-                            }}
-                            title="Ganti item"
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
                         </div>
                       ) : (
                         <>
@@ -6069,62 +6323,132 @@ export default function PurchasePage() {
                       )}
                     </div>
 
-                    {/* Compact fields: 2-column layout */}
+                    {/* ── PURCHASE INFORMATION + CONVERSION + BATCH ── */}
                     {item.inventoryItemId && (
-                      <div className="space-y-2 pl-0.5">
-                        <div className="grid grid-cols-2 gap-2">
-                          {/* Satuan Beli */}
-                          <div className="space-y-1">
-                            <label className="text-[10px] text-slate-400 font-medium">Satuan Beli</label>
-                            <Input
-                              value={item.unit}
-                              onChange={(e) => handleUpdatePoEditItem(idx, 'unit', e.target.value)}
-                              className={inputClass}
-                              placeholder="Cth: sak, ekor"
-                            />
+                      <div className="space-y-2.5 pl-0.5">
+                        {/* ── 1. INFORMASI PEMBELIAN ── */}
+                        <div className="space-y-1.5">
+                          <div className="flex items-center gap-1.5">
+                            <ShoppingCart className="h-3 w-3 text-slate-500" />
+                            <span className="text-[10px] text-slate-400 font-medium uppercase tracking-wide">Informasi Pembelian</span>
                           </div>
-                          {/* Jumlah */}
-                          <div className="space-y-1">
-                            <label className="text-[10px] text-slate-400 font-medium">Jumlah</label>
-                            <Input
-                              type="number"
-                              min="0"
-                              step="any"
-                              value={item.qty}
-                              onChange={(e) => handleUpdatePoEditItem(idx, 'qty', e.target.value)}
-                              className={cn(inputClass, 'text-center')}
-                              placeholder="1"
-                            />
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            {/* Jumlah dibeli */}
+                            <div className="space-y-1">
+                              <label className="text-[10px] text-slate-400 font-medium">Jumlah dibeli</label>
+                              <Input
+                                type="number"
+                                min="0"
+                                step="any"
+                                value={item.qty}
+                                onChange={(e) => handleUpdatePoEditItem(idx, 'qty', e.target.value)}
+                                className={cn(inputClass, 'text-center', v.qtyError && 'border-red-500/50')}
+                                placeholder="1"
+                              />
+                              {v.qtyError && <p className="text-[10px] text-red-400">{v.qtyError}</p>}
+                            </div>
+                            {/* Satuan beli */}
+                            <div className="space-y-1">
+                              <label className="text-[10px] text-slate-400 font-medium">Satuan beli</label>
+                              <Input
+                                value={item.unit}
+                                onChange={(e) => handleUpdatePoEditItem(idx, 'unit', e.target.value)}
+                                className={cn(inputClass, v.unitError && 'border-red-500/50')}
+                                placeholder="cth: box"
+                                list="po-purchase-unit-options"
+                              />
+                              {v.unitError && <p className="text-[10px] text-red-400">{v.unitError}</p>}
+                            </div>
+                            {/* Harga per {unit} */}
+                            <div className="space-y-1">
+                              <label className="text-[10px] text-slate-400 font-medium truncate">
+                                Harga per {item.unit || 'satuan'}
+                              </label>
+                              <Input
+                                type="number"
+                                min="0"
+                                value={item.pricePerItem}
+                                onChange={(e) => handleUpdatePoEditItem(idx, 'pricePerItem', e.target.value)}
+                                className={cn(inputClass, v.priceError && 'border-red-500/50')}
+                                placeholder="cth: 500000"
+                              />
+                              {v.priceError && <p className="text-[10px] text-red-400">{v.priceError}</p>}
+                            </div>
                           </div>
-                          {/* Isi per 1 Satuan Beli */}
-                          <div className="space-y-1">
-                            <label className="text-[10px] text-slate-400 font-medium">Isi per 1 {item.unit || 'unit'}</label>
-                            <div className="relative">
+                          {/* Inline stock preview when no conversion needed */}
+                          {!showConversion && (parseFloat(item.qty) > 0) && item.baseUnit && (
+                            <div className="bg-emerald-500/[0.04] rounded-md px-2.5 py-1.5 text-[11px] flex items-center gap-1.5 border border-emerald-500/[0.06]">
+                              <PackagePlus className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                              <span className="text-slate-400">Stok akan bertambah:</span>
+                              <span className="text-emerald-400 font-semibold">+{formatNumber(parseFloat(item.qty))} {item.baseUnit}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* ── 2. KONVERSI KE INVENTORY ── */}
+                        {showConversion && (
+                          <div className="space-y-1.5 rounded-lg bg-sky-500/[0.04] border border-sky-500/10 p-2.5">
+                            <div className="flex items-center gap-1.5">
+                              <ArrowLeftRight className="h-3 w-3 text-sky-400" />
+                              <span className="text-[10px] text-sky-300 font-medium uppercase tracking-wide">Konversi ke Inventory</span>
+                            </div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[11px] text-slate-300 whitespace-nowrap">1 {item.unit} berisi</span>
                               <Input
                                 type="number"
                                 min="0"
                                 step="any"
                                 value={item.baseQty}
                                 onChange={(e) => handleUpdatePoEditItem(idx, 'baseQty', e.target.value)}
-                                className={cn(inputClass, 'pr-10 text-center')}
-                                placeholder="1"
+                                className={cn(inputClass, 'w-20 text-center', v.conversionError && 'border-red-500/50')}
+                                placeholder="1000"
                               />
-                              <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-500 pointer-events-none">{item.baseUnit || 'kg'}</span>
+                              <Select
+                                value={resolveConversionUnit(item.conversionUnit, item.baseUnit)}
+                                onValueChange={(val) => handleUpdatePoEditItem(idx, 'conversionUnit', val)}
+                              >
+                                <SelectTrigger className={cn(inputClass, 'w-[88px] px-2')}>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent className="bg-nebula border-white/[0.06] max-h-48">
+                                  {getConvertibleUnits(item.baseUnit).map((u) => (
+                                    <SelectItem key={u} value={u} className="text-slate-200 text-xs">{u}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
                             </div>
+                            <p className="text-[10px] text-slate-500">Disimpan di inventory sebagai <span className="text-slate-300 font-medium">{item.baseUnit}</span></p>
+                            <div className="bg-emerald-500/[0.06] rounded-md px-2.5 py-1.5 text-[11px] flex items-center gap-1.5 border border-emerald-500/[0.08]">
+                              <PackagePlus className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                              <span className="text-slate-400">Stok akan bertambah:</span>
+                              <span className="text-emerald-400 font-semibold">
+                                {impact == null ? '?' : `+${formatNumber(impact)}`} {item.baseUnit}
+                              </span>
+                            </div>
+                            {v.conversionError && (
+                              <p className="text-[10px] text-red-400 flex items-center gap-1">
+                                <AlertCircle className="h-3 w-3 shrink-0" />
+                                {v.conversionError}
+                              </p>
+                            )}
                           </div>
-                          {/* Harga per Satuan Beli */}
-                          <div className="space-y-1">
-                            <label className="text-[10px] text-slate-400 font-medium">Harga per {item.unit || 'unit'} (Rp)</label>
-                            <Input
-                              type="number"
-                              min="0"
-                              value={item.pricePerItem}
-                              onChange={(e) => handleUpdatePoEditItem(idx, 'pricePerItem', e.target.value)}
-                              className={inputClass}
-                              placeholder="72000"
-                            />
-                          </div>
-                          {/* Batch / No. Lot */}
+                        )}
+
+                        {/* ── 3. BATCH & KEDALUWARSA ── */}
+                        <button
+                          type="button"
+                          className="flex items-center gap-1.5 text-[10px] text-slate-500 hover:text-slate-300 transition-colors w-full"
+                          onClick={() => {
+                            const el = document.getElementById(`po-edit-advanced-${idx}`)
+                            if (el) el.classList.toggle('hidden')
+                          }}
+                        >
+                          <Settings2 className="h-3 w-3" />
+                          <span>Batch &amp; Kedaluwarsa</span>
+                          <span className="text-slate-600 font-normal ml-1">(opsional)</span>
+                          <ChevronDown className="h-3 w-3 ml-auto" />
+                        </button>
+                        <div id={`po-edit-advanced-${idx}`} className="hidden grid grid-cols-2 gap-2">
                           <div className="space-y-1">
                             <label className="text-[10px] text-slate-400 font-medium">Batch / No. Lot</label>
                             <Input
@@ -6134,7 +6458,6 @@ export default function PurchasePage() {
                               placeholder="B2025-001"
                             />
                           </div>
-                          {/* Expired Date */}
                           <div className="space-y-1">
                             <label className="text-[10px] text-slate-400 font-medium">Expired</label>
                             <Input
@@ -6146,27 +6469,23 @@ export default function PurchasePage() {
                           </div>
                         </div>
 
-                        {/* Consolidated summary line */}
-                        {(parseFloat(item.qty) > 0 && parseFloat(item.pricePerItem) > 0 && parseFloat(item.baseQty) > 0) ? (
-                          <div className="bg-white/[0.03] rounded-md px-2.5 py-2 text-[10px] text-slate-400 space-y-0.5 border border-white/[0.03]">
-                            <div className="flex items-center justify-between">
-                              <span>{item.qty} {item.unit} × {formatCurrency(parseFloat(item.pricePerItem))}</span>
-                              <span className="text-white font-medium">{formatCurrency((parseFloat(item.pricePerItem) || 0) * (parseFloat(item.qty) || 0))}</span>
-                            </div>
-                            <div className="flex items-center justify-between">
-                              <span>Stok masuk: <span className="text-slate-300">{formatNumber(parseFloat(item.qty) * parseFloat(item.baseQty))} {item.baseUnit}</span></span>
-                              <span>HPP: <span className="text-amber-400/80 font-medium">Rp{formatNumber(Math.round((parseFloat(item.pricePerItem) || 0) / (parseFloat(item.baseQty) || 0)))}/{item.baseUnit}</span></span>
-                            </div>
+                        {/* Per-item mini summary */}
+                        {(parseFloat(item.qty) > 0 && parseFloat(item.pricePerItem) > 0) && (
+                          <div className="bg-white/[0.03] rounded-md px-2.5 py-1.5 text-[10px] text-slate-400 flex items-center justify-between gap-2 border border-white/[0.03]">
+                            <span>{item.qty} {item.unit || 'unit'} × {formatCurrency(parseFloat(item.pricePerItem))}</span>
+                            <span className="text-white font-semibold">{formatCurrency((parseFloat(item.pricePerItem) || 0) * (parseFloat(item.qty) || 0))}</span>
                           </div>
-                        ) : (parseFloat(item.qty) > 0 && parseFloat(item.pricePerItem) > 0) ? (
-                          <div className="text-[10px] text-slate-500 px-1">
-                            {item.qty} {item.unit || 'unit'} × {formatCurrency(parseFloat(item.pricePerItem))} = <span className="text-slate-300 font-medium">{formatCurrency((parseFloat(item.pricePerItem) || 0) * (parseFloat(item.qty) || 0))}</span>
-                          </div>
-                        ) : null}
+                        )}
+                        {estHpp != null && estHpp > 0 && item.baseUnit && (
+                          <p className="text-[10px] text-amber-400/70 px-0.5">
+                            Estimasi HPP: <span className="font-medium">{formatCurrency(estHpp)}/{item.baseUnit}</span>
+                          </p>
+                        )}
                       </div>
                     )}
                   </div>
-                ))}
+                  )
+                })}
 
                 <button
                   className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-lg border border-dashed border-white/[0.08] text-slate-500 hover:text-slate-300 hover:border-white/[0.15] transition-colors text-xs"
@@ -6181,7 +6500,8 @@ export default function PurchasePage() {
 
           {/* Footer */}
           <div className="pt-3 mt-auto border-t border-white/[0.06]">
-            <div className="bg-emerald-500/[0.06] rounded-lg p-3 border border-emerald-500/[0.1] mb-3">
+            <div className="rounded-xl p-3.5 border border-white/[0.06] bg-white/[0.02] mb-3 space-y-2.5">
+              {/* Total Pembelian */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5">
                   <Banknote className="h-3.5 w-3.5 text-emerald-400" />
@@ -6189,8 +6509,52 @@ export default function PurchasePage() {
                 </div>
                 <span className="text-lg font-bold text-emerald-400">{formatCurrency(poEditTotalCost)}</span>
               </div>
-              <p className="text-[9px] text-amber-500/60 mt-1">
-                ⚠ Stok item akan dikurangi lalu ditambah ulang sesuai perubahan
+
+              {/* Dampak ke Inventory */}
+              {poEditInventoryImpact.length > 0 && (
+                <div className="space-y-1 pt-1 border-t border-white/[0.04]">
+                  <div className="flex items-center gap-1.5 pt-1">
+                    <PackagePlus className="h-3 w-3 text-sky-400" />
+                    <span className="text-[10px] text-slate-500 font-medium uppercase tracking-wide">Dampak ke Inventory</span>
+                  </div>
+                  <div className="space-y-0.5 max-h-32 overflow-y-auto">
+                    {poEditInventoryImpact.map((imp, i) => (
+                      <div key={i} className="flex items-center justify-between text-[11px]">
+                        <span className="text-slate-300 truncate flex-1 min-w-0 pr-2">{imp.name}</span>
+                        <span className={cn('font-semibold shrink-0', imp.impact == null ? 'text-red-400' : 'text-emerald-400')}>
+                          {imp.impact == null ? 'konversi invalid' : `+${formatNumber(imp.impact)} ${imp.baseUnit}`}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Estimasi HPP */}
+              {poEditItems.filter(i => i.inventoryItemId).some(i => estimatedHpp(i) != null && (estimatedHpp(i) || 0) > 0) && (
+                <div className="space-y-1 pt-1 border-t border-white/[0.04]">
+                  <div className="flex items-center gap-1.5 pt-1">
+                    <Calculator className="h-3 w-3 text-amber-400" />
+                    <span className="text-[10px] text-slate-500 font-medium uppercase tracking-wide">Estimasi HPP</span>
+                  </div>
+                  <div className="space-y-0.5 max-h-24 overflow-y-auto">
+                    {poEditItems.filter(i => i.inventoryItemId).map((i, mapIdx) => {
+                      const hpp = estimatedHpp(i)
+                      if (hpp == null || hpp <= 0 || !i.baseUnit) return null
+                      return (
+                        <div key={mapIdx} className="flex items-center justify-between text-[11px]">
+                          <span className="text-slate-300 truncate flex-1 min-w-0 pr-2">{i.inventoryItemName}</span>
+                          <span className="text-amber-400/90 font-medium shrink-0">{formatCurrency(hpp)}/{i.baseUnit}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <p className="text-[9px] text-slate-600 pt-0.5">HPP final dihitung backend setelah simpan (weighted average untuk item existing).</p>
+                </div>
+              )}
+
+              <p className="text-[9px] text-amber-500/60 pt-1 border-t border-white/[0.04]">
+                Stok item akan dikurangi lalu ditambah ulang sesuai perubahan
               </p>
             </div>
             <div className="flex gap-2">
@@ -6203,7 +6567,7 @@ export default function PurchasePage() {
               </Button>
               <Button
                 className="flex-1 h-9 text-xs theme-bg theme-hover text-white"
-                disabled={poEditLoading || poEditItems.filter(i => i.inventoryItemId).length === 0}
+                disabled={poEditLoading || !poEditCanSubmit}
                 onClick={handlePoEditSubmit}
               >
                 {poEditLoading ? (
