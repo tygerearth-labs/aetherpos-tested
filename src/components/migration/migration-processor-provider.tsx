@@ -46,6 +46,12 @@ import {
 import { computeFileHash } from '@/lib/migration/file-hash'
 import { countProductsInFile } from '@/lib/migration/sheet-count'
 import {
+  normalizeIssueList,
+  safeStringOrNull,
+  safeOptionalNumber,
+  safeCount,
+} from '@/lib/migration/normalize-result'
+import {
   MigrationProcessorContext,
   type MigrationProcessorContextValue,
   type MigrationEntryMode,
@@ -120,19 +126,24 @@ export function MigrationProcessorProvider({ children }: { children: React.React
     })
   }, [])
 
-  /** Mark a job PARTIAL/FAILED after a batch failure, accumulating stats. */
+  /** Mark a job PARTIAL/FAILED after a batch failure, accumulating stats.
+   *  Defence in depth: `errMsg` and `batchErrors` are normalized again here
+   *  so legacy callers passing objects cannot re-introduce the crash. */
   const failJob = useCallback(
     async (
       jobId: string,
-      errMsg: string,
-      batchErrors: string[] = [],
+      errMsg: unknown,
+      batchErrors: unknown[] = [],
       batchStats?: { batchCreated?: number; batchSkipped?: number; batchFailed?: number },
     ) => {
       const j = await getJob(jobId)
       if (!j) return
-      const newCreated = j.createdCount + (batchStats?.batchCreated || 0)
-      const newSkipped = j.skippedCount + (batchStats?.batchSkipped || 0)
-      const newFailed = j.failedCount + (batchStats?.batchFailed || 0)
+      // Normalize error message and batch errors to safe strings.
+      const safeErrMsg = safeStringOrNull(errMsg) ?? 'Batch gagal diproses'
+      const safeBatchErrors = normalizeIssueList(batchErrors)
+      const newCreated = j.createdCount + safeCount(batchStats?.batchCreated)
+      const newSkipped = j.skippedCount + safeCount(batchStats?.batchSkipped)
+      const newFailed = j.failedCount + safeCount(batchStats?.batchFailed)
       // PARTIAL if at least one batch (or product) succeeded before; FAILED if
       // the very first batch failed with nothing created.
       const status: MigrationJob['status'] =
@@ -141,8 +152,8 @@ export function MigrationProcessorProvider({ children }: { children: React.React
         createdCount: newCreated,
         skippedCount: newSkipped,
         failedCount: newFailed,
-        errors: mergeJobErrors(j, batchErrors),
-        lastBatchError: errMsg,
+        errors: mergeJobErrors(j, safeBatchErrors),
+        lastBatchError: safeErrMsg,
         status,
         completedAt: Date.now(),
       })
@@ -212,6 +223,11 @@ export function MigrationProcessorProvider({ children }: { children: React.React
           formData.append('batchNumber', String(batch.batchNumber))
 
           // POST with non-JSON response safety.
+          // NOTE: `errors` and `warnings` from the API v2.3 contract are
+          // arrays of structured issue OBJECTS ({row, sheet, message, ...}),
+          // NOT strings. They are normalized at this adapter boundary via
+          // normalizeIssueList() BEFORE being persisted to Dexie, so the
+          // Dexie schema's `string[]` typing actually holds.
           let data: Record<string, unknown> & {
             error?: string
             status?: string
@@ -220,7 +236,11 @@ export function MigrationProcessorProvider({ children }: { children: React.React
             batchFailed?: number
             batchDurationMs?: number
             batchError?: string | null
-            errors?: string[]
+            // API v2.3: object array. Normalized to string[] below.
+            errors?: unknown[]
+            // Backward-compat string array (rarely populated by the API).
+            errorsText?: unknown[]
+            warnings?: unknown[]
             isLastBatch?: boolean
             totalBatches?: number
             totalProducts?: number
@@ -269,24 +289,42 @@ export function MigrationProcessorProvider({ children }: { children: React.React
             }
           }
 
-          const batchErrors: string[] = data.errors || []
+          // ADAPTER BOUNDARY: normalize structured issue objects → strings.
+          // The API may return `errors` as an array of objects
+          // ({row, sheet, message, ...}); persisting them raw would break the
+          // Dexie schema's `string[]` typing AND crash the result dialog when
+          // rendered as React children. Prefer the API's `errorsText` only as
+          // a fallback when normalization yields nothing (defensive).
+          let batchErrors: string[] = normalizeIssueList(data.errors)
+          if (batchErrors.length === 0 && Array.isArray(data.errorsText)) {
+            // Backward-compat: API also exposes `errorsText` (already strings).
+            // Only use it if `errors` normalization produced nothing — this
+            // preserves the structured `errors` shape (with row/sheet context)
+            // whenever the API actually sent one.
+            const fallback = normalizeIssueList(data.errorsText)
+            if (fallback.length > 0) {
+              batchErrors = fallback
+            }
+          }
+
+          // Safe string for the batch error message (legacy data may be object).
+          const batchErrMsg = safeStringOrNull(data.error) ?? safeStringOrNull(data.batchError) ?? 'Batch gagal diproses'
 
           // ── Failure ──
           if (!data || data.error || data.status === 'BATCH_FAILED') {
-            const errMsg = data.error || data.batchError || 'Batch gagal diproses'
             await updateBatch(batch.id, {
               status: 'FAILED',
-              created: data.batchCreated || 0,
-              skipped: data.batchSkipped || 0,
-              failed: data.batchFailed || 0,
+              created: safeCount(data.batchCreated),
+              skipped: safeCount(data.batchSkipped),
+              failed: safeCount(data.batchFailed),
               durationMs,
-              error: errMsg,
+              error: batchErrMsg,
               errors: batchErrors,
             })
-            await failJob(jobId, errMsg, batchErrors, {
-              batchCreated: data.batchCreated || 0,
-              batchSkipped: data.batchSkipped || 0,
-              batchFailed: data.batchFailed || 0,
+            await failJob(jobId, batchErrMsg, batchErrors, {
+              batchCreated: safeCount(data.batchCreated),
+              batchSkipped: safeCount(data.batchSkipped),
+              batchFailed: safeCount(data.batchFailed),
             })
             break // stop subsequent batches
           }
@@ -294,24 +332,27 @@ export function MigrationProcessorProvider({ children }: { children: React.React
           // ── Success ──
           await updateBatch(batch.id, {
             status: 'COMPLETED',
-            created: data.batchCreated || 0,
-            skipped: data.batchSkipped || 0,
-            failed: data.batchFailed || 0,
+            created: safeCount(data.batchCreated),
+            skipped: safeCount(data.batchSkipped),
+            failed: safeCount(data.batchFailed),
             durationMs,
             error: null,
             errors: batchErrors,
           })
 
           const j = await db.jobs.get(jobId)
-          const newCreated = (j?.createdCount || 0) + (data.batchCreated || 0)
-          const newSkipped = (j?.skippedCount || 0) + (data.batchSkipped || 0)
-          const newFailed = (j?.failedCount || 0) + (data.batchFailed || 0)
-          const newBarcode = (j?.barcodeCount || 0) + (data.barcodeCount || 0)
+          const newCreated = (j?.createdCount || 0) + safeCount(data.batchCreated)
+          const newSkipped = (j?.skippedCount || 0) + safeCount(data.batchSkipped)
+          const newFailed = (j?.failedCount || 0) + safeCount(data.batchFailed)
+          const newBarcode = (j?.barcodeCount || 0) + safeCount(data.barcodeCount)
           const mergedErrors = j ? mergeJobErrors(j, batchErrors) : batchErrors
 
           if (data.isLastBatch) {
             const finalStatus =
               newFailed > 0 || mergedErrors.length > 0 ? 'COMPLETED_WITH_ERRORS' : 'COMPLETED'
+            // ADAPTER BOUNDARY: normalize `warnings` (also an object array per
+            // API v2.3) before persisting to Dexie.
+            const normalizedWarnings = normalizeIssueList(data.warnings)
             await updateJob(jobId, {
               createdCount: newCreated,
               skippedCount: newSkipped,
@@ -320,16 +361,16 @@ export function MigrationProcessorProvider({ children }: { children: React.React
               barcodeCount: newBarcode,
               status: finalStatus,
               completedAt: Date.now(),
-              variantsCreated: data.variantsCreated as number | undefined,
-              inventoryItemsCreated: data.inventoryItemsCreated as number | undefined,
-              inventoryItemsSkipped: data.inventoryItemsSkipped as number | undefined,
-              inventoryItemsUpdated: data.inventoryItemsUpdated as number | undefined,
-              migrationDataCleaned: data.migrationDataCleaned as number | undefined,
-              compositionsCreated: data.compositionsCreated as number | undefined,
-              totalStock: data.totalStock as number | undefined,
-              totalModalValue: data.totalModalValue as number | undefined,
-              totalCategories: data.totalCategories as number | undefined,
-              warnings: data.warnings as string[] | undefined,
+              variantsCreated: safeOptionalNumber(data.variantsCreated),
+              inventoryItemsCreated: safeOptionalNumber(data.inventoryItemsCreated),
+              inventoryItemsSkipped: safeOptionalNumber(data.inventoryItemsSkipped),
+              inventoryItemsUpdated: safeOptionalNumber(data.inventoryItemsUpdated),
+              migrationDataCleaned: safeOptionalNumber(data.migrationDataCleaned),
+              compositionsCreated: safeOptionalNumber(data.compositionsCreated),
+              totalStock: safeOptionalNumber(data.totalStock),
+              totalModalValue: safeOptionalNumber(data.totalModalValue),
+              totalCategories: safeOptionalNumber(data.totalCategories),
+              warnings: normalizedWarnings,
             })
             // Refresh dashboard product counts.
             queryClient.invalidateQueries({ queryKey: ['dashboard'] })

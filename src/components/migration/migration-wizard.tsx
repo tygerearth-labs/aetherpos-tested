@@ -38,6 +38,16 @@ import type { ImportMode, ImportResult, MigrationStatus } from './migration-bann
 import { ImportModeDialog } from './import-mode-dialog'
 import { useMigrationProcessor } from './migration-context'
 import type { MigrationJob, MigrationBatch } from '@/lib/migration/dexie-db'
+// MIG-RESULT-SAFE: canonical view model + normalization helpers. Used at the
+// renderer boundary so legacy Dexie records (object-typed errors/warnings)
+// cannot crash the result dialog.
+import {
+  normalizeIssueList,
+  normalizeMigrationIssue,
+  safeStringOrNull,
+  safeCount,
+  safeOptionalNumber,
+} from '@/lib/migration/normalize-result'
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -50,41 +60,57 @@ function formatDuration(ms: number): string {
 
 type WizardStep = 'mode_selection' | 'upload' | 'processing' | 'success'
 
-/** Map a Dexie job + batches into the ImportResult shape the success screen expects. */
+/**
+ * Map a Dexie job + batches into the ImportResult shape the success screen expects.
+ *
+ * MIG-RESULT-SAFE: every field is normalized to a safe primitive here so that
+ * legacy / corrupted Dexie records (where `errors[]`/`warnings[]` may have
+ * been persisted as structured objects before the adapter-boundary fix)
+ * cannot crash the result dialog when rendered as React children.
+ *
+ * Defence in depth: the provider already normalizes at the adapter boundary,
+ * but this renderer-side normalization is the last line of defence against
+ * any pre-existing data in IndexedDB.
+ */
 function buildImportResult(job: MigrationJob, batches: MigrationBatch[]): ImportResult {
   const completedBatches = batches.filter((b) => b.status === 'COMPLETED').length
   const firstNonCompleted = batches.find((b) => b.status !== 'COMPLETED')
   const startBatch = firstNonCompleted ? firstNonCompleted.batchNumber : job.totalBatches
-  const processed = job.createdCount + job.skippedCount + job.failedCount
+  const createdCount = safeCount(job.createdCount)
+  const skippedCount = safeCount(job.skippedCount)
+  const failedCount = safeCount(job.failedCount)
+  const processed = createdCount + skippedCount + failedCount
   const status: MigrationStatus =
     job.status === 'DISMISSED'
       ? 'COMPLETED'
       : (job.status as MigrationStatus)
   return {
-    productsCreated: job.createdCount,
-    variantsCreated: job.variantsCreated ?? 0,
-    productsSkipped: job.skippedCount,
-    totalCategories: job.totalCategories ?? 0,
-    barcodeCount: job.barcodeCount ?? 0,
-    mode: job.mode as ImportMode,
-    errors: job.errors ?? [],
-    warnings: job.warnings ?? [],
-    inventoryItemsCreated: job.inventoryItemsCreated,
-    inventoryItemsSkipped: job.inventoryItemsSkipped,
-    inventoryItemsUpdated: job.inventoryItemsUpdated,
-    migrationDataCleaned: job.migrationDataCleaned,
-    compositionsCreated: job.compositionsCreated,
-    totalStock: job.totalStock,
-    totalModalValue: job.totalModalValue,
+    productsCreated: createdCount,
+    variantsCreated: safeCount(job.variantsCreated),
+    productsSkipped: skippedCount,
+    totalCategories: safeCount(job.totalCategories),
+    barcodeCount: safeCount(job.barcodeCount),
+    mode: (typeof job.mode === 'string' ? job.mode : 'product_only') as ImportMode,
+    // RENDERER GUARD: normalize any legacy object-typed entries to strings.
+    errors: normalizeIssueList(job.errors),
+    warnings: normalizeIssueList(job.warnings),
+    inventoryItemsCreated: safeOptionalNumber(job.inventoryItemsCreated),
+    inventoryItemsSkipped: safeOptionalNumber(job.inventoryItemsSkipped),
+    inventoryItemsUpdated: safeOptionalNumber(job.inventoryItemsUpdated),
+    migrationDataCleaned: safeOptionalNumber(job.migrationDataCleaned),
+    compositionsCreated: safeOptionalNumber(job.compositionsCreated),
+    totalStock: safeOptionalNumber(job.totalStock),
+    totalModalValue: safeOptionalNumber(job.totalModalValue),
     status,
-    totalProducts: job.totalProducts,
-    totalBatches: job.totalBatches,
+    totalProducts: safeCount(job.totalProducts),
+    totalBatches: safeCount(job.totalBatches),
     completedBatches,
-    currentBatch: job.currentBatch,
-    failedRows: job.failedCount,
-    remainingProducts: Math.max(0, job.totalProducts - processed),
+    currentBatch: safeCount(job.currentBatch),
+    failedRows: failedCount,
+    remainingProducts: Math.max(0, safeCount(job.totalProducts) - processed),
     startBatch,
-    batchError: job.lastBatchError,
+    // batchError is typed as string | null but legacy data may be an object.
+    batchError: safeStringOrNull(job.lastBatchError),
   }
 }
 
@@ -208,9 +234,12 @@ export function MigrationWizard() {
     wizardStep === 'success' && openJob ? buildImportResult(openJob, openBatches) : null
 
   const totalItems = (result?.productsCreated ?? 0) + (result?.variantsCreated ?? 0)
-  const hasErrors = !!(result && result.errors.length > 0)
+  // MIG-RESULT-SAFE: guards against undefined / non-array (defence in depth).
+  const safeErrors = Array.isArray(result?.errors) ? result.errors : []
+  const safeWarnings = Array.isArray(result?.warnings) ? result.warnings : []
+  const hasErrors = safeErrors.length > 0
   const hasSkipped = !!(result && result.productsSkipped > 0)
-  const hasWarnings = !!(result && result.warnings && result.warnings.length > 0)
+  const hasWarnings = safeWarnings.length > 0
   const hasRemigration = !!(result && ((result.inventoryItemsUpdated ?? 0) > 0 || (result.migrationDataCleaned ?? 0) > 0))
 
   const migrationStatus = result?.status || 'COMPLETED'
@@ -220,10 +249,21 @@ export function MigrationWizard() {
   const showSuccessHeader = !isPartial && !isFailed
 
   // ── Download errors ──
+  // MIG-RESULT-SAFE: errors are already normalized strings by buildImportResult,
+  // but we re-normalize each entry here as a final guard so the .txt download
+  // never contains "[object Object]".
   const handleDownloadErrors = useCallback(() => {
-    if (!result || result.errors.length === 0) return
-    const lines = result.errors.map((e, i) => `${i + 1}. ${e}`).join('\n')
-    const header = `Daftar Error Migrasi\n${'='.repeat(50)}\nMode: ${mode}\nTotal error: ${result.errors.length}\n${'='.repeat(50)}\n\n`
+    if (!result) return
+    const rawErrors = Array.isArray(result.errors) ? result.errors : []
+    if (rawErrors.length === 0) return
+    const lines = rawErrors
+      .map((e) => normalizeMigrationIssue(e))
+      .filter((s) => s.length > 0)
+      .map((s, i) => `${i + 1}. ${s}`)
+      .join('\n')
+    if (!lines) return
+    const modeStr = typeof mode === 'string' ? mode : 'unknown'
+    const header = `Daftar Error Migrasi\n${'='.repeat(50)}\nMode: ${modeStr}\nTotal error: ${rawErrors.length}\n${'='.repeat(50)}\n\n`
     const blob = new Blob([header + lines], { type: 'text/plain;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -697,7 +737,11 @@ export function MigrationWizard() {
                   {isPartial && result.batchError && (
                     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }} className="rounded-xl bg-amber-500/[0.06] border border-amber-500/15 p-3 space-y-2">
                       <div className="flex items-center gap-2"><AlertTriangle className="h-3.5 w-3.5 text-amber-400" /><span className="text-xs font-semibold text-amber-300">Batch Gagal</span></div>
-                      <p className="text-[11px] text-slate-300 leading-relaxed break-all">{result.batchError}</p>
+                      {/* MIG-RESULT-SAFE: batchError is normalized by buildImportResult
+                          via safeStringOrNull(); the normalizeMigrationIssue()
+                          call here is a final typeof guard so we NEVER render
+                          an object as a React child. */}
+                      <p className="text-[11px] text-slate-300 leading-relaxed break-all">{normalizeMigrationIssue(result.batchError)}</p>
                       <div className="flex items-center gap-4 pt-1 text-[10px] text-slate-400">
                         <span>Batch dibuat: <strong className="text-emerald-300">{formatNumber(result.productsCreated || 0)}</strong></span>
                         <span>Sisa: <strong className="text-amber-300">{formatNumber(result.remainingProducts || 0)}</strong></span>
@@ -755,9 +799,18 @@ export function MigrationWizard() {
                   {/* Warnings */}
                   {hasWarnings && (
                     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.65 }} className="rounded-xl bg-blue-500/[0.06] border border-blue-500/15 p-3 space-y-2.5">
-                      <div className="flex items-center gap-2"><Info className="h-3.5 w-3.5 text-blue-400" /><span className="text-xs font-semibold text-blue-300">{result.warnings!.length} Info Migrasi</span></div>
+                      <div className="flex items-center gap-2"><Info className="h-3.5 w-3.5 text-blue-400" /><span className="text-xs font-semibold text-blue-300">{(result.warnings || []).length} Info Migrasi</span></div>
                       <div className="max-h-24 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
-                        {result.warnings!.map((warn, i) => (<p key={i} className="text-[11px] text-slate-400 leading-relaxed pl-5.5 relative before:content-['·'] before:absolute before:left-1.5 before:text-blue-500/60 before:font-bold">{warn}</p>))}
+                        {/* MIG-RESULT-SAFE: warnings are normalized strings by
+                            buildImportResult; normalizeMigrationIssue() here is
+                            a final guard against any legacy object value. */}
+                        {(result.warnings || []).map((warn, i) => {
+                          const text = normalizeMigrationIssue(warn)
+                          if (!text) return null
+                          return (
+                            <p key={i} className="text-[11px] text-slate-400 leading-relaxed pl-5.5 relative before:content-['·'] before:absolute before:left-1.5 before:text-blue-500/60 before:font-bold">{text}</p>
+                          )
+                        })}
                       </div>
                     </motion.div>
                   )}
@@ -766,11 +819,21 @@ export function MigrationWizard() {
                   {hasErrors && (
                     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.65 }} className="rounded-xl bg-amber-500/[0.06] border border-amber-500/15 p-3 space-y-2.5">
                       <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2"><CircleAlert className="h-3.5 w-3.5 text-amber-400" /><span className="text-xs font-semibold text-amber-300">{result.errors.length} baris bermasalah</span></div>
+                        <div className="flex items-center gap-2"><CircleAlert className="h-3.5 w-3.5 text-amber-400" /><span className="text-xs font-semibold text-amber-300">{(result.errors || []).length} baris bermasalah</span></div>
                         <button onClick={handleDownloadErrors} className="text-[10px] text-amber-300 hover:text-amber-200 transition-colors flex items-center gap-1"><Download className="h-3 w-3" />Unduh</button>
                       </div>
                       <div className="max-h-32 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
-                        {result.errors.map((err, i) => (<p key={i} className="text-[11px] text-slate-400 leading-relaxed pl-5.5 relative before:content-['·'] before:absolute before:left-1.5 before:text-amber-500/60 before:font-bold">{err}</p>))}
+                        {/* MIG-RESULT-SAFE: errors are normalized strings by
+                            buildImportResult; normalizeMigrationIssue() here is
+                            a final guard against any legacy object value.
+                            Empty strings are skipped to avoid empty bullets. */}
+                        {(result.errors || []).map((err, i) => {
+                          const text = normalizeMigrationIssue(err)
+                          if (!text) return null
+                          return (
+                            <p key={i} className="text-[11px] text-slate-400 leading-relaxed pl-5.5 relative before:content-['·'] before:absolute before:left-1.5 before:text-amber-500/60 before:font-bold">{text}</p>
+                          )
+                        })}
                       </div>
                     </motion.div>
                   )}
