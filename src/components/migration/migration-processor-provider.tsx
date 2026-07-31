@@ -48,6 +48,7 @@ import { countProductsInFile } from '@/lib/migration/sheet-count'
 import {
   MigrationProcessorContext,
   type MigrationProcessorContextValue,
+  type MigrationEntryMode,
 } from './migration-context'
 import type { ImportMode } from '@/components/migration/migration-banner'
 
@@ -60,6 +61,10 @@ export function MigrationProcessorProvider({ children }: { children: React.React
 
   const [modalState, setModalState] = useState<ModalState>({ type: 'closed' })
   const [dbReady, setDbReady] = useState(false)
+  // MIG-PARTIAL: entry mode controls the mode-selection header copy only.
+  // INITIAL = first-time onboarding (0 products); PARTIAL = gradual migration
+  // while the outlet is already operating. Both share the same processing flow.
+  const [entryMode, setEntryMode] = useState<MigrationEntryMode>('INITIAL')
 
   // Live: all jobs (newest first).
   const jobs = useLiveQuery(
@@ -374,7 +379,8 @@ export function MigrationProcessorProvider({ children }: { children: React.React
 
   // ── Public actions ──────────────────────────────────────────────────────
 
-  const openWizard = useCallback(() => {
+  const openWizard = useCallback((mode: MigrationEntryMode = 'INITIAL') => {
+    setEntryMode(mode)
     setModalState({ type: 'mode_selection' })
   }, [])
 
@@ -493,6 +499,7 @@ export function MigrationProcessorProvider({ children }: { children: React.React
     openJob,
     openBatches,
     dbReady,
+    entryMode,
     openWizard,
     selectMode,
     backToModeSelection,

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
 import { usePlan } from '@/hooks/use-plan'
 import { usePageStore } from '@/hooks/use-page-store'
@@ -8,7 +8,7 @@ import { useDashboard, useInsights, useForecast } from '@/hooks/use-dashboard'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { Sparkles, Crown } from 'lucide-react'
 import { HealthRing } from '@/components/dashboard/dashboard-charts'
 import { StatCards } from '@/components/dashboard/stat-cards'
@@ -17,6 +17,12 @@ import { AnalyticsTabs } from '@/components/dashboard/analytics-tabs'
 import { SalesProductsCard, InsightsSection, InventoryAlertsSection, ScoreExplanationDialog, InventoryFreshnessWidget, ExpiryHeatmapWidget, ExpiryAlertBanner } from '@/components/dashboard/dashboard-sections'
 import { EnterpriseBubbleChart, PendingTransfersSection, InventoryPredictionSection } from '@/components/dashboard/enterprise-sections'
 import { MigrationBanner } from '@/components/migration/migration-banner'
+import { PartialMigrationCard } from '@/components/migration/partial-migration-card'
+
+// MIG-PARTIAL: localStorage flag for dismissing the State 2 partial card.
+// Deliberately NOT `migrationCompleted` — dismissing only hides the dashboard
+// card; the Migration Wizard stays permanently reachable from Products → Import & Migration.
+const PARTIAL_MIGRATION_DISMISSED_KEY = 'partialMigrationCardDismissed'
 
 // ── Animation variants ──
 const containerVariants = {
@@ -83,7 +89,30 @@ export default function DashboardPage() {
   // IMPORTANT: Always render <MigrationBanner /> so its internal dialog state
   // survives dashboard refetches (refetchInterval / refetchOnWindowFocus).
   // The component itself decides when to show the banner card vs dialogs.
-  const showMigrationBanner = isOwner && (stats?.totalProducts ?? 0) === 0
+  const productCount = stats?.totalProducts ?? 0
+  const showMigrationBanner = isOwner && productCount === 0
+
+  // MIG-PARTIAL — State 2: when the outlet already operates in Aether
+  // (productCount > 0) it may still have remaining data in an old POS. Show a
+  // compact partial-migration card (lower emphasis than State 1). Dismiss is
+  // local-only via `partialMigrationCardDismissed`; the wizard stays
+  // permanently accessible from Products → Import & Migration.
+  const [partialMigrationDismissed, setPartialMigrationDismissed] = useState(false)
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPartialMigrationDismissed(
+      typeof window !== 'undefined' &&
+        window.localStorage.getItem(PARTIAL_MIGRATION_DISMISSED_KEY) === '1',
+    )
+  }, [])
+  const dismissPartialMigrationCard = useCallback(() => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(PARTIAL_MIGRATION_DISMISSED_KEY, '1')
+    }
+    setPartialMigrationDismissed(true)
+  }, [])
+  const showPartialMigrationCard =
+    isOwner && productCount > 0 && !partialMigrationDismissed
 
   // ── Loading Skeleton ──
   if (isLoading || !stats) {
@@ -136,6 +165,16 @@ export default function DashboardPage() {
       <motion.div variants={itemVariants}>
         <MigrationBanner showBanner={showMigrationBanner} />
       </motion.div>
+
+      {/* MIG-PARTIAL — State 2: Partial Migration Card (productCount > 0).
+          Opens the exact same Migration Wizard with entryMode=PARTIAL.
+          Dismiss only hides this card; the wizard stays reachable from
+          Products → Import & Migration. */}
+      <AnimatePresence>
+        {showPartialMigrationCard && (
+          <PartialMigrationCard onDismiss={dismissPartialMigrationCard} />
+        )}
+      </AnimatePresence>
 
       {/* Upgrade Banner (FREE only) */}
       {!planLoading && plan?.type === 'free' && (

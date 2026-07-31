@@ -92,7 +92,16 @@ function buildImportResult(job: MigrationJob, batches: MigrationBatch[]): Import
 
 export function MigrationWizard() {
   const ctx = useMigrationProcessor()
-  const { modalState, openJob, openBatches, closeModal, retryJob, removeJob, startJob, checkDuplicate } = ctx
+  const { modalState, openJob, openBatches, closeModal, retryJob, removeJob, startJob, checkDuplicate, entryMode } = ctx
+
+  // MIG-PARTIAL: contextual header copy for the mode-selection step.
+  // INITIAL → first-time onboarding copy (unchanged).
+  // PARTIAL → gradual-migration copy emphasising the duplicate preview check.
+  const isPartialEntry = entryMode === 'PARTIAL'
+  const modeSelectionHeader = isPartialEntry ? 'Migrasi Data Lanjutan' : 'Pilih Mode Import'
+  const modeSelectionHelper = isPartialEntry
+    ? 'Tambahkan data yang belum dipindahkan dari POS lama. Periksa preview agar produk existing tidak terduplikasi.'
+    : 'Pilih sesuai kebutuhan bisnis Anda.'
 
   // Determine step from modal state + job status.
   let wizardStep: WizardStep = 'mode_selection'
@@ -305,8 +314,8 @@ export function MigrationWizard() {
                   transition={{ duration: 0.25 }}
                 >
                   <div className="text-center space-y-1 mb-4">
-                    <h3 className="text-sm font-bold text-white">Pilih Mode Import</h3>
-                    <p className="text-xs text-slate-400">Pilih sesuai kebutuhan bisnis Anda.</p>
+                    <h3 className="text-sm font-bold text-white">{modeSelectionHeader}</h3>
+                    <p className="text-xs text-slate-400">{modeSelectionHelper}</p>
                   </div>
                   <ImportModeDialog
                     selected={mode}

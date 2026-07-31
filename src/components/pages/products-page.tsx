@@ -109,10 +109,12 @@ import {
   Boxes,
   HelpCircle,
   Lightbulb,
+  FolderInput,
 } from 'lucide-react'
 // Collapsible removed — analytics section removed in redesign
 import { ProGate } from '@/components/shared/pro-gate'
 import { useBulkWorker } from '@/components/bulk-engine/bulk-worker-context'
+import { useMigrationProcessor } from '@/components/migration/migration-context'
 
 import ProductFormDialog from './product-form-dialog'
 import dynamic from 'next/dynamic'
@@ -468,6 +470,11 @@ export default function ProductsPage() {
   const { plan } = usePlan()
   const isPro = plan?.type === 'pro' || plan?.type === 'enterprise'
   const { openDialog: openBulkDialog } = useBulkWorker()
+  // MIG-PARTIAL: permanent entry point to the Migration Wizard from the
+  // Products page. Keeps the wizard reachable after the dashboard partial
+  // card is dismissed. Opens with entryMode=PARTIAL so the wizard shows the
+  // "Migrasi Data Lanjutan" header + duplicate-preview helper copy.
+  const { openWizard: openMigrationWizard } = useMigrationProcessor()
 
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
@@ -1493,6 +1500,19 @@ export default function ProductsPage() {
               <div className="px-2.5 py-1.5 mb-0.5">
                 <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Aksi Excel</p>
               </div>
+              {/* MIG-PARTIAL: permanent Migration Wizard entry — Import & Migration.
+                  Always reachable here even after the dashboard partial card is dismissed. */}
+              <DropdownMenuItem
+                onClick={() => openMigrationWizard('PARTIAL')}
+                className="flex items-center gap-3 px-2.5 py-2.5 text-xs text-slate-300 hover:bg-white/[0.05] hover:text-white rounded-lg cursor-pointer focus:bg-white/[0.05] focus:text-white group"
+              >
+                <FolderInput className="h-4 w-4 text-slate-500 group-hover:text-sky-400 transition-colors" />
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium">Import &amp; Migration</p>
+                  <p className="text-[10px] text-slate-500 group-hover:text-slate-400 transition-colors">Migrasi bertahap dari POS lama (Wizard)</p>
+                </div>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator className="bg-white/[0.06] my-1" />
               <DropdownMenuItem
                 onClick={handleExportExcel}
                 disabled={exporting}
