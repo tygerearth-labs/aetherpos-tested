@@ -109,12 +109,10 @@ import {
   Boxes,
   HelpCircle,
   Lightbulb,
-  PackagePlus,
 } from 'lucide-react'
 // Collapsible removed — analytics section removed in redesign
 import { ProGate } from '@/components/shared/pro-gate'
 import { useBulkWorker } from '@/components/bulk-engine/bulk-worker-context'
-import { useMigrationProcessor } from '@/components/migration/migration-context'
 
 import ProductFormDialog from './product-form-dialog'
 import dynamic from 'next/dynamic'
@@ -470,7 +468,6 @@ export default function ProductsPage() {
   const { plan } = usePlan()
   const isPro = plan?.type === 'pro' || plan?.type === 'enterprise'
   const { openDialog: openBulkDialog } = useBulkWorker()
-  const { openWizard: openMigrationWizard } = useMigrationProcessor()
 
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
@@ -1529,21 +1526,6 @@ export default function ProductsPage() {
                   <p className="text-[10px] text-slate-500 group-hover:text-slate-400 transition-colors">Bulk Engine V2 — update produk yang sudah ada</p>
                 </div>
               </DropdownMenuItem>
-              {isOwner && (
-                <>
-                  <DropdownMenuSeparator className="bg-white/[0.06] my-1" />
-                  <DropdownMenuItem
-                    onClick={openMigrationWizard}
-                    className="flex items-center gap-3 px-2.5 py-2.5 text-xs text-slate-300 hover:bg-white/[0.05] hover:text-white rounded-lg cursor-pointer focus:bg-white/[0.05] focus:text-white group"
-                  >
-                    <PackagePlus className="h-4 w-4 text-slate-500 group-hover:text-emerald-400 transition-colors" />
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium">Migrasi dari POS Lama</p>
-                      <p className="text-[10px] text-slate-500 group-hover:text-slate-400 transition-colors">Impor bertahap dari Excel — validasi & deteksi duplikasi</p>
-                    </div>
-                  </DropdownMenuItem>
-                </>
-              )}
             </DropdownMenuContent>
           </DropdownMenu>
           <Button onClick={handleAdd} className="theme-bg theme-hover text-white h-9 text-xs font-medium shadow-lg theme-shadow shrink-0">

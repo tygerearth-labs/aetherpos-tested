@@ -35,21 +35,6 @@ export type JobStatus =
 
 export type BatchStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED'
 
-/**
- * A single per-row issue returned by the migration import API.
- *
- * The /api/migration/import route returns errors[] and warnings[] as arrays of
- * these objects (v2.3 contract). Dexie persists them verbatim — the type below
- * matches what the API actually sends (NOT plain strings).
- */
-export interface MigrationIssueRow {
-  row?: number
-  sheet?: string
-  entity?: string
-  identifier?: string
-  message: string
-}
-
 export interface MigrationJob {
   id: string
   fileHash: string
@@ -63,7 +48,7 @@ export interface MigrationJob {
   createdCount: number
   skippedCount: number
   failedCount: number
-  errors: MigrationIssueRow[] // capped per-row errors (first 500)
+  errors: string[] // capped per-row errors (first 500)
   lastBatchError: string | null
   barcodeCount: number
   createdAt: number
@@ -81,7 +66,7 @@ export interface MigrationJob {
   totalStock?: number
   totalModalValue?: number
   totalCategories?: number
-  warnings?: MigrationIssueRow[]
+  warnings?: string[]
 }
 
 export interface MigrationBatch {
@@ -94,7 +79,7 @@ export interface MigrationBatch {
   failed: number
   durationMs: number
   error: string | null
-  errors: MigrationIssueRow[]
+  errors: string[]
   processedAt: number | null
 }
 
@@ -150,7 +135,7 @@ function newId(): string {
   return `mig-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
-function mergeErrors(existing: MigrationIssueRow[], incoming: MigrationIssueRow[]): MigrationIssueRow[] {
+function mergeErrors(existing: string[], incoming: string[]): string[] {
   const merged = [...existing, ...incoming]
   return merged.length > MAX_STORED_ERRORS ? merged.slice(0, MAX_STORED_ERRORS) : merged
 }
@@ -345,6 +330,6 @@ export async function deleteJob(jobId: string): Promise<void> {
 
 // ── Stats helper (exported for the provider) ───────────────────────────────
 
-export function mergeJobErrors(job: MigrationJob, incoming: MigrationIssueRow[]): MigrationIssueRow[] {
+export function mergeJobErrors(job: MigrationJob, incoming: string[]): string[] {
   return mergeErrors(job.errors || [], incoming)
 }

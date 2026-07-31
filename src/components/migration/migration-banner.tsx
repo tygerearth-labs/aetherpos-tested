@@ -4,35 +4,12 @@ import { motion } from 'framer-motion'
 import { PackagePlus, Sparkles, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useMigrationProcessor } from './migration-context'
-import type { MigrationIssueRow } from '@/lib/migration/dexie-db'
-
-// Re-export so existing imports from './migration-banner' keep working.
-export type { MigrationIssueRow }
 
 // ── Type exports (consumed by wizard, context, provider, import-mode-dialog) ──
 export type ImportMode = 'product_only' | 'product_stock' | 'product_inventory'
 export type WizardState = 'idle' | 'choosing_mode' | 'uploading' | 'processing' | 'success'
 
 export type MigrationStatus = 'COMPLETED' | 'COMPLETED_WITH_ERRORS' | 'PARTIAL' | 'FAILED'
-
-/**
- * Format a migration issue (object or legacy string) into a single display line.
- * Mirrors the API's `errorsText` shape: "Baris {row}: {message}" (with optional
- * sheet tag for the variant sheet). Falls back to the raw message / string.
- *
- * Accepts `string` too for defense against any old Dexie-persisted job that may
- * predate the v2.3 object contract.
- */
-export function formatMigrationIssue(issue: MigrationIssueRow | string): string {
-  if (typeof issue === 'string') return issue
-  const msg = issue.message ?? ''
-  if (issue.row != null) {
-    return issue.sheet
-      ? `Baris ${issue.row} [${issue.sheet}]: ${msg}`
-      : `Baris ${issue.row}: ${msg}`
-  }
-  return msg
-}
 
 export interface ImportResult {
   productsCreated: number
@@ -41,8 +18,8 @@ export interface ImportResult {
   totalCategories: number
   barcodeCount: number
   mode: ImportMode
-  errors: MigrationIssueRow[]
-  warnings?: MigrationIssueRow[]
+  errors: string[]
+  warnings?: string[]
   inventoryItemsCreated?: number
   inventoryItemsSkipped?: number
   inventoryItemsUpdated?: number

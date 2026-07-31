@@ -35,7 +35,6 @@ import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import { formatCurrency, formatNumber } from '@/lib/format'
 import type { ImportMode, ImportResult, MigrationStatus } from './migration-banner'
-import { formatMigrationIssue } from './migration-banner'
 import { ImportModeDialog } from './import-mode-dialog'
 import { useMigrationProcessor } from './migration-context'
 import type { MigrationJob, MigrationBatch } from '@/lib/migration/dexie-db'
@@ -214,7 +213,7 @@ export function MigrationWizard() {
   // ── Download errors ──
   const handleDownloadErrors = useCallback(() => {
     if (!result || result.errors.length === 0) return
-    const lines = result.errors.map((e, i) => `${i + 1}. ${formatMigrationIssue(e)}`).join('\n')
+    const lines = result.errors.map((e, i) => `${i + 1}. ${e}`).join('\n')
     const header = `Daftar Error Migrasi\n${'='.repeat(50)}\nMode: ${mode}\nTotal error: ${result.errors.length}\n${'='.repeat(50)}\n\n`
     const blob = new Blob([header + lines], { type: 'text/plain;charset=utf-8' })
     const url = URL.createObjectURL(blob)
@@ -749,7 +748,7 @@ export function MigrationWizard() {
                     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.65 }} className="rounded-xl bg-blue-500/[0.06] border border-blue-500/15 p-3 space-y-2.5">
                       <div className="flex items-center gap-2"><Info className="h-3.5 w-3.5 text-blue-400" /><span className="text-xs font-semibold text-blue-300">{result.warnings!.length} Info Migrasi</span></div>
                       <div className="max-h-24 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
-                        {result.warnings!.map((warn, i) => (<p key={i} className="text-[11px] text-slate-400 leading-relaxed pl-5.5 relative before:content-['·'] before:absolute before:left-1.5 before:text-blue-500/60 before:font-bold">{formatMigrationIssue(warn)}</p>))}
+                        {result.warnings!.map((warn, i) => (<p key={i} className="text-[11px] text-slate-400 leading-relaxed pl-5.5 relative before:content-['·'] before:absolute before:left-1.5 before:text-blue-500/60 before:font-bold">{warn}</p>))}
                       </div>
                     </motion.div>
                   )}
@@ -762,7 +761,7 @@ export function MigrationWizard() {
                         <button onClick={handleDownloadErrors} className="text-[10px] text-amber-300 hover:text-amber-200 transition-colors flex items-center gap-1"><Download className="h-3 w-3" />Unduh</button>
                       </div>
                       <div className="max-h-32 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
-                        {result.errors.map((err, i) => (<p key={i} className="text-[11px] text-slate-400 leading-relaxed pl-5.5 relative before:content-['·'] before:absolute before:left-1.5 before:text-amber-500/60 before:font-bold">{formatMigrationIssue(err)}</p>))}
+                        {result.errors.map((err, i) => (<p key={i} className="text-[11px] text-slate-400 leading-relaxed pl-5.5 relative before:content-['·'] before:absolute before:left-1.5 before:text-amber-500/60 before:font-bold">{err}</p>))}
                       </div>
                     </motion.div>
                   )}
