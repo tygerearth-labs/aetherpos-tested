@@ -1,16 +1,38 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { PackagePlus, Sparkles, ChevronRight, ArrowRight, X, Info } from 'lucide-react'
+import { motion } from 'framer-motion'
+import { PackagePlus, Sparkles, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useMigrationProcessor } from './migration-context'
+import type { MigrationIssueRow } from '@/lib/migration/dexie-db'
+
+// Re-export so existing imports from './migration-banner' keep working.
+export type { MigrationIssueRow }
 
 // ── Type exports (consumed by wizard, context, provider, import-mode-dialog) ──
 export type ImportMode = 'product_only' | 'product_stock' | 'product_inventory'
 export type WizardState = 'idle' | 'choosing_mode' | 'uploading' | 'processing' | 'success'
 
 export type MigrationStatus = 'COMPLETED' | 'COMPLETED_WITH_ERRORS' | 'PARTIAL' | 'FAILED'
+
+/**
+ * Format a migration issue (object or legacy string) into a single display line.
+ * Mirrors the API's `errorsText` shape: "Baris {row}: {message}" (with optional
+ * sheet tag for the variant sheet). Falls back to the raw message / string.
+ *
+ * Accepts `string` too for defense against any old Dexie-persisted job that may
+ * predate the v2.3 object contract.
+ */
+export function formatMigrationIssue(issue: MigrationIssueRow | string): string {
+  if (typeof issue === 'string') return issue
+  const msg = issue.message ?? ''
+  if (issue.row != null) {
+    return issue.sheet
+      ? `Baris ${issue.row} [${issue.sheet}]: ${msg}`
+      : `Baris ${issue.row}: ${msg}`
+  }
+  return msg
+}
 
 export interface ImportResult {
   productsCreated: number
@@ -19,8 +41,8 @@ export interface ImportResult {
   totalCategories: number
   barcodeCount: number
   mode: ImportMode
-  errors: string[]
-  warnings?: string[]
+  errors: MigrationIssueRow[]
+  warnings?: MigrationIssueRow[]
   inventoryItemsCreated?: number
   inventoryItemsSkipped?: number
   inventoryItemsUpdated?: number
@@ -119,110 +141,5 @@ export function MigrationBanner({ showBanner: shouldShowBanner }: MigrationBanne
         </div>
       </div>
     </motion.div>
-  )
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// PartialMigrationCard — second state (productCount > 0)
-//
-// Compact, dismissible card shown on the dashboard when the store already has
-// products but may still have remaining data to migrate from the legacy POS.
-//
-// Dismissal is persisted to localStorage so the card doesn't reappear on every
-// visit. A permanent entry point lives in the Products page (Excel dropdown) so
-// migration is always reachable even after dismissal.
-// ─────────────────────────────────────────────────────────────────────────────
-
-const PARTIAL_DISMISS_KEY = 'aether-migration-partial-dismissed'
-
-const partialCardVariants = {
-  hidden: { opacity: 0, y: -12, scale: 0.98 },
-  visible: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] } },
-  exit: { opacity: 0, height: 0, marginTop: 0, transition: { duration: 0.25 } },
-}
-
-export function PartialMigrationCard() {
-  const { openWizard } = useMigrationProcessor()
-  const [dismissed, setDismissed] = useState(true) // start dismissed to avoid SSR/flash
-
-  // Read persisted dismissal on mount (client-only).
-  // Starts as `true` (dismissed) to avoid SSR/hydration flash, then reveals
-  // the card if the user hasn't dismissed it.
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem(PARTIAL_DISMISS_KEY)
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setDismissed(stored === '1')
-    } catch {
-      setDismissed(false)
-    }
-  }, [])
-
-  const handleDismiss = () => {
-    setDismissed(true)
-    try {
-      localStorage.setItem(PARTIAL_DISMISS_KEY, '1')
-    } catch {
-      /* localStorage may be blocked — in-memory state still works for session */
-    }
-  }
-
-  if (dismissed) return null
-
-  return (
-    <AnimatePresence>
-      <motion.div variants={partialCardVariants} initial="hidden" animate="visible" exit="exit">
-        <div className="relative overflow-hidden rounded-xl border border-emerald-500/15 bg-emerald-500/[0.03]">
-          {/* Subtle accent line */}
-          <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-emerald-500/40 to-transparent" />
-
-          <div className="relative px-4 py-3 sm:px-5">
-            <div className="flex items-center gap-3">
-              {/* Icon */}
-              <div className="flex items-center justify-center h-9 w-9 rounded-lg bg-emerald-500/10 border border-emerald-500/15 shrink-0">
-                <PackagePlus className="h-4 w-4 text-emerald-400" />
-              </div>
-
-              {/* Content + CTA */}
-              <div className="flex-1 min-w-0">
-                <h3 className="text-sm font-semibold text-white tracking-tight">
-                  Masih ada data di POS lama?
-                </h3>
-                <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
-                  Migrasikan sisa produk dan stok secara bertahap sambil tetap menjalankan operasional toko.
-                </p>
-              </div>
-
-              {/* CTA + dismiss */}
-              <div className="flex items-center gap-1.5 shrink-0">
-                <Button
-                  onClick={openWizard}
-                  size="sm"
-                  className="bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-semibold h-8 px-3 gap-1.5 shadow-md shadow-emerald-500/15 transition-all hover:shadow-emerald-500/25"
-                >
-                  Lanjutkan Migrasi
-                  <ArrowRight className="h-3 w-3" />
-                </Button>
-                <button
-                  onClick={handleDismiss}
-                  aria-label="Tutup"
-                  className="flex items-center justify-center h-8 w-8 rounded-lg text-slate-500 hover:text-slate-300 hover:bg-white/[0.05] transition-colors shrink-0"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            </div>
-
-            {/* Validation note */}
-            <div className="flex items-start gap-1.5 mt-2.5 pl-12">
-              <Info className="h-3 w-3 text-slate-500 shrink-0 mt-px" />
-              <p className="text-[10px] text-slate-500 leading-relaxed">
-                Data yang sudah tersedia akan mengikuti aturan validasi dan duplikasi pada Migration Wizard.
-              </p>
-            </div>
-          </div>
-        </div>
-      </motion.div>
-    </AnimatePresence>
   )
 }

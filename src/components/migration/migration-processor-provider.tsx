@@ -29,6 +29,7 @@ import { toast } from 'sonner'
 import {
   type MigrationJob,
   type MigrationBatch,
+  type MigrationIssueRow,
   getMigrationDB,
   isMigrationDBAvailable,
   createJobRecord,
@@ -50,6 +51,7 @@ import {
   type MigrationProcessorContextValue,
 } from './migration-context'
 import type { ImportMode } from '@/components/migration/migration-banner'
+import { useCriticalActivity } from '@/hooks/use-critical-activity'
 
 // ── Provider ───────────────────────────────────────────────────────────────
 
@@ -96,6 +98,16 @@ export function MigrationProcessorProvider({ children }: { children: React.React
     [] as MigrationBatch[],
   )
 
+  // ── Build guard: register a critical activity while any migration job is processing ──
+  const hasProcessingMigrationJob = (jobs || []).some((j) => j.status === 'PROCESSING')
+  useCriticalActivity(
+    'migration-job',
+    'migration-job',
+    'Migrasi produk sedang berjalan',
+    hasProcessingMigrationJob,
+    'interrupt',
+  )
+
   // Mark DB ready once IndexedDB is available (client-only).
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -120,7 +132,7 @@ export function MigrationProcessorProvider({ children }: { children: React.React
     async (
       jobId: string,
       errMsg: string,
-      batchErrors: string[] = [],
+      batchErrors: MigrationIssueRow[] = [],
       batchStats?: { batchCreated?: number; batchSkipped?: number; batchFailed?: number },
     ) => {
       const j = await getJob(jobId)
@@ -264,7 +276,7 @@ export function MigrationProcessorProvider({ children }: { children: React.React
             }
           }
 
-          const batchErrors: string[] = data.errors || []
+          const batchErrors: MigrationIssueRow[] = (data.errors as unknown as MigrationIssueRow[]) || []
 
           // ── Failure ──
           if (!data || data.error || data.status === 'BATCH_FAILED') {
@@ -324,7 +336,7 @@ export function MigrationProcessorProvider({ children }: { children: React.React
               totalStock: data.totalStock as number | undefined,
               totalModalValue: data.totalModalValue as number | undefined,
               totalCategories: data.totalCategories as number | undefined,
-              warnings: data.warnings as string[] | undefined,
+              warnings: data.warnings as unknown as MigrationIssueRow[] | undefined,
             })
             // Refresh dashboard product counts.
             queryClient.invalidateQueries({ queryKey: ['dashboard'] })
