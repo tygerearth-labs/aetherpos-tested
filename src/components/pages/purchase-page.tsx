@@ -130,6 +130,9 @@ import {
   Palette,
   FolderOpen,
   Settings2,
+  User,
+  ClipboardList,
+  Calendar,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useBulkWorker } from '@/components/bulk-engine/bulk-worker-context'
@@ -687,6 +690,10 @@ export default function PurchasePage() {
   const [itemPickerFilter, setItemPickerFilter] = useState('')
   const invItemSearchRefs = useRef<Record<number, HTMLDivElement | null>>({})
   const invItemEditSearchRefs = useRef<Record<number, HTMLDivElement | null>>({})
+
+  // Track which "Batch & Kedaluwarsa" accordions are expanded (per-item index)
+  const [poCreateAdvancedOpen, setPoCreateAdvancedOpen] = useState<Set<number>>(new Set())
+  const [poEditAdvancedOpen, setPoEditAdvancedOpen] = useState<Set<number>>(new Set())
 
   // Quick add new item from purchase dialog
   const [showQuickAddItem, setShowQuickAddItem] = useState(false)
@@ -1417,6 +1424,7 @@ export default function PurchasePage() {
     setQuickAddTargetIdx(0)
     setShowImportPreview(false)
     setImportPreviewData(null)
+    setPoCreateAdvancedOpen(new Set())
   }
 
   // Fetch suppliers for purchase dialog dropdown
@@ -2631,8 +2639,9 @@ export default function PurchasePage() {
           toast.success(
             <div className="space-y-1.5">
               <p className="font-semibold">{data.updated} item berhasil diupdate{timeInfo}</p>
-              <p className="text-[11px] text-amber-300/80">
-                ⚠️ {warnings.length} kolom read-only diabaikan (Stok/HPP)
+              <p className="text-[11px] text-amber-300/80 flex items-center gap-1.5">
+                <AlertTriangle className="h-3 w-3 shrink-0" />
+                <span>{warnings.length} kolom read-only diabaikan (Stok/HPP)</span>
               </p>
             </div>,
             { duration: 6000 }
@@ -4813,7 +4822,9 @@ export default function PurchasePage() {
                                 <span className="px-1 py-0 rounded bg-red-500/15 text-red-400 text-[8px] font-bold shrink-0">!</span>
                               )}
                               {!isArchived && deleteStatus.riskLevel === 'safe' && (
-                                <span className="px-1 py-0 rounded bg-emerald-500/15 text-emerald-400 text-[8px] font-bold shrink-0">✓</span>
+                                <span className="px-1 py-0 rounded bg-emerald-500/15 text-emerald-400 shrink-0 flex items-center justify-center" title="Aman dihapus">
+                                  <Check className="h-2.5 w-2.5" />
+                                </span>
                               )}
                             </div>
                             {/* Category + Stock + Unit - Single Line */}
@@ -5089,18 +5100,21 @@ export default function PurchasePage() {
                 </div>
                 {/* Warning message - sinkron dengan table logic */}
                 {poDetailHasRealBusinessHistory && (
-                  <p className="text-[10px] text-red-400/70 text-center -mt-1">
-                    ⚠ Pembelian memiliki riwayat transfer/penjualan — tidak bisa edit/hapus
+                  <p className="text-[10px] text-red-400/70 text-center -mt-1 flex items-center justify-center gap-1">
+                    <AlertTriangle className="h-3 w-3 shrink-0" />
+                    <span>Pembelian memiliki riwayat transfer/penjualan — tidak bisa edit/hapus</span>
                   </p>
                 )}
                 {!poDetailHasRealBusinessHistory && poDetailHasLinked && (
-                  <p className="text-[10px] text-amber-400/70 text-center -mt-1">
-                    ⚠ Item terkait produk — hapus pembelian bisa mengubah komposisi
+                  <p className="text-[10px] text-amber-400/70 text-center -mt-1 flex items-center justify-center gap-1">
+                    <AlertTriangle className="h-3 w-3 shrink-0" />
+                    <span>Item terkait produk — hapus pembelian bisa mengubah komposisi</span>
                   </p>
                 )}
                 {!poDetailHasRealBusinessHistory && !poDetailHasLinked && poDetailHasUsageHistory && (
-                  <p className="text-[10px] text-amber-400/70 text-center -mt-1">
-                    ⚠ Item sudah terpakai dalam transaksi — tidak bisa dihapus
+                  <p className="text-[10px] text-amber-400/70 text-center -mt-1 flex items-center justify-center gap-1">
+                    <AlertTriangle className="h-3 w-3 shrink-0" />
+                    <span>Item sudah terpakai dalam transaksi — tidak bisa dihapus</span>
                   </p>
                 )}
               </div>
@@ -5589,43 +5603,77 @@ export default function PurchasePage() {
                           type="button"
                           className="flex items-center gap-1.5 text-[10px] text-slate-500 hover:text-slate-300 transition-colors w-full"
                           onClick={() => {
-                            const el = document.getElementById(`po-advanced-${idx}`)
-                            if (el) el.classList.toggle('hidden')
+                            setPoCreateAdvancedOpen(prev => {
+                              const next = new Set(prev)
+                              if (next.has(idx)) next.delete(idx)
+                              else next.add(idx)
+                              return next
+                            })
                           }}
                         >
                           <Settings2 className="h-3 w-3" />
                           <span>Batch &amp; Kedaluwarsa</span>
                           <span className="text-slate-600 font-normal ml-1">(opsional)</span>
-                          <ChevronDown className="h-3 w-3 ml-auto" />
+                          <ChevronDown className={cn('h-3 w-3 ml-auto transition-transform duration-200', poCreateAdvancedOpen.has(idx) && 'rotate-180')} />
                         </button>
-                        <div id={`po-advanced-${idx}`} className="hidden grid grid-cols-2 gap-2">
-                          {/* Batch / No. Lot */}
-                          <div className="space-y-1">
-                            <label className="text-[10px] text-slate-400 font-medium">Batch / No. Lot</label>
-                            <Input
-                              value={item.batch}
-                              onChange={(e) => handleUpdatePoItem(idx, 'batch', e.target.value)}
-                              className={inputClass}
-                              placeholder="cth: B2025-001"
-                            />
+                        {poCreateAdvancedOpen.has(idx) && (
+                          <div className="space-y-2 pt-0.5">
+                            {/* Contoh pengisian helper */}
+                            <div className="rounded-md bg-sky-500/[0.04] border border-sky-500/10 px-2.5 py-1.5 space-y-1.5">
+                              <div className="flex items-center gap-1.5">
+                                <Lightbulb className="h-3 w-3 text-sky-400 shrink-0" />
+                                <span className="text-[10px] text-sky-300 font-medium">Contoh pengisian</span>
+                              </div>
+                              <div className="space-y-1 text-[10px] text-slate-400">
+                                <div className="flex items-start gap-1.5 flex-wrap">
+                                  <span className="text-slate-500 shrink-0">Batch:</span>
+                                  {['B2025-001', 'LOT-A24', 'BATCH-0824'].map((ex) => (
+                                    <button
+                                      key={ex}
+                                      type="button"
+                                      className="px-1.5 py-0 rounded bg-white/[0.04] hover:bg-sky-500/15 hover:text-sky-200 text-slate-300 font-mono text-[9px] transition-colors"
+                                      onClick={() => handleUpdatePoItem(idx, 'batch', ex)}
+                                    >
+                                      {ex}
+                                    </button>
+                                  ))}
+                                </div>
+                                <div className="flex items-start gap-1.5">
+                                  <span className="text-slate-500 shrink-0">Expired:</span>
+                                  <span className="text-slate-400">pilih tanggal sesuai kemasan (cth: akhir bulan / tahun depan)</span>
+                                </div>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              {/* Batch / No. Lot */}
+                              <div className="space-y-1">
+                                <label className="text-[10px] text-slate-400 font-medium">Batch / No. Lot</label>
+                                <Input
+                                  value={item.batch}
+                                  onChange={(e) => handleUpdatePoItem(idx, 'batch', e.target.value)}
+                                  className={inputClass}
+                                  placeholder="cth: B2025-001"
+                                />
+                              </div>
+                              {/* Expired Date */}
+                              <div className="space-y-1">
+                                <label className="text-[10px] text-slate-400 font-medium">Expired</label>
+                                <Input
+                                  type="date"
+                                  value={item.expiredDate}
+                                  onChange={(e) => handleUpdatePoItem(idx, 'expiredDate', e.target.value)}
+                                  className={cn(inputClass, expiredWarnings[idx] ? 'border-red-500/40 text-red-300' : 'text-slate-300')}
+                                />
+                                {expiredWarnings[idx] && (
+                                  <p className="text-[10px] text-red-400 flex items-center gap-1 mt-1">
+                                    <AlertCircle className="h-3 w-3 shrink-0" />
+                                    Barang sudah kadaluarsa
+                                  </p>
+                                )}
+                              </div>
+                            </div>
                           </div>
-                          {/* Expired Date */}
-                          <div className="space-y-1">
-                            <label className="text-[10px] text-slate-400 font-medium">Expired</label>
-                            <Input
-                              type="date"
-                              value={item.expiredDate}
-                              onChange={(e) => handleUpdatePoItem(idx, 'expiredDate', e.target.value)}
-                              className={cn(inputClass, expiredWarnings[idx] ? 'border-red-500/40 text-red-300' : 'text-slate-300')}
-                            />
-                            {expiredWarnings[idx] && (
-                              <p className="text-[10px] text-red-400 flex items-center gap-1 mt-1">
-                                <AlertCircle className="h-3 w-3 shrink-0" />
-                                Barang sudah kadaluarsa
-                              </p>
-                            )}
-                          </div>
-                        </div>
+                        )}
 
                         {/* Smart Purchase Warnings (batch duplicate) */}
                         {batchWarnings[idx]?.warning && batchWarnings[idx].duplicate && (
@@ -6174,7 +6222,7 @@ export default function PurchasePage() {
       {/* ── Edit Purchase Order Dialog ── */}
       <ResponsiveDialog
         open={poEditOpen}
-        onOpenChange={(open) => { if (!open) setPoEditOpen(false) }}
+        onOpenChange={(open) => { if (!open) { setPoEditOpen(false); setPoEditAdvancedOpen(new Set()) } }}
       >
         <ResponsiveDialogContent className="sm:max-w-2xl flex flex-col max-h-[90vh]">
           <ResponsiveDialogHeader>
@@ -6439,35 +6487,69 @@ export default function PurchasePage() {
                           type="button"
                           className="flex items-center gap-1.5 text-[10px] text-slate-500 hover:text-slate-300 transition-colors w-full"
                           onClick={() => {
-                            const el = document.getElementById(`po-edit-advanced-${idx}`)
-                            if (el) el.classList.toggle('hidden')
+                            setPoEditAdvancedOpen(prev => {
+                              const next = new Set(prev)
+                              if (next.has(idx)) next.delete(idx)
+                              else next.add(idx)
+                              return next
+                            })
                           }}
                         >
                           <Settings2 className="h-3 w-3" />
                           <span>Batch &amp; Kedaluwarsa</span>
                           <span className="text-slate-600 font-normal ml-1">(opsional)</span>
-                          <ChevronDown className="h-3 w-3 ml-auto" />
+                          <ChevronDown className={cn('h-3 w-3 ml-auto transition-transform duration-200', poEditAdvancedOpen.has(idx) && 'rotate-180')} />
                         </button>
-                        <div id={`po-edit-advanced-${idx}`} className="hidden grid grid-cols-2 gap-2">
-                          <div className="space-y-1">
-                            <label className="text-[10px] text-slate-400 font-medium">Batch / No. Lot</label>
-                            <Input
-                              value={item.batch}
-                              onChange={(e) => handleUpdatePoEditItem(idx, 'batch', e.target.value)}
-                              className={inputClass}
-                              placeholder="B2025-001"
-                            />
+                        {poEditAdvancedOpen.has(idx) && (
+                          <div className="space-y-2 pt-0.5">
+                            {/* Contoh pengisian helper */}
+                            <div className="rounded-md bg-sky-500/[0.04] border border-sky-500/10 px-2.5 py-1.5 space-y-1.5">
+                              <div className="flex items-center gap-1.5">
+                                <Lightbulb className="h-3 w-3 text-sky-400 shrink-0" />
+                                <span className="text-[10px] text-sky-300 font-medium">Contoh pengisian</span>
+                              </div>
+                              <div className="space-y-1 text-[10px] text-slate-400">
+                                <div className="flex items-start gap-1.5 flex-wrap">
+                                  <span className="text-slate-500 shrink-0">Batch:</span>
+                                  {['B2025-001', 'LOT-A24', 'BATCH-0824'].map((ex) => (
+                                    <button
+                                      key={ex}
+                                      type="button"
+                                      className="px-1.5 py-0 rounded bg-white/[0.04] hover:bg-sky-500/15 hover:text-sky-200 text-slate-300 font-mono text-[9px] transition-colors"
+                                      onClick={() => handleUpdatePoEditItem(idx, 'batch', ex)}
+                                    >
+                                      {ex}
+                                    </button>
+                                  ))}
+                                </div>
+                                <div className="flex items-start gap-1.5">
+                                  <span className="text-slate-500 shrink-0">Expired:</span>
+                                  <span className="text-slate-400">pilih tanggal sesuai kemasan (cth: akhir bulan / tahun depan)</span>
+                                </div>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="space-y-1">
+                                <label className="text-[10px] text-slate-400 font-medium">Batch / No. Lot</label>
+                                <Input
+                                  value={item.batch}
+                                  onChange={(e) => handleUpdatePoEditItem(idx, 'batch', e.target.value)}
+                                  className={inputClass}
+                                  placeholder="B2025-001"
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-[10px] text-slate-400 font-medium">Expired</label>
+                                <Input
+                                  type="date"
+                                  value={item.expiredDate}
+                                  onChange={(e) => handleUpdatePoEditItem(idx, 'expiredDate', e.target.value)}
+                                  className={cn(inputClass, 'text-slate-300')}
+                                />
+                              </div>
+                            </div>
                           </div>
-                          <div className="space-y-1">
-                            <label className="text-[10px] text-slate-400 font-medium">Expired</label>
-                            <Input
-                              type="date"
-                              value={item.expiredDate}
-                              onChange={(e) => handleUpdatePoEditItem(idx, 'expiredDate', e.target.value)}
-                              className={cn(inputClass, 'text-slate-300')}
-                            />
-                          </div>
-                        </div>
+                        )}
 
                         {/* Per-item mini summary */}
                         {(parseFloat(item.qty) > 0 && parseFloat(item.pricePerItem) > 0) && (
@@ -6825,10 +6907,22 @@ export default function PurchasePage() {
                   <div className="space-y-1.5">
                     <p className="text-[11px] text-amber-300 font-semibold">PENTING: Status Edit Setiap Item</p>
                     <div className="space-y-1 text-[10px]">
-                      <p className="text-amber-400/80">• File Excel berisi kolom <strong>"Status Edit"</strong> yang menunjukkan item bisa diedit atau tidak</p>
-                      <p className="text-amber-400/80">• <strong>🔒 TERKUNCI</strong>: Hanya Nama, SKU, Kategori yang bisa diubah (sudah ada riwayat bisnis)</p>
-                      <p className="text-amber-400/80">• <strong>⚠️ TERBATAS</strong>: Terlink ke produk - hati-hati ganti satuan!</p>
-                      <p className="text-amber-400/80">• <strong>✅ BOLEH</strong>: Bebas edit semua kolom (item baru/tanpa riwayat)</p>
+                      <p className="text-amber-400/80 flex items-start gap-1.5">
+                        <span className="shrink-0">•</span>
+                        <span>File Excel berisi kolom <strong>"Status Edit"</strong> yang menunjukkan item bisa diedit atau tidak</span>
+                      </p>
+                      <p className="text-amber-400/80 flex items-start gap-1.5">
+                        <Lock className="h-3 w-3 shrink-0 mt-0.5" />
+                        <span><strong>TERKUNCI</strong>: Hanya Nama, SKU, Kategori yang bisa diubah (sudah ada riwayat bisnis)</span>
+                      </p>
+                      <p className="text-amber-400/80 flex items-start gap-1.5">
+                        <AlertTriangle className="h-3 w-3 shrink-0 mt-0.5" />
+                        <span><strong>TERBATAS</strong>: Terlink ke produk - hati-hati ganti satuan!</span>
+                      </p>
+                      <p className="text-amber-400/80 flex items-start gap-1.5">
+                        <CheckCircle2 className="h-3 w-3 shrink-0 mt-0.5" />
+                        <span><strong>BOLEH</strong>: Bebas edit semua kolom (item baru/tanpa riwayat)</span>
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -7660,7 +7754,7 @@ export default function PurchasePage() {
                 >
                   <div className="flex items-center gap-2.5 mb-3">
                     <div className="w-9 h-9 rounded-lg bg-emerald-500/10 flex items-center justify-center">
-                      <span className="text-lg">🍳</span>
+                      <ChefHat className="h-5 w-5 text-emerald-400" />
                     </div>
                     <div>
                       <p className="text-sm text-white font-medium group-hover:text-emerald-300 transition-colors">Komposisi (F&B)</p>
@@ -7684,7 +7778,7 @@ export default function PurchasePage() {
                 >
                   <div className="flex items-center gap-2.5 mb-3">
                     <div className="w-9 h-9 rounded-lg bg-violet-500/10 flex items-center justify-center">
-                      <span className="text-lg">🛒</span>
+                      <ShoppingCart className="h-5 w-5 text-violet-400" />
                     </div>
                     <div>
                       <p className="text-sm text-white font-medium group-hover:text-violet-300 transition-colors">Satu-satu (Ritel)</p>
@@ -8844,9 +8938,24 @@ export default function PurchasePage() {
                             </div>
                             {/* Meta */}
                             <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-slate-500">
-                              {b.supplierName && <span>👤 {b.supplierName}</span>}
-                              {b.purchaseOrderNumber && <span>📋 PO-{b.purchaseOrderNumber}</span>}
-                              {b.expiredDate && <span>📅 {formatDate(b.expiredDate).split(' ')[0]}</span>}
+                              {b.supplierName && (
+                                <span className="flex items-center gap-1">
+                                  <User className="h-3 w-3" />
+                                  {b.supplierName}
+                                </span>
+                              )}
+                              {b.purchaseOrderNumber && (
+                                <span className="flex items-center gap-1">
+                                  <ClipboardList className="h-3 w-3" />
+                                  PO-{b.purchaseOrderNumber}
+                                </span>
+                              )}
+                              {b.expiredDate && (
+                                <span className="flex items-center gap-1">
+                                  <Calendar className="h-3 w-3" />
+                                  {formatDate(b.expiredDate).split(' ')[0]}
+                                </span>
+                              )}
                             </div>
                           </div>
                         )
@@ -8978,9 +9087,24 @@ export default function PurchasePage() {
 
                   {/* Supplier + PO */}
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-slate-500 pt-1.5 border-t border-white/[0.04]">
-                    {batchSearchResult.purchaseOrder?.supplierName && <span>👤 {batchSearchResult.purchaseOrder.supplierName}</span>}
-                    {batchSearchResult.purchaseOrder && <span>📋 PO-{batchSearchResult.purchaseOrder.orderNumber}</span>}
-                    {batchSearchResult.purchaseOrder && <span>📅 {formatDate(batchSearchResult.purchaseOrder.date).split(' ')[0]}</span>}
+                    {batchSearchResult.purchaseOrder?.supplierName && (
+                      <span className="flex items-center gap-1">
+                        <User className="h-3 w-3" />
+                        {batchSearchResult.purchaseOrder.supplierName}
+                      </span>
+                    )}
+                    {batchSearchResult.purchaseOrder && (
+                      <span className="flex items-center gap-1">
+                        <ClipboardList className="h-3 w-3" />
+                        PO-{batchSearchResult.purchaseOrder.orderNumber}
+                      </span>
+                    )}
+                    {batchSearchResult.purchaseOrder && (
+                      <span className="flex items-center gap-1">
+                        <Calendar className="h-3 w-3" />
+                        {formatDate(batchSearchResult.purchaseOrder.date).split(' ')[0]}
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -9121,7 +9245,10 @@ export default function PurchasePage() {
                 ) : (
                   <div className="py-8 text-center">
                     <Flame className="h-6 w-6 text-slate-600 mx-auto mb-2" />
-                    <p className="text-xs text-emerald-400">✅ Tidak ada waste pada periode ini!</p>
+                    <p className="text-xs text-emerald-400 flex items-center justify-center gap-1.5">
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      Tidak ada waste pada periode ini!
+                    </p>
                   </div>
                 )}
               </div>
