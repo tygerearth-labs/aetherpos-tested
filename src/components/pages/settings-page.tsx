@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSession } from 'next-auth/react'
 import { toast } from 'sonner'
 import { formatCurrency } from '@/lib/format'
@@ -80,6 +80,11 @@ import {
   UserCircle,
   Bot,
   Lock,
+  CheckCircle2,
+  CircleDashed,
+  Zap,
+  Link2 as LinkIcon,
+  AlertCircle,
 } from 'lucide-react'
 
 // ==================== TYPES ====================
@@ -162,6 +167,91 @@ const THEME_COLORS = [
   { name: 'cyan', label: 'Cyan', classes: 'bg-cyan-500' },
 ]
 
+// ==================== SHARED: SAVE-MODE BADGES ====================
+//
+// Two save modes are used consistently across the settings page:
+//   1. AUTO-SAVE  — toggles/theme/colors save immediately on change.
+//                   Marked with the blue "Auto-save" badge in card header.
+//   2. MANUAL SAVE — text inputs are batched, user clicks "Simpan".
+//                   Marked with the amber "Manual save" badge + dirty/saved indicator.
+// This visual distinction removes the user confusion about whether a change is
+// already persisted or still pending.
+
+type SaveMode = 'auto' | 'manual'
+
+function SaveModeBadge({ mode }: { mode: SaveMode }) {
+  if (mode === 'auto') {
+    return (
+      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium bg-sky-500/10 text-sky-400 border border-sky-500/20 shrink-0">
+        <Zap className="h-2.5 w-2.5" />
+        Auto-save
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20 shrink-0">
+      <CircleDashed className="h-2.5 w-2.5" />
+      Manual save
+    </span>
+  )
+}
+
+// Dirty / saving / saved indicator shown next to manual-save forms.
+// `dirty`: user has unsaved edits. `saving`: PUT in flight. `saved`: just-saved flash.
+function SaveStatusIndicator({ dirty, saving, saved }: { dirty: boolean; saving: boolean; saved: boolean }) {
+  if (saving) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] text-sky-400">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Menyimpan…
+      </span>
+    )
+  }
+  if (dirty) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] text-amber-400">
+        <CircleDashed className="h-3 w-3" />
+        Belum disimpan
+      </span>
+    )
+  }
+  if (saved) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400">
+        <CheckCircle2 className="h-3 w-3" />
+        Tersimpan
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-[10px] text-slate-500">
+      <CheckCircle2 className="h-3 w-3" />
+      Tersimpan
+    </span>
+  )
+}
+
+// Inline "Tersimpan" flash that auto-dismisses — used after auto-save actions.
+// Renders a small emerald pill for ~1.5s after `trigger` changes.
+// Derived `show` avoids synchronous setState in effect (react-hooks/set-state-in-effect).
+function SavedFlash({ trigger }: { trigger: number }) {
+  const [hideAt, setHideAt] = useState(0)
+  // Show when a save has happened (trigger > 0) and we haven't hidden for this trigger yet.
+  const show = trigger > 0 && hideAt < trigger
+  useEffect(() => {
+    if (!show) return
+    const t = setTimeout(() => setHideAt(trigger), 1500)
+    return () => clearTimeout(t)
+  }, [show, trigger])
+  if (!show) return null
+  return (
+    <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400 animate-in fade-in duration-200">
+      <CheckCircle2 className="h-3 w-3" />
+      Tersimpan
+    </span>
+  )
+}
+
 // ==================== MAIN COMPONENT ====================
 
 export default function SettingsPage() {
@@ -222,15 +312,10 @@ function SettingsTabs({ isOwner }: { isOwner: boolean }) {
           )}
         </TabsContent>
         <TabsContent value="kasir">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div className="min-w-0"><PaymentMethodsTab /></div>
-            <div className="min-w-0"><LoyaltyTab /></div>
-          </div>
-          {isOwner && (
-            <div className="space-y-4 mt-4">
-              <TaxTab />
-              <ManualDiscountTab />
-              <PromoTab />
+          {isOwner ? <PaymentPromoSubTabs /> : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="min-w-0"><PaymentMethodsTab /></div>
+              <div className="min-w-0"><LoyaltyTab /></div>
             </div>
           )}
         </TabsContent>
@@ -250,12 +335,84 @@ function SettingsTabs({ isOwner }: { isOwner: boolean }) {
   )
 }
 
+// ==================== PAYMENT & PROMO — SECONDARY TABS ====================
+//
+// Tab "Pembayaran & Promo" dipecah jadi 4 sub-domain agar tidak padat:
+//   1. Metode Pembayaran  — toggle per metode (CASH/QRIS/DEBIT/TRANSFER)
+//   2. Pajak              — PPN enable + rate
+//   3. Loyalty            — program poin pelanggan
+//   4. Diskon & Promo     — diskon manual + daftar promo
+// Sub-tab navigasi disimpan vertical (sidebar) di desktop, horizontal scroll di mobile.
+
+function PaymentPromoSubTabs() {
+  const [activeSub, setActiveSub] = useState('payment')
+
+  const subTabs = [
+    { value: 'payment', label: 'Metode Pembayaran', icon: <Banknote className="h-3.5 w-3.5" />, desc: 'Tunai, QRIS, Debit, Transfer' },
+    { value: 'tax', label: 'Pajak', icon: <ReceiptText className="h-3.5 w-3.5" />, desc: 'PPN & tarif pajak' },
+    { value: 'loyalty', label: 'Loyalty', icon: <Star className="h-3.5 w-3.5" />, desc: 'Program poin pelanggan' },
+    { value: 'promo', label: 'Diskon & Promo', icon: <Tag className="h-3.5 w-3.5" />, desc: 'Diskon manual + promo otomatis' },
+  ]
+
+  return (
+    <div className="space-y-4">
+      {/* Secondary navigation: horizontal scroll on mobile, pill buttons on desktop */}
+      <div className="overflow-x-auto scrollbar-hide -mx-1 px-1">
+        <div className="inline-flex h-auto w-max gap-1.5 p-1 rounded-xl bg-white/[0.03] border border-white/[0.04]">
+          {subTabs.map((tab) => {
+            const isActive = activeSub === tab.value
+            return (
+              <button
+                key={tab.value}
+                type="button"
+                onClick={() => setActiveSub(tab.value)}
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-all duration-150 ${
+                  isActive
+                    ? 'theme-bg theme-text shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'
+                }`}
+              >
+                {tab.icon}
+                {tab.label}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Active sub-tab description */}
+      <div className="flex items-center gap-2 text-[11px] text-slate-500">
+        <CircleHelp className="h-3 w-3 shrink-0" />
+        <span>{subTabs.find((t) => t.value === activeSub)?.desc}</span>
+      </div>
+
+      {/* Content */}
+      {activeSub === 'payment' && (
+        <PaymentMethodsTab />
+      )}
+      {activeSub === 'tax' && (
+        <div className="space-y-4">
+          <TaxTab />
+          <ManualDiscountTab />
+        </div>
+      )}
+      {activeSub === 'loyalty' && (
+        <LoyaltyTab />
+      )}
+      {activeSub === 'promo' && (
+        <PromoTab />
+      )}
+    </div>
+  )
+}
+
 // ==================== SHARED HOOK ====================
 
 function useSettings() {
   const [settings, setSettings] = useState<SettingsData | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [savedAt, setSavedAt] = useState(0) // bump to trigger SavedFlash
 
   const fetchSettings = useCallback(async () => {
     setLoading(true)
@@ -279,9 +436,11 @@ function useSettings() {
     void fetchSettings()
   }, [fetchSettings])
 
-  const saveSettings = useCallback(async (updates: Partial<SettingsData>) => {
+  // `silent` (default false): when true, skip the success toast — used for
+  // auto-save toggles where the inline "Tersimpan" flash is enough feedback.
+  const saveSettings = useCallback(async (updates: Partial<SettingsData>, silent = false) => {
     if (!settings) {
-      toast.error('Pengaturan belum dimuat, silakan tunggu')
+      if (!silent) toast.error('Pengaturan belum dimuat, silakan tunggu')
       return false
     }
     setSaving(true)
@@ -294,7 +453,8 @@ function useSettings() {
       if (res.ok) {
         const data = await res.json()
         setSettings(data)
-        toast.success('Pengaturan berhasil disimpan')
+        setSavedAt(Date.now())
+        if (!silent) toast.success('Pengaturan berhasil disimpan')
         return true
       } else {
         const errData = await res.json().catch(() => ({}))
@@ -313,7 +473,7 @@ function useSettings() {
     }
   }, [settings])
 
-  return { settings, setSettings, loading, saving, saveSettings, refetch: fetchSettings }
+  return { settings, setSettings, loading, saving, saveSettings, refetch: fetchSettings, savedAt }
 }
 
 // ==================== TAB: OUTLET & RECEIPT (Combined) ====================
@@ -330,8 +490,7 @@ function OutletAndReceiptTab() {
 // ==================== TAB 1: PAYMENT METHODS ====================
 
 function PaymentMethodsTab() {
-  const { settings, loading, saving, saveSettings } = useSettings()
-  const [editedPaymentMethods, setEditedPaymentMethods] = useState<string | null>(null)
+  const { settings, loading, saving, saveSettings, savedAt } = useSettings()
 
   const paymentMethods = [
     { key: 'CASH', label: 'Tunai (CASH)', icon: <Banknote className="h-5 w-5" />, desc: 'Pembayaran tunai langsung' },
@@ -340,10 +499,12 @@ function PaymentMethodsTab() {
     { key: 'TRANSFER', label: 'Transfer Bank', icon: <ArrowRightLeft className="h-5 w-5" />, desc: 'Transfer via mobile banking / ATM' },
   ]
 
-  const currentPaymentMethods = editedPaymentMethods ?? settings?.paymentMethods ?? 'CASH,QRIS'
+  const currentPaymentMethods = settings?.paymentMethods ?? 'CASH,QRIS'
   const currentEnabled = currentPaymentMethods.split(',').filter(Boolean)
 
-  const handleToggle = (key: string) => {
+  // AUTO-SAVE: each toggle click immediately persists the new method list.
+  // No "Simpan" button — silent save with inline "Tersimpan" flash.
+  const handleToggle = async (key: string) => {
     const isActive = currentEnabled.includes(key)
     const updated = isActive
       ? currentEnabled.filter((m) => m !== key)
@@ -352,27 +513,19 @@ function PaymentMethodsTab() {
       toast.error('Minimal satu metode pembayaran harus aktif')
       return
     }
-    setEditedPaymentMethods(updated.join(','))
-  }
-
-  const handleSave = async () => {
-    if (!settings) {
-      toast.error('Pengaturan belum dimuat, silakan tunggu')
-      return
-    }
-    const ok = await saveSettings({ paymentMethods: currentPaymentMethods })
-    if (ok) {
-      setEditedPaymentMethods(null)
-    }
+    await saveSettings({ paymentMethods: updated.join(',') }, true)
   }
 
   if (loading) {
     return (
       <Card className="bg-nebula border-white/[0.06]">
         <CardContent className="p-4 space-y-3">
-          <Skeleton className="h-5 w-36 bg-white/[0.04]" />
+          <div className="flex items-center justify-between">
+            <Skeleton className="h-5 w-36 bg-white/[0.04]" />
+            <Skeleton className="h-3 w-16 bg-white/[0.04]" />
+          </div>
           <div className="grid gap-3">
-            {Array.from({ length: 3 }).map((_, i) => (
+            {Array.from({ length: 4 }).map((_, i) => (
               <Skeleton key={i} className="h-16 bg-white/[0.04] rounded-lg" />
             ))}
           </div>
@@ -384,9 +537,24 @@ function PaymentMethodsTab() {
   return (
     <Card className="bg-nebula border-white/[0.06]">
       <CardContent className="p-4 space-y-4">
-        <div>
-          <h2 className="text-sm font-semibold text-white">Metode Pembayaran</h2>
-          <p className="text-xs text-slate-400 mt-0.5">Pilih metode pembayaran yang tersedia di outlet Anda</p>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-sm font-semibold text-white">Metode Pembayaran</h2>
+              <SaveModeBadge mode="auto" />
+            </div>
+            <p className="text-xs text-slate-400 mt-0.5">Pilih metode pembayaran yang tersedia di outlet Anda</p>
+          </div>
+          <div className="shrink-0">
+            {saving ? (
+              <span className="inline-flex items-center gap-1 text-[10px] text-sky-400">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Menyimpan…
+              </span>
+            ) : (
+              <SavedFlash trigger={savedAt} />
+            )}
+          </div>
         </div>
 
         <div className="grid gap-3">
@@ -399,13 +567,13 @@ function PaymentMethodsTab() {
                 tabIndex={0}
                 onClick={() => handleToggle(method.key)}
                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleToggle(method.key) } }}
-                className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer ${
+                className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
                   isActive
                     ? 'theme-border-medium theme-bg-ultra-light hover:theme-hover-light'
                     : 'border-white/[0.06] bg-white/[0.03] hover:bg-white/[0.04]'
                 }`}
               >
-                <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                <div className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${
                   isActive ? 'theme-bg-subtle theme-text' : 'bg-white/[0.04] text-slate-500'
                 }`}>
                   {method.icon}
@@ -414,7 +582,13 @@ function PaymentMethodsTab() {
                   <p className={`text-sm font-semibold ${isActive ? 'theme-text' : 'text-slate-300'}`}>
                     {method.label}
                   </p>
-                  <p className="text-xs text-slate-500 mt-0.5">{method.desc}</p>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {isActive ? (
+                      <span className="text-emerald-400/80">{method.desc} — aktif di POS</span>
+                    ) : (
+                      <span>{method.desc} — tidak aktif</span>
+                    )}
+                  </p>
                 </div>
                 <Switch
                   checked={isActive}
@@ -427,16 +601,10 @@ function PaymentMethodsTab() {
           })}
         </div>
 
-        <div className="flex justify-end">
-          <Button
-            onClick={handleSave}
-            disabled={saving}
-            className="theme-btn-primary h-9 text-xs"
-          >
-            {saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
-            Simpan
-          </Button>
-        </div>
+        <p className="text-[10px] text-slate-500 flex items-center gap-1.5">
+          <Zap className="h-3 w-3 shrink-0" />
+          Perubahan tersimpan otomatis. Tidak perlu klik Simpan.
+        </p>
       </CardContent>
     </Card>
   )
@@ -445,27 +613,27 @@ function PaymentMethodsTab() {
 // ==================== TAB 2: TAX / PPN ====================
 
 function TaxTab() {
-  const { settings, loading, saving, saveSettings } = useSettings()
-  const [edits, setEdits] = useState<Record<string, string | boolean> | null>(null)
+  const { settings, loading, saving, saveSettings, savedAt } = useSettings()
+  // ppnEnabled is AUTO-SAVED (toggle click → immediate PUT).
+  // ppnRate is MANUAL-SAVED (collected, persisted on "Simpan" click).
+  const [ppnRateEdit, setPpnRateEdit] = useState<string | null>(null)
 
-  const ppnEnabled = edits?.ppnEnabled ?? settings?.ppnEnabled ?? false
-  const ppnRate = edits?.ppnRate ?? (settings ? String(settings.ppnRate) : '11')
-  const dirty = edits !== null
+  const ppnEnabled = settings?.ppnEnabled ?? false
+  const ppnRate = ppnRateEdit ?? (settings ? String(settings.ppnRate) : '11')
+  const rateDirty = ppnRateEdit !== null
 
-  const handleChange = (key: string, value: string | boolean) => {
-    setEdits((prev) => ({ ...prev, [key]: value }))
+  // AUTO-SAVE handler for the enable toggle — silent (no toast), inline flash instead.
+  const handleToggleEnabled = async (value: boolean) => {
+    await saveSettings({ ppnEnabled: value }, true)
   }
 
-  const handleSave = async () => {
+  const handleSaveRate = async () => {
     if (!settings) {
       toast.error('Pengaturan belum dimuat, silakan tunggu')
       return
     }
-    const ok = await saveSettings({
-      ppnEnabled: ppnEnabled as boolean,
-      ppnRate: Number(ppnRate),
-    })
-    if (ok) setEdits(null)
+    const ok = await saveSettings({ ppnRate: Number(ppnRate) })
+    if (ok) setPpnRateEdit(null)
   }
 
   // Example calculation
@@ -478,9 +646,12 @@ function TaxTab() {
     return (
       <Card className="bg-nebula border-white/[0.06]">
         <CardContent className="p-4 space-y-3">
-          <Skeleton className="h-5 w-36 bg-white/[0.04]" />
+          <div className="flex items-center justify-between">
+            <Skeleton className="h-5 w-28 bg-white/[0.04]" />
+            <Skeleton className="h-3 w-16 bg-white/[0.04]" />
+          </div>
           <Skeleton className="h-16 bg-white/[0.04] rounded-lg" />
-          <Skeleton className="h-9 bg-white/[0.04]" />
+          <Skeleton className="h-9 bg-white/[0.04] rounded-lg" />
         </CardContent>
       </Card>
     )
@@ -489,37 +660,77 @@ function TaxTab() {
   return (
     <Card className="bg-nebula border-white/[0.06]">
       <CardContent className="p-4 space-y-4">
-        <div>
-          <h2 className="text-sm font-semibold text-white">Pajak PPN</h2>
-          <p className="text-xs text-slate-400 mt-0.5">Atur Pajak Pertambahan Nilai untuk transaksi</p>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-sm font-semibold text-white">Pajak PPN</h2>
+              <SaveModeBadge mode="auto" />
+              <SaveModeBadge mode="manual" />
+            </div>
+            <p className="text-xs text-slate-400 mt-0.5">Atur Pajak Pertambahan Nilai untuk transaksi</p>
+          </div>
+          <div className="shrink-0">
+            {saving ? (
+              <span className="inline-flex items-center gap-1 text-[10px] text-sky-400">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Menyimpan…
+              </span>
+            ) : rateDirty ? (
+              <SaveStatusIndicator dirty saving={false} saved={false} />
+            ) : (
+              <SavedFlash trigger={savedAt} />
+            )}
+          </div>
         </div>
 
-        {/* Enable toggle */}
-        <div className="flex items-center justify-between p-3 rounded-lg border border-white/[0.06] bg-white/[0.03]">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg theme-bg-very-light flex items-center justify-center">
-              <ReceiptText className="h-4 w-4 theme-text" />
+        {/* Enable toggle — AUTO-SAVE. Label & subtitle are dynamic per toggle state. */}
+        <div className={`flex items-center justify-between p-3 rounded-lg border transition-colors ${
+          ppnEnabled
+            ? 'border-emerald-500/20 bg-emerald-500/[0.04]'
+            : 'border-white/[0.06] bg-white/[0.03]'
+        }`}>
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+              ppnEnabled ? 'bg-emerald-500/15' : 'bg-white/[0.04]'
+            }`}>
+              <ReceiptText className={`h-4 w-4 ${ppnEnabled ? 'text-emerald-400' : 'text-slate-500'}`} />
             </div>
-            <div>
-              <p className="text-sm font-semibold text-slate-200">Aktifkan PPN</p>
-              <p className="text-[11px] text-slate-500">Pajak otomatis ditambahkan ke setiap transaksi</p>
+            <div className="min-w-0">
+              <p className={`text-sm font-semibold ${ppnEnabled ? 'text-emerald-300' : 'text-slate-200'}`}>
+                {ppnEnabled ? 'PPN aktif' : 'PPN tidak aktif'}
+              </p>
+              <p className="text-[11px] text-slate-500">
+                {ppnEnabled
+                  ? `Pajak ${rate}% ditambahkan ke setiap transaksi`
+                  : 'Harga transaksi tidak dikenakan pajak'}
+              </p>
             </div>
           </div>
-          <Switch
-            checked={ppnEnabled}
-            onCheckedChange={(v) => handleChange('ppnEnabled', v)}
-            className="theme-switch"
-          />
+          <div className="flex items-center gap-2 shrink-0">
+            <SavedFlash trigger={savedAt} />
+            <Switch
+              checked={ppnEnabled}
+              onCheckedChange={handleToggleEnabled}
+              className="theme-switch"
+            />
+          </div>
         </div>
 
         {ppnEnabled && (
           <>
             <Separator className="bg-white/[0.04]" />
 
+            {/* Rate input — MANUAL-SAVE */}
             <div className="space-y-1.5">
-              <Label htmlFor="ppn-rate" className="text-xs text-slate-300">
-                Tarif PPN (%)
-              </Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="ppn-rate" className="text-xs text-slate-300">
+                  Tarif PPN (%)
+                </Label>
+                <span className="text-[9px] text-amber-400/80 flex items-center gap-1">
+                  <CircleDashed className="h-2.5 w-2.5" />
+                  Klik Simpan untuk menerapkan
+                </span>
+              </div>
               <div className="relative">
                 <Input
                   id="ppn-rate"
@@ -528,7 +739,7 @@ function TaxTab() {
                   max="100"
                   step="0.1"
                   value={ppnRate}
-                  onChange={(e) => handleChange('ppnRate', e.target.value)}
+                  onChange={(e) => setPpnRateEdit(e.target.value)}
                   placeholder="11"
                   className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm pr-10"
                 />
@@ -555,19 +766,24 @@ function TaxTab() {
                 </div>
               </div>
             </div>
+
+            <div className="flex justify-end">
+              <Button
+                onClick={handleSaveRate}
+                disabled={saving || !rateDirty}
+                className="theme-btn-primary h-9 text-xs"
+              >
+                {saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
+                Simpan Tarif
+              </Button>
+            </div>
           </>
         )}
 
-        <div className="flex justify-end">
-          <Button
-            onClick={handleSave}
-            disabled={saving || !dirty}
-            className="theme-btn-primary h-9 text-xs"
-          >
-            {saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
-            Simpan
-          </Button>
-        </div>
+        <p className="text-[10px] text-slate-500 flex items-center gap-1.5">
+          <Zap className="h-3 w-3 shrink-0 text-sky-400" />
+          Toggle aktif/nonaktif tersimpan otomatis. Tarif PPN perlu klik Simpan.
+        </p>
       </CardContent>
     </Card>
   )
@@ -576,24 +792,23 @@ function TaxTab() {
 // ==================== MANUAL DISCOUNT TAB ====================
 
 function ManualDiscountTab() {
-  const { settings, loading, saving, saveSettings } = useSettings()
+  const { settings, loading, saving, saveSettings, savedAt } = useSettings()
 
   const enabled = settings?.manualDiscountEnabled ?? false
 
+  // AUTO-SAVE — toggle click immediately persists. Silent + inline flash.
   const handleToggle = async (value: boolean) => {
-    const ok = await saveSettings({
-      manualDiscountEnabled: value,
-    })
-    if (!ok) {
-      toast.error('Gagal menyimpan pengaturan diskon manual')
-    }
+    await saveSettings({ manualDiscountEnabled: value }, true)
   }
 
   if (loading) {
     return (
       <Card className="bg-nebula border-white/[0.06]">
         <CardContent className="p-4 space-y-3">
-          <Skeleton className="h-5 w-48 bg-white/[0.04]" />
+          <div className="flex items-center justify-between">
+            <Skeleton className="h-5 w-48 bg-white/[0.04]" />
+            <Skeleton className="h-3 w-16 bg-white/[0.04]" />
+          </div>
           <Skeleton className="h-16 bg-white/[0.04] rounded-lg" />
         </CardContent>
       </Card>
@@ -603,20 +818,47 @@ function ManualDiscountTab() {
   return (
     <Card className="bg-nebula border-white/[0.06]">
       <CardContent className="p-4 space-y-4">
-        <div>
-          <h2 className="text-sm font-semibold text-white">Diskon Manual per Item</h2>
-          <p className="text-xs text-slate-400 mt-0.5">Berikan diskon langsung pada produk di keranjang POS</p>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-sm font-semibold text-white">Diskon Manual per Item</h2>
+              <SaveModeBadge mode="auto" />
+            </div>
+            <p className="text-xs text-slate-400 mt-0.5">Berikan diskon langsung pada produk di keranjang POS</p>
+          </div>
+          <div className="shrink-0">
+            {saving ? (
+              <span className="inline-flex items-center gap-1 text-[10px] text-sky-400">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Menyimpan…
+              </span>
+            ) : (
+              <SavedFlash trigger={savedAt} />
+            )}
+          </div>
         </div>
 
-        {/* Enable toggle */}
-        <div className="flex items-center justify-between p-3 rounded-lg border border-white/[0.06] bg-white/[0.03]">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg theme-bg-very-light flex items-center justify-center">
-              <Tag className="h-4 w-4 theme-text" />
+        {/* Enable toggle — AUTO-SAVE. Dynamic label & subtitle. */}
+        <div className={`flex items-center justify-between p-3 rounded-lg border transition-colors ${
+          enabled
+            ? 'border-emerald-500/20 bg-emerald-500/[0.04]'
+            : 'border-white/[0.06] bg-white/[0.03]'
+        }`}>
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+              enabled ? 'bg-emerald-500/15' : 'bg-white/[0.04]'
+            }`}>
+              <Tag className={`h-4 w-4 ${enabled ? 'text-emerald-400' : 'text-slate-500'}`} />
             </div>
-            <div>
-              <p className="text-sm font-semibold text-slate-200">Aktifkan Diskon Manual</p>
-              <p className="text-[11px] text-slate-500">Kasir bisa set diskon per produk di keranjang POS</p>
+            <div className="min-w-0">
+              <p className={`text-sm font-semibold ${enabled ? 'text-emerald-300' : 'text-slate-200'}`}>
+                {enabled ? 'Diskon manual aktif' : 'Diskon manual tidak aktif'}
+              </p>
+              <p className="text-[11px] text-slate-500">
+                {enabled
+                  ? 'Kasir bisa set diskon per produk di keranjang POS'
+                  : 'Kasir tidak bisa memberi diskon per produk'}
+              </p>
             </div>
           </div>
           <Switch
@@ -650,6 +892,11 @@ function ManualDiscountTab() {
             </ul>
           </div>
         )}
+
+        <p className="text-[10px] text-slate-500 flex items-center gap-1.5">
+          <Zap className="h-3 w-3 shrink-0" />
+          Perubahan tersimpan otomatis. Tidak perlu klik Simpan.
+        </p>
       </CardContent>
     </Card>
   )
@@ -690,10 +937,13 @@ function OutletInfoTab() {
     return (
       <Card className="bg-nebula border-white/[0.06]">
         <CardContent className="p-4 space-y-3">
-          <Skeleton className="h-5 w-36 bg-white/[0.04]" />
+          <div className="flex items-center justify-between">
+            <Skeleton className="h-5 w-36 bg-white/[0.04]" />
+            <Skeleton className="h-3 w-16 bg-white/[0.04]" />
+          </div>
           <Skeleton className="h-9 bg-white/[0.04]" />
           <Skeleton className="h-9 bg-white/[0.04]" />
-          <Skeleton className="h-9 bg-white/[0.04]" />
+          <Skeleton className="h-16 bg-white/[0.04] rounded-lg" />
         </CardContent>
       </Card>
     )
@@ -702,9 +952,17 @@ function OutletInfoTab() {
   return (
     <Card className="bg-nebula border-white/[0.06]">
       <CardContent className="p-4 space-y-4">
-        <div>
-          <h2 className="text-sm font-semibold text-white">Informasi Outlet</h2>
-          <p className="text-xs text-slate-400 mt-0.5">Detail informasi usaha Anda</p>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-sm font-semibold text-white">Informasi Outlet</h2>
+              <SaveModeBadge mode="manual" />
+            </div>
+            <p className="text-xs text-slate-400 mt-0.5">Identitas operasional outlet di sistem</p>
+          </div>
+          <div className="shrink-0">
+            <SaveStatusIndicator dirty={dirty} saving={saving} saved={false} />
+          </div>
         </div>
 
         <div className="space-y-4">
@@ -744,7 +1002,11 @@ function OutletInfoTab() {
           </div>
         </div>
 
-        <div className="flex justify-end">
+        <div className="flex justify-end items-center gap-3">
+          <p className="text-[10px] text-slate-500 flex items-center gap-1.5">
+            <CircleDashed className="h-3 w-3 shrink-0" />
+            Klik Simpan untuk menerapkan perubahan
+          </p>
           <Button
             onClick={handleSave}
             disabled={saving || !dirty}
@@ -762,29 +1024,31 @@ function OutletInfoTab() {
 // ==================== TAB 3: LOYALTY PROGRAM ====================
 
 function LoyaltyTab() {
-  const { settings, loading, saving, saveSettings } = useSettings()
-  const [edits, setEdits] = useState<Record<string, string | boolean> | null>(null)
+  const { settings, loading, saving, saveSettings, savedAt } = useSettings()
+  // loyaltyEnabled is AUTO-SAVED.
+  // pointsPerAmount + pointValue are MANUAL-SAVED.
+  const [rateEdits, setRateEdits] = useState<Record<string, string> | null>(null)
 
-  const loyaltyEnabled = edits?.loyaltyEnabled ?? settings?.loyaltyEnabled ?? true
-  const pointsPerAmount = edits?.pointsPerAmount ?? (settings ? String(settings.loyaltyPointsPerAmount) : '10000')
-  const pointValue = edits?.pointValue ?? (settings ? String(settings.loyaltyPointValue) : '100')
-  const dirty = edits !== null
+  const loyaltyEnabled = settings?.loyaltyEnabled ?? true
+  const pointsPerAmount = rateEdits?.pointsPerAmount ?? (settings ? String(settings.loyaltyPointsPerAmount) : '10000')
+  const pointValue = rateEdits?.pointValue ?? (settings ? String(settings.loyaltyPointValue) : '100')
+  const rateDirty = rateEdits !== null
 
-  const handleChange = (key: string, value: string | boolean) => {
-    setEdits((prev) => ({ ...prev, [key]: value }))
+  // AUTO-SAVE for the enable toggle — silent + inline flash.
+  const handleToggleEnabled = async (value: boolean) => {
+    await saveSettings({ loyaltyEnabled: value }, true)
   }
 
-  const handleSave = async () => {
+  const handleSaveRates = async () => {
     if (!settings) {
       toast.error('Pengaturan belum dimuat, silakan tunggu')
       return
     }
     const ok = await saveSettings({
-      loyaltyEnabled: loyaltyEnabled as boolean,
       loyaltyPointsPerAmount: Number(pointsPerAmount),
       loyaltyPointValue: Number(pointValue),
     })
-    if (ok) setEdits(null)
+    if (ok) setRateEdits(null)
   }
 
   // Calculate example
@@ -798,8 +1062,11 @@ function LoyaltyTab() {
     return (
       <Card className="bg-nebula border-white/[0.06]">
         <CardContent className="p-4 space-y-3">
-          <Skeleton className="h-5 w-36 bg-white/[0.04]" />
-          <Skeleton className="h-9 bg-white/[0.04]" />
+          <div className="flex items-center justify-between">
+            <Skeleton className="h-5 w-32 bg-white/[0.04]" />
+            <Skeleton className="h-3 w-16 bg-white/[0.04]" />
+          </div>
+          <Skeleton className="h-16 bg-white/[0.04] rounded-lg" />
           <Skeleton className="h-9 bg-white/[0.04]" />
           <Skeleton className="h-9 bg-white/[0.04]" />
         </CardContent>
@@ -810,33 +1077,67 @@ function LoyaltyTab() {
   return (
     <Card className="bg-nebula border-white/[0.06]">
       <CardContent className="p-4 space-y-4">
-        <div>
-          <h2 className="text-sm font-semibold text-white">Program Loyalti</h2>
-          <p className="text-xs text-slate-400 mt-0.5">Konfigurasi poin loyalitas pelanggan</p>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-sm font-semibold text-white">Program Loyalti</h2>
+              <SaveModeBadge mode="auto" />
+              <SaveModeBadge mode="manual" />
+            </div>
+            <p className="text-xs text-slate-400 mt-0.5">Konfigurasi poin loyalitas pelanggan</p>
+          </div>
+          <div className="shrink-0">
+            {saving ? (
+              <span className="inline-flex items-center gap-1 text-[10px] text-sky-400">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Menyimpan…
+              </span>
+            ) : rateDirty ? (
+              <SaveStatusIndicator dirty saving={false} saved={false} />
+            ) : (
+              <SavedFlash trigger={savedAt} />
+            )}
+          </div>
         </div>
 
-        {/* Enable toggle */}
-        <div className="flex items-center justify-between p-3 rounded-lg border border-white/[0.06] bg-white/[0.03]">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center">
-              <Star className="h-4 w-4 text-amber-400" />
+        {/* Enable toggle — AUTO-SAVE. Dynamic label & subtitle. */}
+        <div className={`flex items-center justify-between p-3 rounded-lg border transition-colors ${
+          loyaltyEnabled
+            ? 'border-amber-500/20 bg-amber-500/[0.04]'
+            : 'border-white/[0.06] bg-white/[0.03]'
+        }`}>
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+              loyaltyEnabled ? 'bg-amber-500/15' : 'bg-white/[0.04]'
+            }`}>
+              <Star className={`h-4 w-4 ${loyaltyEnabled ? 'text-amber-400' : 'text-slate-500'}`} />
             </div>
-            <div>
-              <p className="text-sm font-semibold text-slate-200">Aktifkan Program Loyalti</p>
-              <p className="text-[11px] text-slate-500">Pelanggan mendapat poin dari setiap transaksi</p>
+            <div className="min-w-0">
+              <p className={`text-sm font-semibold ${loyaltyEnabled ? 'text-amber-300' : 'text-slate-200'}`}>
+                {loyaltyEnabled ? 'Loyalti aktif' : 'Loyalti tidak aktif'}
+              </p>
+              <p className="text-[11px] text-slate-500">
+                {loyaltyEnabled
+                  ? 'Pelanggan mendapat poin dari setiap transaksi'
+                  : 'Pelanggan tidak mengumpulkan poin'}
+              </p>
             </div>
           </div>
-          <Switch
-            checked={loyaltyEnabled}
-            onCheckedChange={(v) => handleChange('loyaltyEnabled', v)}
-            className="data-[state=checked]:bg-amber-500"
-          />
+          <div className="flex items-center gap-2 shrink-0">
+            <SavedFlash trigger={savedAt} />
+            <Switch
+              checked={loyaltyEnabled}
+              onCheckedChange={handleToggleEnabled}
+              className="data-[state=checked]:bg-amber-500"
+            />
+          </div>
         </div>
 
         {loyaltyEnabled && (
           <>
             <Separator className="bg-white/[0.04]" />
 
+            {/* Rate inputs — MANUAL-SAVE */}
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="points-per-amount" className="text-xs text-slate-300">
@@ -847,7 +1148,7 @@ function LoyaltyTab() {
                   type="number"
                   min="1"
                   value={pointsPerAmount}
-                  onChange={(e) => handleChange('pointsPerAmount', e.target.value)}
+                  onChange={(e) => setRateEdits((prev) => ({ ...prev, pointsPerAmount: e.target.value }))}
                   placeholder="10000"
                   className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
                 />
@@ -861,7 +1162,7 @@ function LoyaltyTab() {
                   type="number"
                   min="1"
                   value={pointValue}
-                  onChange={(e) => handleChange('pointValue', e.target.value)}
+                  onChange={(e) => setRateEdits((prev) => ({ ...prev, pointValue: e.target.value }))}
                   placeholder="100"
                   className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
                 />
@@ -877,19 +1178,28 @@ function LoyaltyTab() {
                 <span className="font-semibold text-amber-300">{formatCurrency(exampleDiscount)} diskon</span>
               </p>
             </div>
+
+            <div className="flex justify-end items-center gap-3">
+              <p className="text-[10px] text-slate-500 flex items-center gap-1.5">
+                <CircleDashed className="h-3 w-3 shrink-0" />
+                Klik Simpan untuk menerapkan tarif
+              </p>
+              <Button
+                onClick={handleSaveRates}
+                disabled={saving || !rateDirty}
+                className="theme-btn-primary h-9 text-xs"
+              >
+                {saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
+                Simpan Tarif
+              </Button>
+            </div>
           </>
         )}
 
-        <div className="flex justify-end">
-          <Button
-            onClick={handleSave}
-            disabled={saving || !dirty}
-            className="theme-btn-primary h-9 text-xs"
-          >
-            {saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
-            Simpan
-          </Button>
-        </div>
+        <p className="text-[10px] text-slate-500 flex items-center gap-1.5">
+          <Zap className="h-3 w-3 shrink-0 text-sky-400" />
+          Toggle aktif/nonaktif tersimpan otomatis. Tarif poin perlu klik Simpan.
+        </p>
       </CardContent>
     </Card>
   )
@@ -1324,36 +1634,86 @@ function PromoTab() {
 // ==================== TAB 6: THEME & RECEIPT ====================
 
 function ThemeReceiptTab() {
-  const { settings, loading, saving, saveSettings } = useSettings()
-  const [edits, setEdits] = useState<Record<string, string> | null>(null)
+  const { settings, loading, saving, saveSettings, savedAt } = useSettings()
+  // Theme color is AUTO-SAVED.
+  // Receipt text inputs (name/address/phone/footer/logo) are MANUAL-SAVED.
+  // Receipt double-print + sub-toggles are AUTO-SAVED.
+  const [receiptEdits, setReceiptEdits] = useState<Record<string, string> | null>(null)
+  // "Gunakan informasi outlet pada struk" checkbox state.
+  // userOverride is null until the user explicitly toggles; before that, the value
+  // is derived from whether the saved receipt fields match the outlet fields.
+  const [userOverride, setUserOverride] = useState<boolean | null>(null)
 
-  const themeColor = edits?.themeColor ?? settings?.themePrimaryColor ?? 'emerald'
-  const receiptBusinessName = edits?.receiptBusinessName ?? settings?.receiptBusinessName ?? ''
-  const receiptAddress = edits?.receiptAddress ?? settings?.receiptAddress ?? ''
-  const receiptPhone = edits?.receiptPhone ?? settings?.receiptPhone ?? ''
-  const receiptFooter = edits?.receiptFooter ?? settings?.receiptFooter ?? ''
-  const receiptLogo = edits?.receiptLogo ?? settings?.receiptLogo ?? ''
-  const dirty = edits !== null
+  const themeColor = settings?.themePrimaryColor ?? 'emerald'
+  const receiptBusinessName = receiptEdits?.receiptBusinessName ?? settings?.receiptBusinessName ?? ''
+  const receiptAddress = receiptEdits?.receiptAddress ?? settings?.receiptAddress ?? ''
+  const receiptPhone = receiptEdits?.receiptPhone ?? settings?.receiptPhone ?? ''
+  const receiptFooter = receiptEdits?.receiptFooter ?? settings?.receiptFooter ?? ''
+  const receiptLogo = receiptEdits?.receiptLogo ?? settings?.receiptLogo ?? ''
+  const receiptDirty = receiptEdits !== null
 
-  const handleChange = (key: string, value: string) => {
-    setEdits((prev) => ({ ...prev, [key]: value }))
+  // Outlet values for "use outlet info" mode
+  const outletName = settings?.outlet?.name ?? ''
+  const outletAddress = settings?.outlet?.address ?? ''
+  const outletPhone = settings?.outlet?.phone ?? ''
+
+  // Auto-detect: receipt fields match outlet → checkbox checked.
+  // Only applies when the user hasn't manually overridden (userOverride === null).
+  const autoDetectedUseOutletInfo =
+    !!settings &&
+    !!outletName &&
+    (settings.receiptBusinessName ?? '') === outletName &&
+    (settings.receiptAddress ?? '') === outletAddress &&
+    (settings.receiptPhone ?? '') === outletPhone
+  const useOutletInfo = userOverride ?? autoDetectedUseOutletInfo
+  const setUseOutletInfo = (v: boolean) => setUserOverride(v)
+
+  // When useOutletInfo is ON, the preview + saved values follow outlet fields.
+  // The displayed receipt fields become read-only and pre-filled from outlet.
+  const displayBusinessName = useOutletInfo ? outletName : receiptBusinessName
+  const displayAddress = useOutletInfo ? outletAddress : receiptAddress
+  const displayPhone = useOutletInfo ? outletPhone : receiptPhone
+
+  // AUTO-SAVE handler for theme color — silent + inline flash.
+  const handleThemeChange = async (colorName: string) => {
+    await saveSettings({ themePrimaryColor: colorName }, true)
   }
 
-  const handleSave = async () => {
+  // AUTO-SAVE handler for receipt print toggles — silent + inline flash.
+  const handlePrintToggle = async (key: 'receiptDoublePrintEnabled' | 'receiptMerchantCopyEnabled' | 'receiptCustomerCopyEnabled' | 'receiptBatchOrderEnabled', value: boolean) => {
+    await saveSettings({ [key]: value } as Partial<SettingsData>, true)
+  }
+
+  // Toggle "use outlet info" — when turning ON, also persist outlet values into
+  // receipt fields so the backend stays consistent. When turning OFF, leave the
+  // receipt fields as-is (user can now edit them).
+  const handleToggleUseOutletInfo = async (checked: boolean) => {
+    setUseOutletInfo(checked)
+    if (checked && settings) {
+      // Persist outlet values into receipt fields immediately (silent auto-save).
+      await saveSettings({
+        receiptBusinessName: outletName,
+        receiptAddress: outletAddress,
+        receiptPhone: outletPhone,
+      }, true)
+      setReceiptEdits(null)
+    }
+  }
+
+  const handleReceiptChange = (key: string, value: string) => {
+    setReceiptEdits((prev) => ({ ...prev, [key]: value }))
+  }
+
+  const handleSaveReceipt = async () => {
     if (!settings) return
     const ok = await saveSettings({
-      themePrimaryColor: themeColor,
       receiptBusinessName,
       receiptAddress,
       receiptPhone,
       receiptFooter,
       receiptLogo,
-      receiptDoublePrintEnabled: edits?.receiptDoublePrintEnabled !== undefined ? edits.receiptDoublePrintEnabled === 'true' : settings?.receiptDoublePrintEnabled,
-      receiptMerchantCopyEnabled: edits?.receiptMerchantCopyEnabled !== undefined ? edits.receiptMerchantCopyEnabled === 'true' : settings?.receiptMerchantCopyEnabled,
-      receiptCustomerCopyEnabled: edits?.receiptCustomerCopyEnabled !== undefined ? edits.receiptCustomerCopyEnabled === 'true' : settings?.receiptCustomerCopyEnabled,
-      receiptBatchOrderEnabled: edits?.receiptBatchOrderEnabled !== undefined ? edits.receiptBatchOrderEnabled === 'true' : settings?.receiptBatchOrderEnabled,
     })
-    if (ok) setEdits(null)
+    if (ok) setReceiptEdits(null)
   }
 
   if (loading) {
@@ -1363,13 +1723,23 @@ function ThemeReceiptTab() {
           <div className="lg:col-span-3 space-y-4">
             <Card className="bg-nebula border-white/[0.06]">
               <CardContent className="p-4 space-y-3">
-                <Skeleton className="h-5 w-36 bg-white/[0.04]" />
-                <Skeleton className="h-9 bg-white/[0.04]" />
+                <div className="flex items-center justify-between">
+                  <Skeleton className="h-5 w-24 bg-white/[0.04]" />
+                  <Skeleton className="h-3 w-16 bg-white/[0.04]" />
+                </div>
+                <div className="flex gap-2">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <Skeleton key={i} className="h-8 w-8 rounded-full bg-white/[0.04]" />
+                  ))}
+                </div>
               </CardContent>
             </Card>
             <Card className="bg-nebula border-white/[0.06]">
               <CardContent className="p-4 space-y-3">
-                <Skeleton className="h-5 w-40 bg-white/[0.04]" />
+                <div className="flex items-center justify-between">
+                  <Skeleton className="h-5 w-32 bg-white/[0.04]" />
+                  <Skeleton className="h-3 w-16 bg-white/[0.04]" />
+                </div>
                 <Skeleton className="h-9 bg-white/[0.04]" />
                 <Skeleton className="h-9 bg-white/[0.04]" />
                 <Skeleton className="h-9 bg-white/[0.04]" />
@@ -1380,7 +1750,7 @@ function ThemeReceiptTab() {
           <div className="lg:col-span-2">
             <Card className="bg-nebula border-white/[0.06]">
               <CardContent className="p-4 space-y-3">
-                <Skeleton className="h-5 w-36 bg-white/[0.04]" />
+                <Skeleton className="h-5 w-28 bg-white/[0.04]" />
                 <Skeleton className="h-72 w-full bg-white/[0.04] rounded-lg" />
               </CardContent>
             </Card>
@@ -1396,12 +1766,27 @@ function ThemeReceiptTab() {
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
         {/* Left column: Theme + Receipt Form */}
         <div className="lg:col-span-3 space-y-4 min-w-0">
-          {/* Theme Section */}
+          {/* Theme Section — AUTO-SAVE */}
           <Card className="bg-nebula border-white/[0.06]">
             <CardContent className="p-4 space-y-4">
-              <div>
-                <h2 className="text-sm font-semibold text-white">Tema</h2>
-                <p className="text-xs text-slate-400 mt-0.5">Kustomisasi tampilan aplikasi</p>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h2 className="text-sm font-semibold text-white">Tema Tampilan</h2>
+                    <SaveModeBadge mode="auto" />
+                  </div>
+                  <p className="text-xs text-slate-400 mt-0.5">Kustomisasi warna aksen aplikasi</p>
+                </div>
+                <div className="shrink-0">
+                  {saving ? (
+                    <span className="inline-flex items-center gap-1 text-[10px] text-sky-400">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Menyimpan…
+                    </span>
+                  ) : (
+                    <SavedFlash trigger={savedAt} />
+                  )}
+                </div>
               </div>
 
               <div className="space-y-1.5">
@@ -1412,8 +1797,8 @@ function ThemeReceiptTab() {
                     return (
                       <button
                         key={color.name}
-                        onClick={() => handleChange('themeColor', color.name)}
-                        className={`relative w-8 h-8 rounded-full ${color.classes} flex items-center justify-center transition-colors ${
+                        onClick={() => handleThemeChange(color.name)}
+                        className={`relative w-8 h-8 rounded-full ${color.classes} flex items-center justify-center transition-all ${
                           isSelected ? 'ring-2 ring-offset-2 ring-offset-nebula ring-white/50 scale-110' : 'hover:scale-105'
                         }`}
                         title={color.label}
@@ -1424,49 +1809,109 @@ function ThemeReceiptTab() {
                   })}
                 </div>
               </div>
+              <p className="text-[10px] text-slate-500 flex items-center gap-1.5">
+                <Zap className="h-3 w-3 shrink-0" />
+                Pilihan warna tersimpan otomatis.
+              </p>
             </CardContent>
           </Card>
 
-          {/* Receipt Section */}
+          {/* Receipt Section — text fields MANUAL-SAVE, print toggles AUTO-SAVE */}
           <Card className="bg-nebula border-white/[0.06] overflow-hidden">
             <CardContent className="p-4 space-y-4">
-              <div>
-                <h2 className="text-sm font-semibold text-white">Pengaturan Struk</h2>
-                <p className="text-xs text-slate-400 mt-0.5">Informasi yang ditampilkan pada struk belanja</p>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h2 className="text-sm font-semibold text-white">Identitas pada Struk</h2>
+                    <SaveModeBadge mode="manual" />
+                    <SaveModeBadge mode="auto" />
+                  </div>
+                  <p className="text-xs text-slate-400 mt-0.5">Override khusus struk (logo, footer, salinan)</p>
+                </div>
+                <div className="shrink-0">
+                  {receiptDirty ? (
+                    <SaveStatusIndicator dirty={receiptDirty} saving={saving} saved={false} />
+                  ) : saving ? (
+                    <span className="inline-flex items-center gap-1 text-[10px] text-sky-400">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Menyimpan…
+                    </span>
+                  ) : (
+                    <SavedFlash trigger={savedAt} />
+                  )}
+                </div>
+              </div>
+
+              {/* "Gunakan informasi outlet pada struk" checkbox */}
+              <div className={`rounded-lg border p-3 transition-colors ${
+                useOutletInfo
+                  ? 'border-sky-500/20 bg-sky-500/[0.04]'
+                  : 'border-white/[0.06] bg-white/[0.03]'
+              }`}>
+                <label className="flex items-start gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={useOutletInfo}
+                    onChange={(e) => handleToggleUseOutletInfo(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-white/20 bg-white/[0.04] accent-sky-500 shrink-0"
+                  />
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <LinkIcon className="h-3 w-3 text-sky-400 shrink-0" />
+                      <p className="text-xs font-medium text-slate-200">Gunakan informasi outlet pada struk</p>
+                    </div>
+                    <p className="text-[10px] text-slate-500 mt-0.5">
+                      {useOutletInfo
+                        ? 'Nama, alamat, telepon struk otomatis mengikuti Informasi Outlet. Ubah Informasi Outlet untuk memperbarui.'
+                        : 'Aktifkan untuk menyamakan struk dengan data outlet. Atau biarkan tidak aktif dan isi override khusus struk di bawah.'}
+                    </p>
+                  </div>
+                </label>
               </div>
 
               <div className="grid gap-3">
+                {/* Nama Usaha — read-only when useOutletInfo is ON */}
                 <div className="space-y-1.5">
-                  <Label htmlFor="receipt-name" className="text-xs text-slate-300">Nama Usaha</Label>
+                  <Label htmlFor="receipt-name" className="text-xs text-slate-300">
+                    Nama Usaha {useOutletInfo && <span className="text-sky-400/80">(mengikuti outlet)</span>}
+                  </Label>
                   <Input
                     id="receipt-name"
-                    value={receiptBusinessName}
-                    onChange={(e) => handleChange('receiptBusinessName', e.target.value)}
+                    value={displayBusinessName}
+                    onChange={(e) => handleReceiptChange('receiptBusinessName', e.target.value)}
                     placeholder="Masukkan nama usaha"
-                    className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
+                    disabled={useOutletInfo}
+                    className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm disabled:opacity-60 disabled:cursor-not-allowed"
                   />
                 </div>
+                {/* Alamat — read-only when useOutletInfo is ON */}
                 <div className="space-y-1.5">
-                  <Label htmlFor="receipt-address" className="text-xs text-slate-300">Alamat</Label>
+                  <Label htmlFor="receipt-address" className="text-xs text-slate-300">
+                    Alamat {useOutletInfo && <span className="text-sky-400/80">(mengikuti outlet)</span>}
+                  </Label>
                   <Textarea
                     id="receipt-address"
-                    value={receiptAddress}
-                    onChange={(e) => handleChange('receiptAddress', e.target.value)}
+                    value={displayAddress}
+                    onChange={(e) => handleReceiptChange('receiptAddress', e.target.value)}
                     placeholder="Masukkan alamat usaha"
                     rows={2}
-                    className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 text-sm resize-none"
+                    disabled={useOutletInfo}
+                    className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 text-sm resize-none disabled:opacity-60 disabled:cursor-not-allowed"
                   />
                 </div>
                 {/* Desktop: phone + footer side by side */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                   <div className="space-y-1.5">
-                    <Label htmlFor="receipt-phone" className="text-xs text-slate-300">Telepon</Label>
+                    <Label htmlFor="receipt-phone" className="text-xs text-slate-300">
+                      Telepon {useOutletInfo && <span className="text-sky-400/80">(mengikuti outlet)</span>}
+                    </Label>
                     <Input
                       id="receipt-phone"
-                      value={receiptPhone}
-                      onChange={(e) => handleChange('receiptPhone', e.target.value)}
+                      value={displayPhone}
+                      onChange={(e) => handleReceiptChange('receiptPhone', e.target.value)}
                       placeholder="08xxxxxxxxxx"
-                      className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
+                      disabled={useOutletInfo}
+                      className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm disabled:opacity-60 disabled:cursor-not-allowed"
                     />
                   </div>
                   <div className="space-y-1.5">
@@ -1474,7 +1919,7 @@ function ThemeReceiptTab() {
                     <Input
                       id="receipt-footer"
                       value={receiptFooter}
-                      onChange={(e) => handleChange('receiptFooter', e.target.value)}
+                      onChange={(e) => handleReceiptChange('receiptFooter', e.target.value)}
                       placeholder="Terima kasih atas kunjungan Anda!"
                       className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
                     />
@@ -1486,7 +1931,7 @@ function ThemeReceiptTab() {
                     <Input
                       id="receipt-logo"
                       value={receiptLogo}
-                      onChange={(e) => handleChange('receiptLogo', e.target.value)}
+                      onChange={(e) => handleReceiptChange('receiptLogo', e.target.value)}
                       placeholder="https://example.com/logo.png"
                       className="flex-1 min-w-0 bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
                     />
@@ -1496,7 +1941,7 @@ function ThemeReceiptTab() {
                         variant="ghost"
                         size="sm"
                         className="shrink-0 h-9 w-9 p-0 text-red-400 hover:text-red-300 hover:bg-red-500/10"
-                        onClick={() => handleChange('receiptLogo', '')}
+                        onClick={() => handleReceiptChange('receiptLogo', '')}
                       >
                         <X className="h-4 w-4" />
                       </Button>
@@ -1520,33 +1965,60 @@ function ThemeReceiptTab() {
                 </div>
               </div>
 
-            {/* Double Receipt Print Settings */}
+              {/* Save Button for text fields — MANUAL-SAVE */}
+              <div className="flex justify-end items-center gap-3">
+                <p className="text-[10px] text-slate-500 flex items-center gap-1.5">
+                  <CircleDashed className="h-3 w-3 shrink-0" />
+                  Klik Simpan untuk menerapkan teks & logo
+                </p>
+                <Button
+                  onClick={handleSaveReceipt}
+                  disabled={saving || !receiptDirty || useOutletInfo}
+                  className="theme-btn-primary h-9 text-xs"
+                >
+                  {saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
+                  Simpan
+                </Button>
+              </div>
+
+            {/* Double Receipt Print Settings — AUTO-SAVE */}
             <Separator className="bg-white/[0.06]" />
             <div className="space-y-3 pt-1">
-              <div>
+              <div className="flex items-center gap-2">
                 <h3 className="text-sm font-medium text-white">Cetak Struk Ganda</h3>
-                <p className="text-xs text-slate-400 mt-0.5">Atur cetak struk ganda untuk berbagai kebutuhan</p>
+                <SaveModeBadge mode="auto" />
               </div>
+              <p className="text-xs text-slate-400 -mt-1">Atur cetak struk ganda untuk berbagai kebutuhan</p>
               <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label className="text-xs text-slate-300">Aktifkan Cetak Ganda</Label>
-                    <p className="text-[10px] text-slate-500">Cetak struk 2 kali secara otomatis</p>
+                <div className={`flex items-center justify-between p-2.5 rounded-lg border transition-colors ${
+                  settings?.receiptDoublePrintEnabled
+                    ? 'border-emerald-500/20 bg-emerald-500/[0.04]'
+                    : 'border-white/[0.06] bg-white/[0.03]'
+                }`}>
+                  <div className="space-y-0.5 min-w-0">
+                    <p className={`text-xs font-semibold ${settings?.receiptDoublePrintEnabled ? 'text-emerald-300' : 'text-slate-200'}`}>
+                      {settings?.receiptDoublePrintEnabled ? 'Cetak ganda aktif' : 'Cetak ganda tidak aktif'}
+                    </p>
+                    <p className="text-[10px] text-slate-500">
+                      {settings?.receiptDoublePrintEnabled ? 'Struk dicetak 2 kali otomatis' : 'Struk dicetak 1 kali'}
+                    </p>
                   </div>
                   <Switch
-                    checked={edits?.receiptDoublePrintEnabled !== undefined ? edits.receiptDoublePrintEnabled === 'true' : (settings?.receiptDoublePrintEnabled ?? false)}
-                    onCheckedChange={(checked) => handleChange('receiptDoublePrintEnabled', String(checked))}
+                    checked={settings?.receiptDoublePrintEnabled ?? false}
+                    onCheckedChange={(v) => handlePrintToggle('receiptDoublePrintEnabled', v)}
+                    className="theme-switch"
                   />
                 </div>
-                <div className={`space-y-2.5 pl-1 border-l-2 ${edits?.receiptDoublePrintEnabled === 'true' || settings?.receiptDoublePrintEnabled ? 'border-theme-primary/30' : 'border-white/[0.04] opacity-50'} transition-opacity`}>
+                <div className={`space-y-2.5 pl-1 border-l-2 transition-opacity ${settings?.receiptDoublePrintEnabled ? 'border-theme-primary/30 opacity-100' : 'border-white/[0.04] opacity-50'}`}>
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
                       <Label className="text-xs text-slate-300">Merchant Copy</Label>
                       <p className="text-[10px] text-slate-500">Salinan struk untuk kasir/merchant</p>
                     </div>
                     <Switch
-                      checked={edits?.receiptMerchantCopyEnabled !== undefined ? edits.receiptMerchantCopyEnabled === 'true' : (settings?.receiptMerchantCopyEnabled ?? true)}
-                      onCheckedChange={(checked) => handleChange('receiptMerchantCopyEnabled', String(checked))}
+                      checked={settings?.receiptMerchantCopyEnabled ?? true}
+                      onCheckedChange={(v) => handlePrintToggle('receiptMerchantCopyEnabled', v)}
+                      className="theme-switch"
                     />
                   </div>
                   <div className="flex items-center justify-between">
@@ -1555,8 +2027,9 @@ function ThemeReceiptTab() {
                       <p className="text-[10px] text-slate-500">Salinan struk untuk pelanggan</p>
                     </div>
                     <Switch
-                      checked={edits?.receiptCustomerCopyEnabled !== undefined ? edits.receiptCustomerCopyEnabled === 'true' : (settings?.receiptCustomerCopyEnabled ?? true)}
-                      onCheckedChange={(checked) => handleChange('receiptCustomerCopyEnabled', String(checked))}
+                      checked={settings?.receiptCustomerCopyEnabled ?? true}
+                      onCheckedChange={(v) => handlePrintToggle('receiptCustomerCopyEnabled', v)}
+                      className="theme-switch"
                     />
                   </div>
                   <div className="flex items-center justify-between">
@@ -1565,25 +2038,18 @@ function ThemeReceiptTab() {
                       <p className="text-[10px] text-slate-500">Salinan struk untuk dapur/produksi</p>
                     </div>
                     <Switch
-                      checked={edits?.receiptBatchOrderEnabled !== undefined ? edits.receiptBatchOrderEnabled === 'true' : (settings?.receiptBatchOrderEnabled ?? false)}
-                      onCheckedChange={(checked) => handleChange('receiptBatchOrderEnabled', String(checked))}
+                      checked={settings?.receiptBatchOrderEnabled ?? false}
+                      onCheckedChange={(v) => handlePrintToggle('receiptBatchOrderEnabled', v)}
+                      className="theme-switch"
                     />
                   </div>
                 </div>
               </div>
+              <p className="text-[10px] text-slate-500 flex items-center gap-1.5">
+                <Zap className="h-3 w-3 shrink-0" />
+                Toggle cetak struk tersimpan otomatis.
+              </p>
             </div>
-
-              {/* Save Button — inside form card on desktop */}
-              <div className="flex justify-end pt-2">
-                <Button
-                  onClick={handleSave}
-                  disabled={saving || !dirty}
-                  className="theme-btn-primary h-9 text-xs"
-                >
-                  {saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
-                  Simpan
-                </Button>
-              </div>
             </CardContent>
           </Card>
         </div>
@@ -1631,9 +2097,9 @@ function ThemeReceiptTab() {
                       <img src={receiptLogo} alt="Logo" className="r-logo" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
                     </div>
                   )}
-                  <p className="r-bold r-lg">{receiptBusinessName || 'Nama Usaha'}</p>
-                  {receiptAddress && <p className="r-muted" style={{ whiteSpace: 'pre-line' }}>{receiptAddress}</p>}
-                  {receiptPhone && <p className="r-muted">{receiptPhone}</p>}
+                  <p className="r-bold r-lg">{displayBusinessName || 'Nama Usaha'}</p>
+                  {displayAddress && <p className="r-muted" style={{ whiteSpace: 'pre-line' }}>{displayAddress}</p>}
+                  {displayPhone && <p className="r-muted">{displayPhone}</p>}
                 </div>
 
                 <hr className="r-sep" />
@@ -1726,7 +2192,7 @@ function ThemeReceiptTab() {
 // ==================== TAB 7: TELEGRAM NOTIFICATION ====================
 
 function TelegramTab() {
-  const { settings, loading, saving, saveSettings } = useSettings()
+  const { settings, loading, saving, saveSettings, savedAt } = useSettings()
   const [botToken, setBotToken] = useState('')
   const [chatId, setChatId] = useState('')
   const [showToken, setShowToken] = useState(false)
@@ -1814,9 +2280,9 @@ function TelegramTab() {
   const handleToggle = async (key: keyof Pick<SettingsData, 'notifyOnTransaction' | 'notifyOnCustomer' | 'notifyOnInsight' | 'notifyDailyReport' | 'notifyWeeklyReport' | 'notifyMonthlyReport'>, value: boolean) => {
     if (!settings) return
 
-    // Save immediately — don't go through handleSave to avoid accidentally wiping botToken
-    // saveSettings already updates settings state with server response, no need for local update
-    await saveSettings({ [key]: value } as Partial<SettingsData>)
+    // AUTO-SAVE (silent) — notification toggles save immediately on click.
+    // No "Simpan Notifikasi" button needed; the inline "Tersimpan" flash confirms.
+    await saveSettings({ [key]: value } as Partial<SettingsData>, true)
   }
 
   const handleDisconnect = async () => {
@@ -1844,14 +2310,30 @@ function TelegramTab() {
 
   if (loading) {
     return (
-      <Card className="bg-nebula border-white/[0.06]">
-        <CardContent className="p-4 space-y-3">
-          <Skeleton className="h-5 w-36 bg-white/[0.04]" />
-          <Skeleton className="h-9 bg-white/[0.04]" />
-          <Skeleton className="h-9 bg-white/[0.04]" />
-          <Skeleton className="h-12 bg-white/[0.04] rounded-lg" />
-        </CardContent>
-      </Card>
+      <div className="space-y-4">
+        <Card className="bg-sky-500/5 border-sky-500/15">
+          <CardContent className="p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <Skeleton className="h-5 w-40 bg-white/[0.04]" />
+              <Skeleton className="h-3 w-16 bg-white/[0.04]" />
+            </div>
+            <Skeleton className="h-9 bg-white/[0.04]" />
+            <Skeleton className="h-9 bg-white/[0.04]" />
+            <Skeleton className="h-12 bg-white/[0.04] rounded-lg" />
+          </CardContent>
+        </Card>
+        <Card className="bg-nebula border-white/[0.06]">
+          <CardContent className="p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <Skeleton className="h-5 w-32 bg-white/[0.04]" />
+              <Skeleton className="h-3 w-16 bg-white/[0.04]" />
+            </div>
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-12 bg-white/[0.04] rounded-lg" />
+            ))}
+          </CardContent>
+        </Card>
+      </div>
     )
   }
 
@@ -1929,29 +2411,32 @@ function TelegramTab() {
 
       {/* Connection + Notifications side by side on desktop */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Connection Card */}
+        {/* Connection Card — MANUAL-SAVE */}
         <div className="min-w-0">
         <Card className="bg-nebula border-white/[0.06]">
           <CardContent className="p-4 space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-sm font-semibold text-white">Koneksi Telegram</h2>
-              <p className="text-xs text-slate-400 mt-0.5">Hubungkan bot untuk notifikasi otomatis</p>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="text-sm font-semibold text-white">Koneksi Telegram</h2>
+                  <SaveModeBadge mode="manual" />
+                </div>
+                <p className="text-xs text-slate-400 mt-0.5">Hubungkan bot untuk notifikasi otomatis</p>
+              </div>
+              <Badge
+                className={`text-[11px] shrink-0 ${
+                  isConnected
+                    ? 'theme-bg-very-light theme-border-light theme-text'
+                    : 'bg-white/[0.04] border-white/[0.08] text-slate-500'
+                }`}
+              >
+                {isConnected ? (
+                  <span className="flex items-center gap-1"><Wifi className="h-3 w-3" /> Terhubung</span>
+                ) : (
+                  <span className="flex items-center gap-1"><WifiOff className="h-3 w-3" /> Tidak Terhubung</span>
+                )}
+              </Badge>
             </div>
-            <Badge
-              className={`text-[11px] ${
-                isConnected
-                  ? 'theme-bg-very-light theme-border-light theme-text'
-                  : 'bg-white/[0.04] border-white/[0.08] text-slate-500'
-              }`}
-            >
-              {isConnected ? (
-                <span className="flex items-center gap-1"><Wifi className="h-3 w-3" /> Terhubung</span>
-              ) : (
-                <span className="flex items-center gap-1"><WifiOff className="h-3 w-3" /> Tidak Terhubung</span>
-              )}
-            </Badge>
-          </div>
 
           <div className="space-y-3">
             {/* Bot Token */}
@@ -2059,44 +2544,62 @@ function TelegramTab() {
       </Card>
       </div>
 
-      {/* Notification Toggles */}
+      {/* Notification Toggles — AUTO-SAVE */}
       <div className="min-w-0">
       <Card className="bg-nebula border-white/[0.06]">
         <CardContent className="p-4 space-y-4">
-          <div>
-            <h2 className="text-sm font-semibold text-white">Jenis Notifikasi</h2>
-            <p className="text-xs text-slate-400 mt-0.5">Pilih event yang ingin dikirim via Telegram</p>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-sm font-semibold text-white">Jenis Notifikasi</h2>
+                <SaveModeBadge mode="auto" />
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">Pilih event yang ingin dikirim via Telegram</p>
+            </div>
+            <div className="shrink-0">
+              {saving ? (
+                <span className="inline-flex items-center gap-1 text-[10px] text-sky-400">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Menyimpan…
+                </span>
+              ) : (
+                <SavedFlash trigger={savedAt} />
+              )}
+            </div>
           </div>
 
           <div className="space-y-2">
-            {notificationToggles.map((item) => (
-              <div
-                key={item.key}
-                className="flex items-center justify-between p-2.5 rounded-lg border border-white/[0.06] bg-white/[0.02]"
-              >
-                <div className="min-w-0">
-                  <p className="text-xs font-medium text-slate-200">{item.label}</p>
-                  <p className="text-[11px] text-slate-500">{item.desc}</p>
+            {notificationToggles.map((item) => {
+              const isEnabled = !!settings?.[item.key]
+              return (
+                <div
+                  key={item.key}
+                  className={`flex items-center justify-between p-2.5 rounded-lg border transition-colors ${
+                    isEnabled
+                      ? 'border-emerald-500/20 bg-emerald-500/[0.04]'
+                      : 'border-white/[0.06] bg-white/[0.02]'
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <p className={`text-xs font-medium ${isEnabled ? 'text-emerald-300' : 'text-slate-200'}`}>
+                      {item.label} {isEnabled ? 'aktif' : 'tidak aktif'}
+                    </p>
+                    <p className="text-[11px] text-slate-500">{item.desc}</p>
+                  </div>
+                  <Switch
+                    checked={isEnabled}
+                    onCheckedChange={(v) => handleToggle(item.key, v)}
+                    className="theme-switch"
+                  />
                 </div>
-                <Switch
-                  checked={!!settings?.[item.key]}
-                  onCheckedChange={(v) => handleToggle(item.key, v)}
-                  className="theme-switch"
-                />
-              </div>
-            ))}
+              )
+            })}
           </div>
 
-          <div className="flex justify-end">
-            <Button
-              onClick={handleSave}
-              disabled={saving || !dirty}
-              className="theme-btn-primary h-9 text-xs"
-            >
-              {saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
-              Simpan Notifikasi
-            </Button>
-          </div>
+          <p className="text-[10px] text-slate-500 flex items-center gap-1.5">
+            <Zap className="h-3 w-3 shrink-0" />
+            Toggle notifikasi tersimpan otomatis. Tidak perlu klik Simpan.
+          </p>
         </CardContent>
       </Card>
       </div>
@@ -2223,17 +2726,22 @@ function AccountTab() {
       </Card>
 
       {/* Email + Password side by side on desktop */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Change Email */}
-        <div className="min-w-0">
-        <Card className="bg-nebula border-white/[0.06]">
-          <CardContent className="p-4 space-y-4">
-            <div>
-              <h2 className="text-sm font-semibold text-white">Ganti Email</h2>
-            <p className="text-xs text-slate-400 mt-0.5">Ubah email akun Anda</p>
-          </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
+        {/* Change Email — MANUAL-SAVE (explicit submit) */}
+        <div className="min-w-0 flex">
+        <Card className="bg-nebula border-white/[0.06] flex-1 flex flex-col">
+          <CardContent className="p-4 space-y-4 flex-1 flex flex-col">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="text-sm font-semibold text-white">Ganti Email</h2>
+                  <SaveModeBadge mode="manual" />
+                </div>
+                <p className="text-xs text-slate-400 mt-0.5">Ubah email akun Anda</p>
+              </div>
+            </div>
 
-          <div className="space-y-3">
+          <div className="space-y-3 flex-1">
             <div className="space-y-1.5">
               <Label htmlFor="new-email" className="text-xs text-slate-300">Email Baru</Label>
               <Input
@@ -2244,6 +2752,12 @@ function AccountTab() {
                 placeholder="email@contoh.com"
                 className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
               />
+              {newEmail && !newEmail.includes('@') && (
+                <p className="text-[10px] text-red-400 flex items-center gap-1">
+                  <AlertCircle className="h-3 w-3 shrink-0" />
+                  Format email tidak valid
+                </p>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="email-password" className="text-xs text-slate-300">Konfirmasi Password</Label>
@@ -2255,35 +2769,47 @@ function AccountTab() {
                 placeholder="Masukkan password saat ini"
                 className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
               />
+              <p className="text-[10px] text-slate-500">Verifikasi password diperlukan untuk keamanan</p>
             </div>
           </div>
 
-          <Button
-            onClick={handleChangeEmail}
-            disabled={changingEmail || !newEmail || !emailPassword}
-            className="theme-btn-primary h-9 text-xs"
-          >
-            {changingEmail ? (
-              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Save className="mr-1.5 h-3.5 w-3.5" />
-            )}
-            Ganti Email
-          </Button>
+          <div className="flex justify-end items-center gap-3 pt-2">
+            <p className="text-[10px] text-slate-500 flex items-center gap-1.5">
+              <CircleDashed className="h-3 w-3 shrink-0" />
+              {(!newEmail || !emailPassword) ? 'Isi email & password' : (!newEmail.includes('@') ? 'Format email tidak valid' : 'Siap disimpan')}
+            </p>
+            <Button
+              onClick={handleChangeEmail}
+              disabled={changingEmail || !newEmail || !emailPassword || !newEmail.includes('@')}
+              className="theme-btn-primary h-9 text-xs"
+            >
+              {changingEmail ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Save className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              Ganti Email
+            </Button>
+          </div>
         </CardContent>
       </Card>
       </div>
 
-      {/* Change Password */}
-      <div className="min-w-0">
-      <Card className="bg-nebula border-white/[0.06]">
-        <CardContent className="p-4 space-y-4">
-          <div>
-            <h2 className="text-sm font-semibold text-white">Ganti Password</h2>
-            <p className="text-xs text-slate-400 mt-0.5">Ubah password akun Anda</p>
+      {/* Change Password — MANUAL-SAVE (explicit submit) */}
+      <div className="min-w-0 flex">
+      <Card className="bg-nebula border-white/[0.06] flex-1 flex flex-col">
+        <CardContent className="p-4 space-y-4 flex-1 flex flex-col">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-sm font-semibold text-white">Ganti Password</h2>
+                <SaveModeBadge mode="manual" />
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">Ubah password akun Anda</p>
+            </div>
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-3 flex-1">
             <div className="space-y-1.5">
               <Label htmlFor="current-password" className="text-xs text-slate-300">Password Saat Ini</Label>
               <Input
@@ -2294,6 +2820,7 @@ function AccountTab() {
                 placeholder="Masukkan password saat ini"
                 className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
               />
+              <p className="text-[10px] text-slate-500">Verifikasi password diperlukan untuk keamanan</p>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="new-password" className="text-xs text-slate-300">Password Baru</Label>
@@ -2305,6 +2832,18 @@ function AccountTab() {
                 placeholder="Minimal 6 karakter"
                 className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
               />
+              {newPwd && newPwd.length < 6 && (
+                <p className="text-[10px] text-red-400 flex items-center gap-1">
+                  <AlertCircle className="h-3 w-3 shrink-0" />
+                  Password minimal 6 karakter (sekarang {newPwd.length})
+                </p>
+              )}
+              {newPwd && newPwd.length >= 6 && (
+                <p className="text-[10px] text-emerald-400/80 flex items-center gap-1">
+                  <CheckCircle2 className="h-3 w-3 shrink-0" />
+                  Panjang password cukup
+                </p>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="confirm-password" className="text-xs text-slate-300">Konfirmasi Password Baru</Label>
@@ -2316,21 +2855,45 @@ function AccountTab() {
                 placeholder="Ulangi password baru"
                 className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 h-9 text-sm"
               />
+              {confirmPwd && newPwd !== confirmPwd && (
+                <p className="text-[10px] text-red-400 flex items-center gap-1">
+                  <AlertCircle className="h-3 w-3 shrink-0" />
+                  Konfirmasi tidak cocok
+                </p>
+              )}
+              {confirmPwd && newPwd === confirmPwd && newPwd.length >= 6 && (
+                <p className="text-[10px] text-emerald-400/80 flex items-center gap-1">
+                  <CheckCircle2 className="h-3 w-3 shrink-0" />
+                  Konfirmasi cocok
+                </p>
+              )}
             </div>
           </div>
 
-          <Button
-            onClick={handleChangePassword}
-            disabled={changingPwd || !currentPwd || !newPwd || !confirmPwd || newPwd !== confirmPwd || newPwd.length < 6}
-            className="theme-btn-primary h-9 text-xs"
-          >
-            {changingPwd ? (
-              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <KeyRound className="mr-1.5 h-3.5 w-3.5" />
-            )}
-            Ganti Password
-          </Button>
+          <div className="flex justify-end items-center gap-3 pt-2">
+            <p className="text-[10px] text-slate-500 flex items-center gap-1.5">
+              <CircleDashed className="h-3 w-3 shrink-0" />
+              {(!currentPwd || !newPwd || !confirmPwd)
+                ? 'Isi semua field'
+                : (newPwd.length < 6
+                    ? 'Password baru terlalu pendek'
+                    : (newPwd !== confirmPwd
+                        ? 'Konfirmasi tidak cocok'
+                        : 'Siap disimpan'))}
+            </p>
+            <Button
+              onClick={handleChangePassword}
+              disabled={changingPwd || !currentPwd || !newPwd || !confirmPwd || newPwd !== confirmPwd || newPwd.length < 6}
+              className="theme-btn-primary h-9 text-xs"
+            >
+              {changingPwd ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <KeyRound className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              Ganti Password
+            </Button>
+          </div>
         </CardContent>
       </Card>
       </div>
