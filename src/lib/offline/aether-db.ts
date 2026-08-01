@@ -269,7 +269,7 @@ export interface StockOpnameSnapshot {
 // Session metadata for current/active opname
 export interface StockOpnameSession {
   id: string                    // Always 'current' (singleton)
-  status: 'DRAFT' | 'COUNTING' | 'REVIEW' | 'COMPLETING'
+  status: 'DRAFT' | 'COUNTING' | 'REVIEW' | 'COMPLETING' | 'PAUSED'
   startedAt: string             // ISO 8601
   totalItems: number            // Total items in this session (item-level only — UX V2 canonical)
   countedItems: number          // Items that have physicalQty (item-level only)

@@ -18,7 +18,13 @@ import { v4 as uuidv4 } from 'uuid'
 // Types
 // ════════════════════════════════════════════════════════════
 
-export type OpnameStatus = 'DRAFT' | 'COUNTING' | 'REVIEW' | 'COMPLETING'
+/**
+ * V3: PAUSED is a client-side UI state. The session stays in Dexie (intact),
+ * but the start page shows a "Stock Opname Belum Selesai" resume card instead
+ * of the mode selector. The backend never sees this status — it only receives
+ * snapshots + opnameId at complete time.
+ */
+export type OpnameStatus = 'DRAFT' | 'COUNTING' | 'REVIEW' | 'COMPLETING' | 'PAUSED'
 
 /**
  * Scope of items included in a stock opname session.
@@ -615,22 +621,49 @@ export async function cancelOpname(): Promise<void> {
 }
 
 /**
- * RESUME an existing opname session (after browser crash/reload)
- * Returns session info if exists, null otherwise
+ * V3: PAUSE the stock opname session.
+ *
+ * This is NOT a destructive action. The session and all snapshots stay in
+ * Dexie (intact). Only the `status` field changes from COUNTING → PAUSED so
+ * the start page can show a "Stock Opname Belum Selesai" resume card.
+ *
+ * The backend never sees this status. When the user clicks "Lanjutkan",
+ * `resumeOpname()` restores the session to COUNTING.
+ */
+export async function pauseOpname(): Promise<void> {
+  const db = getAetherDB()
+  await db.stockOpnameSession.update('current', { status: 'PAUSED' })
+}
+
+/**
+ * V3: RESUME a paused session — sets status back to COUNTING.
+ */
+export async function resumePausedOpname(): Promise<void> {
+  const db = getAetherDB()
+  await db.stockOpnameSession.update('current', { status: 'COUNTING' })
+}
+
+/**
+ * RESUME an existing opname session (after browser crash/reload / pause).
+ * Returns session info if exists, null otherwise.
+ *
+ * V3: Now also resumes from PAUSED status. The start page checks for PAUSED
+ * sessions to show the resume card; resumeOpname() returns the session so
+ * the page can decide whether to render the resume card or go straight to
+ * counting.
  */
 export async function resumeOpname(): Promise<OpnameSession | null> {
   const db = getAetherDB()
   const session = await db.stockOpnameSession.get('current')
-  
+
   if (!session) return null
-  
-  // Only resume if in COUNTING or REVIEW status
-  if (!['COUNTING', 'REVIEW'].includes(session.status)) {
-    // Stale session, clear it
+
+  // Resume from COUNTING, REVIEW, or PAUSED. Anything else is stale.
+  if (!['COUNTING', 'REVIEW', 'PAUSED'].includes(session.status)) {
     await clearOpnameData(db)
     return null
   }
-  
+
   return getOpnameSession()
 }
 
