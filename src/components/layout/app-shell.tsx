@@ -20,6 +20,7 @@ import { BulkWorkerProvider } from '@/components/bulk-engine/bulk-worker-provide
 import { BulkUploadDialog } from '@/components/bulk-engine/bulk-upload-dialog'
 import { BulkFloatingWidget } from '@/components/bulk-engine/bulk-floating-widget'
 import { BulkQueueDrawer } from '@/components/bulk-engine/bulk-queue-drawer'
+import { StockOpnameFloatingWidget } from '@/components/stock-opname/floating-widget'
 
 // ── Lazy-loaded pages (code splitting for faster initial load) ──
 const DashboardPage = lazy(() => import('@/components/pages/dashboard-page'))
@@ -228,6 +229,10 @@ function AppContent() {
           <BulkUploadDialog />
           <BulkFloatingWidget />
           <BulkQueueDrawer />
+          {/* STOCK OPNAME: global "Stock Opname Berjalan" pill — surfaces an
+              active/paused opname session on every page except the SO page
+              itself, so the user can jump back to counting in one click. */}
+          <StockOpnameFloatingWidget />
         </BulkWorkerProvider>
       </MigrationProcessorProvider>
     </PlanProvider>

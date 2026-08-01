@@ -6,9 +6,9 @@
  * plumbing for the V3 sub-components.
  */
 
-import type { OpnameScope, SnapshotItem } from '@/lib/stock-opname/service'
+import type { OpnameScope, SnapshotItem, CompletionSummary } from '@/lib/stock-opname/service'
 
-export type { OpnameScope, SnapshotItem }
+export type { OpnameScope, SnapshotItem, CompletionSummary }
 
 export const VARIANCE_EPSILON = 0.001
 

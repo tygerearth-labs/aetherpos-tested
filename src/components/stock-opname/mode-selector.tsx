@@ -1,25 +1,31 @@
 'use client'
 
 /**
- * StockOpnameModeSelector — V3 start page mode selector.
+ * StockOpnameModeSelector — V3.1 start page mode selector.
  *
- * Three selectable mode cards (desktop: row, mobile: stack) with amber accent
- * for the selected card. Below the selector, the active mode's configuration
- * panel renders.
+ * Visual hierarchy matches the Purchase → "Pilih Metode Input" pattern:
+ *   - icon block on the left (w-10 h-10 rounded-xl)
+ *   - title + two-line description + small suitability hint
+ *   - selected card: subtle amber tint + amber border + active icon + checkmark
+ *   - unselected cards: neutral background + clear hover state
+ *   - equal card heights (h-full + flex)
+ *
+ * The active mode's configuration panel renders below the selector. Each panel
+ * owns its mode-specific content (category list / item picker) plus a shared
+ * `ZeroStockSetting` row. The single `StockOpnameSessionSummary` lives at the
+ * page level (not duplicated inside the panels).
  *
  * This is a controlled component — the parent owns the state and passes
  * `mode` + `onChange`.
  */
 
 import { useMemo, useState, useEffect } from 'react'
-import { motion } from 'framer-motion'
-import { Card, CardContent } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Boxes, Layers, MousePointerClick, Search, X, PackageOpen } from 'lucide-react'
+import { Boxes, Layers, MousePointerClick, Search, X, PackageOpen, CheckCircle2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   MODE_OPTIONS,
@@ -28,7 +34,7 @@ import {
 } from './types'
 
 // ════════════════════════════════════════════════════════════
-// Mode Selector (3 cards)
+// Mode Selector (3 cards — Purchase input-method style)
 // ════════════════════════════════════════════════════════════
 
 const MODE_ICONS: Record<OpnameScope, React.ReactNode> = {
@@ -46,7 +52,6 @@ export function StockOpnameModeSelector({
 }) {
   return (
     <div>
-      <div className="text-sm font-semibold mb-3">Pilih Mode Stock Opname</div>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         {MODE_OPTIONS.map((opt) => {
           const selected = mode === opt.value
@@ -56,28 +61,81 @@ export function StockOpnameModeSelector({
               type="button"
               onClick={() => onChange(opt.value)}
               className={cn(
-                'text-left p-4 rounded-lg border-2 transition-all duration-150',
+                'group relative h-full rounded-xl border p-4 text-left transition-all duration-200',
                 selected
-                  ? 'border-amber-500 bg-amber-500/5'
-                  : 'border-border bg-card hover:border-muted-foreground/30 hover:bg-muted/30'
+                  ? 'border-amber-500/50 bg-amber-500/[0.06]'
+                  : 'border-border bg-card hover:border-amber-500/30 hover:bg-amber-500/[0.02]'
               )}
             >
-              <div className="flex items-center gap-2 mb-2">
-                <span className={cn(selected ? 'text-amber-600' : 'text-muted-foreground')}>
+              {/* Selected checkmark — top-right */}
+              {selected && (
+                <CheckCircle2 className="absolute top-3 right-3 h-4 w-4 text-amber-500 shrink-0" />
+              )}
+              <div className="flex items-start gap-3">
+                <div
+                  className={cn(
+                    'w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-colors',
+                    selected
+                      ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+                      : 'bg-muted text-muted-foreground group-hover:bg-amber-500/10 group-hover:text-amber-500'
+                  )}
+                >
                   {MODE_ICONS[opt.value]}
-                </span>
-                <span className="font-medium text-sm">{opt.label}</span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p
+                    className={cn(
+                      'text-sm font-medium transition-colors',
+                      selected
+                        ? 'text-foreground'
+                        : 'text-foreground group-hover:text-amber-600 dark:group-hover:text-amber-400'
+                    )}
+                  >
+                    {opt.label}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                    {opt.description}
+                  </p>
+                  <div className="flex items-center gap-1.5 mt-2.5 text-[10px] text-muted-foreground">
+                    <CheckCircle2 className="h-3 w-3 shrink-0" />
+                    <span>{opt.hint}</span>
+                  </div>
+                </div>
               </div>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                {opt.description}
-              </p>
-              <p className="text-xs text-muted-foreground/70 mt-1.5 italic">
-                {opt.hint}
-              </p>
             </button>
           )
         })}
       </div>
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════
+// Shared: Zero-stock setting row (belongs inside the configuration section)
+// ════════════════════════════════════════════════════════════
+
+export function ZeroStockSetting({
+  includeZeroStock,
+  onIncludeZeroStockChange,
+}: {
+  includeZeroStock: boolean
+  onIncludeZeroStockChange: (v: boolean) => void
+}) {
+  return (
+    <div className="rounded-lg border bg-muted/30 p-3">
+      <label className="flex items-start gap-2.5 cursor-pointer">
+        <Checkbox
+          checked={includeZeroStock}
+          onCheckedChange={(v) => onIncludeZeroStockChange(v === true)}
+          className="mt-0.5"
+        />
+        <div className="flex-1">
+          <div className="text-sm font-medium">Sertakan item dengan stok 0</div>
+          <div className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+            Item tanpa stok sistem tetap masuk daftar hitungan untuk konfirmasi stok fisik.
+          </div>
+        </div>
+      </label>
     </div>
   )
 }
@@ -89,41 +147,16 @@ export function StockOpnameModeSelector({
 export function AllItemsModePanel({
   includeZeroStock,
   onIncludeZeroStockChange,
-  itemCount,
-  loading,
 }: {
   includeZeroStock: boolean
   onIncludeZeroStockChange: (v: boolean) => void
-  itemCount: number
-  loading: boolean
 }) {
+  // No mode-specific picker — only the shared zero-stock setting.
   return (
-    <div className="space-y-4">
-      <label className="flex items-center gap-2 cursor-pointer">
-        <Checkbox
-          checked={includeZeroStock}
-          onCheckedChange={(v) => onIncludeZeroStockChange(v === true)}
-        />
-        <span className="text-sm">Sertakan item dengan stok 0</span>
-      </label>
-
-      <div className="p-3 rounded-lg bg-muted/40 border border-border">
-        <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">
-          Ringkasan Sesi
-        </div>
-        {loading ? (
-          <Skeleton className="h-5 w-48" />
-        ) : (
-          <div className="text-sm">
-            <span className="font-bold text-base tabular-nums">{itemCount}</span>{' '}
-            item akan masuk sesi
-          </div>
-        )}
-        <div className="text-xs text-muted-foreground mt-0.5">
-          Snapshot diambil saat sesi dimulai
-        </div>
-      </div>
-    </div>
+    <ZeroStockSetting
+      includeZeroStock={includeZeroStock}
+      onIncludeZeroStockChange={onIncludeZeroStockChange}
+    />
   )
 }
 
@@ -137,7 +170,6 @@ export function CategoryModePanel({
   onSelectedIdsChange,
   includeZeroStock,
   onIncludeZeroStockChange,
-  itemCount,
   loading,
 }: {
   categories: OpnameCategory[]
@@ -145,7 +177,6 @@ export function CategoryModePanel({
   onSelectedIdsChange: (ids: string[]) => void
   includeZeroStock: boolean
   onIncludeZeroStockChange: (v: boolean) => void
-  itemCount: number
   loading: boolean
 }) {
   const [query, setQuery] = useState('')
@@ -159,32 +190,29 @@ export function CategoryModePanel({
   // Empty state — intentional, not a dead box
   if (!loading && categories.length === 0) {
     return (
-      <div className="space-y-4">
-        <div className="p-6 rounded-lg border border-dashed border-border text-center">
-          <PackageOpen className="h-8 w-8 text-muted-foreground/50 mx-auto mb-2" />
+      <div className="space-y-3">
+        <div className="p-5 rounded-lg border border-dashed border-border text-center">
+          <PackageOpen className="h-7 w-7 text-muted-foreground/50 mx-auto mb-2" />
           <p className="text-sm font-medium">Belum ada kategori inventory.</p>
           <p className="text-xs text-muted-foreground mt-1">
             Gunakan mode Semua Item atau buat kategori terlebih dahulu.
           </p>
         </div>
-        <label className="flex items-center gap-2 cursor-pointer">
-          <Checkbox
-            checked={includeZeroStock}
-            onCheckedChange={(v) => onIncludeZeroStockChange(v === true)}
-          />
-          <span className="text-sm">Sertakan item dengan stok 0</span>
-        </label>
+        <ZeroStockSetting
+          includeZeroStock={includeZeroStock}
+          onIncludeZeroStockChange={onIncludeZeroStockChange}
+        />
       </div>
     )
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {/* Selected category chips */}
       {selectedIds.length > 0 && (
         <div>
           <div className="text-xs font-medium text-muted-foreground mb-1.5">
-            Kategori Dipilih
+            Kategori Dipilih ({selectedIds.length})
           </div>
           <div className="flex flex-wrap gap-1.5">
             {selectedIds.map((id) => {
@@ -264,28 +292,10 @@ export function CategoryModePanel({
         )}
       </div>
 
-      <label className="flex items-center gap-2 cursor-pointer">
-        <Checkbox
-          checked={includeZeroStock}
-          onCheckedChange={(v) => onIncludeZeroStockChange(v === true)}
-        />
-        <span className="text-sm">Sertakan item dengan stok 0</span>
-      </label>
-
-      {/* Summary */}
-      {selectedIds.length > 0 && (
-        <div className="p-3 rounded-lg bg-muted/40 border border-border">
-          <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">
-            Ringkasan Sesi
-          </div>
-          <div className="text-sm">
-            <span className="font-bold text-base tabular-nums">{selectedIds.length}</span>{' '}
-            kategori ·{' '}
-            <span className="font-bold text-base tabular-nums">{itemCount}</span> item akan
-            masuk sesi
-          </div>
-        </div>
-      )}
+      <ZeroStockSetting
+        includeZeroStock={includeZeroStock}
+        onIncludeZeroStockChange={onIncludeZeroStockChange}
+      />
     </div>
   )
 }
@@ -372,7 +382,7 @@ export function SelectedItemsModePanel({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {/* Search to add items */}
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -476,19 +486,16 @@ export function SelectedItemsModePanel({
         </div>
       )}
 
-      <label className="flex items-center gap-2 cursor-pointer">
-        <Checkbox
-          checked={includeZeroStock}
-          onCheckedChange={(v) => onIncludeZeroStockChange(v === true)}
-        />
-        <span className="text-sm">Sertakan item dengan stok 0</span>
-      </label>
+      <ZeroStockSetting
+        includeZeroStock={includeZeroStock}
+        onIncludeZeroStockChange={onIncludeZeroStockChange}
+      />
     </div>
   )
 }
 
 // ════════════════════════════════════════════════════════════
-// Session Summary (consistent panel below the active mode)
+// Session Summary — one compact panel (item count · mode · zero-stock · snapshot)
 // ════════════════════════════════════════════════════════════
 
 export function StockOpnameSessionSummary({
@@ -509,38 +516,26 @@ export function StockOpnameSessionSummary({
       ? 'Semua Item'
       : mode === 'CATEGORY'
         ? 'Per Kategori'
-        : 'Pilih Item Tertentu'
+        : 'Item Tertentu'
 
   return (
-    <div className="p-4 rounded-lg bg-muted/30 border border-border">
-      <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
-        Ringkasan Sesi
-      </div>
-      <div className="grid grid-cols-2 gap-y-1.5 text-sm">
-        <div className="text-muted-foreground">Mode</div>
-        <div className="font-medium">{modeLabel}</div>
-
-        {mode === 'CATEGORY' && (
-          <>
-            <div className="text-muted-foreground">Kategori</div>
-            <div className="font-medium tabular-nums">
-              {loading ? '...' : categoryCount}
-            </div>
-          </>
-        )}
-
-        <div className="text-muted-foreground">Item</div>
-        <div className="font-medium tabular-nums">
+    <div className="rounded-lg border bg-muted/20 p-3.5 space-y-1.5">
+      <div className="flex items-baseline gap-2 flex-wrap">
+        <span className="text-lg font-bold tabular-nums">
           {loading ? '...' : itemCount}
-        </div>
-
-        <div className="text-muted-foreground">Item stok 0</div>
-        <div className="font-medium">
-          {includeZeroStock ? 'Disertakan' : 'Tidak disertakan'}
-        </div>
-
-        <div className="text-muted-foreground">Snapshot</div>
-        <div className="font-medium">Diambil saat sesi dimulai</div>
+        </span>
+        <span className="text-sm text-muted-foreground">
+          item · {modeLabel}
+          {mode === 'CATEGORY' && !loading && categoryCount > 0 && (
+            <span className="text-muted-foreground/70"> ({categoryCount} kategori)</span>
+          )}
+        </span>
+      </div>
+      <div className="text-xs text-muted-foreground">
+        {includeZeroStock ? 'Stok 0 disertakan' : 'Stok 0 tidak disertakan'}
+      </div>
+      <div className="text-xs text-muted-foreground">
+        Snapshot dibuat saat sesi dimulai
       </div>
     </div>
   )

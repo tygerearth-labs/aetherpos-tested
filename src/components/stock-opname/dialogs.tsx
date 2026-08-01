@@ -17,10 +17,11 @@ import {
   ResponsiveDialogFooter,
 } from '@/components/ui/responsive-dialog'
 import { Button } from '@/components/ui/button'
-import { Loader2, Camera, AlertTriangle } from 'lucide-react'
+import { Loader2, Camera, AlertTriangle, ArrowRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   fmtQty,
+  fmtSignedDelta,
   type OpnameScope,
   type CompletionSummary,
 } from './types'
@@ -300,6 +301,47 @@ export function StockOpnameCompleteDialog({
                 </div>
               </div>
             </div>
+
+            {/* Adjusted-items list — Name + SKU + Snapshot→Fisik + Selisih */}
+            {summary.adjustments.length > 0 && (
+              <div className="rounded-lg border border-border overflow-hidden">
+                <div className="px-3 py-2 bg-muted/40 text-xs font-medium text-muted-foreground">
+                  Item yang Disesuaikan ({summary.adjustments.length})
+                </div>
+                <div className="max-h-48 overflow-y-auto divide-y divide-border">
+                  {summary.adjustments.map((adj) => (
+                    <div key={adj.snapshotId} className="px-3 py-2 space-y-0.5">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-medium truncate">{adj.itemName}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {adj.itemSku || 'Tanpa SKU'}
+                            {adj.categoryName && ` · ${adj.categoryName}`}
+                          </div>
+                        </div>
+                        <div
+                          className={cn(
+                            'text-sm font-semibold tabular-nums shrink-0',
+                            adj.delta > 0
+                              ? 'text-blue-600 dark:text-blue-400'
+                              : 'text-red-600 dark:text-red-400'
+                          )}
+                        >
+                          {fmtSignedDelta(adj.delta)} {adj.itemUnit}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground tabular-nums">
+                        <span>Snapshot {fmtQty(adj.systemQty)}</span>
+                        <ArrowRight className="h-3 w-3 text-muted-foreground/50" />
+                        <span>Fisik {fmtQty(adj.physicalQty)}</span>
+                        <span className="text-muted-foreground/50">·</span>
+                        <span>{adj.itemUnit}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Partial-completion warning */}
             <div className="p-3 rounded-lg bg-amber-500/5 border border-amber-500/20">

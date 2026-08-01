@@ -56,6 +56,7 @@ import {
   DropdownMenuItem,
 } from '@/components/ui/dropdown-menu'
 import { usePageStore } from '@/hooks/use-page-store'
+import { useIsMobile } from '@/hooks/use-mobile'
 import {
   ClipboardCheck,
   Search,
@@ -136,6 +137,9 @@ import {
 // ════════════════════════════════════════════════════════════
 
 export default function StockOpnamePage() {
+  // ── Navigation ──
+  const { setCurrentPage } = usePageStore()
+
   // ── Page-level state ──
   const [status, setStatus] = useState<OpnameStatus | 'COMPLETED' | null>(null)
   const [session, setSession] = useState<OpnameSession | null>(null)
@@ -166,6 +170,9 @@ export default function StockOpnamePage() {
   const [filterCategory, setFilterCategory] = useState<string>('all')
   const [sortMode, setSortMode] = useState<SortMode>('NAME')
   const [categories, setCategories] = useState<OpnameCategory[]>([])
+
+  // ── Responsive: mobile uses a Dialog for counting; desktop uses floating card ──
+  const isMobile = useIsMobile()
 
   // ── Review state ──
   const [reviewFilter, setReviewFilter] = useState<'DIFFERENCE' | 'ALL'>('DIFFERENCE')
@@ -360,6 +367,27 @@ export default function StockOpnamePage() {
       setTimeout(() => scanInputRef.current?.focus(), 50)
     }
   }
+
+  // Minimize the counting widget (mobile): dismiss the dialog and surface the
+  // "Stock Opname Berjalan" pill. The pill re-opens the dialog via the
+  // `so-resume-counting` event below.
+  const handleMinimizeCount = useCallback(() => {
+    setFocusedSnapshot(null)
+    setTimeout(() => scanInputRef.current?.focus(), 50)
+  }, [])
+
+  // Listen for the "so-resume-counting" custom event dispatched by the global
+  // Stock Opname pill when tapped on the SO page (mobile, counting minimized).
+  // Re-focus the next uncounted item, or the first item if all are counted.
+  useEffect(() => {
+    const onResume = () => {
+      const itemSnapshots = snapshots.filter((s) => s.batchId === null)
+      const nextUncounted = itemSnapshots.find((s) => s.physicalQty === null)
+      setFocusedSnapshot(nextUncounted ?? itemSnapshots[0] ?? null)
+    }
+    window.addEventListener('so-resume-counting', onResume)
+    return () => window.removeEventListener('so-resume-counting', onResume)
+  }, [snapshots])
 
   // ════════════════════════════════════════════════════════════
   // Actions: pause / resume / cancel
@@ -557,31 +585,31 @@ export default function StockOpnamePage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      {/* Header */}
-      <div className="border-b bg-card sticky top-0 z-30">
-        <div className="max-w-4xl mx-auto px-4 py-3">
-          <div className="flex items-center justify-between gap-3">
+      {/* Lightweight page header — icon + title + subtitle, no heavy banner */}
+      <div className="max-w-5xl mx-auto w-full px-4 pt-5 pb-1">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-amber-500/10 flex items-center justify-center shrink-0">
+              <ClipboardCheck className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+            </div>
             <div>
-              <h1 className="text-lg font-bold flex items-center gap-2">
-                <ClipboardCheck className="h-5 w-5 text-primary" />
-                Stock Opname
-              </h1>
+              <h1 className="text-base font-semibold leading-tight">Stock Opname</h1>
               <p className="text-xs text-muted-foreground mt-0.5">
                 Hitung stok fisik & sesuaikan dengan sistem
               </p>
             </div>
-            {session?.scopeLabel && (
-              <Badge variant="outline" className="gap-1.5 px-2.5 py-1 text-xs">
-                <History className="h-3 w-3" />
-                {session.scopeLabel}
-              </Badge>
-            )}
           </div>
+          {session?.scopeLabel && (
+            <Badge variant="outline" className="gap-1.5 px-2.5 py-1 text-xs shrink-0">
+              <History className="h-3 w-3" />
+              {session.scopeLabel}
+            </Badge>
+          )}
         </div>
       </div>
 
       {/* Main Content */}
-      <main className="flex-1 max-w-4xl mx-auto w-full px-4 py-5">
+      <main className="flex-1 max-w-4xl mx-auto w-full px-4 py-4">
         <AnimatePresence mode="wait">
           {/* ════════════════════════════════════════════════════
            * RESUME CARD (PAUSED session exists)
@@ -605,6 +633,8 @@ export default function StockOpnamePage() {
 
           {/* ════════════════════════════════════════════════════
            * START PAGE (idle, no session)
+           * V3.1 — focused central panel, Purchase-style mode cards,
+           * single compact summary, sticky footer with Batal + CTA.
            * ════════════════════════════════════════════════════ */}
           {status === null && (
             <motion.div
@@ -612,20 +642,32 @@ export default function StockOpnamePage() {
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
-              className="space-y-5"
+              className="max-w-[980px] mx-auto"
             >
               <Card>
-                <CardContent className="p-5 space-y-5">
-                  <StockOpnameModeSelector mode={mode} onChange={setMode} />
+                <CardContent className="p-0">
+                  {/* Panel title + helper */}
+                  <div className="px-5 pt-5 pb-3">
+                    <h2 className="text-base font-semibold">Mulai Sesi Baru</h2>
+                    <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                      Pilih metode hitung stok sesuai kebutuhan operasional toko.
+                    </p>
+                  </div>
 
-                  {/* Active mode panel */}
-                  <div className="pt-2 border-t">
+                  {/* Mode cards */}
+                  <div className="px-5">
+                    <StockOpnameModeSelector mode={mode} onChange={setMode} />
+                  </div>
+
+                  {/* Active mode configuration */}
+                  <div className="px-5 pt-4 mt-4 border-t">
+                    <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2.5">
+                      Konfigurasi
+                    </div>
                     {mode === 'ALL_ITEMS' && (
                       <AllItemsModePanel
                         includeZeroStock={includeZeroStock}
                         onIncludeZeroStockChange={setIncludeZeroStock}
-                        itemCount={preview?.itemCount ?? 0}
-                        loading={previewLoading}
                       />
                     )}
                     {mode === 'CATEGORY' && (
@@ -635,7 +677,6 @@ export default function StockOpnamePage() {
                         onSelectedIdsChange={setSelectedCategoryIds}
                         includeZeroStock={includeZeroStock}
                         onIncludeZeroStockChange={setIncludeZeroStock}
-                        itemCount={preview?.itemCount ?? 0}
                         loading={previewLoading}
                       />
                     )}
@@ -652,39 +693,63 @@ export default function StockOpnamePage() {
                     )}
                   </div>
 
-                  {/* Session summary */}
-                  <StockOpnameSessionSummary
-                    mode={mode}
-                    itemCount={preview?.itemCount ?? 0}
-                    categoryCount={selectedCategoryIds.length}
-                    includeZeroStock={includeZeroStock}
-                    loading={previewLoading}
-                  />
-
-                  {/* Informational notice */}
-                  <div className="p-3 rounded-lg bg-emerald-500/5 border border-emerald-500/20">
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      Penjualan tetap dapat berjalan. Hindari pembelian, transfer, atau
-                      adjustment manual pada item yang sedang dihitung agar hasil review
-                      lebih mudah.
-                    </p>
+                  {/* Single compact session summary */}
+                  <div className="px-5 pt-4">
+                    <StockOpnameSessionSummary
+                      mode={mode}
+                      itemCount={preview?.itemCount ?? 0}
+                      categoryCount={selectedCategoryIds.length}
+                      includeZeroStock={includeZeroStock}
+                      loading={previewLoading}
+                    />
                   </div>
 
-                  {/* Start CTA — explicit label, no play icon */}
-                  <Button
-                    className="w-full"
-                    size="lg"
-                    onClick={() => setShowStartDialog(true)}
-                    disabled={
-                      loading ||
-                      !preview ||
-                      preview.itemCount === 0 ||
-                      (mode === 'CATEGORY' && selectedCategoryIds.length === 0) ||
-                      (mode === 'SELECTED_ITEMS' && selectedItemIds.length === 0)
-                    }
-                  >
-                    Mulai Stock Opname
-                  </Button>
+                  {/* Concise information notice */}
+                  <div className="px-5 pt-3">
+                    <div className="flex items-start gap-2 p-2.5 rounded-lg bg-muted/30 border border-border">
+                      <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
+                      <p className="text-[11px] text-muted-foreground leading-relaxed">
+                        Penjualan tetap dapat berjalan. Hindari pembelian, transfer, atau
+                        adjustment manual pada item yang sedang dihitung agar review lebih mudah.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Footer action — left Batal, right primary CTA.
+                      Sticky so the CTA stays visible while the category/item
+                      lists scroll. On mobile, sticks at bottom-14 (56px) to
+                      clear the global mobile bottom nav (~56px, z-50); on
+                      desktop, sticks at bottom-0. rounded-b-xl matches the
+                      Card's rounded corners (Card has no overflow-hidden so
+                      sticky works against the viewport). */}
+                  <div className="sticky bottom-14 md:bottom-0 mt-4 px-5 py-3 border-t bg-card/95 backdrop-blur flex items-center gap-2 rounded-b-xl">
+                    <Button
+                      variant="ghost"
+                      className="flex-1 sm:flex-none sm:px-6"
+                      onClick={() => setCurrentPage('dashboard')}
+                      disabled={loading}
+                    >
+                      Batal
+                    </Button>
+                    <Button
+                      className="flex-[2] sm:flex-1"
+                      onClick={() => setShowStartDialog(true)}
+                      disabled={
+                        loading ||
+                        !preview ||
+                        preview.itemCount === 0 ||
+                        (mode === 'CATEGORY' && selectedCategoryIds.length === 0) ||
+                        (mode === 'SELECTED_ITEMS' && selectedItemIds.length === 0)
+                      }
+                    >
+                      Mulai Stock Opname
+                      {preview && preview.itemCount > 0 && (
+                        <span className="ml-1.5 opacity-80 tabular-nums">
+                          · {preview.itemCount} Item
+                        </span>
+                      )}
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             </motion.div>
@@ -822,21 +887,6 @@ export default function StockOpnamePage() {
                   <Camera className="h-4 w-4" />
                 </Button>
               </div>
-
-              {/* Focused counting widget — key forces remount when snapshot changes */}
-              {focusedSnapshot && (
-                <StockOpnameQuickCountWidget
-                  key={focusedSnapshot.id}
-                  snapshot={focusedSnapshot}
-                  onSave={handleSaveCount}
-                  onSkip={handleSkipCount}
-                  onClose={() => {
-                    setFocusedSnapshot(null)
-                    setTimeout(() => scanInputRef.current?.focus(), 50)
-                  }}
-                  onNext={() => {}}
-                />
-              )}
 
               {/* Filter + sort toolbar */}
               <div className="flex flex-col sm:flex-row gap-2">
@@ -1263,6 +1313,47 @@ export default function StockOpnamePage() {
                     </div>
                   </div>
 
+                  {/* Adjusted-items list — Name + SKU + Snapshot→Fisik + Selisih */}
+                  {completionSummary.adjustments.length > 0 && (
+                    <div className="rounded-lg border border-border overflow-hidden text-left">
+                      <div className="px-3 py-2 bg-muted/40 text-xs font-medium text-muted-foreground">
+                        Item yang Disesuaikan ({completionSummary.adjustments.length})
+                      </div>
+                      <div className="max-h-56 overflow-y-auto divide-y divide-border">
+                        {completionSummary.adjustments.map((adj) => (
+                          <div key={adj.snapshotId} className="px-3 py-2 space-y-0.5">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0 flex-1">
+                                <div className="text-sm font-medium truncate">{adj.itemName}</div>
+                                <div className="text-xs text-muted-foreground">
+                                  {adj.itemSku || 'Tanpa SKU'}
+                                  {adj.categoryName && ` · ${adj.categoryName}`}
+                                </div>
+                              </div>
+                              <div
+                                className={cn(
+                                  'text-sm font-semibold tabular-nums shrink-0',
+                                  adj.delta > 0
+                                    ? 'text-blue-600 dark:text-blue-400'
+                                    : 'text-red-600 dark:text-red-400'
+                                )}
+                              >
+                                {fmtSignedDelta(adj.delta)} {adj.itemUnit}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground tabular-nums">
+                              <span>Snapshot {fmtQty(adj.systemQty)}</span>
+                              <ArrowRight className="h-3 w-3 text-muted-foreground/50" />
+                              <span>Fisik {fmtQty(adj.physicalQty)}</span>
+                              <span className="text-muted-foreground/50">·</span>
+                              <span>{adj.itemUnit}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {completeResult && (
                     <div className="text-xs text-muted-foreground">
                       {completeResult.summary.adjustmentsMade} penyesuaian diterapkan ·{' '}
@@ -1275,10 +1366,7 @@ export default function StockOpnamePage() {
                     <Button
                       variant="outline"
                       className="flex-1"
-                      onClick={() => {
-                        const { setPage } = usePageStore.getState()
-                        setPage('audit-log')
-                      }}
+                      onClick={() => setCurrentPage('audit-log')}
                     >
                       <FileText className="h-4 w-4 mr-2" />
                       Lihat Audit Log
@@ -1293,6 +1381,31 @@ export default function StockOpnamePage() {
           )}
         </AnimatePresence>
       </main>
+
+      {/* ════════════════════════════════════════════════════════
+       * COUNTING WIDGET
+       * ── Responsive: mobile renders a centered Dialog (with Minimize →
+       *    "Stock Opname Berjalan" pill), desktop renders a floating
+       *    bottom-right card. Key forces remount when the focused snapshot
+       *    changes.
+       * ════════════════════════════════════════════════════════ */}
+      <AnimatePresence>
+        {status === 'COUNTING' && focusedSnapshot && (
+          <StockOpnameQuickCountWidget
+            key={focusedSnapshot.id}
+            snapshot={focusedSnapshot}
+            onSave={handleSaveCount}
+            onSkip={handleSkipCount}
+            onClose={() => {
+              setFocusedSnapshot(null)
+              setTimeout(() => scanInputRef.current?.focus(), 50)
+            }}
+            onMinimize={handleMinimizeCount}
+            variant={isMobile ? 'dialog' : 'floating'}
+            onNext={() => {}}
+          />
+        )}
+      </AnimatePresence>
 
       {/* ════════════════════════════════════════════════════════
        * DIALOGS
