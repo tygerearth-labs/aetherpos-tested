@@ -271,10 +271,15 @@ export interface StockOpnameSession {
   id: string                    // Always 'current' (singleton)
   status: 'DRAFT' | 'COUNTING' | 'REVIEW' | 'COMPLETING'
   startedAt: string             // ISO 8601
-  totalItems: number            // Total items in this session
-  countedItems: number          // Items that have physicalQty
-  varianceItems: number         // Items where physicalQty !== systemQty
+  totalItems: number            // Total items in this session (item-level only — UX V2 canonical)
+  countedItems: number          // Items that have physicalQty (item-level only)
+  varianceItems: number         // Items where physicalQty !== systemQty (item-level only)
   notes: string | null
+  // UX V2 additions (optional for backward-compat with sessions created before V2):
+  opnameId?: string             // AUDIT-2-006: idempotency key (UUID) sent to server at complete time
+  scope?: 'ALL_ITEMS' | 'CATEGORY' | 'SELECTED_ITEMS'
+  scopeLabel?: string | null    // human-readable scope label shown on cards/dialogs
+  includeZeroStock?: boolean    // whether zero-stock items were included at start
 }
 
 // ════════════════════════════════════════════════════════════
