@@ -10,6 +10,14 @@ import { emitAuditEvent, buildProductChangeEvent } from '@/lib/audit-v2'
 
 type SortOption = 'newest' | 'best-selling' | 'low-stock' | 'most-stock'
 
+// New whitelisted column-sort API (preferred over the legacy `sort` enum).
+// `sortBy` + `sortOrder` override `sort` when present. Sorting is GLOBAL —
+// the API fetches all matching products (no skip/take at the DB level), sorts
+// in memory (because variant aggregation is required), then slices for the
+// requested page. This guarantees sort correctness across pagination.
+type ColumnSortBy = 'name' | 'category' | 'sku' | 'hpp' | 'price' | 'stock' | 'lastChangedAt'
+const ALLOWED_COLUMN_SORT: ColumnSortBy[] = ['name', 'category', 'sku', 'hpp', 'price', 'stock', 'lastChangedAt']
+
 interface VariantPayload {
   name: string
   sku?: string
@@ -31,6 +39,17 @@ export async function GET(request: NextRequest) {
     const search = searchParams.get('search') || ''
     const sort: SortOption = (searchParams.get('sort') as SortOption) || 'newest'
     const categoryId = searchParams.get('categoryId') || ''
+
+    // New column-sort API (overrides legacy `sort` when present).
+    const requestedColumnSort = searchParams.get('sortBy') as ColumnSortBy | null
+    const columnSortBy: ColumnSortBy | null =
+      requestedColumnSort && ALLOWED_COLUMN_SORT.includes(requestedColumnSort) ? requestedColumnSort : null
+    const requestedColumnOrder = searchParams.get('sortOrder')
+    const columnSortOrder: 'asc' | 'desc' = requestedColumnOrder === 'asc' ? 'asc' : 'desc'
+    // When sortBy=lastChangedAt (the new default for the Products table), default to desc.
+    const effectiveColumnSort: ColumnSortBy = columnSortBy ?? 'lastChangedAt'
+    const effectiveColumnOrder: 'asc' | 'desc' =
+      columnSortBy ? columnSortOrder : 'desc'
 
     const where: Record<string, unknown> = { outletId }
     if (search) {
@@ -55,7 +74,137 @@ export async function GET(request: NextRequest) {
     let products: unknown[]
     let total: number
 
-    if (sort === 'best-selling') {
+    // ---- Shared mapper: aggregates variant stock/price/hpp and computes _lastChangedAt ----
+    // _lastChangedAt = max(product.updatedAt, latest variant.updatedAt).
+    // For variant products, an edit to ANY variant bubbles the parent row to the top.
+    // (POS sale uses raw SQL — never bumps updatedAt — so this is a safe business proxy.)
+    type RawProduct = {
+      id: string
+      name: string
+      sku: string | null
+      hpp: number
+      price: number
+      stock: number
+      lowStockAlert: number
+      hasVariants: boolean
+      createdAt: Date
+      updatedAt: Date
+      category?: { id: string; name: string; color: string } | null
+      _count: { variants: number }
+      variants?: Array<{ id: string; name: string; sku: string | null; price: number; hpp: number; stock: number; updatedAt?: Date }>
+    }
+    const mapProduct = (p: RawProduct) => {
+      const vList = p.variants || []
+      const aggStock = p.hasVariants && vList.length > 0
+        ? vList.reduce((s, v) => s + v.stock, 0)
+        : p.stock
+      const aggPrice = p.hasVariants && vList.length > 0
+        ? Math.min(...vList.map((v) => v.price))
+        : p.price
+      const maxPrice = p.hasVariants && vList.length > 0
+        ? Math.max(...vList.map((v) => v.price))
+        : p.price
+      const aggHpp = p.hasVariants && vList.length > 0
+        ? Math.round(vList.reduce((s, v) => s + v.hpp, 0) / vList.length)
+        : p.hpp
+      // _lastChangedAt = max(product.updatedAt, latest variant.updatedAt).
+      const variantUpdates = vList.map((v) => v.updatedAt ? v.updatedAt.getTime() : 0)
+      const lastChangedAt = Math.max(
+        p.updatedAt.getTime(),
+        ...variantUpdates,
+      )
+      return {
+        ...p,
+        hasVariants: !!p.hasVariants,
+        _variantCount: p._count.variants,
+        variants: p.variants,
+        stock: aggStock,
+        price: aggPrice,
+        _maxPrice: maxPrice,
+        hpp: aggHpp,
+        _lastChangedAt: new Date(lastChangedAt).toISOString(),
+      }
+    }
+
+    // ---- Column-sort branch (new API) ----
+    // When the client sends sortBy + sortOrder, we override the legacy `sort`
+    // enum and sort the entire filtered set in memory (variant aggregation
+    // requires it). Then we slice for the requested page. This guarantees
+    // sort correctness across pagination per spec point F.
+    if (columnSortBy) {
+      const [allProducts, count] = await Promise.all([
+        db.product.findMany({
+          where,
+          include: {
+            category: { select: { id: true, name: true, color: true } },
+            _count: { select: { variants: true } },
+            // Include updatedAt so we can compute _lastChangedAt = max(updatedAt, latestVariantUpdatedAt)
+            variants: { select: { id: true, name: true, sku: true, price: true, hpp: true, stock: true, updatedAt: true } },
+          },
+        }),
+        db.product.count({ where }),
+      ])
+
+      const dirMul = effectiveColumnOrder === 'desc' ? -1 : 1
+      allProducts.sort((a, b) => {
+        // Compute aggregate values per row for sortable columns.
+        const vaOf = (p: typeof allProducts[number]) => {
+          const vList = p.variants || []
+          switch (effectiveColumnSort) {
+            case 'name':
+              return (p.name || '').toLowerCase()
+            case 'category':
+              return (p.category?.name || '').toLowerCase()
+            case 'sku':
+              return (p.sku || '').toLowerCase()
+            case 'hpp':
+              return p.hasVariants && vList.length > 0
+                ? vList.reduce((s, v) => s + v.hpp, 0) / vList.length
+                : p.hpp
+            case 'price':
+              return p.hasVariants && vList.length > 0
+                ? Math.min(...vList.map((v) => v.price))
+                : p.price
+            case 'stock':
+              return p.hasVariants && vList.length > 0
+                ? vList.reduce((s, v) => s + v.stock, 0)
+                : p.stock
+            case 'lastChangedAt':
+            default: {
+              const vUpdates = vList.map((v) => v.updatedAt ? v.updatedAt.getTime() : 0)
+              return Math.max(p.updatedAt.getTime(), ...vUpdates)
+            }
+          }
+        }
+        const va = vaOf(a)
+        const vb = vaOf(b)
+        // Nulls/empty to bottom regardless of direction (spec point F).
+        const aEmpty = va === '' || va === null || va === undefined
+        const bEmpty = vb === '' || vb === null || vb === undefined
+        if (aEmpty && !bEmpty) return 1
+        if (!aEmpty && bEmpty) return -1
+        if (aEmpty && bEmpty) {
+          // both empty — fall through to tie-breaker
+        } else if (va < vb) return -1 * dirMul
+        else if (va > vb) return 1 * dirMul
+
+        // Tie-breaker: lastChangedAt desc (most recent first), then createdAt desc, then name asc.
+        const vaLast = Math.max(
+          a.updatedAt.getTime(),
+          ...(a.variants || []).map((v) => v.updatedAt ? v.updatedAt.getTime() : 0),
+        )
+        const vbLast = Math.max(
+          b.updatedAt.getTime(),
+          ...(b.variants || []).map((v) => v.updatedAt ? v.updatedAt.getTime() : 0),
+        )
+        if (vaLast !== vbLast) return vbLast - vaLast
+        if (a.createdAt.getTime() !== b.createdAt.getTime()) return b.createdAt.getTime() - a.createdAt.getTime()
+        return a.name.localeCompare(b.name)
+      })
+
+      total = count
+      products = allProducts.slice(skip, skip + limit).map(mapProduct)
+    } else if (sort === 'best-selling') {
       // Use aggregation instead of loading all transaction items
       const soldAgg = await db.transactionItem.groupBy({
         by: ['productId'],
@@ -75,7 +224,7 @@ export async function GET(request: NextRequest) {
           include: {
             category: { select: { id: true, name: true, color: true } },
             _count: { select: { variants: true } },
-            variants: { select: { id: true, name: true, sku: true, price: true, hpp: true, stock: true } },
+            variants: { select: { id: true, name: true, sku: true, price: true, hpp: true, stock: true, updatedAt: true } },
           },
         }),
         db.product.count({ where }),
@@ -86,33 +235,8 @@ export async function GET(request: NextRequest) {
 
       total = count
       products = allProducts.slice(skip, skip + limit).map((p) => {
-        // When hasVariants, aggregate stock & price from variants
-        const vList = p.variants || []
-        const aggStock = p.hasVariants && vList.length > 0
-          ? vList.reduce((s: number, v: { stock: number }) => s + v.stock, 0)
-          : p.stock
-        const aggPrice = p.hasVariants && vList.length > 0
-          ? Math.min(...vList.map((v: { price: number }) => v.price))
-          : p.price
-        const maxPrice = p.hasVariants && vList.length > 0
-          ? Math.max(...vList.map((v: { price: number }) => v.price))
-          : p.price
-        // Aggregate HPP: for variant products, average from variants; otherwise use product.hpp
-        const aggHpp = p.hasVariants && vList.length > 0
-          ? Math.round(vList.reduce((s: number, v: { hpp: number }) => s + v.hpp, 0) / vList.length)
-          : p.hpp
-        return {
-          ...p,
-          _totalSold: soldMap.get(p.id) ?? 0,
-          hasVariants: !!p.hasVariants,
-          _variantCount: p._count.variants,
-          variants: p.variants,
-          // Aggregated display values
-          stock: aggStock,
-          price: aggPrice,
-          _maxPrice: maxPrice,
-          hpp: aggHpp,
-        }
+        const base = mapProduct(p as unknown as RawProduct)
+        return { ...base, _totalSold: soldMap.get(p.id) ?? 0 }
       })
     } else if (sort === 'low-stock' || sort === 'most-stock') {
       // For stock-based sorting, fetch all products (no skip/take) to aggregate variant stock in-memory
@@ -122,7 +246,7 @@ export async function GET(request: NextRequest) {
           include: {
             category: { select: { id: true, name: true, color: true } },
             _count: { select: { variants: true } },
-            variants: { select: { id: true, name: true, sku: true, price: true, hpp: true, stock: true } },
+            variants: { select: { id: true, name: true, sku: true, price: true, hpp: true, stock: true, updatedAt: true } },
           },
         }),
         db.product.count({ where }),
@@ -144,31 +268,7 @@ export async function GET(request: NextRequest) {
       }
 
       total = count
-      products = allProducts.slice(skip, skip + limit).map((p) => {
-        const vList = p.variants || []
-        const aggStock = p.hasVariants && vList.length > 0
-          ? vList.reduce((s: number, v: { stock: number }) => s + v.stock, 0)
-          : p.stock
-        const aggPrice = p.hasVariants && vList.length > 0
-          ? Math.min(...vList.map((v: { price: number }) => v.price))
-          : p.price
-        const maxPrice = p.hasVariants && vList.length > 0
-          ? Math.max(...vList.map((v: { price: number }) => v.price))
-          : p.price
-        const aggHpp = p.hasVariants && vList.length > 0
-          ? Math.round(vList.reduce((s: number, v: { hpp: number }) => s + v.hpp, 0) / vList.length)
-          : p.hpp
-        return {
-          ...p,
-          hasVariants: !!p.hasVariants,
-          _variantCount: p._count.variants,
-          variants: p.variants,
-          stock: aggStock,
-          price: aggPrice,
-          _maxPrice: maxPrice,
-          hpp: aggHpp,
-        }
-      })
+      products = allProducts.slice(skip, skip + limit).map((p) => mapProduct(p as unknown as RawProduct))
     } else {
       // Default sort (newest / createdAt desc)
       const [result, count] = await Promise.all([
@@ -180,37 +280,13 @@ export async function GET(request: NextRequest) {
           include: {
             category: { select: { id: true, name: true, color: true } },
             _count: { select: { variants: true } },
-            variants: { select: { id: true, name: true, sku: true, price: true, hpp: true, stock: true } },
+            variants: { select: { id: true, name: true, sku: true, price: true, hpp: true, stock: true, updatedAt: true } },
           },
         }),
         db.product.count({ where }),
       ])
 
-      products = result.map((p) => {
-        const vList = p.variants || []
-        const aggStock = p.hasVariants && vList.length > 0
-          ? vList.reduce((s: number, v: { stock: number }) => s + v.stock, 0)
-          : p.stock
-        const aggPrice = p.hasVariants && vList.length > 0
-          ? Math.min(...vList.map((v: { price: number }) => v.price))
-          : p.price
-        const maxPrice = p.hasVariants && vList.length > 0
-          ? Math.max(...vList.map((v: { price: number }) => v.price))
-          : p.price
-        const aggHpp = p.hasVariants && vList.length > 0
-          ? Math.round(vList.reduce((s: number, v: { hpp: number }) => s + v.hpp, 0) / vList.length)
-          : p.hpp
-        return {
-          ...p,
-          hasVariants: !!p.hasVariants,
-          _variantCount: p._count.variants,
-          variants: p.variants,
-          stock: aggStock,
-          price: aggPrice,
-          _maxPrice: maxPrice,
-          hpp: aggHpp,
-        }
-      })
+      products = result.map((p) => mapProduct(p as unknown as RawProduct))
       total = count
     }
 

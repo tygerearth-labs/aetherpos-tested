@@ -243,7 +243,7 @@ export const inventoryAdjustmentServer: BulkServerAdapter = {
     const changes: BulkChangeRecord[] = []
     for (const op of ops) {
       try {
-        await tx.inventoryItem.update({ where: { id: op.itemId }, data: op.fields })
+        await tx.inventoryItem.update({ where: { id: op.itemId }, data: { ...op.fields, lastBusinessChangeAt: new Date() } })
         updated++
         changes.push({
           entity: 'INVENTORY_ITEM',

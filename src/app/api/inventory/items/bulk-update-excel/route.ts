@@ -374,7 +374,7 @@ export async function POST(request: NextRequest) {
           chunk.map(item =>
             tx.inventoryItem.update({
               where: { id: item.itemId },
-              data: item.updateData,
+              data: { ...item.updateData, lastBusinessChangeAt: new Date() },
             })
           )
         )

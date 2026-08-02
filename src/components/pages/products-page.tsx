@@ -58,6 +58,10 @@ import {
   PopoverContent,
 } from '@/components/ui/popover'
 import { Pagination } from '@/components/shared/pagination'
+import { SortableTableHead, nextSortState } from '@/components/shared/sortable-header'
+import { SameDayBadge, SAME_DAY_ROW_TINT, SAME_DAY_LEFT_ACCENT } from '@/components/shared/same-day-badge'
+import { BarcodeScannerDialog } from '@/components/shared/barcode-scanner-dialog'
+import { formatRelativeDateTime, getSameDayBadge } from '@/lib/relative-date'
 import {
   Table,
   TableBody,
@@ -148,6 +152,9 @@ interface Product {
   hasComposition?: boolean
   _variantCount?: number
   _maxPrice?: number
+  _lastChangedAt?: string  // ISO timestamp = max(updatedAt, latestVariantUpdatedAt)
+  createdAt?: string
+  updatedAt?: string
   variants?: Array<{
     id: string
     name: string
@@ -156,6 +163,7 @@ interface Product {
     price: number
     hpp: number
     stock: number
+    updatedAt?: string
   }>
 }
 
@@ -174,6 +182,12 @@ interface ProductListResponse {
 }
 
 type SortOption = 'newest' | 'best-selling' | 'low-stock' | 'most-stock'
+
+// Column-sort state for the new sortable table headers.
+// sortBy = null means "use the legacy `sort` Select dropdown".
+// When sortBy is set, it overrides `sort` and the Select is hidden.
+type ColumnSortBy = 'name' | 'category' | 'sku' | 'hpp' | 'price' | 'stock' | 'lastChangedAt'
+type ColumnSortOrder = 'asc' | 'desc'
 
 interface MovementLog {
   id: string
@@ -482,6 +496,11 @@ export default function ProductsPage() {
   const [totalPages, setTotalPages] = useState(1)
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState<SortOption>('newest')
+  // New column-sort state. Default = lastChangedAt desc (most recent on top).
+  // This overrides the legacy `sort` Select when set.
+  const [columnSortBy, setColumnSortBy] = useState<ColumnSortBy>('lastChangedAt')
+  const [columnSortOrder, setColumnSortOrder] = useState<ColumnSortOrder>('desc')
+  const [scannerOpen, setScannerOpen] = useState(false)
   const [formOpen, setFormOpen] = useState(false)
   const [editProduct, setEditProduct] = useState<Product | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
@@ -660,7 +679,14 @@ export default function ProductsPage() {
     try {
       const params = new URLSearchParams({ page: String(page), limit: '20' })
       if (search) params.set('search', search)
-      if (sort !== 'newest') params.set('sort', sort)
+      // Column-sort API overrides the legacy `sort` Select when active.
+      // (columnSortBy is always set — defaults to 'lastChangedAt'.)
+      if (columnSortBy) {
+        params.set('sortBy', columnSortBy)
+        params.set('sortOrder', columnSortOrder)
+      } else if (sort !== 'newest') {
+        params.set('sort', sort)
+      }
       if (activeCategoryId) params.set('categoryId', activeCategoryId)
       // Cache-busting: unique param forces browser to skip HTTP cache
       if (bustCache) params.set('_t', Date.now().toString())
@@ -680,7 +706,7 @@ export default function ProductsPage() {
     } finally {
       setLoading(false)
     }
-  }, [page, search, sort, activeCategoryId])
+  }, [page, search, sort, activeCategoryId, columnSortBy, columnSortOrder])
 
   useEffect(() => {
      
@@ -692,7 +718,23 @@ export default function ProductsPage() {
       setPage(1)
     }, 300)
     return () => clearTimeout(timer)
-  }, [search, sort, activeCategoryId])
+  }, [search, sort, activeCategoryId, columnSortBy, columnSortOrder])
+
+  // Sort header click handler — toggle asc/desc when same column, else asc.
+  const handleColumnSort = useCallback((columnId: string) => {
+    const next = nextSortState(columnSortBy, columnSortOrder, columnId)
+    setColumnSortBy(next.sortBy as ColumnSortBy)
+    setColumnSortOrder(next.sortOrder)
+    setPage(1)
+  }, [columnSortBy, columnSortOrder])
+
+  // Barcode scanner result handler — set the search input + reset to page 1.
+  const handleScanResult = useCallback((value: string) => {
+    setSearch(value)
+    setPage(1)
+    setScannerOpen(false)
+    toast.success(`Barcode terbaca: ${value}`)
+  }, [])
 
   const fetchDetail = useCallback(async (product: Product, pageNum: number) => {
     setDetailLoading(true)
@@ -1952,34 +1994,29 @@ export default function ProductsPage() {
             placeholder="Cari nama, SKU, barcode, kategori, varian..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-9 pr-8 h-9 text-xs bg-white/[0.04] border-white/[0.04] text-white placeholder:text-slate-500 rounded-lg focus-visible:ring-white/[0.06]"
+            className="pl-9 pr-20 h-9 text-xs bg-white/[0.04] border-white/[0.04] text-white placeholder:text-slate-500 rounded-lg focus-visible:ring-white/[0.06]"
           />
-          {search && (
-            <button
-              onClick={() => setSearch('')}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white transition-colors"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
-        <Select value={sort} onValueChange={(val) => setSort(val as SortOption)}>
-          <SelectTrigger className="w-full sm:w-[180px] h-9 text-xs bg-white/[0.04] border-white/[0.04] text-white rounded-lg">
-            <ArrowUpDown className="mr-2 h-3.5 w-3.5 text-slate-500" />
-            <SelectValue placeholder="Urutkan" />
-          </SelectTrigger>
-          <SelectContent className="bg-white/[0.04] border-white/[0.04]">
-            {SORT_OPTIONS.map((option) => (
-              <SelectItem
-                key={option.value}
-                value={option.value}
-                className="text-slate-200 focus:bg-white/[0.04] focus:text-white"
+          <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
+            {search && (
+              <button
+                onClick={() => setSearch('')}
+                className="w-6 h-6 flex items-center justify-center text-slate-500 hover:text-white transition-colors"
+                aria-label="Hapus pencarian"
               >
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+            <button
+              onClick={() => setScannerOpen(true)}
+              className="h-6 px-1.5 rounded-md flex items-center gap-1 text-[10px] font-semibold text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 transition-colors"
+              title="Scan barcode dengan kamera"
+              aria-label="Scan barcode"
+            >
+              <ScanBarcode className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Scan</span>
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Desktop Table */}
@@ -2009,43 +2046,77 @@ export default function ProductsPage() {
                       />
                     </TableHead>
                   )}
-                  <TableHead
-                    className="text-slate-500 text-[11px] font-semibold uppercase tracking-wider cursor-pointer select-none hover:text-slate-300 transition-colors"
-                    onClick={() => setSort(prev => prev === 'newest' ? 'newest' : 'newest')}
+                  <SortableTableHead
+                    activeSortBy={columnSortBy}
+                    activeSortOrder={columnSortOrder}
+                    columnId="name"
+                    onSort={handleColumnSort}
+                    className="min-w-[220px]"
                   >
-                    <span className="inline-flex items-center gap-1">Nama</span>
-                  </TableHead>
-                  <TableHead className="text-slate-500 text-[11px] font-semibold uppercase tracking-wider">Kategori</TableHead>
-                  <TableHead className="text-slate-500 text-[11px] font-semibold uppercase tracking-wider">SKU</TableHead>
-                  <TableHead className="text-slate-500 text-[11px] font-semibold uppercase tracking-wider">Satuan</TableHead>
+                    Nama
+                  </SortableTableHead>
+                  <SortableTableHead
+                    activeSortBy={columnSortBy}
+                    activeSortOrder={columnSortOrder}
+                    columnId="category"
+                    onSort={handleColumnSort}
+                    className="w-[140px]"
+                  >
+                    Kategori
+                  </SortableTableHead>
+                  <SortableTableHead
+                    activeSortBy={columnSortBy}
+                    activeSortOrder={columnSortOrder}
+                    columnId="sku"
+                    onSort={handleColumnSort}
+                    className="w-[120px]"
+                  >
+                    SKU
+                  </SortableTableHead>
+                  <TableHead className="text-slate-500 text-[11px] font-semibold uppercase tracking-wider w-[80px]">Satuan</TableHead>
                   {isOwner && (
-                    <TableHead className="text-slate-500 text-[11px] font-semibold uppercase tracking-wider text-right">HPP</TableHead>
+                    <SortableTableHead
+                      activeSortBy={columnSortBy}
+                      activeSortOrder={columnSortOrder}
+                      columnId="hpp"
+                      onSort={handleColumnSort}
+                      align="right"
+                      className="w-[120px]"
+                    >
+                      HPP
+                    </SortableTableHead>
                   )}
-                  <TableHead
-                    className="text-slate-500 text-[11px] font-semibold uppercase tracking-wider text-right cursor-pointer select-none hover:text-slate-300 transition-colors"
-                    onClick={() => setSort(prev => prev === 'most-stock' ? 'newest' : 'most-stock')}
+                  <SortableTableHead
+                    activeSortBy={columnSortBy}
+                    activeSortOrder={columnSortOrder}
+                    columnId="price"
+                    onSort={handleColumnSort}
+                    align="right"
+                    className="w-[140px]"
                   >
-                    <span className="inline-flex items-center gap-1">Harga</span>
-                  </TableHead>
-                  <TableHead
-                    className="text-slate-500 text-[11px] font-semibold uppercase tracking-wider text-right cursor-pointer select-none hover:text-slate-300 transition-colors"
-                    onClick={() => setSort(prev => prev === 'low-stock' ? 'most-stock' : 'low-stock')}
+                    Harga
+                  </SortableTableHead>
+                  <SortableTableHead
+                    activeSortBy={columnSortBy}
+                    activeSortOrder={columnSortOrder}
+                    columnId="stock"
+                    onSort={handleColumnSort}
+                    align="right"
+                    className="w-[100px]"
                   >
-                    <span className="inline-flex items-center gap-1">
-                      Stok
-                      {sort === 'low-stock' && <span className="theme-text">↑</span>}
-                      {sort === 'most-stock' && <span className="text-amber-400">↓</span>}
-                    </span>
-                  </TableHead>
-                  <TableHead
-                    className="text-slate-500 text-[11px] font-semibold uppercase tracking-wider text-right w-[130px] cursor-pointer select-none hover:text-slate-300 transition-colors"
-                    onClick={() => setSort(prev => prev === 'best-selling' ? 'newest' : 'best-selling')}
+                    Stok
+                  </SortableTableHead>
+                  <SortableTableHead
+                    activeSortBy={columnSortBy}
+                    activeSortOrder={columnSortOrder}
+                    columnId="lastChangedAt"
+                    onSort={handleColumnSort}
+                    align="right"
+                    className="w-[140px]"
                   >
-                    <span className="inline-flex items-center gap-1">
-                      Aksi
-                      {sort === 'best-selling' && <span className="theme-text">🔥</span>}
-                    </span>
-                  </TableHead>
+                    Terakhir Diubah
+                  </SortableTableHead>
+                  <TableHead className="text-slate-500 text-[11px] font-semibold uppercase tracking-wider text-right w-[180px]">Aksi</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -2053,6 +2124,8 @@ export default function ProductsPage() {
                   const isOutOfStock = product.stock === 0
                   const isLowStock = product.stock > 0 && product.stock <= product.lowStockAlert
                   const isSelected = selectedIds.has(product.id)
+                  // Same-day highlight: priority 1 = created today, 2 = changed today.
+                  const sameDayBadge = getSameDayBadge(product.createdAt ?? product._lastChangedAt, product._lastChangedAt)
 
                   let rowClass = 'border-white/[0.06] hover:bg-white/[0.03] transition-colors'
                   if (isPro) {
@@ -2060,11 +2133,16 @@ export default function ProductsPage() {
                       rowClass = 'border-white/[0.06] bg-red-500/[0.03] hover:bg-red-500/[0.06] transition-colors'
                     } else if (isLowStock) {
                       rowClass = 'border-white/[0.06] bg-amber-500/[0.03] hover:bg-amber-500/[0.06] transition-colors'
+                    } else if (sameDayBadge) {
+                      rowClass = cn('border-white/[0.06]', SAME_DAY_ROW_TINT, 'transition-colors')
                     }
+                  } else if (sameDayBadge) {
+                    rowClass = cn('border-white/[0.06]', SAME_DAY_ROW_TINT, 'transition-colors')
                   }
 
                   return (
                     <TableRow key={product.id} className={rowClass}>
+                      {sameDayBadge && <div className={SAME_DAY_LEFT_ACCENT} />}
                       {bulkMode && (
                         <TableCell className="w-10 py-3 px-3">
                           <Checkbox
@@ -2100,6 +2178,7 @@ export default function ProductsPage() {
                                 </span>
                               )}
                               {product.name}
+                              {sameDayBadge && <SameDayBadge variant={sameDayBadge} />}
                               {product.hasVariants && product._variantCount != null && product._variantCount > 0 && (
                                 <Badge className="bg-violet-500/10 border-violet-500/20 text-violet-400 text-[10px] px-1.5 py-0 ml-1.5 inline-flex items-center gap-0.5">
                                   <Layers className="h-2.5 w-2.5" />
@@ -2166,6 +2245,9 @@ export default function ProductsPage() {
                         ) : (
                           <span className="text-slate-200">{formatNumber(product.stock)}</span>
                         )}
+                      </TableCell>
+                      <TableCell className="text-[11px] text-slate-400 text-right py-3 px-3 tabular-nums whitespace-nowrap">
+                        {formatRelativeDateTime(product._lastChangedAt)}
                       </TableCell>
                       <TableCell className="text-right py-3 px-3">
                         <div className="flex items-center justify-end gap-1">
@@ -4178,6 +4260,15 @@ export default function ProductsPage() {
         open={batchBarcodeOpen}
         onOpenChange={setBatchBarcodeOpen}
         categories={categories}
+      />
+
+      {/* Barcode Scanner Dialog — shared camera scan UI */}
+      <BarcodeScannerDialog
+        open={scannerOpen}
+        onOpenChange={setScannerOpen}
+        onResult={handleScanResult}
+        title="Scan Barcode Produk"
+        inputPlaceholder="Ketik barcode / SKU produk..."
       />
     </div>
   )

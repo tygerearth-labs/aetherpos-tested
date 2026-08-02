@@ -1,0 +1,375 @@
+'use client'
+
+/**
+ * BarcodeScannerDialog — shared scan UI for the Products and Inventory search bars.
+ *
+ * Implementation notes (per spec point H):
+ *   - Reusable: one component, parameterized by `onResult(value)`.
+ *   - Rear camera (facingMode: 'environment').
+ *   - Lazy-load: camera stream is acquired only after the user opens the dialog.
+ *   - One stream max: tracks are stopped on close/unmount.
+ *   - Native BarcodeDetector API when available; manual input fallback otherwise.
+ *   - On success: vibration + beep (best-effort), debounce identical values 1.2s.
+ *
+ * Cloud sandbox caveat: there is no real camera in the preview environment,
+ * so the dialog gracefully falls back to a manual barcode input field. The
+ * camera viewport is still rendered so users on real devices get the full
+ * scan experience.
+ */
+
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Camera, ScanBarcode, X, AlertTriangle, Loader2, Keyboard, Zap, ZapOff } from 'lucide-react'
+
+interface BarcodeScannerDialogProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  /** Called with the resolved barcode/SKU string. Parent decides what to do with it. */
+  onResult: (value: string) => void
+  /** Dialog title. */
+  title?: string
+  /** Placeholder for the manual input fallback. */
+  inputPlaceholder?: string
+}
+
+type CameraStatus = 'idle' | 'requesting' | 'active' | 'denied' | 'unsupported' | 'error'
+
+export function BarcodeScannerDialog({
+  open,
+  onOpenChange,
+  onResult,
+  title = 'Scan Barcode',
+  inputPlaceholder = 'Ketik barcode / SKU manual...',
+}: BarcodeScannerDialogProps) {
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const detectorRef = useRef<{
+    detect: (source: CanvasImageSource | ImageBitmap) => Promise<Array<{ rawValue?: string }>>
+  } | null>(null)
+  const rafRef = useRef<number | null>(null)
+  const lastResultRef = useRef<{ value: string; at: number } | null>(null)
+  const manualValueRef = useRef<HTMLInputElement>(null)
+
+  const [status, setStatus] = useState<CameraStatus>('idle')
+  const [errorMsg, setErrorMsg] = useState<string>('')
+  const [lastScan, setLastScan] = useState<string>('')
+  const [manualValue, setManualValue] = useState('')
+  const [torchOn, setTorchOn] = useState(false)
+  const [torchSupported, setTorchSupported] = useState(false)
+  const [showManual, setShowManual] = useState(false)
+
+  const stopCamera = useCallback(() => {
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current)
+      rafRef.current = null
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop())
+      streamRef.current = null
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null
+    }
+    setStatus('idle')
+  }, [])
+
+  const handleResult = useCallback(
+    (value: string) => {
+      const now = Date.now()
+      const last = lastResultRef.current
+      // Debounce identical values 1.2s.
+      if (last && last.value === value && now - last.at < 1200) return
+      lastResultRef.current = { value, at: now }
+      setLastScan(value)
+      // Best-effort haptic + audio feedback.
+      try {
+        if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(80)
+      } catch { /* ignore */ }
+      try {
+        const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)()
+        const osc = ctx.createOscillator()
+        const gain = ctx.createGain()
+        osc.frequency.value = 880
+        gain.gain.value = 0.04
+        osc.connect(gain).connect(ctx.destination)
+        osc.start()
+        setTimeout(() => { osc.stop(); ctx.close() }, 90)
+      } catch { /* ignore */ }
+      onResult(value)
+    },
+    [onResult],
+  )
+
+  // detectLoop is self-recursive via requestAnimationFrame. To satisfy
+  // react-hooks/immutability we store the latest instance in a ref and
+  // schedule through the ref, not through the closure variable.
+  const detectLoopRef = useRef<() => void>(() => {})
+
+  const detectLoop = useCallback(async () => {
+    if (!detectorRef.current || !videoRef.current || videoRef.current.readyState < 2) {
+      rafRef.current = requestAnimationFrame(() => detectLoopRef.current())
+      return
+    }
+    try {
+      const results = await detectorRef.current.detect(videoRef.current)
+      if (results && results.length > 0) {
+        const value = results[0].rawValue
+        if (value) handleResult(value)
+      }
+    } catch {
+      // Ignore detect errors — they fire constantly when the viewport is dark.
+    }
+    rafRef.current = requestAnimationFrame(() => detectLoopRef.current())
+  }, [handleResult])
+
+  // Keep the ref in sync with the latest closure.
+  useEffect(() => {
+    detectLoopRef.current = detectLoop
+  }, [detectLoop])
+
+  const startCamera = useCallback(async () => {
+    // Reset dialog state at the start of each camera session.
+    setShowManual(false)
+    setManualValue('')
+    setLastScan('')
+    setStatus('requesting')
+    setErrorMsg('')
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setStatus('unsupported')
+        setErrorMsg('Browser tidak mendukung akses kamera.')
+        setShowManual(true)
+        return
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' } },
+        audio: false,
+      })
+      streamRef.current = stream
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream
+        await videoRef.current.play().catch(() => { /* autoplay may be blocked; video will start when metadata loads */ })
+      }
+      // Torch capability check (best-effort).
+      try {
+        const track = stream.getVideoTracks()[0]
+        const caps = track.getCapabilities?.() as MediaTrackCapabilities & { torch?: boolean } | undefined
+        if (caps && caps.torch) {
+          setTorchSupported(true)
+        } else {
+          setTorchSupported(false)
+        }
+      } catch {
+        setTorchSupported(false)
+      }
+      // Set up BarcodeDetector if available.
+      const BD = (window as unknown as { BarcodeDetector?: new (opts: { formats: string[] }) => { detect: (s: CanvasImageSource) => Promise<Array<{ rawValue?: string }>> } }).BarcodeDetector
+      if (BD) {
+        try {
+          detectorRef.current = new BD({
+            formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'code_93', 'codabar', 'itf', 'qr_code'],
+          })
+        } catch {
+          detectorRef.current = null
+        }
+      } else {
+        detectorRef.current = null
+      }
+      setStatus('active')
+      if (detectorRef.current) {
+        rafRef.current = requestAnimationFrame(detectLoop)
+      }
+    } catch (err: unknown) {
+      const e = err as { name?: string; message?: string }
+      if (e?.name === 'NotAllowedError' || e?.name === 'PermissionDeniedError') {
+        setStatus('denied')
+        setErrorMsg('Akses kamera ditolak. Izinkan kamera di pengaturan browser, atau ketik manual di bawah.')
+      } else if (e?.name === 'NotFoundError' || e?.name === 'OverconstrainedError') {
+        setStatus('unsupported')
+        setErrorMsg('Tidak ada kamera yang terdeteksi pada perangkat ini.')
+      } else if (e?.name === 'NotReadableable' || e?.name === 'NotReadableError') {
+        setStatus('error')
+        setErrorMsg('Kamera sedang digunakan aplikasi lain. Tutup aplikasi tersebut lalu coba lagi.')
+      } else {
+        setStatus('error')
+        setErrorMsg(e?.message || 'Gagal mengakses kamera.')
+      }
+      setShowManual(true)
+    }
+  }, [detectLoop])
+
+  // Open → start camera; close → stop camera.
+  useEffect(() => {
+    if (open) {
+      void startCamera()
+    } else {
+      stopCamera()
+    }
+    return () => {
+      // Cleanup on unmount
+      stopCamera()
+    }
+  }, [open, startCamera, stopCamera])
+
+  const toggleTorch = useCallback(async () => {
+    if (!streamRef.current) return
+    try {
+      const track = streamRef.current.getVideoTracks()[0]
+      const caps = track.getCapabilities?.() as MediaTrackCapabilities & { torch?: boolean } | undefined
+      if (!caps?.torch) return
+      const next = !torchOn
+      await track.applyConstraints({ advanced: [{ torch: next } as unknown as MediaTrackConstraintSet] })
+      setTorchOn(next)
+    } catch {
+      /* ignore */
+    }
+  }, [torchOn])
+
+  const submitManual = useCallback(() => {
+    const v = manualValue.trim()
+    if (!v) return
+    handleResult(v)
+    setManualValue('')
+  }, [manualValue, handleResult])
+
+  const handleClose = useCallback(() => {
+    stopCamera()
+    onOpenChange(false)
+  }, [stopCamera, onOpenChange])
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) handleClose(); else onOpenChange(o) }}>
+      <DialogContent className="sm:max-w-md p-0 overflow-hidden bg-nebula border-white/[0.08]" showCloseButton={false}>
+        <DialogHeader className="px-4 pt-4 pb-2 flex-row items-center justify-between space-y-0">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg bg-emerald-500/15 flex items-center justify-center">
+              <ScanBarcode className="h-4 w-4 text-emerald-400" />
+            </div>
+            <div>
+              <DialogTitle className="text-sm text-white">{title}</DialogTitle>
+              <DialogDescription className="text-[11px] text-slate-500">Arahkan kamera ke barcode atau ketik manual</DialogDescription>
+            </div>
+          </div>
+          <button
+            onClick={handleClose}
+            className="w-7 h-7 rounded-md flex items-center justify-center text-slate-500 hover:text-white hover:bg-white/[0.06] transition-colors"
+            aria-label="Tutup scanner"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </DialogHeader>
+
+        {/* Camera viewport */}
+        <div className="relative aspect-[4/3] bg-black/60 mx-4 rounded-xl overflow-hidden border border-white/[0.06]">
+          <video
+            ref={videoRef}
+            className="w-full h-full object-cover"
+            muted
+            playsInline
+          />
+          {/* Scan frame overlay */}
+          {status === 'active' && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="w-2/3 h-1/3 border-2 border-emerald-400/70 rounded-lg relative">
+                <div className="absolute inset-x-0 top-1/2 h-0.5 bg-emerald-400/80 animate-pulse" />
+                <div className="absolute -top-px -left-px w-4 h-4 border-t-2 border-l-2 border-emerald-300 rounded-tl-lg" />
+                <div className="absolute -top-px -right-px w-4 h-4 border-t-2 border-r-2 border-emerald-300 rounded-tr-lg" />
+                <div className="absolute -bottom-px -left-px w-4 h-4 border-b-2 border-l-2 border-emerald-300 rounded-bl-lg" />
+                <div className="absolute -bottom-px -right-px w-4 h-4 border-b-2 border-r-2 border-emerald-300 rounded-br-lg" />
+              </div>
+            </div>
+          )}
+
+          {/* Status overlays */}
+          {status === 'requesting' && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/70">
+              <Loader2 className="h-6 w-6 text-emerald-400 animate-spin" />
+              <p className="text-[11px] text-slate-400">Memulai kamera...</p>
+            </div>
+          )}
+          {(status === 'denied' || status === 'unsupported' || status === 'error') && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/80 p-4 text-center">
+              <AlertTriangle className="h-6 w-6 text-amber-400" />
+              <p className="text-[11px] text-slate-300 leading-relaxed">{errorMsg}</p>
+              <Button
+                size="sm"
+                variant="outline"
+                className="mt-1 h-7 text-[11px] gap-1.5 border-white/[0.08] text-slate-300 hover:text-white hover:bg-white/[0.04]"
+                onClick={() => setShowManual(true)}
+              >
+                <Keyboard className="h-3 w-3" />
+                Ketik Manual
+              </Button>
+            </div>
+          )}
+          {status === 'idle' && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/70">
+              <Button
+                size="sm"
+                className="h-8 text-xs gap-1.5 bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/30"
+                onClick={() => void startCamera()}
+              >
+                <Camera className="h-3.5 w-3.5" />
+                Mulai Kamera
+              </Button>
+            </div>
+          )}
+
+          {/* Torch toggle */}
+          {status === 'active' && torchSupported && (
+            <button
+              onClick={() => void toggleTorch()}
+              className="absolute top-2 right-2 w-8 h-8 rounded-lg bg-black/60 backdrop-blur flex items-center justify-center text-slate-300 hover:text-white transition-colors"
+              aria-label={torchOn ? 'Matikan senter' : 'Nyalakan senter'}
+              title={torchOn ? 'Matikan senter' : 'Nyalakan senter'}
+            >
+              {torchOn ? <Zap className="h-4 w-4 text-amber-400" /> : <ZapOff className="h-4 w-4" />}
+            </button>
+          )}
+
+          {/* Last scan feedback */}
+          {lastScan && (
+            <div className="absolute bottom-2 left-2 right-2 bg-emerald-500/15 border border-emerald-500/30 backdrop-blur rounded-lg px-2.5 py-1.5 flex items-center gap-1.5">
+              <ScanBarcode className="h-3 w-3 text-emerald-400 shrink-0" />
+              <span className="text-[11px] text-emerald-300 truncate font-mono">{lastScan}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Manual input (collapsible) */}
+        <div className="px-4 pb-4 pt-2 space-y-2">
+          {showManual ? (
+            <div className="flex gap-2">
+              <Input
+                ref={manualValueRef}
+                value={manualValue}
+                onChange={(e) => setManualValue(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') submitManual() }}
+                placeholder={inputPlaceholder}
+                autoFocus
+                className="h-9 text-xs bg-white/[0.04] border-white/[0.08] text-white placeholder:text-slate-500 rounded-lg"
+              />
+              <Button
+                size="sm"
+                onClick={submitManual}
+                className="h-9 px-4 text-xs bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/30"
+              >
+                Cari
+              </Button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowManual(true)}
+              className="text-[11px] text-slate-500 hover:text-slate-300 inline-flex items-center gap-1 transition-colors"
+            >
+              <Keyboard className="h-3 w-3" />
+              Ketik manual
+            </button>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}

@@ -273,7 +273,7 @@ export async function PATCH(
             }
             await tx.inventoryItem.update({
               where: { id: invItem.id },
-              data: { stock: newStock },
+              data: { stock: newStock, lastBusinessChangeAt: new Date() },
             })
             await tx.inventoryMovement.create({
               data: {
@@ -642,7 +642,7 @@ export async function PATCH(
               const newStock = existingItem.stock + item.quantity
               await tx.inventoryItem.update({
                 where: { id: existingItem.id },
-                data: { stock: newStock },
+                data: { stock: newStock, lastBusinessChangeAt: new Date() },
               })
               await tx.inventoryMovement.create({
                 data: {
@@ -1116,7 +1116,7 @@ export async function PATCH(
               const newStock = invItem.stock + item.quantity
               await tx.inventoryItem.update({
                 where: { id: invItem.id },
-                data: { stock: newStock },
+                data: { stock: newStock, lastBusinessChangeAt: new Date() },
               })
               await tx.inventoryMovement.create({
                 data: {

@@ -240,7 +240,7 @@ export async function PUT(
       }
     }
 
-    const updateData: Record<string, unknown> = {}
+    const updateData: Record<string, unknown> = { lastBusinessChangeAt: new Date() }
     if (name !== undefined) updateData.name = name.trim()
     if (sku !== undefined) updateData.sku = sku?.trim() || null
     if (baseUnit !== undefined) updateData.baseUnit = baseUnit.trim()
@@ -344,7 +344,7 @@ export async function PATCH(
     await db.$transaction(async (tx) => {
       await tx.inventoryItem.update({
         where: { id },
-        data: { status: newStatus },
+        data: { status: newStatus, lastBusinessChangeAt: new Date() },
       })
 
       await emitAuditEvent(

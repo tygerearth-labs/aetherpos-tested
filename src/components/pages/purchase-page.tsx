@@ -55,6 +55,10 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Pagination } from '@/components/shared/pagination'
+import { SortableTableHead, nextSortState } from '@/components/shared/sortable-header'
+import { SameDayBadge, SAME_DAY_ROW_TINT, SAME_DAY_LEFT_ACCENT } from '@/components/shared/same-day-badge'
+import { BarcodeScannerDialog } from '@/components/shared/barcode-scanner-dialog'
+import { formatRelativeDateTime, getSameDayBadge } from '@/lib/relative-date'
 import { Switch } from '@/components/ui/switch'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -233,6 +237,10 @@ interface InventoryItem {
   lowStockAlert: number
   status?: string // ACTIVE, ARCHIVED
   updatedAt?: string
+  createdAt?: string
+  // Business-meaningful change timestamp (immune to POS-sale FEFO re-sync).
+  // Falls back to updatedAt for legacy rows.
+  lastBusinessChangeAt?: string
   _count?: {
     compositions: number
     purchaseItems: number
@@ -241,6 +249,9 @@ interface InventoryItem {
     consumptionSnapshots: number
   }
 }
+
+// Sortable columns for the Inventory table.
+type InvColumnSortBy = 'name' | 'category' | 'stock' | 'unitCost' | 'value' | 'usage' | 'lastChangedAt'
 
 // Delete Safety Status for inventory items
 interface DeleteSafetyStatus {
@@ -781,7 +792,11 @@ export default function PurchasePage() {
   const [invCategoryFilter, setInvCategoryFilter] = useState<string>('all')
   const [invPage, setInvPage] = useState(1)
   const [invTotalPages, setInvTotalPages] = useState(1)
-  const [invSortBy, setInvSortBy] = useState('name-asc')
+  // New column-sort state — replaces the legacy `invSortBy` chip bar.
+  // Default: lastChangedAt DESC (most recent business change on top).
+  const [invColumnSortBy, setInvColumnSortBy] = useState<InvColumnSortBy>('lastChangedAt')
+  const [invColumnSortOrder, setInvColumnSortOrder] = useState<'asc' | 'desc'>('desc')
+  const [invScannerOpen, setInvScannerOpen] = useState(false)
   const invPerPage = 20
   const [invStats, setInvStats] = useState<InventoryStats>({ totalItems: 0, totalValue: 0, lowStockCount: 0 })
 
@@ -953,31 +968,24 @@ export default function PurchasePage() {
         search: invDebouncedSearch,
         categoryId: invCategoryFilter === 'all' ? '' : invCategoryFilter,
         activeOnly: String(!showInactiveItems),
+        // Server-side global sort (whitelisted inside the API).
+        sortBy: invColumnSortBy,
+        sortOrder: invColumnSortOrder,
       })
       const res = await fetch(`/api/inventory/items?${params}`)
       if (res.ok) {
         const data = await res.json()
         const allItems: InventoryItem[] = data.items || []
-        // Client-side sort
-        const [sortField, sortDir] = invSortBy.split('-')
-        const sorted = [...allItems].sort((a, b) => {
-          let cmp = 0
-          if (sortField === 'name') cmp = a.name.localeCompare(b.name)
-          else if (sortField === 'stock') cmp = a.stock - b.stock
-          else if (sortField === 'value') cmp = (a.stock * a.avgCost) - (b.stock * b.avgCost)
-          else if (sortField === 'updatedAt') cmp = new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime()
-          return sortDir === 'desc' ? -cmp : cmp
-        })
-        // Client-side pagination
-        const totalItems = sorted.length
+        // Server returns globally sorted list. We only paginate client-side.
+        const totalItems = allItems.length
         const totalPages = Math.max(1, Math.ceil(totalItems / invPerPage))
         const start = (invPage - 1) * invPerPage
-        const pageItems = sorted.slice(start, start + invPerPage)
+        const pageItems = allItems.slice(start, start + invPerPage)
         setInvList(pageItems)
         setInvTotalPages(totalPages)
         // Store all IDs for select-all functionality
-        setAllInvIds(sorted.map(i => i.id))
-        // Client-side stats
+        setAllInvIds(allItems.map(i => i.id))
+        // Client-side stats (computed on the entire filtered+sorted set)
         const totalValue = allItems.reduce((sum, i) => sum + i.stock * i.avgCost, 0)
         const lowStockCount = allItems.filter(i => i.stock <= i.lowStockAlert).length
         setInvStats({ totalItems, totalValue, lowStockCount })
@@ -987,11 +995,30 @@ export default function PurchasePage() {
     } finally {
       setInvLoading(false)
     }
-  }, [invPage, invDebouncedSearch, invCategoryFilter, showInactiveItems, invSortBy])
+  }, [invPage, invDebouncedSearch, invCategoryFilter, showInactiveItems, invColumnSortBy, invColumnSortOrder])
 
   useEffect(() => {
     if (tab === 'inventory') void fetchInventoryItems()
   }, [tab, fetchInventoryItems])
+
+  // Sort header click handler — toggle asc/desc when same column, else asc.
+  const handleInvColumnSort = useCallback((columnId: string) => {
+    const next = nextSortState(invColumnSortBy, invColumnSortOrder, columnId)
+    setInvColumnSortBy(next.sortBy as InvColumnSortBy)
+    setInvColumnSortOrder(next.sortOrder)
+    setInvPage(1)
+    setSelectedInvIds(new Set())
+  }, [invColumnSortBy, invColumnSortOrder])
+
+  // Barcode scanner result handler — set search input + reset to page 1.
+  const handleInvScanResult = useCallback((value: string) => {
+    setInvSearch(value)
+    setInvDebouncedSearch(value)
+    setInvPage(1)
+    setSelectedInvIds(new Set())
+    setInvScannerOpen(false)
+    toast.success(`Barcode terbaca: ${value}`)
+  }, [])
 
   // Debounce search
   useEffect(() => {
@@ -3958,13 +3985,29 @@ export default function PurchasePage() {
                   <Input
                     value={invSearch}
                     onChange={(e) => { setInvSearch(e.target.value); setInvPage(1); setSelectedInvIds(new Set()) }}
-                    placeholder="Cari item berdasarkan nama atau SKU..."
-                    className={cn(inputClass, 'pl-10 h-10 rounded-xl bg-white/[0.03] border-white/[0.08] focus:border-emerald-500/30 focus:bg-white/[0.05] transition-all', invLoading && invList.length > 0 && 'pr-10')}
+                    placeholder="Cari nama, SKU, barcode..."
+                    className={cn(inputClass, 'pl-10 pr-24 h-10 rounded-xl bg-white/[0.03] border-white/[0.08] focus:border-emerald-500/30 focus:bg-white/[0.05] transition-all')}
                   />
-                  {/* Inline loading spinner — shows when searching without clearing existing data */}
-                  {invLoading && invList.length > 0 && (
-                    <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-emerald-400 animate-spin" />
-                  )}
+                  <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
+                    {invSearch && (
+                      <button
+                        onClick={() => { setInvSearch(''); setInvPage(1); setSelectedInvIds(new Set()) }}
+                        className="w-6 h-6 flex items-center justify-center text-slate-500 hover:text-white transition-colors"
+                        aria-label="Hapus pencarian"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setInvScannerOpen(true)}
+                      className="h-7 px-2 rounded-md flex items-center gap-1 text-[10px] font-semibold text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 transition-colors"
+                      title="Scan barcode dengan kamera"
+                      aria-label="Scan barcode"
+                    >
+                      <ScanBarcode className="h-3.5 w-3.5" />
+                      <span className="hidden sm:inline">Scan</span>
+                    </button>
+                  </div>
                 </div>
                 {/* Reset Filters Button - appears when filters active */}
                 {(invSearch || invCategoryFilter !== 'all' || showInactiveItems) && (
@@ -4351,92 +4394,6 @@ export default function PurchasePage() {
 
             <div className="hidden md:block">
               <Card className="bg-nebula border-white/[0.06] overflow-hidden rounded-xl">
-                {/* Grouped Sort Filter Chips */}
-                <div className="px-4 pt-4 pb-2 space-y-2">
-                  <p className="text-[10px] text-slate-600 uppercase tracking-wider font-medium flex items-center gap-1.5">
-                    <ArrowUpDown className="h-3 w-3" />
-                    Urutkan berdasarkan
-                  </p>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {/* Sort by Name */}
-                    <div className="flex items-center gap-1 pr-2 border-r border-white/[0.06]">
-                      <span className="text-[9px] text-slate-600 uppercase">Nama</span>
-                      {[['name-asc', 'A-Z', 'ChevronsUpDown'], ['name-desc', 'Z-A', 'ChevronsUpDown']].map(([val, label, icon]) => (
-                        <button
-                          key={val}
-                          onClick={() => { setInvSortBy(val); setInvPage(1); setSelectedInvIds(new Set()) }}
-                          className={cn(
-                            'shrink-0 px-2 py-1 rounded-md text-[10px] font-medium transition-all whitespace-nowrap flex items-center gap-1',
-                            invSortBy === val
-                              ? 'bg-violet-500/15 text-violet-400 border border-violet-500/30 shadow-sm'
-                              : 'text-slate-500 hover:text-slate-300 hover:bg-white/[0.04] border border-transparent',
-                          )}
-                          title={`Urutkan ${label}`}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                    {/* Sort by Stock */}
-                    <div className="flex items-center gap-1 pr-2 border-r border-white/[0.06]">
-                      <span className="text-[9px] text-slate-600 uppercase">Stok</span>
-                      {[['stock-desc', 'Terbanyak', 'TrendingUp'], ['stock-asc', 'Terendah', 'TrendingDown']].map(([val, label, icon]) => (
-                        <button
-                          key={val}
-                          onClick={() => { setInvSortBy(val); setInvPage(1); setSelectedInvIds(new Set()) }}
-                          className={cn(
-                            'shrink-0 px-2 py-1 rounded-md text-[10px] font-medium transition-all whitespace-nowrap flex items-center gap-1',
-                            invSortBy === val
-                              ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 shadow-sm'
-                              : 'text-slate-500 hover:text-slate-300 hover:bg-white/[0.04] border border-transparent',
-                          )}
-                          title={`Urutkan: ${label}`}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                    {/* Sort by Value */}
-                    <div className="flex items-center gap-1 pr-2 border-r border-white/[0.06]">
-                      <span className="text-[9px] text-slate-600 uppercase">Nilai</span>
-                      {[['value-desc', 'Terbesar', 'TrendingUp'], ['value-asc', 'Terkecil', 'TrendingDown']].map(([val, label, icon]) => (
-                        <button
-                          key={val}
-                          onClick={() => { setInvSortBy(val); setInvPage(1); setSelectedInvIds(new Set()) }}
-                          className={cn(
-                            'shrink-0 px-2 py-1 rounded-md text-[10px] font-medium transition-all whitespace-nowrap flex items-center gap-1',
-                            invSortBy === val
-                              ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-sm'
-                              : 'text-slate-500 hover:text-slate-300 hover:bg-white/[0.04] border border-transparent',
-                          )}
-                          title={`Urutkan: ${label}`}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                    {/* Sort by Date */}
-                    <div className="flex items-center gap-1">
-                      <span className="text-[9px] text-slate-600 uppercase">Waktu</span>
-                      {[['updatedAt-desc', 'Terbaru', 'Clock'], ['updatedAt-asc', 'Terlama', 'Clock']].map(([val, label, icon]) => (
-                        <button
-                          key={val}
-                          onClick={() => { setInvSortBy(val); setInvPage(1); setSelectedInvIds(new Set()) }}
-                          className={cn(
-                            'shrink-0 px-2 py-1 rounded-md text-[10px] font-medium transition-all whitespace-nowrap flex items-center gap-1',
-                            invSortBy === val
-                              ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30 shadow-sm'
-                              : 'text-slate-500 hover:text-slate-300 hover:bg-white/[0.04] border border-transparent',
-                          )}
-                          title={`Urutkan: ${label}`}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-                
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
@@ -4455,19 +4412,81 @@ export default function PurchasePage() {
                             )}
                           </div>
                         </TableHead>
-                        <TableHead className="text-[11px] text-slate-500 font-semibold uppercase tracking-wider min-w-[220px]">Nama Item</TableHead>
-                        <TableHead className="text-[11px] text-slate-500 font-semibold uppercase tracking-wider w-[130px]">Kategori</TableHead>
-                        <TableHead className="text-[11px] text-slate-500 font-semibold uppercase tracking-wider text-right w-[140px]">Stok</TableHead>
-                        <TableHead className="text-[11px] text-slate-500 font-semibold uppercase tracking-wider text-right w-[150px]">HPP Satuan</TableHead>
-                        <TableHead className="text-[11px] text-slate-500 font-semibold uppercase tracking-wider text-right w-[150px]">Total Nilai</TableHead>
-                        <TableHead className="text-[11px] text-slate-500 font-semibold uppercase tracking-wider text-right w-[90px]">Digunakan</TableHead>
+                        <SortableTableHead
+                          activeSortBy={invColumnSortBy}
+                          activeSortOrder={invColumnSortOrder}
+                          columnId="name"
+                          onSort={handleInvColumnSort}
+                          className="min-w-[220px]"
+                        >
+                          Nama Item
+                        </SortableTableHead>
+                        <SortableTableHead
+                          activeSortBy={invColumnSortBy}
+                          activeSortOrder={invColumnSortOrder}
+                          columnId="category"
+                          onSort={handleInvColumnSort}
+                          className="w-[130px]"
+                        >
+                          Kategori
+                        </SortableTableHead>
+                        <SortableTableHead
+                          activeSortBy={invColumnSortBy}
+                          activeSortOrder={invColumnSortOrder}
+                          columnId="stock"
+                          onSort={handleInvColumnSort}
+                          align="right"
+                          className="w-[140px]"
+                        >
+                          Stok
+                        </SortableTableHead>
+                        <SortableTableHead
+                          activeSortBy={invColumnSortBy}
+                          activeSortOrder={invColumnSortOrder}
+                          columnId="unitCost"
+                          onSort={handleInvColumnSort}
+                          align="right"
+                          className="w-[150px]"
+                        >
+                          HPP Satuan
+                        </SortableTableHead>
+                        <SortableTableHead
+                          activeSortBy={invColumnSortBy}
+                          activeSortOrder={invColumnSortOrder}
+                          columnId="value"
+                          onSort={handleInvColumnSort}
+                          align="right"
+                          className="w-[150px]"
+                        >
+                          Total Nilai
+                        </SortableTableHead>
+                        <SortableTableHead
+                          activeSortBy={invColumnSortBy}
+                          activeSortOrder={invColumnSortOrder}
+                          columnId="usage"
+                          onSort={handleInvColumnSort}
+                          align="right"
+                          className="w-[90px]"
+                        >
+                          Digunakan
+                        </SortableTableHead>
+                        <SortableTableHead
+                          activeSortBy={invColumnSortBy}
+                          activeSortOrder={invColumnSortOrder}
+                          columnId="lastChangedAt"
+                          onSort={handleInvColumnSort}
+                          align="right"
+                          className="w-[140px]"
+                        >
+                          Terakhir Diubah
+                        </SortableTableHead>
                         <TableHead className="text-[11px] text-slate-500 font-semibold uppercase tracking-wider text-right w-[120px]">Aksi</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {invList.length === 0 ? (
                         <TableRow className="border-white/[0.04] hover:bg-transparent">
-                          <TableCell colSpan={8} className="text-center py-20">
+                          <TableCell colSpan={9} className="text-center py-20">
                             <div className="flex flex-col items-center max-w-xs mx-auto">
                               {/* Enhanced Empty State Illustration */}
                               <div className="relative w-20 h-20 mb-5">
@@ -4503,9 +4522,11 @@ export default function PurchasePage() {
                           const deleteStatus = getDeleteSafetyStatus(item)
                           // Calculate edit block status
                           const editBlockStatus = getEditBlockStatus(item)
+                          // Same-day highlight: priority 1 = created today, 2 = changed today.
+                          const sameDayBadge = getSameDayBadge(item.createdAt ?? item.lastBusinessChangeAt ?? item.updatedAt, item.lastBusinessChangeAt ?? item.updatedAt)
                           return (
-                            <TableRow 
-                              key={item.id} 
+                            <TableRow
+                              key={item.id}
                               className={cn(
                                 'group relative border-b border-white/[0.04] transition-all duration-150',
                                 // Alternating row backgrounds
@@ -4516,6 +4537,8 @@ export default function PurchasePage() {
                                 isSelected && 'bg-emerald-500/[0.05] hover:bg-emerald-500/[0.08]',
                                 // Archived state
                                 isArchived && 'opacity-60',
+                                // Same-day highlight tint (very subtle)
+                                sameDayBadge && !isSelected && !isArchived && SAME_DAY_ROW_TINT,
                               )}
                             >
                               {/* Low stock left border indicator */}
@@ -4526,6 +4549,10 @@ export default function PurchasePage() {
                               {isArchived && (
                                 <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-gradient-to-b from-amber-500 to-amber-500/50 rounded-r" />
                               )}
+                              {/* Same-day left accent (2px) — only when not low/archived */}
+                              {sameDayBadge && !isLow && !isArchived && (
+                                <div className={SAME_DAY_LEFT_ACCENT} />
+                              )}
                               <TableCell className="pl-4">
                                 <Checkbox
                                   checked={isSelected}
@@ -4535,49 +4562,60 @@ export default function PurchasePage() {
                               </TableCell>
                               <TableCell className="py-3">
                                 <div className="flex items-center gap-2">
-                                  <span className={cn(
-                                    'text-xs font-medium truncate max-w-[160px] block',
-                                    isArchived ? 'text-slate-500 line-through decoration-slate-600' : 'text-slate-100'
-                                  )}>
-                                    {item.name}
-                                  </span>
-                                  {isArchived && (
-                                    <Badge variant="secondary" className="text-[9px] px-2 py-0.5 bg-amber-500/15 text-amber-400 border-amber-500/25 rounded-full shrink-0">
-                                      <Archive className="h-2.5 w-2.5 mr-1" />
-                                      Nonaktif
-                                    </Badge>
-                                  )}
-                                  {isLow && !isArchived && (
-                                    <Badge variant="secondary" className="text-[9px] px-2 py-0.5 bg-red-500/15 text-red-400 border-red-500/25 rounded-full animate-pulse shrink-0">
-                                      <AlertTriangle className="h-2.5 w-2.5 mr-1" />
-                                      Stok Rendah
-                                    </Badge>
-                                  )}
-                                  {/* Delete Safety Indicator */}
-                                  {!isArchived && deleteStatus.riskLevel === 'safe' && (
-            <Badge variant="secondary" className="text-[8px] px-1.5 py-0 bg-emerald-500/10 text-emerald-400 border-emerald-500/20 rounded-full shrink-0" title={deleteStatus.description}>
-              <ShieldCheck className="h-2.5 w-2.5 mr-0.5" />
-              Aman
-            </Badge>
-          )}
-          {!isArchived && deleteStatus.riskLevel === 'warning' && (
-            <Badge variant="secondary" className="text-[8px] px-1.5 py-0 bg-amber-500/10 text-amber-400 border-amber-500/20 rounded-full shrink-0" title={deleteStatus.description}>
-              <AlertCircle className="h-2.5 w-2.5 mr-0.5" />
-              Migrasi
-            </Badge>
-          )}
-          {!isArchived && deleteStatus.riskLevel === 'blocked' && (
-            <Badge variant="secondary" className="text-[8px] px-1.5 py-0 bg-red-500/10 text-red-400 border-red-500/20 rounded-full shrink-0" title={deleteStatus.description}>
-              <Lock className="h-2.5 w-2.5 mr-0.5" />
-              Terkunci
-            </Badge>
-          )}
+                                  <div className="flex flex-col min-w-0">
+                                    <span className="flex items-center gap-1.5">
+                                      <span className={cn(
+                                        'text-xs font-medium truncate max-w-[180px] block',
+                                        isArchived ? 'text-slate-500 line-through decoration-slate-600' : 'text-slate-100'
+                                      )}>
+                                        {item.name}
+                                      </span>
+                                      {sameDayBadge && <SameDayBadge variant={sameDayBadge} />}
+                                      {isArchived && (
+                                        <Badge variant="secondary" className="text-[9px] px-2 py-0.5 bg-amber-500/15 text-amber-400 border-amber-500/25 rounded-full shrink-0">
+                                          <Archive className="h-2.5 w-2.5 mr-1" />
+                                          Nonaktif
+                                        </Badge>
+                                      )}
+                                      {isLow && !isArchived && (
+                                        <Badge variant="secondary" className="text-[9px] px-2 py-0.5 bg-red-500/15 text-red-400 border-red-500/25 rounded-full animate-pulse shrink-0">
+                                          <AlertTriangle className="h-2.5 w-2.5 mr-1" />
+                                          Stok Rendah
+                                        </Badge>
+                                      )}
+                                      {/* Delete Safety Indicator */}
+                                      {!isArchived && deleteStatus.riskLevel === 'safe' && (
+                                        <Badge variant="secondary" className="text-[8px] px-1.5 py-0 bg-emerald-500/10 text-emerald-400 border-emerald-500/20 rounded-full shrink-0" title={deleteStatus.description}>
+                                          <ShieldCheck className="h-2.5 w-2.5 mr-0.5" />
+                                          Aman
+                                        </Badge>
+                                      )}
+                                      {!isArchived && deleteStatus.riskLevel === 'warning' && (
+                                        <Badge variant="secondary" className="text-[8px] px-1.5 py-0 bg-amber-500/10 text-amber-400 border-amber-500/20 rounded-full shrink-0" title={deleteStatus.description}>
+                                          <AlertCircle className="h-2.5 w-2.5 mr-0.5" />
+                                          Migrasi
+                                        </Badge>
+                                      )}
+                                      {!isArchived && deleteStatus.riskLevel === 'blocked' && (
+                                        <Badge variant="secondary" className="text-[8px] px-1.5 py-0 bg-red-500/10 text-red-400 border-red-500/20 rounded-full shrink-0" title={deleteStatus.description}>
+                                          <Lock className="h-2.5 w-2.5 mr-0.5" />
+                                          Terkunci
+                                        </Badge>
+                                      )}
+                                    </span>
+                                    {/* SKU below name (spec point C) */}
+                                    {item.sku && (
+                                      <span className="text-[10px] text-slate-500 font-mono mt-0.5 truncate max-w-[180px] block">
+                                        {item.sku}
+                                      </span>
+                                    )}
+                                  </div>
                                 </div>
                               </TableCell>
                               <TableCell>
                                 {item.category && colorClasses ? (
-                                  <Badge 
-                                    variant="outline" 
+                                  <Badge
+                                    variant="outline"
                                     className={cn(
                                       'text-[10px] px-2.5 py-1 rounded-full border font-medium transition-colors',
                                       colorClasses.bg,
@@ -4595,8 +4633,8 @@ export default function PurchasePage() {
                               <TableCell className="text-right">
                                 <span className={cn(
                                   'inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg tabular-nums text-xs font-semibold',
-                                  isLow 
-                                    ? 'bg-red-500/10 text-red-400 ring-1 ring-red-500/20' 
+                                  isLow
+                                    ? 'bg-red-500/10 text-red-400 ring-1 ring-red-500/20'
                                     : 'text-slate-200'
                                 )}>
                                   {formatNumber(item.stock)}
@@ -4616,12 +4654,15 @@ export default function PurchasePage() {
                               <TableCell className="text-right">
                                 <span className={cn(
                                   'inline-flex items-center justify-center min-w-[24px] h-6 rounded-md text-xs tabular-nums font-medium',
-                                  (item._count?.compositions ?? 0) > 0 
-                                    ? 'bg-violet-500/15 text-violet-400' 
+                                  (item._count?.compositions ?? 0) > 0
+                                    ? 'bg-violet-500/15 text-violet-400'
                                     : 'text-slate-600'
                                 )}>
                                   {item._count?.compositions ?? 0}
                                 </span>
+                              </TableCell>
+                              <TableCell className="text-[11px] text-slate-400 text-right tabular-nums whitespace-nowrap">
+                                {formatRelativeDateTime(item.lastBusinessChangeAt ?? item.updatedAt)}
                               </TableCell>
                               <TableCell className="text-right">
                                 <div className="flex items-center justify-end gap-0.5 opacity-60 group-hover:opacity-100 transition-opacity">
@@ -4689,45 +4730,6 @@ export default function PurchasePage() {
                   </Table>
                 </div>
               </Card>
-            </div>
-
-            {/* Enhanced Mobile Sort Chips - Modern Glass Design */}
-            <div className="md:hidden">
-              <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1 scrollbar-thin">
-                <div className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/[0.03] border border-white/[0.06] backdrop-blur-sm">
-                  <ArrowUpDown className="h-3 w-3 text-slate-500" />
-                  <span className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">Sort</span>
-                </div>
-                {([
-                  ['name-asc', 'A-Z', 'violet'],
-                  ['name-desc', 'Z-A', 'violet'],
-                  ['stock-desc', 'Stok ↓', 'emerald'],
-                  ['stock-asc', 'Stok ↑', 'emerald'],
-                  ['value-desc', 'Nilai ↓', 'cyan'],
-                  ['value-asc', 'Nilai ↑', 'cyan'],
-                  ['updatedAt-desc', 'Baru', 'amber'],
-                  ['updatedAt-asc', 'Lama', 'amber'],
-                ] as const).map(([val, label, color]) => (
-                  <button
-                    key={val}
-                    onClick={() => { setInvSortBy(val); setInvPage(1); setSelectedInvIds(new Set()) }}
-                    className={cn(
-                      'shrink-0 px-3 py-1.5 rounded-full text-[10px] font-semibold transition-all duration-200 whitespace-nowrap backdrop-blur-sm',
-                      invSortBy === val
-                        ? cn(
-                            'shadow-lg ring-1 ring-white/10 scale-[1.02]',
-                            color === 'violet' && 'bg-gradient-to-r from-violet-500/20 to-purple-500/20 text-violet-300 border border-violet-400/30',
-                            color === 'cyan' && 'bg-gradient-to-r from-cyan-500/20 to-blue-500/20 text-cyan-300 border border-cyan-400/30',
-                            color === 'emerald' && 'bg-gradient-to-r from-emerald-500/20 to-green-500/20 text-emerald-300 border border-emerald-400/30',
-                            color === 'amber' && 'bg-gradient-to-r from-amber-500/20 to-orange-500/20 text-amber-300 border border-amber-400/30',
-                          )
-                        : 'text-slate-500 bg-white/[0.02] border border-transparent hover:text-slate-300 hover:bg-white/[0.05] hover:border-white/[0.08]',
-                    )}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
             </div>
 
             {/* Compact Mobile Cards - List Style Layout */}
@@ -9391,6 +9393,15 @@ export default function PurchasePage() {
           )}
         </ResponsiveDialogContent>
       </ResponsiveDialog>
+
+      {/* Barcode Scanner Dialog — shared camera scan UI for inventory search */}
+      <BarcodeScannerDialog
+        open={invScannerOpen}
+        onOpenChange={setInvScannerOpen}
+        onResult={handleInvScanResult}
+        title="Scan Barcode Inventory"
+        inputPlaceholder="Ketik barcode / SKU item..."
+      />
     </motion.div>
   )
 }

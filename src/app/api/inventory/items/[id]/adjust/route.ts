@@ -41,7 +41,7 @@ export async function POST(
 
       const updated = await tx.inventoryItem.update({
         where: { id },
-        data: { stock: newStock },
+        data: { stock: newStock, lastBusinessChangeAt: new Date() },
       })
 
       // INV-RECONCILE-002: Maintain batch invariant during manual adjustment

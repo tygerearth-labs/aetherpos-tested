@@ -374,7 +374,7 @@ export async function POST(request: NextRequest) {
         // 2. Update InventoryItem.stock (ONCE per item — no more last-write-wins drift)
         await tx.inventoryItem.update({
           where: { id: adj.inventoryItemId },
-          data: { stock: adj.adjustedStock },
+          data: { stock: adj.adjustedStock, lastBusinessChangeAt: new Date() },
         })
 
         movementsCreated++

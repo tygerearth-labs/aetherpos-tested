@@ -6,6 +6,12 @@ import { safeJson, safeJsonCreated, safeJsonError } from '@/lib/api/safe-respons
 import { emitAuditEvent, buildInventoryItemChangeEvent } from '@/lib/audit-v2'
 
 // GET /api/inventory/items — list inventory items for outlet
+// Query params:
+//   search, categoryId, activeOnly (default true)
+//   sortBy: 'name' | 'category' | 'stock' | 'unitCost' | 'value' | 'usage' | 'lastChangedAt'  (default 'lastChangedAt')
+//   sortOrder: 'asc' | 'desc'  (default 'desc')
+// Sorting is GLOBAL — applies before pagination on the entire filtered set,
+// never just on the current page slice.
 export async function GET(request: NextRequest) {
   try {
     const user = await getAuthUser(request)
@@ -15,6 +21,14 @@ export async function GET(request: NextRequest) {
     const search = searchParams.get('search') || ''
     const categoryId = searchParams.get('categoryId') || ''
     const activeOnly = searchParams.get('activeOnly') !== 'false' // default: true
+
+    // Sort whitelist — never interpolate raw user input into orderBy.
+    type SortBy = 'name' | 'category' | 'stock' | 'unitCost' | 'value' | 'usage' | 'lastChangedAt'
+    const ALLOWED_SORT: SortBy[] = ['name', 'category', 'stock', 'unitCost', 'value', 'usage', 'lastChangedAt']
+    const requestedSort = searchParams.get('sortBy') as SortBy | null
+    const sortBy: SortBy = requestedSort && ALLOWED_SORT.includes(requestedSort) ? requestedSort : 'lastChangedAt'
+    const requestedOrder = searchParams.get('sortOrder')
+    const sortOrder: 'asc' | 'desc' = requestedOrder === 'asc' ? 'asc' : 'desc'
 
     const where: Record<string, unknown> = { outletId: user.outletId }
 
@@ -38,7 +52,6 @@ export async function GET(request: NextRequest) {
 
     const items = await db.inventoryItem.findMany({
       where,
-      orderBy: { name: 'asc' },
       include: {
         category: { select: { id: true, name: true, color: true } },
         _count: { select: { compositions: true, purchaseItems: true, batches: true } },
@@ -49,6 +62,62 @@ export async function GET(request: NextRequest) {
       },
     })
 
+    // ---- Global sort (applied to entire filtered set, not just current page) ----
+    // Tie-breakers per spec: lastChangedAt → createdAt desc → name asc.
+    // For other columns: primary sort, then lastChangedAt desc, then name asc.
+    // Nulls/empty always sort to the bottom regardless of direction.
+    const valOf = (i: typeof items[number]) => {
+      switch (sortBy) {
+        case 'name':
+          return (i.name || '').toLowerCase()
+        case 'category':
+          return (i.category?.name || '').toLowerCase()
+        case 'stock':
+          return i.stock
+        case 'unitCost':
+          return i.avgCost
+        case 'value':
+          return i.stock * i.avgCost
+        case 'usage':
+          return i._count?.compositions ?? 0
+        case 'lastChangedAt':
+        default:
+          // Prefer lastBusinessChangeAt (immune to POS-sale FEFO re-sync),
+          // fall back to updatedAt for safety on legacy rows.
+          return new Date(i.lastBusinessChangeAt ?? i.updatedAt).getTime()
+      }
+    }
+
+    const dirMul = sortOrder === 'desc' ? -1 : 1
+    items.sort((a, b) => {
+      const va = valOf(a)
+      const vb = valOf(b)
+      // Null/empty to bottom regardless of direction (per spec point F).
+      const aEmpty = va === '' || va === null || va === undefined
+      const bEmpty = vb === '' || vb === null || vb === undefined
+      if (aEmpty && !bEmpty) return 1
+      if (!aEmpty && bEmpty) return -1
+      if (aEmpty && bEmpty) {
+        // both empty: fall through to tie-breaker
+      } else if (va < vb) return -1 * dirMul
+      else if (va > vb) return 1 * dirMul
+
+      // Tie-breaker: when sortBy !== lastChangedAt, prefer recent business change next.
+      if (sortBy !== 'lastChangedAt') {
+        const ta = new Date(a.lastBusinessChangeAt ?? a.updatedAt).getTime()
+        const tb = new Date(b.lastBusinessChangeAt ?? b.updatedAt).getTime()
+        if (ta !== tb) return tb - ta // always desc
+      } else {
+        // When sorting by lastChangedAt, tie-break by createdAt desc, then name asc.
+        const ca = new Date(a.createdAt).getTime()
+        const cb = new Date(b.createdAt).getTime()
+        if (ca !== cb) return cb - ca
+        return a.name.localeCompare(b.name)
+      }
+      // Final tie-breaker: name asc
+      return a.name.localeCompare(b.name)
+    })
+
     return safeJson({
       items: items.map((i) => {
         const batchSum = i.batches.reduce((sum, b) => sum + b.remainingQty, 0)
@@ -56,6 +125,11 @@ export async function GET(request: NextRequest) {
         return {
           ...i,
           status: i.status,
+          // Surface both timestamps so the client can render "Terakhir Diubah"
+          // and same-day highlight from the business-meaningful field.
+          lastBusinessChangeAt: i.lastBusinessChangeAt,
+          updatedAt: i.updatedAt,
+          createdAt: i.createdAt,
           _batchSum: batchSum,
           _drift: Math.abs(drift) > 0.001 ? drift : 0,
           _driftStatus: Math.abs(drift) > 0.001
@@ -64,6 +138,7 @@ export async function GET(request: NextRequest) {
           batches: undefined, // Don't expose batch details in list
         }
       }),
+      _sort: { sortBy, sortOrder },
     })
   } catch (error) {
     console.error('Inventory items GET error:', error)

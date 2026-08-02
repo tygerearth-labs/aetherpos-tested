@@ -512,7 +512,7 @@ export class InventoryConsumptionService {
 
       await tx.inventoryItem.update({
         where: { id: invItemId },
-        data: { stock: newStock },
+        data: { stock: newStock, lastBusinessChangeAt: new Date() },
       })
 
       restoredEntries.push({
@@ -688,7 +688,7 @@ export class InventoryConsumptionService {
 
       await tx.inventoryItem.update({
         where: { id: snapshot.inventoryItemId },
-        data: { stock: newStock },
+        data: { stock: newStock, lastBusinessChangeAt: new Date() },
       })
 
       // Create RESTORE inventory movement

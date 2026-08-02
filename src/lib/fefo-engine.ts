@@ -484,7 +484,7 @@ export class FEFOEngine {
 
         await tx.inventoryItem.update({
           where: { id: inventoryItemId },
-          data: { stock: newStock },
+          data: { stock: newStock, lastBusinessChangeAt: new Date() },
         })
 
         // Create inventory movement

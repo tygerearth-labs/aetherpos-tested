@@ -51,7 +51,7 @@ export async function PATCH(request: NextRequest) {
 
     const result = await db.inventoryItem.updateMany({
       where: { id: { in: ids }, outletId: user.outletId },
-      data: { categoryId: categoryId || null },
+      data: { categoryId: categoryId || null, lastBusinessChangeAt: new Date() },
     })
 
     // AuditLog V2 — ONE BULK_BATCH event for the bulk-category change.

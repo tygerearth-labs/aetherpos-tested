@@ -103,7 +103,7 @@ export async function DELETE(
     await db.$transaction([
       db.inventoryItem.updateMany({
         where: { categoryId: id },
-        data: { categoryId: null },
+        data: { categoryId: null, lastBusinessChangeAt: new Date() },
       }),
       db.inventoryCategory.delete({ where: { id } }),
     ])

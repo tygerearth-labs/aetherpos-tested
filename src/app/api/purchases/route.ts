@@ -589,7 +589,7 @@ export async function POST(request: NextRequest) {
         for (const [id, update] of updateMap) {
           await tx.inventoryItem.update({
             where: { id },
-            data: { stock: update.newStock, avgCost: update.newAvgCost },
+            data: { stock: update.newStock, avgCost: update.newAvgCost, lastBusinessChangeAt: new Date() },
           })
         }
 

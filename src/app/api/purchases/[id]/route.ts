@@ -254,7 +254,7 @@ export async function PUT(
 
           await tx.inventoryItem.update({
             where: { id: oldItem.inventoryItemId },
-            data: { stock: newStock, avgCost: newAvgCost },
+            data: { stock: newStock, avgCost: newAvgCost, lastBusinessChangeAt: new Date() },
           })
         } else {
           // Item is removed entirely: reverse old stock
@@ -273,7 +273,7 @@ export async function PUT(
 
           await tx.inventoryItem.update({
             where: { id: oldItem.inventoryItemId },
-            data: { stock: newStock, avgCost: newAvgCost },
+            data: { stock: newStock, avgCost: newAvgCost, lastBusinessChangeAt: new Date() },
           })
         }
 
@@ -330,6 +330,7 @@ export async function PUT(
           data: {
             stock: newStock,
             avgCost: newAvgCost,
+            lastBusinessChangeAt: new Date(),
           },
         })
 
@@ -596,6 +597,7 @@ export async function DELETE(
           data: {
             stock: newStock,
             avgCost: newAvgCost,
+            lastBusinessChangeAt: new Date(),
           },
         })
 
