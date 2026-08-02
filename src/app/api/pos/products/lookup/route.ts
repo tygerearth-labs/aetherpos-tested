@@ -14,11 +14,11 @@ import {
  * PR 1 — exact barcode/SKU lookup for the POS. No debounce, no fuzzy match.
  * Called by the POS Enter-key handler and the barcode-scanner auto-add path.
  *
- * Match priority (first hit wins):
- *   1. Product.barcode === code   (product-level barcode)
- *   2. Product.sku === code       (product-level SKU)
- *   3. ProductVariant.barcode === code  → return parent + matchedVariantId
- *   4. ProductVariant.sku === code      → return parent + matchedVariantId
+ * Match priority (first hit wins) per AETHER CAMERA BARCODE SCANNER contract:
+ *   1. ProductVariant.barcode === code  → return parent + matchedVariantId
+ *   2. Product.barcode === code         (product-level barcode)
+ *   3. ProductVariant.sku === code      → return parent + matchedVariantId
+ *   4. Product.sku === code             (product-level SKU)
  *
  * `matchedVariantId` lets the POS auto-add the specific variant directly
  * (mirrors the legacy handleSearchKeyDown behavior) instead of just opening
@@ -53,15 +53,31 @@ export async function GET(request: NextRequest) {
       return safeJson({ product: null, matchedVariantId: null }, 200, CACHE.SHORT)
     }
 
-    // ── 1. Product-level exact match (barcode OR sku) ──
+    // ── 1. Variant-level barcode exact match → return parent + matchedVariantId ──
+    // Priority #1 per AETHER CAMERA BARCODE SCANNER contract.
+    let variant = await db.productVariant.findFirst({
+      where: { outletId: user.outletId, barcode: code },
+      select: { id: true, productId: true },
+    })
+    if (variant) {
+      const parent = (await db.product.findFirst({
+        where: { id: variant.productId, outletId: user.outletId },
+        select: POS_PRODUCT_SELECT,
+      })) as unknown as PosProductRaw | null
+      if (parent) {
+        return safeJson(
+          { product: mapPosProduct(parent), matchedVariantId: variant.id },
+          200,
+          CACHE.SHORT,
+        )
+      }
+    }
+
+    // ── 2. Product-level barcode exact match ──
     let product = (await db.product.findFirst({
-      where: {
-        outletId: user.outletId,
-        OR: [{ barcode: code }, { sku: code }],
-      },
+      where: { outletId: user.outletId, barcode: code },
       select: POS_PRODUCT_SELECT,
     })) as unknown as PosProductRaw | null
-
     if (product) {
       return safeJson(
         { product: mapPosProduct(product), matchedVariantId: null },
@@ -70,34 +86,39 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // ── 2. Variant-level exact match (barcode OR sku) → return parent ──
-    // The variant's productId points to the parent; we fetch the parent with
-    // all its variants so the POS can either auto-add (matchedVariantId) or
-    // open the variant picker.
-    const variant = await db.productVariant.findFirst({
-      where: {
-        outletId: user.outletId,
-        OR: [{ barcode: code }, { sku: code }],
-      },
+    // ── 3. Variant-level SKU exact match → return parent + matchedVariantId ──
+    variant = await db.productVariant.findFirst({
+      where: { outletId: user.outletId, sku: code },
       select: { id: true, productId: true },
     })
-
     if (variant) {
-      product = (await db.product.findFirst({
+      const parent = (await db.product.findFirst({
         where: { id: variant.productId, outletId: user.outletId },
         select: POS_PRODUCT_SELECT,
       })) as unknown as PosProductRaw | null
-
-      if (product) {
+      if (parent) {
         return safeJson(
-          { product: mapPosProduct(product), matchedVariantId: variant.id },
+          { product: mapPosProduct(parent), matchedVariantId: variant.id },
           200,
           CACHE.SHORT,
         )
       }
     }
 
-    // ── 3. No match ──
+    // ── 4. Product-level SKU exact match ──
+    product = (await db.product.findFirst({
+      where: { outletId: user.outletId, sku: code },
+      select: POS_PRODUCT_SELECT,
+    })) as unknown as PosProductRaw | null
+    if (product) {
+      return safeJson(
+        { product: mapPosProduct(product), matchedVariantId: null },
+        200,
+        CACHE.SHORT,
+      )
+    }
+
+    // ── 5. No match ──
     return safeJson({ product: null, matchedVariantId: null }, 200, CACHE.SHORT)
   } catch (error) {
     console.error('[/api/pos/products/lookup] GET error:', error)

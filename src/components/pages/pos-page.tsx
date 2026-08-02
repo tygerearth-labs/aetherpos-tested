@@ -52,7 +52,7 @@ import {
   User, UserPlus, Coins, Wifi, WifiOff, RefreshCw, RefreshCcw, CloudOff, Tag, AlertTriangle,
   ChevronLeft, ChevronRight, Pencil, History, Clock, Printer,
   LayoutGrid, Layers, Banknote, HandCoins, QrCode, CreditCard, ArrowLeftRight,
-  ChevronDown, Store, Calendar, TrendingUp, ScanLine, Database, Eraser, Phone, PackageX, Camera,
+  ChevronDown, Store, Calendar, TrendingUp, ScanLine, Database, Eraser, Phone, PackageX,
 } from 'lucide-react'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
@@ -226,7 +226,7 @@ export default function PosPage() {
                   title="Scan barcode dengan kamera"
                   aria-label="Scan barcode dengan kamera"
                 >
-                  <Camera className="h-3.5 w-3.5" />
+                  <ScanLine className="h-3.5 w-3.5" />
                 </button>
               )}
             </div>
@@ -578,6 +578,8 @@ export default function PosPage() {
         open={scanOpen}
         onOpenChange={setScanOpen}
         onResult={(code) => { void products.handleScanResult(code) }}
+        resolver={products.resolveBarcode}
+        onContextAction={products.applyLookupToCart}
         title="Scan Produk"
         inputPlaceholder="Ketik barcode / SKU produk..."
       />
