@@ -71,9 +71,58 @@ import {
   ScanBarcode, X, AlertTriangle, Loader2, Keyboard,
   Zap, ZapOff, Bug, Camera, Crosshair, FlaskConical, Play,
 } from 'lucide-react'
-import { BrowserMultiFormatReader, type IScannerControls } from '@zxing/browser'
-import { DecodeHintType, BarcodeFormat, NotFoundException } from '@zxing/library'
 import { toast } from 'sonner'
+
+// ──────────────────────────────────────────────────────────────────────────────
+// @zxing/browser + @zxing/library — DYNAMIC-ONLY import (Phase 3 robustness)
+//
+// These packages are loaded via `await import('@zxing/browser')` inside
+// startZxingFallback() so that the BUILD never statically resolves them.
+// This makes the @zxing fallback fully optional at build time:
+//   - If @zxing is installed (it is, per package.json), the fallback loads
+//     on demand when the native BarcodeDetector errors out 5× in a row.
+//   - If @zxing is NOT installed (e.g. a stripped deploy), the dynamic
+//     import fails gracefully and the user still gets the native detector
+//     (Chrome/Android/Edge) + manual input. The build ALWAYS succeeds.
+//
+// Local numeric constants mirror @zxing/library's BarcodeFormat +
+// DecodeHintType enums (verified against @zxing/library@0.23.0):
+//   CODE_39=2, CODE_128=4, EAN_8=6, EAN_13=7, UPC_A=14, UPC_E=15
+//   POSSIBLE_FORMATS=2, TRY_HARDER=3
+// ──────────────────────────────────────────────────────────────────────────────
+const ZX_BARCODE_FORMAT = {
+  CODE_39: 2,
+  CODE_128: 4,
+  EAN_8: 6,
+  EAN_13: 7,
+  UPC_A: 14,
+  UPC_E: 15,
+} as const
+const ZX_DECODE_HINT = {
+  POSSIBLE_FORMATS: 2,
+  TRY_HARDER: 3,
+} as const
+
+// Minimal structural types for the dynamically-imported @zxing/browser API.
+// These are NOT the real classes — they exist only so TypeScript + refs compile
+// without a static import. The real classes arrive via dynamic import at runtime.
+interface ZxScannerControls { stop: () => void }
+interface ZxDecodeResult { getText: () => string }
+interface ZxBrowserMultiFormatReader {
+  decodeFromStream: (
+    stream: MediaStream,
+    video: HTMLVideoElement,
+    cb: (result: ZxDecodeResult | null, err: unknown, controls: ZxScannerControls) => void,
+  ) => Promise<ZxScannerControls>
+}
+interface ZxLibraryModule {
+  DecodeHintType: { POSSIBLE_FORMATS: number; TRY_HARDER: number }
+  BarcodeFormat: { EAN_13: number; EAN_8: number; UPC_A: number; UPC_E: number; CODE_128: number; CODE_39: number }
+  NotFoundException: { new (): Error }
+}
+interface ZxBrowserModule {
+  BrowserMultiFormatReader: new (hints?: Map<number, unknown>, options?: { delayBetweenScanAttempts?: number }) => ZxBrowserMultiFormatReader
+}
 
 // ──────────────────────────────────────────────────────────────────────────────
 // TYPES
@@ -150,12 +199,12 @@ const NATIVE_FORMATS = [
   'ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39',
 ]
 const ZXING_FORMATS = [
-  BarcodeFormat.EAN_13,
-  BarcodeFormat.EAN_8,
-  BarcodeFormat.UPC_A,
-  BarcodeFormat.UPC_E,
-  BarcodeFormat.CODE_128,
-  BarcodeFormat.CODE_39,
+  ZX_BARCODE_FORMAT.EAN_13,
+  ZX_BARCODE_FORMAT.EAN_8,
+  ZX_BARCODE_FORMAT.UPC_A,
+  ZX_BARCODE_FORMAT.UPC_E,
+  ZX_BARCODE_FORMAT.CODE_128,
+  ZX_BARCODE_FORMAT.CODE_39,
 ]
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -214,8 +263,8 @@ export function BarcodeScannerDialog({
   const streamRef = useRef<MediaStream | null>(null)
   const rafRef = useRef<number | null>(null)
   const nativeDetectorRef = useRef<ReturnType<NativeBarcodeDetectorCtor['new']> | null>(null)
-  const zxingReaderRef = useRef<BrowserMultiFormatReader | null>(null)
-  const zxingControlsRef = useRef<IScannerControls | null>(null)
+  const zxingReaderRef = useRef<ZxBrowserMultiFormatReader | null>(null)
+  const zxingControlsRef = useRef<ZxScannerControls | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const manualValueRef = useRef<HTMLInputElement>(null)
   const lastResultRef = useRef<{ value: string; at: number } | null>(null)
@@ -452,21 +501,29 @@ export function BarcodeScannerDialog({
   // PHASE 3 — ZXing fallback (BrowserMultiFormatReader via decodeFromStream)
   // ────────────────────────────────────────────────────────────────────────────
 
-  const startZxingFallback = useCallback(() => {
+  const startZxingFallback = useCallback(async () => {
     if (zxingControlsRef.current) return // already running
     if (!streamRef.current || !videoRef.current) return
     try {
-      const hints = new Map()
-      hints.set(DecodeHintType.POSSIBLE_FORMATS, ZXING_FORMATS)
-      hints.set(DecodeHintType.TRY_HARDER, true)
-      const reader = new BrowserMultiFormatReader(hints, { delayBetweenScanAttempts: 120 })
+      // DYNAMIC IMPORT — never statically resolved at build time.
+      // If @zxing/browser or @zxing/library is not installed, the dynamic
+      // import rejects and we fall through to the catch block (graceful
+      // degradation: native detector + manual input remain available).
+      const [zxingBrowser, zxingLibrary] = await Promise.all([
+        import('@zxing/browser') as Promise<ZxBrowserModule>,
+        import('@zxing/library') as Promise<ZxLibraryModule>,
+      ])
+      const hints = new Map<number, unknown>()
+      hints.set(zxingLibrary.DecodeHintType.POSSIBLE_FORMATS, ZXING_FORMATS)
+      hints.set(zxingLibrary.DecodeHintType.TRY_HARDER, true)
+      const reader = new zxingBrowser.BrowserMultiFormatReader(hints, { delayBetweenScanAttempts: 120 })
       zxingReaderRef.current = reader
       // decodeFromStream uses our existing stream + video element. Returns
       // controls whose .stop() cancels the internal scan loop.
       void reader.decodeFromStream(streamRef.current, videoRef.current, (result, _err, controls) => {
         if (result && result.getText()) {
           void handleDetected(result.getText())
-        } else if (_err && !(_err instanceof NotFoundException)) {
+        } else if (_err && (_err as Error)?.name !== 'NotFoundException') {
           // Swallow transient non-fatal errors silently — they fire on every
           // non-matching frame. The controls param lets us stop if needed.
           // We don't stop here; let the loop continue.
@@ -482,8 +539,10 @@ export function BarcodeScannerDialog({
         })
       })
     } catch (e) {
+      // Dynamic import failed OR @zxing init threw. Most common cause:
+      // @zxing/browser not installed in this deploy. Log + keep native path.
       patchTelemetry({
-        lastErrorName: (e as Error)?.name ?? 'ZXingInitError',
+        lastErrorName: (e as Error)?.name ?? 'ZXingUnavailable',
         lastErrorMessage: (e as Error)?.message ?? String(e),
       })
     }
@@ -507,7 +566,7 @@ export function BarcodeScannerDialog({
     // If fallback was armed, stop scheduling native loop and ensure ZXing is started.
     if (fallbackArmedRef.current) {
       if (!zxingControlsRef.current && streamRef.current) {
-        startZxingFallback()
+        void startZxingFallback()
       }
       rafRef.current = null
       return
@@ -678,7 +737,7 @@ export function BarcodeScannerDialog({
       } else {
         // No native detector — immediately start ZXing fallback.
         fallbackArmedRef.current = true
-        startZxingFallback()
+        void startZxingFallback()
       }
     } catch (err: unknown) {
       const e = err as { name?: string; message?: string }
