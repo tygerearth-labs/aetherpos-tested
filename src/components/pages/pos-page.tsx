@@ -46,12 +46,13 @@ import {
   Popover, PopoverContent, PopoverTrigger,
 } from '@/components/ui/popover'
 import { ReceiptDialog } from '@/components/pos/receipt-dialog'
+import { BarcodeScannerDialog } from '@/components/shared/barcode-scanner-dialog'
 import {
   Search, Plus, Minus, Trash2, ShoppingCart, ShoppingBag, Package, PackageSearch, Loader2, Check, X,
   User, UserPlus, Coins, Wifi, WifiOff, RefreshCw, RefreshCcw, CloudOff, Tag, AlertTriangle,
   ChevronLeft, ChevronRight, Pencil, History, Clock, Printer,
   LayoutGrid, Layers, Banknote, HandCoins, QrCode, CreditCard, ArrowLeftRight,
-  ChevronDown, Store, Calendar, TrendingUp, ScanLine, Database, Eraser, Phone, PackageX,
+  ChevronDown, Store, Calendar, TrendingUp, ScanLine, Database, Eraser, Phone, PackageX, Camera,
 } from 'lucide-react'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
@@ -81,6 +82,7 @@ export default function PosPage() {
   const [pointsToUse, setPointsToUse] = useState(0)
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'QRIS' | 'DEBIT' | 'TRANSFER'>('CASH')
   const [paidAmount, setPaidAmount] = useState('')
+  const [scanOpen, setScanOpen] = useState(false)
 
   // ── Header info: live clock + today's transactions summary ──
   const [now, setNow] = useState(() => new Date())
@@ -217,9 +219,15 @@ export default function PosPage() {
                   <X className="h-3 w-3" />
                 </button>
               ) : (
-                <kbd className="hidden md:inline-flex absolute right-2.5 top-1/2 -translate-y-1/2 items-center gap-0.5 h-5 px-1.5 rounded bg-white/[0.04] border border-white/[0.05] text-[9px] font-medium text-slate-500 pointer-events-none">
-                  <ScanLine className="h-2.5 w-2.5" /> Scan
-                </kbd>
+                <button
+                  type="button"
+                  onClick={() => setScanOpen(true)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 h-7 w-7 flex items-center justify-center rounded-md text-slate-400 hover:text-[var(--theme-300)] hover:bg-white/[0.08] transition-colors"
+                  title="Scan barcode dengan kamera"
+                  aria-label="Scan barcode dengan kamera"
+                >
+                  <Camera className="h-3.5 w-3.5" />
+                </button>
               )}
             </div>
             {/* Product count summary — quiet context */}
@@ -564,6 +572,15 @@ export default function PosPage() {
           onFinish={() => checkout.setReprintOpen(false)}
         />
       )}
+
+      {/* ── Camera barcode scanner (search bar camera button) ── */}
+      <BarcodeScannerDialog
+        open={scanOpen}
+        onOpenChange={setScanOpen}
+        onResult={(code) => { void products.handleScanResult(code) }}
+        title="Scan Produk"
+        inputPlaceholder="Ketik barcode / SKU produk..."
+      />
     </div>
   )
 

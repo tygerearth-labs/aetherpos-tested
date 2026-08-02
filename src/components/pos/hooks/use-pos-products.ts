@@ -107,6 +107,8 @@ interface UsePosProductsReturn {
   setVariantPicker: (state: VariantPickerState) => void
   handleSearchChange: (value: string) => void
   handleSearchKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => Promise<void>
+  /** Camera/barcode scanner result handler — looks up the code and adds to cart. */
+  handleScanResult: (code: string) => Promise<void>
   handleCategorySelect: (categoryId: string | null) => void
   openVariantPicker: (product: Product) => Promise<void>
   handleVariantSelect: (variant: ProductVariant) => void
@@ -482,12 +484,45 @@ export function usePosProducts(options: UsePosProductsOptions): UsePosProductsRe
     }
   }, [productSearch, productPage, selectedCategoryId, fetchFeatured, fetchSearch])
 
+  // ── Camera scanner result: exact barcode/SKU lookup → add to cart ──
+  // Reuses the same lookup + add logic as the Enter-key handler, but sourced
+  // from the BarcodeScannerDialog (camera or manual input inside the scanner).
+  const handleScanResult = useCallback(async (code: string) => {
+    const trimmed = code.trim()
+    if (!trimmed) return
+    const { product, matchedVariantId } = await lookupProduct(trimmed)
+    if (product) {
+      if (matchedVariantId) {
+        // Exact variant match → bypass picker, add directly
+        const variants = await fetchVariants(product.id)
+        const variant = variants.find(v => v.id === matchedVariantId)
+        if (variant && variant.stock > 0) {
+          onAddToCart(product, 1, variant)
+          toast.success(`${product.name} - ${variant.name} ditambahkan`)
+        } else {
+          toast.error('Stok varian habis')
+        }
+      } else if (product.hasVariants) {
+        // Parent barcode match but has variants → open picker
+        onOpenVariantPicker(product)
+      } else if (product.stock > 0) {
+        onAddToCart(product)
+        toast.success(`${product.name} ditambahkan`)
+      } else {
+        toast.error('Stok produk habis')
+      }
+      setProductSearch('')
+    } else {
+      toast.error(`Produk dengan kode "${trimmed}" tidak ditemukan`)
+    }
+  }, [lookupProduct, fetchVariants, onAddToCart, onOpenVariantPicker])
+
   return {
     products, outOfStockProducts, categories, productSearch, productsLoading, productPage, totalProductPages,
     selectedCategoryId, variantPicker,
     lastInputTimeRef, inputCharCountRef, barcodeDetectedRef,
     setProductSearch, setProductPage, setSelectedCategoryId, setVariantPicker,
-    handleSearchChange, handleSearchKeyDown, handleCategorySelect,
+    handleSearchChange, handleSearchKeyDown, handleScanResult, handleCategorySelect,
     openVariantPicker, handleVariantSelect, fetchFeatured, refreshProducts,
   }
 }

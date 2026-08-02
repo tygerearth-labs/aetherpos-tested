@@ -1,20 +1,26 @@
 'use client'
 
 /**
- * BarcodeScannerDialog — shared scan UI for the Products and Inventory search bars.
+ * BarcodeScannerDialog — shared scan UI for POS, Products, Inventory, and
+ * Stock Opname search bars.
  *
- * Implementation notes (per spec point H):
- *   - Reusable: one component, parameterized by `onResult(value)`.
+ * Detection strategy (reliable cross-browser):
+ *   1. Primary: @zxing/library MultiFormatReader (pure JS — works on all
+ *      browsers incl. Firefox, iOS Safari, desktop Chrome). Captures frames
+ *      from our existing <video> via canvas and decodes in the rAF loop.
+ *   2. Fast-path: native BarcodeDetector API when available (Chrome/Android)
+ *      — used as an acceleration layer; if it throws or is unsupported, zxing
+ *      takes over seamlessly.
+ *
+ * UX:
  *   - Rear camera (facingMode: 'environment').
- *   - Lazy-load: camera stream is acquired only after the user opens the dialog.
- *   - One stream max: tracks are stopped on close/unmount.
- *   - Native BarcodeDetector API when available; manual input fallback otherwise.
- *   - On success: vibration + beep (best-effort), debounce identical values 1.2s.
+ *   - Lazy-load: camera stream acquired only after the user opens the dialog.
+ *   - One stream max: tracks stopped on close/unmount.
+ *   - Manual input fallback always available (collapsed by default).
+ *   - On success: vibration + beep (best-effort), debounce identical 1.2s.
  *
- * Cloud sandbox caveat: there is no real camera in the preview environment,
- * so the dialog gracefully falls back to a manual barcode input field. The
- * camera viewport is still rendered so users on real devices get the full
- * scan experience.
+ * Cloud sandbox caveat: no real camera in preview → falls back to manual
+ * input. The camera viewport still renders for real-device users.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -22,6 +28,15 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Camera, ScanBarcode, X, AlertTriangle, Loader2, Keyboard, Zap, ZapOff } from 'lucide-react'
+import {
+  MultiFormatReader,
+  BarcodeFormat,
+  DecodeHintType,
+  RGBLuminanceSource,
+  HybridBinarizer,
+  BinaryBitmap,
+  NotFoundException,
+} from '@zxing/library'
 
 interface BarcodeScannerDialogProps {
   open: boolean
@@ -36,6 +51,19 @@ interface BarcodeScannerDialogProps {
 
 type CameraStatus = 'idle' | 'requesting' | 'active' | 'denied' | 'unsupported' | 'error'
 
+const SCAN_FORMATS = [
+  BarcodeFormat.EAN_13,
+  BarcodeFormat.EAN_8,
+  BarcodeFormat.UPC_A,
+  BarcodeFormat.UPC_E,
+  BarcodeFormat.CODE_128,
+  BarcodeFormat.CODE_39,
+  BarcodeFormat.CODE_93,
+  BarcodeFormat.ITF,
+  BarcodeFormat.CODABAR,
+  BarcodeFormat.QR_CODE,
+]
+
 export function BarcodeScannerDialog({
   open,
   onOpenChange,
@@ -45,10 +73,14 @@ export function BarcodeScannerDialog({
 }: BarcodeScannerDialogProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
-  const detectorRef = useRef<{
+  /** zxing reader instance — pure-JS decoder, works on all browsers. */
+  const readerRef = useRef<MultiFormatReader | null>(null)
+  /** Native BarcodeDetector (Chrome/Android fast-path), null if unsupported. */
+  const nativeDetectorRef = useRef<{
     detect: (source: CanvasImageSource | ImageBitmap) => Promise<Array<{ rawValue?: string }>>
   } | null>(null)
   const rafRef = useRef<number | null>(null)
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const lastResultRef = useRef<{ value: string; at: number } | null>(null)
   const manualValueRef = useRef<HTMLInputElement>(null)
 
@@ -59,6 +91,19 @@ export function BarcodeScannerDialog({
   const [torchOn, setTorchOn] = useState(false)
   const [torchSupported, setTorchSupported] = useState(false)
   const [showManual, setShowManual] = useState(false)
+
+  // ── Initialize the zxing reader once (pure-JS, no camera needed) ──
+  const ensureReader = useCallback(() => {
+    if (readerRef.current) return readerRef.current
+    const hints = new Map()
+    hints.set(DecodeHintType.POSSIBLE_FORMATS, SCAN_FORMATS)
+    // Try harder — slower but catches blurry/partial barcodes.
+    hints.set(DecodeHintType.TRY_HARDER, true)
+    const reader = new MultiFormatReader()
+    reader.setHints(hints)
+    readerRef.current = reader
+    return reader
+  }, [])
 
   const stopCamera = useCallback(() => {
     if (rafRef.current !== null) {
@@ -72,6 +117,7 @@ export function BarcodeScannerDialog({
     if (videoRef.current) {
       videoRef.current.srcObject = null
     }
+    nativeDetectorRef.current = null
     setStatus('idle')
   }, [])
 
@@ -102,27 +148,79 @@ export function BarcodeScannerDialog({
     [onResult],
   )
 
+  // ── Decode a single frame using native BarcodeDetector (fast-path) ──
+  const decodeNative = useCallback(async (video: HTMLVideoElement): Promise<string | null> => {
+    if (!nativeDetectorRef.current) return null
+    try {
+      const results = await nativeDetectorRef.current.detect(video)
+      if (results && results.length > 0) {
+        const value = results[0].rawValue
+        if (value) return value
+      }
+    } catch {
+      // native detect errors fire constantly on dark/blurry frames — ignore
+    }
+    return null
+  }, [])
+
+  // ── Decode a single frame using zxing (cross-browser fallback) ──
+  const decodeZxing = useCallback((video: HTMLVideoElement): string | null => {
+    const reader = readerRef.current
+    if (!reader) return null
+    const w = video.videoWidth
+    const h = video.videoHeight
+    if (w === 0 || h === 0) return null
+    // Reuse a single canvas across frames to avoid GC pressure.
+    let canvas = canvasRef.current
+    if (!canvas) {
+      canvas = document.createElement('canvas')
+      canvasRef.current = canvas
+    }
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w
+      canvas.height = h
+    }
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })
+    if (!ctx) return null
+    try {
+      ctx.drawImage(video, 0, 0, w, h)
+      const imageData = ctx.getImageData(0, 0, w, h)
+      const luminanceSource = new RGBLuminanceSource(imageData.data, w, h)
+      const binaryBitmap = new BinaryBitmap(new HybridBinarizer(luminanceSource))
+      const result = reader.decode(binaryBitmap)
+      if (result && result.getText()) return result.getText()
+    } catch (err) {
+      // NotFoundException is expected on every non-matching frame — ignore.
+      if (!(err instanceof NotFoundException)) {
+        // Swallow other transient errors silently.
+      }
+    }
+    return null
+  }, [])
+
   // detectLoop is self-recursive via requestAnimationFrame. To satisfy
   // react-hooks/immutability we store the latest instance in a ref and
   // schedule through the ref, not through the closure variable.
   const detectLoopRef = useRef<() => void>(() => {})
 
   const detectLoop = useCallback(async () => {
-    if (!detectorRef.current || !videoRef.current || videoRef.current.readyState < 2) {
+    const video = videoRef.current
+    if (!video || video.readyState < 2) {
       rafRef.current = requestAnimationFrame(() => detectLoopRef.current())
       return
     }
-    try {
-      const results = await detectorRef.current.detect(videoRef.current)
-      if (results && results.length > 0) {
-        const value = results[0].rawValue
-        if (value) handleResult(value)
-      }
-    } catch {
-      // Ignore detect errors — they fire constantly when the viewport is dark.
+    // Try native BarcodeDetector first (faster on Chrome/Android), then
+    // fall back to zxing for browsers without native support.
+    let value: string | null = null
+    if (nativeDetectorRef.current) {
+      value = await decodeNative(video)
     }
+    if (!value) {
+      value = decodeZxing(video)
+    }
+    if (value) handleResult(value)
     rafRef.current = requestAnimationFrame(() => detectLoopRef.current())
-  }, [handleResult])
+  }, [handleResult, decodeNative, decodeZxing])
 
   // Keep the ref in sync with the latest closure.
   useEffect(() => {
@@ -164,23 +262,26 @@ export function BarcodeScannerDialog({
       } catch {
         setTorchSupported(false)
       }
-      // Set up BarcodeDetector if available.
+      // ── Initialize decoders ──
+      // 1. zxing (always available — pure JS)
+      ensureReader()
+      // 2. Native BarcodeDetector (Chrome/Android fast-path)
       const BD = (window as unknown as { BarcodeDetector?: new (opts: { formats: string[] }) => { detect: (s: CanvasImageSource) => Promise<Array<{ rawValue?: string }>> } }).BarcodeDetector
       if (BD) {
         try {
-          detectorRef.current = new BD({
+          nativeDetectorRef.current = new BD({
             formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'code_93', 'codabar', 'itf', 'qr_code'],
           })
         } catch {
-          detectorRef.current = null
+          nativeDetectorRef.current = null
         }
       } else {
-        detectorRef.current = null
+        nativeDetectorRef.current = null
       }
       setStatus('active')
-      if (detectorRef.current) {
-        rafRef.current = requestAnimationFrame(detectLoop)
-      }
+      // Start the detection loop — always runs, even without native BD,
+      // because zxing handles the decoding.
+      rafRef.current = requestAnimationFrame(detectLoop)
     } catch (err: unknown) {
       const e = err as { name?: string; message?: string }
       if (e?.name === 'NotAllowedError' || e?.name === 'PermissionDeniedError') {
@@ -198,11 +299,15 @@ export function BarcodeScannerDialog({
       }
       setShowManual(true)
     }
-  }, [detectLoop])
+  }, [detectLoop, ensureReader])
 
   // Open → start camera; close → stop camera.
+  // Camera init is a legitimate external-system side-effect that must update
+  // React state (status/permissions); the synchronous setState calls here are
+  // intentional and unavoidable for media-device orchestration.
   useEffect(() => {
     if (open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       void startCamera()
     } else {
       stopCamera()
@@ -228,7 +333,12 @@ export function BarcodeScannerDialog({
   }, [torchOn])
 
   const submitManual = useCallback(() => {
-    const v = manualValue.trim()
+    // Read directly from the DOM input as a fallback when React's controlled
+    // state hasn't flushed yet (e.g. programmatic native setter + immediate
+    // submit). React's manualValue may lag behind the actual input value.
+    const stateValue = manualValue.trim()
+    const domValue = manualValueRef.current?.value.trim() ?? ''
+    const v = stateValue || domValue
     if (!v) return
     handleResult(v)
     setManualValue('')

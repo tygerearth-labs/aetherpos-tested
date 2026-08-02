@@ -125,6 +125,7 @@ import {
   StockOpnameSessionSummary,
 } from '@/components/stock-opname/mode-selector'
 import { StockOpnameQuickCountWidget } from '@/components/stock-opname/quick-count-widget'
+import { BarcodeScannerDialog } from '@/components/shared/barcode-scanner-dialog'
 import {
   StockOpnameStartDialog,
   StockOpnamePauseDialog,
@@ -166,6 +167,8 @@ export default function StockOpnamePage() {
   const [scanInput, setScanInput] = useState('')
   const scanInputRef = useRef<HTMLInputElement>(null)
   const [focusedSnapshot, setFocusedSnapshot] = useState<SnapshotItem | null>(null)
+  // Camera barcode scanner dialog state (counting search bar camera button)
+  const [scanDialogOpen, setScanDialogOpen] = useState(false)
   const [filterMode, setFilterMode] = useState<CountingFilter>('ALL')
   const [filterCategory, setFilterCategory] = useState<string>('all')
   const [sortMode, setSortMode] = useState<SortMode>('NAME')
@@ -319,6 +322,25 @@ export default function StockOpnamePage() {
       scanInputRef.current?.focus()
     }
   }, [scanInput])
+
+  // Camera scanner result — looks up the scanned code via findByScan (same
+  // as the Enter-key text search) and focuses the matched snapshot. The
+  // dialog stays open so the user can scan multiple items in succession.
+  const handleScanResult = useCallback(async (code: string) => {
+    const trimmed = code.trim()
+    if (!trimmed) return
+    const found = await findByScan(trimmed)
+    if (found) {
+      setFocusedSnapshot(found)
+      toast.success('Item ditemukan', {
+        description: found.itemName,
+      })
+    } else {
+      toast.error('Item tidak ditemukan', {
+        description: `"${trimmed}" tidak cocok dengan SKU / nama / batch`,
+      })
+    }
+  }, [])
 
   // ════════════════════════════════════════════════════════════
   // Actions: save physical count (from QuickCountWidget)
@@ -882,7 +904,9 @@ export default function StockOpnamePage() {
                   variant="ghost"
                   size="sm"
                   className="absolute right-1 top-1/2 -translate-y-1/2 h-8 px-2"
-                  onClick={handleScan}
+                  onClick={() => setScanDialogOpen(true)}
+                  title="Scan barcode dengan kamera"
+                  aria-label="Scan barcode dengan kamera"
                 >
                   <Camera className="h-4 w-4" />
                 </Button>
@@ -1445,6 +1469,15 @@ export default function StockOpnamePage() {
         summary={completionSummary}
         loading={loading}
         onConfirm={handleComplete}
+      />
+
+      {/* Camera barcode scanner (counting search bar camera button) */}
+      <BarcodeScannerDialog
+        open={scanDialogOpen}
+        onOpenChange={setScanDialogOpen}
+        onResult={(code) => { void handleScanResult(code) }}
+        title="Scan Item Opname"
+        inputPlaceholder="Ketik barcode / SKU / nama item..."
       />
     </div>
   )
