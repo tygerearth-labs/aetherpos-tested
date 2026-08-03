@@ -6,7 +6,7 @@ import { getFeaturesForOutlet, isUnlimited } from '@/lib/config/plan-config'
 import * as XLSX from 'xlsx'
 import { safeAuditLog } from '@/lib/safe-audit'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
-import { generateUniqueSKU, generateVariantSKU } from '@/lib/sku-generator'
+import { generateUniqueSKU, generateVariantSKU, generateUniqueBarcode, generateVariantBarcode } from '@/lib/sku-generator'
 import { safeEmitAuditEvent, buildMigrationBatchEvent, type MigrationCreatedRow } from '@/lib/audit-v2'
 
 export const maxDuration = 300
@@ -1133,9 +1133,11 @@ export async function POST(request: NextRequest) {
             // Rule 4+6: Category via Map (categories already created/resolved above)
             const categoryId = categoryRaw ? (categoryCache.get(categoryRaw) || null) : null
 
-            // Auto-generate SKU/Barcode (unchanged — uses db, not tx; shared with bulk-upload)
+            // Auto-generate SKU/Barcode (AETHER BARCODE CONTRACT)
             const finalSku = sku || await generateUniqueSKU(name, outletId)
-            const finalBarcode = barcode || finalSku
+            // AETHER BARCODE CONTRACT: Manual barcode saved exactly as-is.
+            // If barcode is empty, generate unique AET- format barcode (NOT SKU fallback).
+            const finalBarcode = barcode || await generateUniqueBarcode(name, outletId)
 
             // Rule 6: Set hasComposition UPFRONT in product create data.
             // Mode 2 (isStockMode): always true (1:1 link will be created below).
@@ -1919,7 +1921,8 @@ export async function POST(request: NextRequest) {
                     currentParentIsNew = true
                     const categoryId = r.categoryRaw ? (categoryCache.get(r.categoryRaw) || null) : null
                     const finalSku = r.parentSku || await generateUniqueSKU(r.parentName, outletId)
-                    const finalBarcode = r.parentBarcode || finalSku
+                    // AETHER BARCODE CONTRACT: Manual barcode exact, auto-generate AET- if empty
+                    const finalBarcode = r.parentBarcode || await generateUniqueBarcode(r.parentName, outletId)
 
                     // hasComposition logic (mirrors original lines 1512 + 1720):
                     // Mode 2 (isStockMode): true if parent has variants (1:1 links created below)
@@ -1988,7 +1991,8 @@ export async function POST(request: NextRequest) {
                   batchVariantKeys.add(variantKey)
 
                   const finalVariantSku = r.variantSku || await generateVariantSKU(currentParentName, r.variantName, outletId)
-                  const finalVariantBarcode = r.variantBarcode || finalVariantSku
+                  // AETHER BARCODE CONTRACT: Manual barcode exact, auto-generate AET- if empty
+                  const finalVariantBarcode = r.variantBarcode || await generateVariantBarcode(currentParentName, r.variantName, outletId)
 
                   // Collect variant for createMany (productId resolved after parent createMany)
                   variantsToCreate.push({

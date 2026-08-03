@@ -5,7 +5,7 @@ import { parsePagination, resolvePlanType, buildFlexibleSearch } from '@/lib/api
 import { getPlanFeatures, isUnlimited } from '@/lib/config/plan-config'
 import { assertOutletWithinLimits } from '@/lib/api/plan-enforcement'
 import { safeJson, safeJsonCreated, safeJsonError, CACHE } from '@/lib/api/safe-response'
-import { generateUniqueSKU, generateVariantSKU } from '@/lib/sku-generator'
+import { generateUniqueSKU, generateVariantSKU, generateUniqueBarcode, generateVariantBarcode } from '@/lib/sku-generator'
 import { emitAuditEvent, buildProductChangeEvent } from '@/lib/audit-v2'
 
 type SortOption = 'newest' | 'best-selling' | 'low-stock' | 'most-stock'
@@ -461,17 +461,21 @@ export async function POST(request: NextRequest) {
 
     // Auto-generate SKU if not provided
     const finalSku = sku?.trim() ? sku.trim() : await generateUniqueSKU(name, outletId)
-    // Auto-generate barcode from SKU if not provided
-    const finalBarcode = barcode?.trim() || finalSku
+    // AETHER BARCODE CONTRACT: Manual barcode saved exactly as-is.
+    // If barcode is empty, generate unique AET- format barcode (NOT SKU fallback).
+    const finalBarcode = barcode?.trim() || await generateUniqueBarcode(name, outletId)
 
-    // Auto-generate SKUs for variants that don't have one
+    // Auto-generate SKUs and barcodes for variants that don't have them
+    // AETHER BARCODE CONTRACT: Variant barcode respects user input;
+    // only auto-generates if barcode field is empty.
     const variantsWithSku = await Promise.all(
       parsedVariants.map(async (v) => {
         const vSku = v.sku?.trim() || await generateVariantSKU(name, v.name, outletId)
+        const vBarcode = v.barcode?.trim() || await generateVariantBarcode(name, v.name, outletId)
         return {
           ...v,
           sku: vSku,
-          barcode: vSku, // barcode = sku for variants
+          barcode: vBarcode,
         }
       })
     )

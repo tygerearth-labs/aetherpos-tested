@@ -126,6 +126,77 @@ function generateVariantSKUInMemory(
   return fallbackSku
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// BARCODE GENERATION — Aether internal barcode (CODE_128 compatible)
+// AETHER BARCODE CONTRACT: AET-{ABBR}-{SUFFIX} format, unique per outlet
+// ──────────────────────────────────────────────────────────────────────────────
+
+const MAX_BARCODE_LENGTH = 22
+
+/**
+ * Generate unique product barcode in-memory with collision tracking.
+ * Format: AET-{ABBR}-{SUFFIX} e.g. "AET-KSGA-X7K9M"
+ */
+function generateBarcodeInMemory(
+  name: string,
+  existingBarcodes: Set<string>,
+  generatedBarcodes: Set<string>,
+  maxAttempts: number = 10
+): string {
+  const abbr = abbreviateName(name)
+  const prefix = `AET-${abbr}`
+  const maxSuffixLength = MAX_BARCODE_LENGTH - prefix.length - 1
+  const suffixLength = Math.min(Math.max(maxSuffixLength, 3), 6)
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const suffix = randomSuffix(suffixLength)
+    const barcode = `${prefix}-${suffix}`
+
+    if (!existingBarcodes.has(barcode) && !generatedBarcodes.has(barcode)) {
+      generatedBarcodes.add(barcode)
+      return barcode
+    }
+  }
+
+  const tsSuffix = Date.now().toString(36).toUpperCase().slice(-6) + randomSuffix(2)
+  const fallbackBarcode = `AET-${abbr.substring(0, MAX_BARCODE_LENGTH - 11)}-${tsSuffix}`
+  generatedBarcodes.add(fallbackBarcode)
+  return fallbackBarcode
+}
+
+/**
+ * Generate unique variant barcode in-memory.
+ * Format: AET-{PARENT_ABBR}-{VAR_ABBR}-{SUFFIX} e.g. "AET-KSG-SML-I15P3"
+ */
+function generateVariantBarcodeInMemory(
+  parentName: string,
+  variantName: string,
+  existingBarcodes: Set<string>,
+  generatedBarcodes: Set<string>
+): string {
+  const parentAbbr = abbreviateName(parentName).substring(0, 3)
+  const varAbbr = variantName.substring(0, 3).toUpperCase()
+
+  const prefix = `AET-${parentAbbr}-${varAbbr}`
+  const maxSuffixLength = MAX_BARCODE_LENGTH - prefix.length - 1
+  const suffixLength = Math.min(Math.max(maxSuffixLength, 3), 5)
+
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const suffix = randomSuffix(suffixLength)
+    const barcode = `${prefix}-${suffix}`
+
+    if (!existingBarcodes.has(barcode) && !generatedBarcodes.has(barcode)) {
+      generatedBarcodes.add(barcode)
+      return barcode
+    }
+  }
+
+  const tsSuffix = Date.now().toString(36).toUpperCase().slice(-4) + randomSuffix(2)
+  const fallbackBarcode = `AET-${parentAbbr}-${varAbbr.substring(0, 1)}-${tsSuffix}`
+  generatedBarcodes.add(fallbackBarcode)
+  return fallbackBarcode
+}
+
 // ══════════════════════════════════════════════════════════════════
 // INTERFACES FOR BATCH DATA COLLECTION
 // ══════════════════════════════════════════════════════════════════
@@ -499,6 +570,8 @@ export async function POST(request: NextRequest) {
 
       // FIX-P1-10 (AUDIT-1): Validate user-provided barcode uniqueness.
       // Schema has NO @@unique on barcode — duplicates break POS barcode scan.
+      // AETHER BARCODE CONTRACT: Manual barcode saved exactly as-is.
+      // If barcode is empty, generate unique AET- format barcode (NOT SKU fallback).
       let finalBarcode: string
       if (barcode) {
         if (preloadedData.existingProductBarcodes.has(barcode)) {
@@ -511,7 +584,7 @@ export async function POST(request: NextRequest) {
         }
         finalBarcode = barcode
       } else {
-        finalBarcode = finalSku
+        finalBarcode = generateBarcodeInMemory(name, preloadedData.existingProductBarcodes, newlyGeneratedBarcodes)
       }
       newlyGeneratedBarcodes.add(finalBarcode)
 
@@ -614,7 +687,9 @@ export async function POST(request: NextRequest) {
 
           // Generate variant SKU
           const finalVariantSku = variantSku || generateVariantSKUInMemory(parentName, variantName, preloadedData.variantSkuSet, newlyGeneratedVariantSkus)
-          const finalVariantBarcode = variantBarcode || finalVariantSku
+          // AETHER BARCODE CONTRACT: Variant barcode respects user input;
+          // only auto-generates AET- format if barcode field is empty.
+          const finalVariantBarcode = variantBarcode || generateVariantBarcodeInMemory(parentName, variantName, preloadedData.existingProductBarcodes, newlyGeneratedBarcodes)
 
           // Duplicate check
           if (!parentId.toString().startsWith('batch-')) {

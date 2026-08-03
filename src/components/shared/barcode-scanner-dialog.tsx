@@ -172,6 +172,7 @@ interface Telemetry {
   supportedFormats: string[]
   framesProcessed: number
   lastRawValue: string
+  lastDetectedFormat: string
   normalizedBarcode: string
   lookupState: LookupState
   contextState: ContextState
@@ -187,6 +188,7 @@ const INITIAL_TELEMETRY: Telemetry = {
   supportedFormats: [],
   framesProcessed: 0,
   lastRawValue: '',
+  lastDetectedFormat: '',
   normalizedBarcode: '',
   lookupState: 'IDLE',
   contextState: 'IDLE',
@@ -278,6 +280,14 @@ export function BarcodeScannerDialog({
   // react-hooks/immutability warnings).
   const detectLoopRef = useRef<() => void>(() => {})
 
+  // CRITICAL FIX: handleDetected stored in a ref so the ZXing callback (which
+  // captures the closure once at creation time) always calls the LATEST version
+  // with up-to-date resolver/onContextAction references. Without this, the ZXing
+  // reader's callback would use a stale handleDetected after the first render
+  // cycle, causing the pipeline (detect → resolve → context action) to silently
+  // fail because the old resolver/onContextAction are no longer valid.
+  const handleDetectedRef = useRef<(rawValue: string, detectedFormat?: string) => Promise<void>>()
+
   // React state — UI + telemetry
   const [status, setStatus] = useState<CameraStatus>('idle')
   const [errorMsg, setErrorMsg] = useState<string>('')
@@ -308,7 +318,7 @@ export function BarcodeScannerDialog({
   // PHASE 5 — Guarded detection callback
   // ────────────────────────────────────────────────────────────────────────────
 
-  const handleDetected = useCallback(async (rawValue: string) => {
+  const handleDetected = useCallback(async (rawValue: string, detectedFormat?: string) => {
     const raw = String(rawValue ?? '')
     const normalized = normalizeBarcode(raw)
 
@@ -324,7 +334,7 @@ export function BarcodeScannerDialog({
     if (testMode === 'DETECTOR_ONLY') {
       lastResultRef.current = { value: normalized, at: now }
       setLastScan(normalized)
-      patchTelemetry({ lastRawValue: raw, normalizedBarcode: normalized })
+      patchTelemetry({ lastRawValue: raw, lastDetectedFormat: detectedFormat ?? '', normalizedBarcode: normalized })
       triggerFeedback()
       return
     }
@@ -336,6 +346,7 @@ export function BarcodeScannerDialog({
     setLastScan(normalized)
     patchTelemetry({
       lastRawValue: raw,
+      lastDetectedFormat: detectedFormat ?? '',
       normalizedBarcode: normalized,
       lookupState: 'IDLE',
       contextState: 'IDLE',
@@ -438,6 +449,9 @@ export function BarcodeScannerDialog({
     }
   }, [onResult, resolver, onContextAction, testMode, patchTelemetry, recordError])
 
+  // Keep handleDetectedRef in sync so ZXing callback always uses the latest closure.
+  useEffect(() => { handleDetectedRef.current = handleDetected }, [handleDetected])
+
   // Visual + haptic feedback (Phase 5).
   const triggerFeedback = useCallback(() => {
     setFlash(true)
@@ -461,7 +475,7 @@ export function BarcodeScannerDialog({
   // PHASE 3 — Native BarcodeDetector decode (one frame)
   // ────────────────────────────────────────────────────────────────────────────
 
-  const decodeNativeFrame = useCallback(async (video: HTMLVideoElement): Promise<string | null> => {
+  const decodeNativeFrame = useCallback(async (video: HTMLVideoElement): Promise<{ rawValue: string; format: string } | null> => {
     const detector = nativeDetectorRef.current
     if (!detector) return null
     // Prevent overlapping detect() calls.
@@ -471,9 +485,10 @@ export function BarcodeScannerDialog({
       const results = await detector.detect(video)
       if (results && results.length > 0) {
         const v = results[0].rawValue
+        const f = results[0].format
         if (v) {
           nativeErrorStreakRef.current = 0
-          return v
+          return { rawValue: v, format: f ?? '' }
         }
       }
     } catch (err) {
@@ -520,9 +535,14 @@ export function BarcodeScannerDialog({
       zxingReaderRef.current = reader
       // decodeFromStream uses our existing stream + video element. Returns
       // controls whose .stop() cancels the internal scan loop.
+      // CRITICAL: Use handleDetectedRef.current instead of handleDetected directly
+      // to avoid stale closure — the ZXing callback captures this closure once at
+      // creation, so we must always dereference the ref to get the latest version.
       void reader.decodeFromStream(streamRef.current, videoRef.current, (result, _err, controls) => {
         if (result && result.getText()) {
-          void handleDetected(result.getText())
+          // Get ZXing barcode format name from the result
+          const fmt = result.getBarcodeFormat()?.getName?.() ?? ''
+          void handleDetectedRef.current?.(result.getText(), fmt)
         } else if (_err && (_err as Error)?.name !== 'NotFoundException') {
           // Swallow transient non-fatal errors silently — they fire on every
           // non-matching frame. The controls param lets us stop if needed.
@@ -546,7 +566,7 @@ export function BarcodeScannerDialog({
         lastErrorMessage: (e as Error)?.message ?? String(e),
       })
     }
-  }, [handleDetected, patchTelemetry])
+  }, [patchTelemetry])
 
   // ────────────────────────────────────────────────────────────────────────────
   // PHASE 3 — Native detect loop (rAF) — only runs while native detector
@@ -579,7 +599,7 @@ export function BarcodeScannerDialog({
         patchTelemetry({ framesProcessed: framesProcessedRef.current })
       }
       if (v) {
-        void handleDetected(v)
+        void handleDetected(v.rawValue, v.format)
       }
     }
     rafRef.current = requestAnimationFrame(() => detectLoopRef.current())
@@ -953,10 +973,13 @@ export function BarcodeScannerDialog({
             </div>
           )}
 
-          {/* Last scan feedback */}
+          {/* Last scan feedback — shows format + rawValue */}
           {lastScan && (
             <div className="absolute bottom-2 left-2 right-2 bg-emerald-500/15 border border-emerald-500/30 backdrop-blur rounded-lg px-2.5 py-1.5 flex items-center gap-1.5">
               <ScanBarcode className="h-3 w-3 text-emerald-400 shrink-0" />
+              {telemetry.lastDetectedFormat && (
+                <span className="text-[10px] text-emerald-400/70 font-mono bg-emerald-500/10 px-1 rounded">{telemetry.lastDetectedFormat}</span>
+              )}
               <span className="text-[11px] text-emerald-300 truncate font-mono">{lastScan}</span>
             </div>
           )}
@@ -982,6 +1005,7 @@ export function BarcodeScannerDialog({
               <span className="text-amber-400/70">formats:</span><span className="truncate">{telemetry.supportedFormats.join(',') || '—'}</span>
               <span className="text-amber-400/70">frames:</span><span>{telemetry.framesProcessed}</span>
               <span className="text-amber-400/70">rawValue:</span><span className="truncate">{telemetry.lastRawValue || '—'}</span>
+              <span className="text-amber-400/70">format:</span><span className="truncate text-sky-300">{telemetry.lastDetectedFormat || '—'}</span>
               <span className="text-amber-400/70">normalized:</span><span className="truncate text-emerald-300">{telemetry.normalizedBarcode || '—'}</span>
               <span className="text-amber-400/70">lookup:</span>
               <span className={

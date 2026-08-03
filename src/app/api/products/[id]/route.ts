@@ -3,7 +3,7 @@ import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { assertOutletWithinLimits } from '@/lib/api/plan-enforcement'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
-import { generateUniqueSKU, generateVariantSKU } from '@/lib/sku-generator'
+import { generateUniqueSKU, generateVariantSKU, generateUniqueBarcode, generateVariantBarcode } from '@/lib/sku-generator'
 import { validateCompositionStock } from '@/lib/comp-stock'
 import { emitAuditEvent, buildProductChangeEvent } from '@/lib/audit-v2'
 
@@ -171,19 +171,34 @@ export async function PUT(
         finalSku = sku.trim()
       }
     }
-    // Auto-generate barcode from SKU if barcode not provided or empty
-    if (finalSku) {
-      finalBarcode = finalBarcode?.trim() || finalSku
+    // AETHER BARCODE CONTRACT: Manual barcode saved exactly as-is.
+    // If barcode is empty/not provided, keep existing barcode (never overwrite on edit).
+    // Only auto-generate if user explicitly clears AND the product has no existing barcode.
+    if (barcode !== undefined) {
+      if (barcode?.trim()) {
+        // User provided a barcode value — save exactly as-is
+        finalBarcode = barcode.trim()
+      } else {
+        // User cleared the barcode — keep existing value (do not silently replace)
+        // If there is no existing barcode, generate a unique one
+        finalBarcode = existing.barcode || await generateUniqueBarcode(name || existing.name, outletId)
+      }
+    } else {
+      // barcode not in payload — keep existing
+      finalBarcode = existing.barcode
     }
 
-    // Auto-generate variant SKUs
+    // Auto-generate variant SKUs and barcodes
+    // AETHER BARCODE CONTRACT: Variant barcode respects user input;
+    // only auto-generates if barcode field is empty.
     const variantsWithSku = await Promise.all(
       parsedVariants.map(async (v) => {
         const vSku = v.sku?.trim() || await generateVariantSKU(name || existing.name, v.name, outletId)
+        const vBarcode = v.barcode?.trim() || await generateVariantBarcode(name || existing.name, v.name, outletId)
         return {
           ...v,
           sku: vSku,
-          barcode: vSku,
+          barcode: vBarcode,
         }
       })
     )

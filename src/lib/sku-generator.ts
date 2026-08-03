@@ -139,3 +139,121 @@ export async function generateVariantSKU(
   const tsSuffix = Date.now().toString(36).toUpperCase().slice(-4)
   return `${prefix.substring(0, MAX_SKU_LENGTH - 5)}-${tsSuffix}`
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// BARCODE GENERATION — Aether internal barcode (CODE_128 compatible)
+//
+// AETHER BARCODE CONTRACT:
+//   - Manual barcode: saved exactly as provided (string, no conversion)
+//   - Auto-generated barcode: unique AET-{ABBR}-{SUFFIX} format
+//   - Label encodes exact barcode value (CODE_128)
+//   - Scanner reads exact same value
+//   - DB barcode === encoded label === scanner rawValue
+//
+// Format:
+//   Product:  AET-{ABBR}-{SUFFIX}  e.g. "AET-KSGA-X7K9M"
+//   Variant:  AET-{ABBR}-{SUFFIX}  e.g. "AET-KSGA-I15P3"
+//
+// Rules:
+//   - Unique per outlet
+//   - String (never Number)
+//   - CODE_128 safe (uppercase alphanumeric + hyphens)
+//   - Not dependent on raw Product ID
+//   - Immutable after save (never regenerated on edit)
+//   - Only regenerated if user explicitly clears and confirms
+// ──────────────────────────────────────────────────────────────────────────────
+
+const MAX_BARCODE_LENGTH = 22
+
+/**
+ * Generate a unique internal barcode for a product within an outlet.
+ * Format: AET-{ABBR}-{SUFFIX} e.g. "AET-KSGA-X7K9M"
+ *
+ * @param name - Product name (used for abbreviation)
+ * @param outletId - The outlet ID to ensure uniqueness within
+ * @param maxAttempts - Max retries for collision resolution (default 10)
+ * @returns A unique barcode string (max 22 characters)
+ */
+export async function generateUniqueBarcode(
+  name: string,
+  outletId: string,
+  maxAttempts: number = 10
+): Promise<string> {
+  const abbr = abbreviateName(name)
+
+  // Format: AET-{ABBR}-{SUFFIX}
+  const prefix = `AET-${abbr}`
+  const maxSuffixLength = MAX_BARCODE_LENGTH - prefix.length - 1 // -1 for "-"
+  const suffixLength = Math.min(Math.max(maxSuffixLength, 3), 6)
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const suffix = randomSuffix(suffixLength)
+    const barcode = `${prefix}-${suffix}`
+
+    // Check uniqueness against BOTH product.barcode and productVariant.barcode
+    const [existingProduct, existingVariant] = await Promise.all([
+      db.product.findFirst({
+        where: { barcode, outletId },
+        select: { id: true },
+      }),
+      db.productVariant.findFirst({
+        where: { barcode, outletId },
+        select: { id: true },
+      }),
+    ])
+
+    if (!existingProduct && !existingVariant) {
+      return barcode
+    }
+  }
+
+  // Fallback: timestamp-based suffix
+  const tsSuffix = Date.now().toString(36).toUpperCase().slice(-6)
+  return `AET-${abbr.substring(0, MAX_BARCODE_LENGTH - 11)}-${tsSuffix}`
+}
+
+/**
+ * Generate a unique internal barcode for a variant within an outlet.
+ * Format: AET-{PARENT_ABBR}-{VAR_ABBR}-{SUFFIX} e.g. "AET-KSG-SML-I15P3"
+ *
+ * @param parentName - Parent product name
+ * @param variantName - Variant name
+ * @param outletId - Outlet ID for uniqueness check
+ * @returns A unique variant barcode string (max 22 characters)
+ */
+export async function generateVariantBarcode(
+  parentName: string,
+  variantName: string,
+  outletId: string
+): Promise<string> {
+  const parentAbbr = abbreviateName(parentName).substring(0, 3)
+  const varAbbr = variantName.substring(0, 3).toUpperCase()
+
+  const prefix = `AET-${parentAbbr}-${varAbbr}`
+  const maxSuffixLength = MAX_BARCODE_LENGTH - prefix.length - 1
+  const suffixLength = Math.min(Math.max(maxSuffixLength, 3), 5)
+
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const suffix = randomSuffix(suffixLength)
+    const barcode = `${prefix}-${suffix}`
+
+    // Check uniqueness against BOTH product.barcode and productVariant.barcode
+    const [existingProduct, existingVariant] = await Promise.all([
+      db.product.findFirst({
+        where: { barcode, outletId },
+        select: { id: true },
+      }),
+      db.productVariant.findFirst({
+        where: { barcode, outletId },
+        select: { id: true },
+      }),
+    ])
+
+    if (!existingProduct && !existingVariant) {
+      return barcode
+    }
+  }
+
+  const tsSuffix = Date.now().toString(36).toUpperCase().slice(-4)
+  return `AET-${parentAbbr}-${varAbbr.substring(0, 1)}-${tsSuffix}`
+}

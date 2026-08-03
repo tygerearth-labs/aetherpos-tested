@@ -3,7 +3,7 @@ import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonCreated, safeJsonError } from '@/lib/api/safe-response'
 import { emitAuditEvent, buildProductChangeEvent } from '@/lib/audit-v2'
-import { generateVariantSKU } from '@/lib/sku-generator'
+import { generateVariantSKU, generateVariantBarcode } from '@/lib/sku-generator'
 
 // ─── GET ─── List all variants for a product ─────────────────────────────────
 export async function GET(
@@ -84,8 +84,9 @@ export async function POST(
     const variant = await db.$transaction(async (tx) => {
       // Auto-generate variant SKU if not provided
       const finalVariantSku = sku?.trim() || await generateVariantSKU(product.name, name.trim(), outletId)
-      // Auto-generate barcode from SKU if not provided
-      const finalVariantBarcode = barcode?.trim() || finalVariantSku
+      // AETHER BARCODE CONTRACT: Manual barcode saved exactly as-is.
+      // If barcode is empty, generate unique AET- format barcode (NOT SKU fallback).
+      const finalVariantBarcode = barcode?.trim() || await generateVariantBarcode(product.name, name.trim(), outletId)
 
       // Create the variant
       const created = await tx.productVariant.create({

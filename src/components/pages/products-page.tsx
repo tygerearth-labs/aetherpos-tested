@@ -3999,6 +3999,12 @@ export default function ProductsPage() {
                             <ScanBarcode className="h-3.5 w-3.5 theme-text" />
                             Barcode
                           </h3>
+                          {/* AETHER BARCODE CONTRACT: Show source indicator */}
+                          <p className="text-[10px] text-slate-400">
+                            {detailData.product.barcode.startsWith('AET-')
+                              ? 'Dibuat otomatis oleh Aether'
+                              : 'Barcode diisi manual'}
+                          </p>
                           <div className="flex justify-center bg-white rounded-lg p-3">
                             <BarcodeDisplay
                               value={detailData.product.barcode}

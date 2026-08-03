@@ -251,11 +251,12 @@ export async function GET(
       }
     })
 
-    // Fallback: barcode = sku for old products that don't have barcode yet
-    const finalBarcode = product.barcode || product.sku || null
+    // AETHER BARCODE CONTRACT: Return barcode exactly as stored in DB.
+    // No SKU fallback — ensures label encodes exact DB value.
+    const finalBarcode = product.barcode
     const finalVariants = product.variants.map((v) => ({
       ...v,
-      barcode: v.barcode || v.sku || null,
+      barcode: v.barcode,
     }))
 
     return safeJson({

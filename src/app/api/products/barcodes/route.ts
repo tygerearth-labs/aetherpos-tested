@@ -35,12 +35,14 @@ export async function GET(request: NextRequest) {
       },
     })
 
-    // Fallback barcode = sku for old products
+    // AETHER BARCODE CONTRACT: Return barcode exactly as stored in DB.
+    // No SKU fallback — if barcode is null, the label simply won't render.
+    // This ensures label encodes the exact DB value and scanner reads the same value.
     const mapped = products.map((p) => ({
       id: p.id,
       name: p.name,
       sku: p.sku,
-      barcode: p.barcode || p.sku || null,
+      barcode: p.barcode,
       price: p.price,
       category: p.category,
       hasVariants: !!p.hasVariants,
@@ -48,7 +50,7 @@ export async function GET(request: NextRequest) {
         id: v.id,
         name: v.name,
         sku: v.sku,
-        barcode: v.barcode || v.sku || null,
+        barcode: v.barcode,
         price: v.price,
         stock: v.stock,
       })),
