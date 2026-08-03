@@ -45,6 +45,13 @@ import {
   ResponsiveDialogDescription,
 } from '@/components/ui/responsive-dialog'
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog'
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -137,6 +144,7 @@ import {
   User,
   ClipboardList,
   Calendar,
+  Camera,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useBulkWorker } from '@/components/bulk-engine/bulk-worker-context'
@@ -765,6 +773,9 @@ export default function PurchasePage() {
   const [bulkCatLoading, setBulkCatLoading] = useState(false)
 
   const smartInputRef = useRef<HTMLInputElement>(null)
+  // Camera scanner for the PO create form — ADDITIVE on top of the existing
+  // hardware-scanner smart input. closeOnSuccess=false (continuous scanning).
+  const [poScanOpen, setPoScanOpen] = useState(false)
 
 
 
@@ -797,6 +808,10 @@ export default function PurchasePage() {
   const [invColumnSortBy, setInvColumnSortBy] = useState<InvColumnSortBy>('lastChangedAt')
   const [invColumnSortOrder, setInvColumnSortOrder] = useState<'asc' | 'desc'>('desc')
   const [invScannerOpen, setInvScannerOpen] = useState(false)
+  // Picker for the case when a scanned product/variant barcode maps to MULTIPLE
+  // inventory items via ProductComposition. The user picks one to open detail.
+  const [invScanPickerOpen, setInvScanPickerOpen] = useState(false)
+  const [invScanPickerItems, setInvScanPickerItems] = useState<InventoryItem[]>([])
   const invPerPage = 20
   const [invStats, setInvStats] = useState<InventoryStats>({ totalItems: 0, totalValue: 0, lowStockCount: 0 })
 
@@ -1010,15 +1025,8 @@ export default function PurchasePage() {
     setSelectedInvIds(new Set())
   }, [invColumnSortBy, invColumnSortOrder])
 
-  // Barcode scanner result handler — set search input + reset to page 1.
-  const handleInvScanResult = useCallback((value: string) => {
-    setInvSearch(value)
-    setInvDebouncedSearch(value)
-    setInvPage(1)
-    setSelectedInvIds(new Set())
-    setInvScannerOpen(false)
-    toast.success(`Barcode terbaca: ${value}`)
-  }, [])
+  // (handleInvScanResult is defined below — after openInvDetail — to avoid TDZ
+  // on the openInvDetail dep. See "Inventory Scanner Adapter" section.)
 
   // Debounce search
   useEffect(() => {
@@ -1847,6 +1855,106 @@ export default function PurchasePage() {
       toast.success('Item baru ditambahkan (pending)')
     }
   }
+
+  // ══════════════════════════════════════════════════════════
+  // PO CAMERA SCANNER ADAPTER (Adapter B — closeOnSuccess = FALSE)
+  // ══════════════════════════════════════════════════════════
+  // ADDITIVE on top of the existing hardware-scanner smart input — does NOT
+  // replace it. Scans an INVENTORY barcode (matches an InventoryItem by
+  // sku/name) → adds to poCreateItems (+1 qty if already present) → focuses
+  // the qty input of the affected row. Dialog stays OPEN for continuous scan.
+  //
+  // Lookup priority: poItemOptions (preloaded when the PO dialog opens) first,
+  // then fall back to a fresh GET /api/inventory/items?search=... query.
+
+  const findInventoryItemByBarcode = useCallback(async (code: string): Promise<InventoryItemOption | null> => {
+    const query = code.trim().toLowerCase()
+    if (!query) return null
+
+    // 1. Try preloaded poItemOptions (faster, no network).
+    const fromCache = poItemOptions.find(i => !i._isNew && i.sku && i.sku.toLowerCase() === query)
+      || poItemOptions.find(i => i.name.toLowerCase() === query)
+    if (fromCache) return fromCache
+
+    // 2. Fallback: query the API directly.
+    try {
+      const res = await fetch(`/api/inventory/items?search=${encodeURIComponent(code)}&activeOnly=false`)
+      if (!res.ok) return null
+      const data = await res.json()
+      const items: Array<{
+        id: string; name: string; sku: string | null; baseUnit: string
+        stock: number; active?: boolean
+      }> = data.items || []
+      const match = items.find(i => (i.sku?.toLowerCase() === query) || (i.name?.toLowerCase() === query))
+      if (!match) return null
+      return {
+        id: match.id,
+        name: match.name,
+        sku: match.sku || null,
+        baseUnit: match.baseUnit,
+        stock: match.stock ?? 0,
+        active: match.active !== false,
+      }
+    } catch {
+      return null
+    }
+  }, [poItemOptions])
+
+  const handlePoScanResult = useCallback(async (value: string): Promise<boolean> => {
+    const code = value.trim()
+    if (!code) return false
+
+    const match = await findInventoryItemByBarcode(code)
+    if (!match) {
+      toast.error(`Barcode "${code}" tidak ditemukan`)
+      return false
+    }
+
+    // Check if already in items list → increment qty. Else append a new row
+    // (same shape the smart-input path uses at line ~1907).
+    const existingIdx = poCreateItems.findIndex(i => i.inventoryItemId === match.id)
+    let targetIdx: number
+    if (existingIdx >= 0) {
+      const currentQty = parseFloat(poCreateItems[existingIdx].qty) || 0
+      handleUpdatePoItem(existingIdx, 'qty', String(currentQty + 1))
+      targetIdx = existingIdx
+    } else {
+      const emptyIdx = poCreateItems.findIndex(i => !i.inventoryItemId)
+      if (emptyIdx >= 0) {
+        handleSelectInvItem(emptyIdx, match)
+        targetIdx = emptyIdx
+      } else {
+        setPoCreateItems(prev => [...prev, {
+          inventoryItemId: match.id,
+          inventoryItemName: match.name,
+          inventoryItemSku: match.sku,
+          baseUnit: match.baseUnit,
+          qty: '1',
+          unit: match.baseUnit,
+          baseQty: '1',
+          conversionUnit: match.baseUnit,
+          pricePerItem: '0',
+          batch: '',
+          expiredDate: '',
+        }])
+        targetIdx = poCreateItems.length
+      }
+    }
+
+    toast.success(`+1 ${match.name} (scan)`)
+
+    // Focus the qty input of the affected row AFTER state flushes. The row
+    // container has id={`po-item-${idx}`} (line ~5432); the qty input is the
+    // first <input type="number"> inside it.
+    setTimeout(() => {
+      const row = document.getElementById(`po-item-${targetIdx}`)
+      const qtyInput = row?.querySelector('input[type="number"]') as HTMLInputElement | null
+      qtyInput?.focus()
+    }, 80)
+
+    return true
+    // closeOnSuccess is FALSE on this scanner → dialog stays open for next scan.
+  }, [poCreateItems, findInventoryItemByBarcode, handleSelectInvItem, handleUpdatePoItem])
 
   // ── Smart Input: Scan detection (timing-based like POS) ──
   // Barcode scanner = hardware yang kirim karakter satu-satu sangat cepat (< 80ms per char)
@@ -2792,6 +2900,179 @@ export default function PurchasePage() {
       }
     } catch { /* ignore pagination fetch errors */ }
   }
+
+  // ══════════════════════════════════════════════════════════
+  // INVENTORY SCANNER ADAPTER (closeOnSuccess = TRUE)
+  // ══════════════════════════════════════════════════════════
+  // Behaviour:
+  //   1. Scan an INVENTORY barcode (matches an InventoryItem by sku/name)
+  //      → open that inventory's detail dialog → return true (scanner closes).
+  //   2. Scan a PRODUCT/VARIANT barcode → resolve inventory relations via
+  //      ProductComposition (GET /api/products/<id>/composition):
+  //        - ONE relation   → open that inventory detail → return true.
+  //        - MULTIPLE        → open picker (user picks one) → return true.
+  //        - NO relation     → toast.error('tidak terkait inventory') → return false.
+  //   3. Not a product/inventory → toast.error('tidak ditemukan') → return false.
+  //
+  // SIMPLE mode (no resolver) is used because LookupResult is product-shaped
+  // and cannot carry an inventoryItemId cleanly. onResult does ALL resolution
+  // itself and returns true/false. Dialog auto-closes ONLY when (true AND
+  // closeOnSuccess).
+  //
+  // Defined AFTER openInvDetail to avoid TDZ on the openInvDetail dep.
+  const mapApiItemToInventoryItem = (i: {
+    id: string
+    name: string
+    sku?: string | null
+    baseUnit: string
+    stock?: number
+    avgCost?: number
+  }): InventoryItem => ({
+    id: i.id,
+    name: i.name,
+    sku: i.sku ?? null,
+    baseUnit: i.baseUnit,
+    categoryId: null,
+    category: null,
+    stock: i.stock ?? 0,
+    avgCost: i.avgCost ?? 0,
+    lowStockAlert: 0,
+  })
+
+  const handleInvScanResult = useCallback(async (value: string): Promise<boolean> => {
+    const code = value.trim()
+    if (!code) return false
+    const query = code.toLowerCase()
+
+    // ── 1. Try exact inventory match by SKU/name ──
+    // The /api/inventory/items endpoint does substring search; we then pick
+    // the row whose sku OR name exactly equals the scanned code.
+    try {
+      const invRes = await fetch(`/api/inventory/items?search=${encodeURIComponent(code)}&activeOnly=false`)
+      if (invRes.ok) {
+        const invData = await invRes.json()
+        const items: Array<{
+          id: string; name: string; sku: string | null; baseUnit: string
+          stock: number; avgCost: number; categoryId: string | null
+        }> = invData.items || []
+        const match = items.find(i => (i.sku?.toLowerCase() === query) || (i.name?.toLowerCase() === query))
+        if (match) {
+          setInvSearch('')
+          setInvDebouncedSearch('')
+          setInvPage(1)
+          setSelectedInvIds(new Set())
+          openInvDetail(mapApiItemToInventoryItem(match))
+          toast.success(`Item ditemukan: ${match.name}`)
+          return true
+        }
+      }
+    } catch {
+      // fall through to product lookup
+    }
+
+    // ── 2. Try product/variant lookup ──
+    let product: { id: string; name?: string } | null = null
+    let matchedVariantId: string | null = null
+    try {
+      const lookupRes = await fetch(`/api/pos/products/lookup?code=${encodeURIComponent(code)}`)
+      if (lookupRes.ok) {
+        const lookupData = await lookupRes.json()
+        product = lookupData.product ?? null
+        matchedVariantId = lookupData.matchedVariantId ?? null
+      }
+    } catch {
+      // network error — treat as not found
+    }
+    if (!product) {
+      toast.error(`Barcode "${code}" tidak ditemukan`)
+      return false
+    }
+
+    // ── 3. Resolve ProductComposition relations → list of inventory items ──
+    let relatedItems: Array<{ id: string; name: string; sku: string | null; baseUnit: string; stock: number; avgCost: number }> = []
+    try {
+      const compRes = await fetch(`/api/products/${product.id}/composition`)
+      if (compRes.ok) {
+        const compData = await compRes.json()
+        const seenIds = new Set<string>()
+        const addComp = (c: {
+          inventoryItemId?: string
+          inventoryItemName?: string
+          inventoryItemSku?: string | null
+          baseUnit?: string
+          stock?: number
+          avgCost?: number
+        } | undefined) => {
+          if (!c?.inventoryItemId || seenIds.has(c.inventoryItemId)) return
+          seenIds.add(c.inventoryItemId)
+          relatedItems.push({
+            id: c.inventoryItemId,
+            name: c.inventoryItemName ?? '(no name)',
+            sku: c.inventoryItemSku ?? null,
+            baseUnit: c.baseUnit ?? '',
+            stock: c.stock ?? 0,
+            avgCost: c.avgCost ?? 0,
+          })
+        }
+        if (compData.hasVariants) {
+          const variantComps: Array<{
+            variantId: string
+            compositions: Array<{
+              inventoryItemId: string
+              inventoryItemName: string
+              inventoryItemSku: string | null
+              baseUnit: string
+              stock: number
+              avgCost: number
+            }>
+          }> = compData.variantCompositions || []
+          if (matchedVariantId) {
+            // Barcode matched a specific variant → only its compositions count.
+            const matched = variantComps.find(v => v.variantId === matchedVariantId)
+            if (matched) matched.compositions.forEach(addComp)
+          } else {
+            // Barcode matched the parent product → flatten ALL variants' compositions.
+            variantComps.forEach(v => (v.compositions || []).forEach(addComp))
+          }
+        } else {
+          const items: Array<{
+            inventoryItemId: string
+            inventoryItemName: string
+            inventoryItemSku: string | null
+            baseUnit: string
+            stock: number
+            avgCost: number
+          }> = compData.items || []
+          items.forEach(addComp)
+        }
+      }
+    } catch {
+      // composition fetch failed — treat as no relations
+    }
+
+    if (relatedItems.length === 0) {
+      toast.error('Barcode produk tidak terkait inventory manapun')
+      return false
+    }
+
+    if (relatedItems.length === 1) {
+      const r = relatedItems[0]
+      setInvSearch('')
+      setInvDebouncedSearch('')
+      setInvPage(1)
+      setSelectedInvIds(new Set())
+      openInvDetail(mapApiItemToInventoryItem(r))
+      toast.success(`Item ditemukan: ${r.name}`)
+      return true
+    }
+
+    // MULTIPLE relations — show picker. The picker takes over the handoff;
+    // the scanner auto-closes (closeOnSuccess=true → onResult returned true).
+    setInvScanPickerItems(relatedItems.map(mapApiItemToInventoryItem))
+    setInvScanPickerOpen(true)
+    toast.info(`Barcode produk terkait ${relatedItems.length} item inventory — pilih satu`)
+    return true
+  }, [openInvDetail])
 
   // ── Batch Timeline Fetch ──
   const fetchBatchTimeline = useCallback(async (inventoryItemId: string) => {
@@ -5289,10 +5570,24 @@ export default function PurchasePage() {
                 {/* ══════════════════════════════════════════════════════ */}
                 {inputMethod === 'manual' && (
                   <div className="space-y-3">
-                    {/* ── Section Label ── */}
-                    <div className="flex items-center gap-2">
-                      <Package className="h-3.5 w-3.5 text-slate-400" />
-                      <span className="text-[11px] text-slate-400 font-medium">Daftar Barang yang Dibeli</span>
+                    {/* ── Section Label + Camera Scan Button ── */}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <Package className="h-3.5 w-3.5 text-slate-400" />
+                        <span className="text-[11px] text-slate-400 font-medium">Daftar Barang yang Dibeli</span>
+                      </div>
+                      {/* Adapter B: camera scan button — opens BarcodeScannerDialog.
+                          ADDITIVE on top of the hardware-scanner smart input below. */}
+                      <button
+                        type="button"
+                        onClick={() => setPoScanOpen(true)}
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 border border-emerald-500/20 transition-colors"
+                        title="Scan barcode dengan kamera (tambah ke daftar belanja)"
+                        aria-label="Scan barcode dengan kamera"
+                      >
+                        <Camera className="h-3.5 w-3.5" />
+                        <span>Scan Kamera</span>
+                      </button>
                     </div>
 
                     {/* ── Smart Input Bar ── */}
@@ -9394,12 +9689,71 @@ export default function PurchasePage() {
         </ResponsiveDialogContent>
       </ResponsiveDialog>
 
-      {/* Barcode Scanner Dialog — shared camera scan UI for inventory search */}
+      {/* Barcode Scanner Dialog — shared camera scan UI for inventory search.
+          Adapter A: closeOnSuccess=TRUE. onResult does all resolution:
+          inventory SKU/name → open detail; product barcode → composition →
+          detail / picker / not-found. NEVER auto-closes on errors/not-found. */}
       <BarcodeScannerDialog
         open={invScannerOpen}
         onOpenChange={setInvScannerOpen}
         onResult={handleInvScanResult}
+        closeOnSuccess
         title="Scan Barcode Inventory"
+        inputPlaceholder="Ketik barcode / SKU item..."
+      />
+
+      {/* Picker for MULTIPLE inventory relations (Adapter A).
+          Shown when a scanned product/variant barcode maps to >1 inventory
+          items via ProductComposition. User picks one → opens detail. */}
+      <Dialog open={invScanPickerOpen} onOpenChange={setInvScanPickerOpen}>
+        <DialogContent className="sm:max-w-md bg-nebula border-white/[0.06]">
+          <DialogHeader>
+            <DialogTitle className="text-white text-base">Pilih Item Inventory</DialogTitle>
+            <DialogDescription className="text-slate-400 text-xs">
+              Barcode produk ini terkait beberapa item inventory. Pilih salah satu untuk melihat detail.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1 -mr-1">
+            {invScanPickerItems.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => {
+                  setInvScanPickerOpen(false)
+                  openInvDetail(item)
+                }}
+                className="w-full text-left rounded-lg border border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04] hover:border-emerald-500/30 transition-all px-3 py-2.5"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-white truncate">{item.name}</p>
+                    {item.sku && (
+                      <p className="text-[10px] text-slate-500 font-mono truncate">SKU: {item.sku}</p>
+                    )}
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-xs font-semibold text-emerald-400">
+                      {formatNumber(item.stock)} <span className="text-[10px] text-slate-400 font-normal">{item.baseUnit}</span>
+                    </p>
+                    <p className="text-[10px] text-slate-500">{formatCurrency(item.avgCost)}/{item.baseUnit}</p>
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Barcode Scanner Dialog — PO create form (Adapter B).
+          closeOnSuccess=FALSE → continuous scanning. onResult adds the matched
+          inventory item to poCreateItems (+1 qty if already present) and focuses
+          the qty input of the affected row. ADDITIVE on top of the existing
+          hardware-scanner smart input — does NOT replace it. */}
+      <BarcodeScannerDialog
+        open={poScanOpen}
+        onOpenChange={setPoScanOpen}
+        onResult={handlePoScanResult}
+        title="Scan Barcode Item Inventory"
         inputPlaceholder="Ketik barcode / SKU item..."
       />
     </motion.div>

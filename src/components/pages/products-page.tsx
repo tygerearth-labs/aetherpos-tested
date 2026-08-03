@@ -60,7 +60,7 @@ import {
 import { Pagination } from '@/components/shared/pagination'
 import { SortableTableHead, nextSortState } from '@/components/shared/sortable-header'
 import { SameDayBadge, SAME_DAY_ROW_TINT, SAME_DAY_LEFT_ACCENT } from '@/components/shared/same-day-badge'
-import { BarcodeScannerDialog } from '@/components/shared/barcode-scanner-dialog'
+import { BarcodeScannerDialog, type LookupResult } from '@/components/shared/barcode-scanner-dialog'
 import { formatRelativeDateTime, getSameDayBadge } from '@/lib/relative-date'
 import {
   Table,
@@ -527,6 +527,11 @@ export default function ProductsPage() {
   const [detailPage, setDetailPage] = useState(1)
   const [movementFilter, setMovementFilter] = useState<MovementFilterTab>('all')
 
+  // Variant-focus state — set when a barcode scan resolves to a specific
+  // variant. Highlights (ring) and scrolls the matched variant row into view
+  // inside the detail sheet. Cleared when the detail sheet closes.
+  const [focusedVariantId, setFocusedVariantId] = useState<string | null>(null)
+
   // Bulk edit state
   const [bulkMode, setBulkMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -728,14 +733,6 @@ export default function ProductsPage() {
     setPage(1)
   }, [columnSortBy, columnSortOrder])
 
-  // Barcode scanner result handler — set the search input + reset to page 1.
-  const handleScanResult = useCallback((value: string) => {
-    setSearch(value)
-    setPage(1)
-    setScannerOpen(false)
-    toast.success(`Barcode terbaca: ${value}`)
-  }, [])
-
   const fetchDetail = useCallback(async (product: Product, pageNum: number) => {
     setDetailLoading(true)
     try {
@@ -782,6 +779,136 @@ export default function ProductsPage() {
       void fetchDetail(detailProduct, detailPage)
     }
   }, [detailOpen, detailProduct, detailPage, fetchDetail])
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Barcode scanner — full-pipeline mode (Task ID: 3-product).
+  //
+  // Flow: scan product/variant barcode → resolve via /api/pos/products/lookup
+  // → on FOUND, fetch full product detail → open detail sheet → if a variant
+  // was matched, focus (ring + scrollIntoView) that variant row. closeOnSuccess
+  // is true so the scanner auto-closes ONLY on a successful open-detail action.
+  // NOT_FOUND / lookup error / action error keeps the scanner open so the
+  // operator can re-scan.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // Wrap the Sheet's onOpenChange so closing the detail clears the variant
+  // focus highlight (prevents a stale highlight if the same variant is
+  // scanned again later).
+  const handleDetailOpenChange = useCallback((open: boolean) => {
+    setDetailOpen(open)
+    if (!open) {
+      setFocusedVariantId(null)
+    }
+  }, [])
+
+  // Resolver: maps a barcode/SKU string to a LookupResult. Reuses the same
+  // /api/pos/products/lookup endpoint as the POS (exact-match priority:
+  // variant barcode → product barcode → variant SKU → product SKU).
+  const resolveBarcode = useCallback(async (code: string): Promise<LookupResult> => {
+    const trimmed = code.trim()
+    if (!trimmed) return { status: 'NOT_FOUND', barcode: code }
+    try {
+      const res = await fetch(`/api/pos/products/lookup?code=${encodeURIComponent(trimmed)}`)
+      if (res.ok) {
+        const data = await res.json()
+        if (data && data.product && data.product.id) {
+          const matchedVariantId: string | null =
+            typeof data.matchedVariantId === 'string' && data.matchedVariantId
+              ? data.matchedVariantId
+              : null
+          return {
+            status: 'FOUND',
+            entityType: matchedVariantId ? 'VARIANT' : 'PRODUCT',
+            productId: data.product.id as string,
+            variantId: matchedVariantId ?? undefined,
+            barcode: trimmed,
+          }
+        }
+      }
+    } catch {
+      // Swallow — fall through to NOT_FOUND so the dialog shows its
+      // standard "Barcode ... terbaca, tetapi belum terdaftar." toast and
+      // stays open for re-scan.
+    }
+    return { status: 'NOT_FOUND', barcode: trimmed }
+  }, [])
+
+  // Context-action: takes a FOUND LookupResult → opens the product detail
+  // sheet (and focuses the matched variant if any). Returns true on success
+  // so the scanner auto-closes (closeOnSuccess is set). Returns false on
+  // NOT_FOUND / fetch error so the scanner stays open.
+  const handleScanContextAction = useCallback(async (lookup: LookupResult): Promise<boolean> => {
+    if (lookup.status !== 'FOUND' || !lookup.productId) {
+      // NOT_FOUND — the dialog already shows the "belum terdaftar" toast.
+      return false
+    }
+    try {
+      // Fetch the FULL product (with variants + category) for the detail
+      // sheet. The lookup endpoint returns a PosProduct (POS-shape); the
+      // detail sheet needs a Product (catalog-shape) including variants.
+      // GET /api/products/[id] returns the product directly.
+      const res = await fetch(`/api/products/${lookup.productId}`)
+      if (!res.ok) {
+        toast.error('Gagal memuat detail produk')
+        return false
+      }
+      const data = await res.json()
+      const product = data as Product
+      if (!product || !product.id) {
+        toast.error('Produk tidak ditemukan')
+        return false
+      }
+
+      // Clear the search box so the product grid isn't filtered when the
+      // detail sheet closes — the operator just scanned a specific item
+      // and we want the grid to remain in its default state afterwards.
+      setSearch('')
+      setPage(1)
+
+      // Set the variant focus BEFORE opening the detail so the highlight
+      // is applied as soon as the variant list renders. The scroll-into-
+      // view effect (below) handles the actual scroll once detailData
+      // arrives from /api/products/[id]/movement.
+      setFocusedVariantId(lookup.variantId ?? null)
+
+      openDetail(product)
+
+      toast.success(`${product.name} ditemukan`)
+      return true
+    } catch (err) {
+      console.error('[products-page] scan context action error:', err)
+      toast.error('Gagal membuka detail produk')
+      return false
+    }
+    // openDetail is a stable closure that only calls state setters — it does
+    // not need to be a dep (and omitting it avoids a TDZ issue since it is
+    // defined just above this useCallback).
+  }, [])
+
+  // Minimal onResult fallback — only used if the resolver is somehow not
+  // wired. With the resolver wired, the dialog's full-pipeline path calls
+  // onContextAction and does NOT call onResult. Returning false keeps the
+  // dialog open (safe default for the no-resolver edge case).
+  const handleScanResult = useCallback((_value: string): false => {
+    return false
+  }, [])
+
+  // Scroll-into-view for the focused variant. Fires when focusedVariantId
+  // is set, the detail sheet is open, and detailData has loaded (so the
+  // variant list is rendered). Uses a data-attribute selector.
+  useEffect(() => {
+    if (!focusedVariantId || !detailOpen || !detailData) return
+    // Small delay so the variant list DOM is committed before measuring.
+    const t = setTimeout(() => {
+      const el = document.querySelector(
+        `[data-variant-id="${focusedVariantId}"]`,
+      ) as HTMLElement | null
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
+    }, 250)
+    return () => clearTimeout(t)
+  }, [focusedVariantId, detailOpen, detailData])
 
   const handleEdit = (product: Product) => {
     setEditProduct(product)
@@ -3873,7 +4000,7 @@ export default function ProductsPage() {
       </ResponsiveDialog>
 
       {/* Product Detail Sheet */}
-      <Sheet open={detailOpen} onOpenChange={setDetailOpen}>
+      <Sheet open={detailOpen} onOpenChange={handleDetailOpenChange}>
         <SheetContent
           side="right"
           className="w-full sm:max-w-lg bg-nebula border-white/[0.06] p-0 overflow-hidden"
@@ -4066,8 +4193,18 @@ export default function ProductsPage() {
                             {detailData.product.variants.map((v: any) => {
                               const isOutOfStock = v.stock <= 0
                               const isLowStock = v.stock > 0 && v.stock <= (detailData.product.lowStockAlert || 10)
+                              const isFocused = focusedVariantId === v.id
                               return (
-                                <div key={v.id} className="bg-white/[0.03] rounded-lg px-2.5 py-2">
+                                <div
+                                  key={v.id}
+                                  data-variant-id={v.id}
+                                  className={cn(
+                                    'rounded-lg px-2.5 py-2 transition-all',
+                                    isFocused
+                                      ? 'bg-violet-500/10 ring-2 ring-violet-500/70 shadow-[0_0_0_1px_rgba(139,92,246,0.4)]'
+                                      : 'bg-white/[0.03] ring-1 ring-transparent',
+                                  )}
+                                >
                                   <div className="grid grid-cols-4 gap-1 items-center">
                                     <div className="min-w-0 col-span-1">
                                       <p className="text-xs font-medium text-slate-200 truncate">{v.name}</p>
@@ -4268,11 +4405,19 @@ export default function ProductsPage() {
         categories={categories}
       />
 
-      {/* Barcode Scanner Dialog — shared camera scan UI */}
+      {/* Barcode Scanner Dialog — shared camera scan UI.
+          Full-pipeline mode (Task ID: 3-product): resolver + onContextAction
+          + closeOnSuccess. Scan a product/variant barcode → resolve via
+          /api/pos/products/lookup → on FOUND, open the product detail sheet
+          and focus the matched variant. NOT_FOUND / errors keep the scanner
+          open for re-scan. */}
       <BarcodeScannerDialog
         open={scannerOpen}
         onOpenChange={setScannerOpen}
+        resolver={resolveBarcode}
+        onContextAction={handleScanContextAction}
         onResult={handleScanResult}
+        closeOnSuccess
         title="Scan Barcode Produk"
         inputPlaceholder="Ketik barcode / SKU produk..."
       />

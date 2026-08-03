@@ -582,6 +582,7 @@ export default function PosPage() {
         onContextAction={products.applyLookupToCart}
         title="Scan Produk"
         inputPlaceholder="Ketik barcode / SKU produk..."
+        closeOnSuccess
       />
     </div>
   )

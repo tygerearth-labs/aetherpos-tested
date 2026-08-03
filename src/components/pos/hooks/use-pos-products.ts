@@ -515,21 +515,25 @@ export function usePosProducts(options: UsePosProductsOptions): UsePosProductsRe
   }, [lookupProduct])
 
   // ── Phase 8 context-action: take a LookupResult → add to cart + toast ──
-  // Used by BarcodeScannerDialog's onContextAction prop. Keeps the scanner
-  // open for continuous scanning (does NOT close the dialog).
+  // Used by BarcodeScannerDialog's onContextAction prop. Returns `true` when
+  // the item was added to cart (or the variant picker was opened as a clean
+  // handoff), so the dialog can auto-close on success when `closeOnSuccess`
+  // is set. Returns `false` (without throwing) on out-of-stock / not-found so
+  // the dialog stays open for re-scan.
   const applyLookupToCart = useCallback(async (lookup: {
     status: 'FOUND' | 'NOT_FOUND'
     entityType?: 'PRODUCT' | 'VARIANT'
     productId?: string
     variantId?: string
     barcode: string
-  }) => {
-    if (lookup.status !== 'FOUND' || !lookup.productId) return
+  }): Promise<boolean> => {
+    if (lookup.status !== 'FOUND' || !lookup.productId) return false
     // Re-fetch the full product (resolver only returned id + entityType).
     const { product, matchedVariantId } = await lookupProduct(lookup.barcode)
     if (!product) {
+      // LOOKUP ERROR — keep scanner open.
       toast.error('Produk tidak ditemukan')
-      return
+      return false
     }
     const effectiveVariantId = lookup.variantId ?? matchedVariantId
     if (effectiveVariantId) {
@@ -538,18 +542,29 @@ export function usePosProducts(options: UsePosProductsOptions): UsePosProductsRe
       if (variant && variant.stock > 0) {
         onAddToCart(product, 1, variant)
         toast.success(`${product.name} - ${variant.name} ditambahkan`)
-      } else {
-        toast.error('Stok varian habis')
+        setProductSearch('')
+        return true
       }
+      // CART ACTION ERROR (out of stock) — keep scanner open.
+      toast.error('Stok varian habis')
+      return false
     } else if (product.hasVariants) {
+      // No specific variant matched — hand off to the variant picker.
+      // Treated as success for the scanner (clean focus handoff); the
+      // operator completes the add-to-cart in the picker.
       onOpenVariantPicker(product)
+      setProductSearch('')
+      return true
     } else if (product.stock > 0) {
       onAddToCart(product)
       toast.success(`${product.name} ditambahkan`)
+      setProductSearch('')
+      return true
     } else {
+      // CART ACTION ERROR (out of stock) — keep scanner open.
       toast.error('Stok produk habis')
+      return false
     }
-    setProductSearch('')
   }, [lookupProduct, fetchVariants, onAddToCart, onOpenVariantPicker])
 
   // ── Camera scanner result: exact barcode/SKU lookup → add to cart ──

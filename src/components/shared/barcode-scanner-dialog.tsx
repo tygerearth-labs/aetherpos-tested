@@ -131,8 +131,13 @@ interface ZxBrowserModule {
 interface BarcodeScannerDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  /** Called with the normalized barcode string. Parent decides what to do. */
-  onResult: (value: string) => void
+  /**
+   * Called with the normalized barcode string. Parent decides what to do.
+   * May return a boolean (or Promise<boolean>) to signal success — when
+   * `closeOnSuccess` is true and this returns `true`, the dialog closes
+   * itself. Returning `void` keeps legacy behavior (parent closes manually).
+   */
+  onResult: (value: string) => boolean | void | Promise<boolean | void>
   /** Dialog title. */
   title?: string
   /** Placeholder for the manual input fallback. */
@@ -145,9 +150,20 @@ interface BarcodeScannerDialogProps {
   resolver?: (barcode: string) => Promise<LookupResult>
   /**
    * Optional context-action adapter (Phase 8). Called after a FOUND lookup.
-   * Telemetry tracks context-action state.
+   * Telemetry tracks context-action state. Should return `true` when the
+   * action succeeded (e.g. item added to cart) so the dialog can auto-close
+   * when `closeOnSuccess` is set.
    */
-  onContextAction?: (lookup: LookupResult) => Promise<void>
+  onContextAction?: (lookup: LookupResult) => Promise<boolean | void> | boolean | void
+  /**
+   * When true, the dialog auto-closes after a SUCCESSFUL action:
+   *   - Full-pipeline mode: lookup FOUND + onContextAction returns true.
+   *   - Simple mode: onResult returns true.
+   * The dialog NEVER auto-closes on NOT_FOUND, lookup errors, or action
+   * errors (those stay open so the operator can re-scan or fix the issue).
+   * Default false (continuous-scan mode — dialog stays open after success).
+   */
+  closeOnSuccess?: boolean
 }
 
 export interface LookupResult {
@@ -259,7 +275,11 @@ export function BarcodeScannerDialog({
   inputPlaceholder = 'Ketik barcode / SKU manual...',
   resolver,
   onContextAction,
+  closeOnSuccess = false,
 }: BarcodeScannerDialogProps) {
+  // Diagnostics (telemetry panel + test-mode panel) are dev-only surfaces.
+  // They never ship to normal users in production builds.
+  const isDev = process.env.NODE_ENV === 'development'
   // Refs — camera + detection
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -395,7 +415,7 @@ export function BarcodeScannerDialog({
       // If resolver is wired, run the full pipeline (resolve → context action)
       // and handle FOUND/NOT_FOUND inline. onResult is NOT called in this path
       // to avoid double-execution (the parent's onResult would re-resolve).
-      // If resolver is NOT wired (Stock Opname path), just call onResult and
+      // If resolver is NOT wired (simple path), just call onResult and
       // let the parent do everything.
       if (resolver) {
         patchTelemetry({ lookupState: 'LOOKING_UP' })
@@ -403,6 +423,7 @@ export function BarcodeScannerDialog({
         try {
           lookup = await resolver(normalized)
         } catch (e) {
+          // LOOKUP ERROR — never close.
           patchTelemetry({
             lookupState: 'ERROR',
             lastErrorName: (e as Error)?.name ?? 'Error',
@@ -417,28 +438,43 @@ export function BarcodeScannerDialog({
         if (lookup.status === 'FOUND') {
           if (onContextAction) {
             patchTelemetry({ contextState: 'EXECUTING' })
+            let actionOk = false
             try {
-              await onContextAction(lookup)
-              patchTelemetry({ contextState: 'SUCCESS' })
+              const res = await onContextAction(lookup)
+              actionOk = res !== false
+              patchTelemetry({ contextState: actionOk ? 'SUCCESS' : 'ERROR' })
             } catch (e) {
+              // CART/ACTION ERROR — never close.
+              actionOk = false
               patchTelemetry({
                 contextState: 'ERROR',
                 lastErrorName: (e as Error)?.name ?? 'Error',
                 lastErrorMessage: (e as Error)?.message ?? String(e),
               })
             }
+            // Auto-close ONLY on a genuine success (FOUND + action returned true)
+            // AND only when the context opted into closeOnSuccess.
+            if (actionOk && closeOnSuccess) {
+              onOpenChange(false)
+            }
           } else {
             // FOUND but no context adapter — fall back to onResult so the
             // parent can still handle it.
-            onResult(normalized)
+            const ok = await onResult(normalized)
+            if (ok !== false && closeOnSuccess) onOpenChange(false)
           }
         } else {
-          // NOT_FOUND — show the contract message inline.
+          // NOT_FOUND — show the contract message inline. Never close.
           toast.error(`Barcode "${normalized}" terbaca, tetapi belum terdaftar.`)
         }
       } else {
-        // Simple path (Stock Opname): just call onResult.
-        onResult(normalized)
+        // Simple path: delegate resolve + action to the parent's onResult.
+        // The parent returns true on success so the dialog can auto-close
+        // when closeOnSuccess is set; returning false/void keeps it open.
+        const ok = await onResult(normalized)
+        if (ok === true && closeOnSuccess) {
+          onOpenChange(false)
+        }
       }
     } catch (e) {
       // Never silently swallow — record in telemetry.
@@ -447,7 +483,7 @@ export function BarcodeScannerDialog({
       // Always release the processing lock.
       processingLockRef.current = false
     }
-  }, [onResult, resolver, onContextAction, testMode, patchTelemetry, recordError])
+  }, [onResult, resolver, onContextAction, closeOnSuccess, onOpenChange, testMode, patchTelemetry, recordError])
 
   // Keep handleDetectedRef in sync so ZXing callback always uses the latest closure.
   useEffect(() => { handleDetectedRef.current = handleDetected }, [handleDetected])
@@ -862,23 +898,28 @@ export function BarcodeScannerDialog({
             </div>
           </div>
           <div className="flex items-center gap-1">
-            {/* Telemetry toggle */}
-            <button
-              onClick={() => setShowTelemetry((v) => !v)}
-              className={`w-7 h-7 rounded-md flex items-center justify-center transition-colors ${showTelemetry ? 'text-amber-400 bg-amber-500/10' : 'text-slate-500 hover:text-white hover:bg-white/[0.06]'}`}
-              aria-label="Toggle telemetry"
-              title="Toggle telemetry (Phase 1)"
-            >
-              <Bug className="h-4 w-4" />
-            </button>
-            <button
-              onClick={() => setShowTestPanel((v) => !v)}
-              className={`w-7 h-7 rounded-md flex items-center justify-center transition-colors ${showTestPanel ? 'text-fuchsia-400 bg-fuchsia-500/10' : 'text-slate-500 hover:text-white hover:bg-white/[0.06]'}`}
-              aria-label="Toggle test panel"
-              title="Toggle test panel (Phase 6)"
-            >
-              <FlaskConical className="h-4 w-4" />
-            </button>
+            {/* Telemetry toggle — dev-only diagnostic (Phase 1) */}
+            {isDev && (
+              <button
+                onClick={() => setShowTelemetry((v) => !v)}
+                className={`w-7 h-7 rounded-md flex items-center justify-center transition-colors ${showTelemetry ? 'text-amber-400 bg-amber-500/10' : 'text-slate-500 hover:text-white hover:bg-white/[0.06]'}`}
+                aria-label="Toggle telemetry"
+                title="Toggle telemetry (Phase 1)"
+              >
+                <Bug className="h-4 w-4" />
+              </button>
+            )}
+            {/* Test-mode panel toggle — dev-only diagnostic (Phase 6) */}
+            {isDev && (
+              <button
+                onClick={() => setShowTestPanel((v) => !v)}
+                className={`w-7 h-7 rounded-md flex items-center justify-center transition-colors ${showTestPanel ? 'text-fuchsia-400 bg-fuchsia-500/10' : 'text-slate-500 hover:text-white hover:bg-white/[0.06]'}`}
+                aria-label="Toggle test panel"
+                title="Toggle test panel (Phase 6)"
+              >
+                <FlaskConical className="h-4 w-4" />
+              </button>
+            )}
             <button
               onClick={handleClose}
               className="w-7 h-7 rounded-md flex items-center justify-center text-slate-500 hover:text-white hover:bg-white/[0.06] transition-colors"

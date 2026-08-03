@@ -323,23 +323,31 @@ export default function StockOpnamePage() {
     }
   }, [scanInput])
 
-  // Camera scanner result — looks up the scanned code via findByScan (same
-  // as the Enter-key text search) and focuses the matched snapshot. The
-  // dialog stays open so the user can scan multiple items in succession.
-  const handleScanResult = useCallback(async (code: string) => {
+  // Camera scanner result — verifies the scanned code matches a snapshot in
+  // the ACTIVE opname session only (Dexie lookup via findByScan, which never
+  // creates new snapshots). On FOUND: focuses the matched snapshot (opens/
+  // refreshes the QuickCountWidget via key={focusedSnapshot.id}) and returns
+  // true so the scanner auto-closes (closeOnSuccess). On NOT_FOUND: shows an
+  // actionable error and returns false so the scanner stays open for re-scan.
+  // Items outside the active session are NEVER added automatically — findByScan
+  // only searches existing snapshots and never creates new ones (verified in
+  // src/lib/stock-opname/service.ts).
+  const handleScanResult = useCallback(async (code: string): Promise<boolean> => {
     const trimmed = code.trim()
-    if (!trimmed) return
+    if (!trimmed) return false
     const found = await findByScan(trimmed)
     if (found) {
       setFocusedSnapshot(found)
-      toast.success('Item ditemukan', {
-        description: found.itemName,
-      })
-    } else {
-      toast.error('Item tidak ditemukan', {
-        description: `"${trimmed}" tidak cocok dengan SKU / nama / batch`,
-      })
+      toast.success(`"${found.itemName}" difokuskan`)
+      // QuickCountWidget remounts via key={focusedSnapshot.id} and auto-focuses
+      // its physical-qty input on mount (existing useEffect in
+      // quick-count-widget.tsx) so the operator can type the count immediately.
+      return true
     }
+    toast.error('Item tidak ditemukan', {
+      description: `"${trimmed}" tidak cocok dengan SKU / nama / batch item di sesi opname aktif. Item di luar sesi tidak ditambahkan otomatis.`,
+    })
+    return false
   }, [])
 
   // ════════════════════════════════════════════════════════════
@@ -1471,11 +1479,18 @@ export default function StockOpnamePage() {
         onConfirm={handleComplete}
       />
 
-      {/* Camera barcode scanner (counting search bar camera button) */}
+      {/* Camera barcode scanner (counting search bar camera button).
+          SIMPLE mode (onResult only) — handleScanResult resolves against the
+          active session's Dexie snapshots via findByScan (no resolver wired).
+          closeOnSuccess=true → dialog auto-closes ONLY when handleScanResult
+          returns true (FOUND in active session). NEVER closes on NOT_FOUND or
+          errors so the operator can re-scan. The matched snapshot opens the
+          QuickCountWidget which auto-focuses its physical-qty input on remount. */}
       <BarcodeScannerDialog
         open={scanDialogOpen}
         onOpenChange={setScanDialogOpen}
-        onResult={(code) => { void handleScanResult(code) }}
+        onResult={handleScanResult}
+        closeOnSuccess
         title="Scan Item Opname"
         inputPlaceholder="Ketik barcode / SKU / nama item..."
       />

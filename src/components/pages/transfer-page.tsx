@@ -61,8 +61,10 @@ import {
   Info,
   CircleDot,
   FlaskConical,
+  Camera,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { BarcodeScannerDialog } from '@/components/shared/barcode-scanner-dialog'
 
 // ── Types ──
 type TransferStatus = 'DRAFT' | 'IN_TRANSIT' | 'RECEIVED' | 'CANCELLED'
@@ -193,6 +195,31 @@ interface InventoryItemOption {
   category?: { id: string; name: string; color: string } | null
 }
 
+// ── Scanner lookup shapes (subset of API responses used by handleTransferScan) ──
+// PosProduct from /api/pos/products/lookup — lookup SELECT does not currently
+// include hasComposition, so it's marked optional and we fall back to querying
+// /api/products/<id>/composition for the real answer (see handleTransferScan).
+interface PosProductLookup {
+  id: string
+  name: string
+  price: number
+  stock: number
+  hpp: number
+  sku: string | null
+  barcode: string | null
+  hasVariants: boolean
+  hasComposition?: boolean
+}
+
+interface InvItemLookup {
+  id: string
+  name: string
+  sku?: string | null
+  baseUnit: string
+  stock: number
+  avgCost: number
+}
+
 // ── Status Badge ──
 function StatusBadge({ status }: { status: TransferStatus }) {
   const config: Record<TransferStatus, { label: string; className: string }> = {
@@ -276,6 +303,9 @@ export default function TransferPage() {
   const [invSearchRef] = useState({ current: null as HTMLDivElement | null })
   const [invAddQty, setInvAddQty] = useState('1')
   const [invActionLoading, setInvActionLoading] = useState<string | null>(null)
+
+  // ── Shared camera scanner state (single dialog, branches on mainTab) ──
+  const [transferScanOpen, setTransferScanOpen] = useState(false)
 
   // ── Fetch outlet group ──
   useEffect(() => {
@@ -731,6 +761,160 @@ export default function TransferPage() {
       setCreateLoading(false)
     }
   }
+
+  // ════════════════════════════════════════════════════════════
+  // Camera Barcode Scanner adapter (shared, mode-aware)
+  //
+  // Single <BarcodeScannerDialog> instance shared by both create dialogs.
+  // closeOnSuccess is FALSE (omitted → default false) so the dialog stays
+  // open for continuous scanning. onResult branches on mainTab:
+  //   - 'produk'     → resolve via /api/pos/products/lookup, reject variant /
+  //                    composition-linked products, add plain product to
+  //                    createItems (+1 if already present).
+  //   - 'bahan-baku' → resolve via /api/inventory/items?search=<code>, match
+  //                    by sku OR name, add to invCreateItems (+1 if present).
+  // Returns true on success (telemetry SUCCESS, dialog stays open because
+  // closeOnSuccess=false). Returns false on NOT_FOUND / rejection (dialog
+  // stays open so the operator can re-scan or fix the issue).
+  // ════════════════════════════════════════════════════════════
+  const handleTransferScan = useCallback(async (code: string): Promise<boolean> => {
+    const trimmed = (code || '').trim()
+    if (!trimmed) return false
+
+    if (mainTab === 'produk') {
+      // ── PRODUCT mode ──
+      try {
+        const res = await fetch(`/api/pos/products/lookup?code=${encodeURIComponent(trimmed)}`)
+        if (!res.ok) {
+          toast.error('Gagal mencari produk')
+          return false
+        }
+        const data = (await res.json()) as { product: PosProductLookup | null; matchedVariantId: string | null }
+        const product = data.product
+        if (!product) {
+          toast.error(`Barcode "${trimmed}" tidak ditemukan`)
+          return false
+        }
+        // Variant products are rejected by the Transfer API server-side too,
+        // but we short-circuit here with a clearer message.
+        if (data.matchedVariantId || product.hasVariants) {
+          toast.error('Produk varian belum didukung untuk transfer produk')
+          return false
+        }
+        // Composition guardrail (client-side only per task spec).
+        // Cheap check first (works if/when lookup exposes hasComposition):
+        const cheapHasComp = !!product.hasComposition
+        if (cheapHasComp) {
+          toast.error(`Produk "${product.name}" terkait komposisi/bahan baku. Gunakan tab "Transfer Item" untuk mentransfer bahan bakunya.`)
+          return false
+        }
+        // Robust fallback: query the composition endpoint for the real answer.
+        // (The lookup PosProduct shape does not currently include hasComposition,
+        // so this is the actual source of truth today.)
+        try {
+          const compRes = await fetch(`/api/products/${product.id}/composition`)
+          if (compRes.ok) {
+            const compData = (await compRes.json()) as {
+              hasComposition?: boolean
+              items?: unknown[]
+              variantCompositions?: unknown[]
+            }
+            const hasCompLinkage =
+              !!compData.hasComposition ||
+              (Array.isArray(compData.items) && compData.items.length > 0) ||
+              (Array.isArray(compData.variantCompositions) && compData.variantCompositions.length > 0)
+            if (hasCompLinkage) {
+              toast.error(`Produk "${product.name}" terkait komposisi/bahan baku. Gunakan tab "Transfer Item" untuk mentransfer bahan bakunya.`)
+              return false
+            }
+          }
+        } catch {
+          // Composition check failed — fail-open to not block the operator.
+          // The Transfer API will still validate server-side.
+        }
+        // Valid plain product → add to createItems or increment existing qty.
+        // Reuse the exact TransferItem shape that handleAddProduct uses.
+        const existing = createItems.find(i => i.productId === product.id)
+        if (existing) {
+          const newQty = existing.quantity + 1
+          if (newQty > (existing.stockAtSource ?? 9999)) {
+            toast.error(`Stok tersedia hanya ${existing.stockAtSource ?? 0}`)
+            return false
+          }
+          setCreateItems(prev => prev.map(i => i.productId === product.id ? { ...i, quantity: newQty } : i))
+        } else {
+          if (1 > product.stock) {
+            toast.error(`Stok tersedia hanya ${product.stock}`)
+            return false
+          }
+          setCreateItems(prev => [...prev, {
+            productId: product.id,
+            productName: product.name,
+            sku: product.sku || undefined,
+            productBarcode: product.barcode || undefined,
+            quantity: 1,
+            price: product.price,
+            hpp: product.hpp || 0,
+            stockAtSource: product.stock,
+          }])
+        }
+        toast.success(`+1 ${product.name}`)
+        return true
+      } catch {
+        toast.error('Gagal mencari produk')
+        return false
+      }
+    } else {
+      // ── INVENTORY mode (mainTab === 'bahan-baku') ──
+      try {
+        const res = await fetch(`/api/inventory/items?search=${encodeURIComponent(trimmed)}&limit=50`)
+        if (!res.ok) {
+          toast.error('Gagal mencari item')
+          return false
+        }
+        const data = (await res.json()) as { items?: InvItemLookup[] } | InvItemLookup[]
+        const items: InvItemLookup[] = Array.isArray(data) ? data : (data.items || [])
+        const codeLower = trimmed.toLowerCase()
+        const match = items.find(i =>
+          (i.sku ? i.sku.toLowerCase() === codeLower : false) ||
+          (i.name ? i.name.toLowerCase() === codeLower : false)
+        )
+        if (!match) {
+          toast.error(`Barcode "${trimmed}" tidak ditemukan`)
+          return false
+        }
+        // Reuse the exact InventoryTransferItem shape that invHandleAddItem uses.
+        const existing = invCreateItems.find(i => i.inventoryItemId === match.id)
+        if (existing) {
+          const newQty = +(existing.quantity + 1).toFixed(2)
+          if (newQty > (existing.stockAtSource ?? 9999)) {
+            toast.error(`Stok tersedia hanya ${formatNumber(existing.stockAtSource ?? 0)} ${existing.baseUnit}`)
+            return false
+          }
+          setInvCreateItems(prev => prev.map(i => i.inventoryItemId === match.id ? { ...i, quantity: newQty } : i))
+        } else {
+          if (1 > match.stock) {
+            toast.error(`Stok tersedia hanya ${formatNumber(match.stock)} ${match.baseUnit}`)
+            return false
+          }
+          setInvCreateItems(prev => [...prev, {
+            inventoryItemId: match.id,
+            itemName: match.name,
+            itemSku: match.sku,
+            baseUnit: match.baseUnit,
+            quantity: 1,
+            avgCost: match.avgCost,
+            stockAtSource: match.stock,
+          }])
+        }
+        toast.success(`+1 ${match.name}`)
+        return true
+      } catch {
+        toast.error('Gagal mencari item')
+        return false
+      }
+    }
+  }, [mainTab, createItems, invCreateItems])
 
   // ── Open detail ──
   const openDetail = async (transfer: Transfer) => {
@@ -1555,6 +1739,19 @@ export default function TransferPage() {
                   onChange={(e) => setAddQty(e.target.value)}
                   className="bg-white/[0.04] border-white/[0.04] text-white text-xs h-9 w-16 rounded-lg text-center"
                 />
+                {/* Camera scanner button — opens the shared BarcodeScannerDialog.
+                    closeOnSuccess=false so the dialog stays open for continuous
+                    scanning. onResult (handleTransferScan) routes by mainTab and
+                    adds the matched product to createItems (+1 if present). */}
+                <button
+                  type="button"
+                  onClick={() => setTransferScanOpen(true)}
+                  className="flex items-center justify-center h-9 w-9 rounded-lg text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 border border-emerald-500/20 transition-colors shrink-0"
+                  title="Scan barcode dengan kamera (tambah produk)"
+                  aria-label="Scan barcode dengan kamera"
+                >
+                  <Camera className="h-4 w-4" />
+                </button>
               </div>
               {productSearching && (
                 <div className="flex items-center gap-2 text-slate-500">
@@ -1860,6 +2057,19 @@ export default function TransferPage() {
                   className="bg-white/[0.04] border-white/[0.04] text-white text-xs h-9 w-20 rounded-lg text-center"
                   placeholder="Qty"
                 />
+                {/* Camera scanner button — opens the shared BarcodeScannerDialog.
+                    closeOnSuccess=false so the dialog stays open for continuous
+                    scanning. onResult (handleTransferScan) routes by mainTab and
+                    adds the matched inventory item to invCreateItems (+1 if present). */}
+                <button
+                  type="button"
+                  onClick={() => setTransferScanOpen(true)}
+                  className="flex items-center justify-center h-9 w-9 rounded-lg text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 border border-emerald-500/20 transition-colors shrink-0"
+                  title="Scan barcode dengan kamera (tambah item)"
+                  aria-label="Scan barcode dengan kamera"
+                >
+                  <Camera className="h-4 w-4" />
+                </button>
               </div>
               {invSearching && (
                 <div className="flex items-center gap-2 text-slate-500">
@@ -1940,6 +2150,15 @@ export default function TransferPage() {
           </ResponsiveDialogFooter>
         </ResponsiveDialogContent>
       </ResponsiveDialog>
+
+      {/* ═══ Shared Camera Barcode Scanner (mode-aware, closeOnSuccess=false) ═══ */}
+      <BarcodeScannerDialog
+        open={transferScanOpen}
+        onOpenChange={setTransferScanOpen}
+        onResult={handleTransferScan}
+        title={mainTab === 'produk' ? 'Scan Barcode Produk Transfer' : 'Scan Barcode Item Transfer'}
+        inputPlaceholder={mainTab === 'produk' ? 'Ketik barcode / SKU produk...' : 'Ketik barcode / SKU item...'}
+      />
     </motion.div>
   )
 }
