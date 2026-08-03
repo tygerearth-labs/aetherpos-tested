@@ -63,9 +63,11 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Pagination } from '@/components/shared/pagination'
 import { SortableTableHead, nextSortState } from '@/components/shared/sortable-header'
-import { SameDayBadge, SAME_DAY_ROW_TINT, SAME_DAY_LEFT_ACCENT } from '@/components/shared/same-day-badge'
+import { SameDayBadge } from '@/components/shared/same-day-badge'
 import { BarcodeScannerDialog } from '@/components/shared/barcode-scanner-dialog'
 import { RowActionsMenu } from '@/components/shared/row-actions-menu'
+import { StockStatusBadge, stockValueColorClass } from '@/components/shared/stock-status-badge'
+import { useRowHighlight } from '@/hooks/use-row-highlight'
 import { formatRelativeDateTime, getSameDayBadge } from '@/lib/relative-date'
 import { Switch } from '@/components/ui/switch'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -848,6 +850,9 @@ export default function PurchasePage() {
   const [invStockNew, setInvStockNew] = useState('')        // adjust mode: target new stock
   const [invStockReason, setInvStockReason] = useState('')
   const [invStockSubmitting, setInvStockSubmitting] = useState(false)
+  // Temporary row highlight for inventory scan/restock/adjust/sync results (spec point 3 + 6).
+  // Auto-fades after 2.5s. Pure UI — no backend interaction.
+  const invRowHighlight = useRowHighlight<string>({ durationMs: 2500 })
 
   // Batch timeline for inventory detail
   const [batchTimeline, setBatchTimeline] = useState<BatchTimelineEntry[]>([])
@@ -2999,6 +3004,7 @@ export default function PurchasePage() {
       if (res.ok) {
         const verb = invStockMode === 'restock' ? 'Restock' : 'Penyesuaian'
         toast.success(`${verb} ${invStockItem.name} berhasil`)
+        invRowHighlight.highlight(invStockItem.id) // spec point 6: selesai sync
         setInvStockOpen(false)
         setInvStockItem(null)
         setInvStockQty('')
@@ -3081,6 +3087,7 @@ export default function PurchasePage() {
           setInvPage(1)
           setSelectedInvIds(new Set())
           openInvDetail(mapApiItemToInventoryItem(match))
+          invRowHighlight.highlight(match.id) // spec point 6: hasil scan
           toast.success(`Item ditemukan: ${match.name}`)
           return true
         }
@@ -3181,6 +3188,7 @@ export default function PurchasePage() {
       setInvPage(1)
       setSelectedInvIds(new Set())
       openInvDetail(mapApiItemToInventoryItem(r))
+      invRowHighlight.highlight(r.id) // spec point 6: hasil scan
       toast.success(`Item ditemukan: ${r.name}`)
       return true
     }
@@ -4928,31 +4936,19 @@ export default function PurchasePage() {
                             <TableRow
                               key={item.id}
                               className={cn(
-                                'group relative border-b border-white/[0.04] transition-all duration-150',
-                                // Alternating row backgrounds
+                                'group relative border-b border-white/[0.04] transition-colors duration-300',
+                                // Alternating row backgrounds (subtle)
                                 index % 2 === 0 ? 'bg-transparent' : 'bg-white/[0.015]',
                                 // Hover effect
                                 'hover:bg-white/[0.04]',
                                 // Selected state
                                 isSelected && 'bg-emerald-500/[0.05] hover:bg-emerald-500/[0.08]',
-                                // Archived state
+                                // Archived state — dim but no warning tint
                                 isArchived && 'opacity-60',
-                                // Same-day highlight tint (very subtle)
-                                sameDayBadge && !isSelected && !isArchived && SAME_DAY_ROW_TINT,
+                                // Temporary row highlight (spec point 3 + 6) — overrides alternating bg
+                                invRowHighlight.classNameFor(item.id),
                               )}
                             >
-                              {/* Low stock left border indicator */}
-                              {isLow && !isArchived && (
-                                <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-gradient-to-b from-red-500 to-red-500/50 rounded-r" />
-                              )}
-                              {/* Archived left border indicator */}
-                              {isArchived && (
-                                <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-gradient-to-b from-amber-500 to-amber-500/50 rounded-r" />
-                              )}
-                              {/* Same-day left accent (2px) — only when not low/archived */}
-                              {sameDayBadge && !isLow && !isArchived && (
-                                <div className={SAME_DAY_LEFT_ACCENT} />
-                              )}
                               <TableCell className="pl-4">
                                 <Checkbox
                                   checked={isSelected}
@@ -4963,7 +4959,7 @@ export default function PurchasePage() {
                               <TableCell className="py-3">
                                 <div className="flex items-center gap-2">
                                   <div className="flex flex-col min-w-0">
-                                    <span className="flex items-center gap-1.5">
+                                    <span className="flex items-center gap-1.5 flex-wrap">
                                       <span className={cn(
                                         'text-xs font-medium truncate max-w-[180px] block',
                                         isArchived ? 'text-slate-500 line-through decoration-slate-600' : 'text-slate-100'
@@ -4977,33 +4973,22 @@ export default function PurchasePage() {
                                           Nonaktif
                                         </Badge>
                                       )}
-                                      {isLow && !isArchived && (
-                                        <Badge variant="secondary" className="text-[9px] px-2 py-0.5 bg-red-500/15 text-red-400 border-red-500/25 rounded-full animate-pulse shrink-0">
-                                          <AlertTriangle className="h-2.5 w-2.5 mr-1" />
-                                          Stok Rendah
-                                        </Badge>
-                                      )}
-                                      {/* Delete Safety Indicator */}
-                                      {!isArchived && deleteStatus.riskLevel === 'safe' && (
-                                        <Badge variant="secondary" className="text-[8px] px-1.5 py-0 bg-emerald-500/10 text-emerald-400 border-emerald-500/20 rounded-full shrink-0" title={deleteStatus.description}>
-                                          <ShieldCheck className="h-2.5 w-2.5 mr-0.5" />
-                                          Aman
-                                        </Badge>
-                                      )}
+                                      {/* Delete Safety Indicators — "Migrasi" + "Terkunci" only.
+                                          "Aman" dihilangkan dari list utama (spec point 2). */}
                                       {!isArchived && deleteStatus.riskLevel === 'warning' && (
-                                        <Badge variant="secondary" className="text-[8px] px-1.5 py-0 bg-amber-500/10 text-amber-400 border-amber-500/20 rounded-full shrink-0" title={deleteStatus.description}>
+                                        <Badge variant="secondary" className="text-[9px] px-1.5 py-0 bg-amber-500/10 text-amber-400 border-amber-500/20 rounded-full shrink-0" title={deleteStatus.description}>
                                           <AlertCircle className="h-2.5 w-2.5 mr-0.5" />
                                           Migrasi
                                         </Badge>
                                       )}
                                       {!isArchived && deleteStatus.riskLevel === 'blocked' && (
-                                        <Badge variant="secondary" className="text-[8px] px-1.5 py-0 bg-red-500/10 text-red-400 border-red-500/20 rounded-full shrink-0" title={deleteStatus.description}>
+                                        <Badge variant="secondary" className="text-[9px] px-1.5 py-0 bg-red-500/10 text-red-400 border-red-500/20 rounded-full shrink-0" title={deleteStatus.description}>
                                           <Lock className="h-2.5 w-2.5 mr-0.5" />
                                           Terkunci
                                         </Badge>
                                       )}
                                     </span>
-                                    {/* SKU below name (spec point C) */}
+                                    {/* SKU below name (spec point 5) */}
                                     {item.sku && (
                                       <span className="text-[10px] text-slate-500 font-mono mt-0.5 truncate max-w-[180px] block">
                                         {item.sku}
@@ -5031,15 +5016,16 @@ export default function PurchasePage() {
                                 )}
                               </TableCell>
                               <TableCell className="text-right">
-                                <span className={cn(
-                                  'inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg tabular-nums text-xs font-semibold',
-                                  isLow
-                                    ? 'bg-red-500/10 text-red-400 ring-1 ring-red-500/20'
-                                    : 'text-slate-200'
-                                )}>
-                                  {formatNumber(item.stock)}
+                                {/* Stok cell (spec point 2): numeric value (colored) + compact StockStatusBadge.
+                                    No ring, no animate-pulse. Badge replaces the old "Stok Rendah" badge
+                                    that was in the name cell. */}
+                                <div className="inline-flex items-center gap-1.5 justify-end tabular-nums text-xs font-semibold">
+                                  <span className={stockValueColorClass(item.stock, item.lowStockAlert)}>
+                                    {formatNumber(item.stock)}
+                                  </span>
                                   <span className={cn('font-normal text-[10px]', isLow ? 'text-red-400/70' : 'text-slate-500')}>{item.baseUnit}</span>
-                                </span>
+                                  <StockStatusBadge stock={item.stock} lowThreshold={item.lowStockAlert} />
+                                </div>
                               </TableCell>
                               <TableCell className="text-right">
                                 <span className="text-xs text-slate-400 tabular-nums">
@@ -5164,7 +5150,9 @@ export default function PurchasePage() {
                     const deleteStatus = getDeleteSafetyStatus(item)
                     // Calculate edit block status
                     const editBlockStatus = getEditBlockStatus(item)
-                    
+                    // Same-day highlight (spec point 4) — was missing on mobile.
+                    const sameDayBadge = getSameDayBadge(item.createdAt ?? item.lastBusinessChangeAt ?? item.updatedAt, item.lastBusinessChangeAt ?? item.updatedAt)
+
                     return (
                       <motion.div
                         key={item.id}
@@ -5174,32 +5162,32 @@ export default function PurchasePage() {
                         exit={{ opacity: 0, y: -8 }}
                         transition={{ duration: 0.15, delay: index * 0.015 }}
                       >
-                        {/* Compact List Item - Single Row */}
-                        <div 
+                        {/* Compact List Item - Single Row.
+                            CANONICAL CARD STRUCTURE (spec point 1 + 3):
+                            - Same border + bg for all cards — no stock-state tints.
+                            - No left accent bars.
+                            - Selected state keeps emerald ring (user action, not status).
+                            - Temporary emerald tint for scan/restock/adjust/sync. */}
+                        <div
                           className={cn(
-                            'flex items-center gap-2.5 p-2.5 rounded-xl border transition-colors active:bg-white/[0.03]',
-                            isSelected ? 'bg-emerald-500/[0.08] border-emerald-500/30' :
-                            isLow && !isArchived ? 'bg-red-500/[0.03] border-red-500/15' :
-                            isArchived ? 'bg-white/[0.01] border-white/[0.04] opacity-60' :
-                            'bg-white/[0.02] border-white/[0.06]'
+                            'flex items-center gap-2.5 p-2.5 rounded-xl border transition-colors duration-300 active:bg-white/[0.03]',
+                            isSelected
+                              ? 'bg-emerald-500/[0.08] border-emerald-500/30'
+                              : invRowHighlight.highlightedId === item.id
+                                ? 'bg-emerald-500/[0.06] border-emerald-500/20'
+                                : isArchived
+                                  ? 'bg-white/[0.01] border-white/[0.04] opacity-60'
+                                  : 'bg-white/[0.02] border-white/[0.06]'
                           )}
                           onClick={() => toggleInvSelect(item.id)}
                         >
-                          {/* Left accent bar */}
-                          {isLow && !isArchived && (
-                            <div className="w-[3px] h-10 rounded-full bg-red-500/60 shrink-0" />
-                          )}
-                          {isArchived && (
-                            <div className="w-[3px] h-10 rounded-full bg-amber-500/60 shrink-0" />
-                          )}
-                          
                           {/* Checkbox - Compact */}
                           <button
                             onClick={(e) => { e.stopPropagation(); toggleInvSelect(item.id) }}
                             className={cn(
                               'w-6 h-6 rounded-md border-2 flex items-center justify-center shrink-0 transition-all',
-                              isSelected 
-                                ? 'bg-emerald-500 border-emerald-500 text-white' 
+                              isSelected
+                                ? 'bg-emerald-500 border-emerald-500 text-white'
                                 : 'border-slate-600 hover:border-slate-500'
                             )}
                           >
@@ -5208,25 +5196,32 @@ export default function PurchasePage() {
 
                           {/* Main Content */}
                           <div className="flex-1 min-w-0">
-                            {/* Name + Status Badges */}
-                            <div className="flex items-center gap-1.5">
+                            {/* Name + Status Badges (spec point 2) */}
+                            <div className="flex items-center gap-1.5 flex-wrap">
                               <span className={cn(
                                 'text-sm font-semibold truncate',
                                 isArchived ? 'text-slate-500 line-through' : 'text-white'
                               )}>
                                 {item.name}
                               </span>
+                              {sameDayBadge && <SameDayBadge variant={sameDayBadge} />}
                               {isArchived && (
-                                <span className="px-1 py-0 rounded bg-amber-500/15 text-amber-400 text-[8px] font-bold shrink-0">OFF</span>
-                              )}
-                              {isLow && !isArchived && (
-                                <span className="px-1 py-0 rounded bg-red-500/15 text-red-400 text-[8px] font-bold shrink-0">!</span>
-                              )}
-                              {!isArchived && deleteStatus.riskLevel === 'safe' && (
-                                <span className="px-1 py-0 rounded bg-emerald-500/15 text-emerald-400 shrink-0 flex items-center justify-center" title="Aman dihapus">
-                                  <Check className="h-2.5 w-2.5" />
+                                <span className="px-1.5 py-0 rounded bg-amber-500/15 text-amber-400 text-[9px] font-bold shrink-0 inline-flex items-center gap-0.5">
+                                  <Archive className="h-2 w-2" /> Nonaktif
                                 </span>
                               )}
+                              {!isArchived && deleteStatus.riskLevel === 'warning' && (
+                                <span className="px-1.5 py-0 rounded bg-amber-500/15 text-amber-400 text-[9px] font-bold shrink-0 inline-flex items-center gap-0.5" title={deleteStatus.description}>
+                                  <AlertCircle className="h-2 w-2" /> Migrasi
+                                </span>
+                              )}
+                              {!isArchived && deleteStatus.riskLevel === 'blocked' && (
+                                <span className="px-1.5 py-0 rounded bg-red-500/15 text-red-400 text-[9px] font-bold shrink-0 inline-flex items-center gap-0.5" title={deleteStatus.description}>
+                                  <Lock className="h-2 w-2" /> Terkunci
+                                </span>
+                              )}
+                              {/* Compact StockStatusBadge (spec point 2) — replaces "!" + "OFF" */}
+                              <StockStatusBadge stock={item.stock} lowThreshold={item.lowStockAlert} className="!text-[9px] !px-1.5" />
                             </div>
                             {/* Category + Stock + Unit - Single Line */}
                             <div className="flex items-center gap-2 mt-0.5 text-slate-500">
@@ -5235,10 +5230,10 @@ export default function PurchasePage() {
                                   {item.category.name}
                                 </span>
                               ) : (
-                                <span className="text-[10px] text-slate-600">-</span>
+                                <span className="text-[10px] text-slate-600 italic">Tanpa kategori</span>
                               )}
                               <span className="text-[10px]">•</span>
-                              <span className={cn('text-[12px] font-bold tabular-nums', isLow && !isArchived ? 'text-red-400' : 'text-slate-300')}>
+                              <span className={cn('text-[12px] font-bold tabular-nums', stockValueColorClass(item.stock, item.lowStockAlert))}>
                                 {formatNumber(item.stock)}
                               </span>
                               <span className="text-[10px]">{item.baseUnit}</span>

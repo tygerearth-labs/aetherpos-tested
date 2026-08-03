@@ -226,3 +226,160 @@ export async function validateVariantCompositionStockBatch(
 
   return errors
 }
+
+/* -------------------------------------------------------------------------- */
+/*  PRODUCT STOCK AUTO-SYNC FROM INVENTORY                                    */
+/* -------------------------------------------------------------------------- */
+/*
+ * Goal:
+ *   InventoryItem is the source of truth. Whenever InventoryItem.stock changes
+ *   (purchase POST/PUT/DELETE, inventory adjust), recompute the sellable
+ *   capacity of every linked Product and ProductVariant.
+ *
+ * Rules:
+ *   - unlinked product (no composition)            → Product.stock UNCHANGED (manual)
+ *   - linked non-variant product (hasComposition)  → Product.stock = capacity
+ *   - linked variant                               → Variant.stock = capacity (independent)
+ *   - parent product of variants                   → Product.stock = Σ variant.stock
+ *   - capacity may increase, decrease, or become zero
+ *   - run inside the caller's $transaction so the new InventoryItem.stock is visible
+ *
+ * Formula (per composition row):
+ *   capacity = floor(inventoryItem.stock / qty) * yieldPerBatch
+ *   product capacity = min across all composition rows (bottleneck)
+ *
+ * No audit / InventoryMovement is emitted here — those exist for inventory-level
+ * events (RESTOCK / ADJUSTMENT / PURCHASE). Product.stock is a derived cache.
+ */
+
+export interface RecalcDetail {
+  id: string
+  name: string
+  oldStock: number
+  newStock: number
+  type: 'product' | 'variant' | 'product-parent'
+}
+
+export interface RecalcResult {
+  recalculated: number
+  details: RecalcDetail[]
+}
+
+/**
+ * Recalculate stock for every Product and ProductVariant that has a
+ * composition row referencing any of the supplied inventoryItemIds.
+ *
+ * MUST be called inside the caller's $transaction so the freshest
+ * InventoryItem.stock is read (V14.1 transaction-isolation rule).
+ */
+export async function recalculateAffectedProductStock(
+  tx: TxClient,
+  outletId: string,
+  inventoryItemIds: string[]
+): Promise<RecalcResult> {
+  if (!inventoryItemIds.length) return { recalculated: 0, details: [] }
+
+  // Find every composition row touching the affected inventory items.
+  // This catches product-level (variantId=null) and variant-level rows.
+  const affectedComps = await tx.productComposition.findMany({
+    where: { inventoryItemId: { in: inventoryItemIds } },
+    select: { productId: true, variantId: true, inventoryItemId: true },
+  })
+
+  if (affectedComps.length === 0) return { recalculated: 0, details: [] }
+
+  const productIds = Array.from(new Set(affectedComps.map((c) => c.productId)))
+  const variantIds = Array.from(
+    new Set(affectedComps.filter((c) => c.variantId).map((c) => c.variantId as string))
+  )
+
+  const details: RecalcDetail[] = []
+
+  // PHASE 1 — recompute each affected variant independently.
+  // Bottleneck formula via getMaxStockFromVariantComposition (tx-aware).
+  for (const variantId of variantIds) {
+    const result = await getMaxStockFromVariantComposition(variantId, tx)
+    if (result.maxStock === Infinity) continue // no real cap, leave as-is
+
+    const variant = await tx.productVariant.findUnique({
+      where: { id: variantId },
+      select: { id: true, name: true, stock: true, productId: true },
+    })
+    if (!variant) continue
+
+    const newStock = Math.max(0, Math.floor(result.maxStock))
+    if (variant.stock !== newStock) {
+      await tx.productVariant.update({
+        where: { id: variantId },
+        data: { stock: newStock },
+      })
+      details.push({
+        id: variantId,
+        name: variant.name,
+        oldStock: variant.stock,
+        newStock,
+        type: 'variant',
+      })
+    }
+  }
+
+  // PHASE 2 — recompute each affected product.
+  for (const productId of productIds) {
+    const product = await tx.product.findUnique({
+      where: { id: productId },
+      select: { id: true, name: true, stock: true, hasVariants: true, outletId: true, hasComposition: true },
+    })
+    if (!product) continue
+    // Scope check — composition rows can technically link across outlets, but
+    // we only update products owned by the supplied outletId to be safe.
+    if (product.outletId !== outletId) continue
+
+    if (product.hasVariants) {
+      // Parent stock = Σ variant.stock (recalculated or unchanged).
+      // This mirrors the existing POS checkout pattern (line ~318-331).
+      const variants = await tx.productVariant.findMany({
+        where: { productId },
+        select: { stock: true },
+      })
+      const sumStock = variants.reduce((sum, v) => sum + v.stock, 0)
+      if (product.stock !== sumStock) {
+        await tx.product.update({
+          where: { id: productId },
+          data: { stock: sumStock },
+        })
+        details.push({
+          id: productId,
+          name: product.name,
+          oldStock: product.stock,
+          newStock: sumStock,
+          type: 'product-parent',
+        })
+      }
+    } else if (product.hasComposition) {
+      // Non-variant linked product — recompute via bottleneck formula.
+      const result = await getMaxStockFromComposition(productId, product.outletId, tx)
+      if (result.maxStock === Infinity) continue
+
+      const newStock = Math.max(0, Math.floor(result.maxStock))
+      if (product.stock !== newStock) {
+        await tx.product.update({
+          where: { id: productId },
+          data: { stock: newStock },
+        })
+        details.push({
+          id: productId,
+          name: product.name,
+          oldStock: product.stock,
+          newStock,
+          type: 'product',
+        })
+      }
+    }
+    // If a product shows up in affectedComps but has hasComposition=false and
+    // hasVariants=false, it means composition rows exist without the flag set
+    // (data drift). We leave the product stock alone — only linked products
+    // get auto-synced per the spec.
+  }
+
+  return { recalculated: details.length, details }
+}

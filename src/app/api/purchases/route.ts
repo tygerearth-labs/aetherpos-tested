@@ -5,6 +5,7 @@ import { parsePagination, buildFlexibleSearch } from '@/lib/api/api-helpers'
 import { safeJson, safeJsonCreated, safeJsonError, CACHE } from '@/lib/api/safe-response'
 import { invalidateOutletExpiry } from '@/lib/cache'
 import { buildPurchaseEvent, emitAuditEvent } from '@/lib/audit-v2'
+import { recalculateAffectedProductStock } from '@/lib/comp-stock'
 
 // Helper: recalculate HPP for products that use these inventory items
 async function recalculateHppForAffectedProducts(
@@ -667,13 +668,16 @@ export async function POST(request: NextRequest) {
     }
 
     // ══════════════════════════════════════════════════════
-    // PHASE 3 (NON-CRITICAL): HPP recalculation
+    // PHASE 3 (NON-CRITICAL): HPP recalculation + Product stock auto-sync
     // ══════════════════════════════════════════════════════
     try {
       const ids = [...updateMap.keys()]
       if (ids.length > 0) {
         await db.$transaction(async (tx) => {
           await recalculateHppForAffectedProducts(tx, ids)
+          // Recompute sellable capacity of every linked Product/Variant.
+          // InventoryItem is source of truth; Product.stock is a derived cache.
+          await recalculateAffectedProductStock(tx, outletId, ids)
         }, { timeout: 60000 })
       }
     } catch (error) {

@@ -4,6 +4,7 @@ import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 import { invalidateOutletExpiry } from '@/lib/cache'
 import { buildInventoryAdjustmentEvent, emitAuditEvent } from '@/lib/audit-v2'
+import { recalculateAffectedProductStock } from '@/lib/comp-stock'
 
 // POST /api/inventory/items/[id]/adjust — manual stock adjustment
 export async function POST(
@@ -167,6 +168,12 @@ export async function POST(
           userId,
         },
       })
+
+      // Product stock auto-sync — InventoryItem is the source of truth.
+      // Recompute sellable capacity of every linked Product/Variant inside
+      // the same transaction so Product.stock never drifts after a manual
+      // inventory adjustment (Task 8 Restock/Adjustment dialog uses this).
+      await recalculateAffectedProductStock(tx, outletId, [id])
 
       return updated
     }, { timeout: 15000 })

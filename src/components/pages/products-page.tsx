@@ -59,8 +59,10 @@ import {
 } from '@/components/ui/popover'
 import { Pagination } from '@/components/shared/pagination'
 import { SortableTableHead, nextSortState } from '@/components/shared/sortable-header'
-import { SameDayBadge, SAME_DAY_ROW_TINT, SAME_DAY_LEFT_ACCENT } from '@/components/shared/same-day-badge'
+import { SameDayBadge } from '@/components/shared/same-day-badge'
 import { RowActionsMenu } from '@/components/shared/row-actions-menu'
+import { StockStatusBadge, stockValueColorClass } from '@/components/shared/stock-status-badge'
+import { useRowHighlight } from '@/hooks/use-row-highlight'
 import { BarcodeScannerDialog, type LookupResult } from '@/components/shared/barcode-scanner-dialog'
 import { formatRelativeDateTime, getSameDayBadge } from '@/lib/relative-date'
 import {
@@ -542,6 +544,9 @@ export default function ProductsPage() {
   const [bulkPriceValue, setBulkPriceValue] = useState('')
   const [bulkPriceQuick, setBulkPriceQuick] = useState('')
   const [bulkPriceSubmitting, setBulkPriceSubmitting] = useState(false)
+  // Temporary row highlight for scan/create/edit/sync results (spec point 3 + 6).
+  // Auto-fades after 2.5s. Pure UI — no backend interaction.
+  const rowHighlight = useRowHighlight<string>({ durationMs: 2500 })
 
   const [bulkStockOpen, setBulkStockOpen] = useState(false)
   const [bulkStockType, setBulkStockType] = useState<'add' | 'subtract' | 'set'>('add')
@@ -874,6 +879,9 @@ export default function ProductsPage() {
 
       openDetail(product)
 
+      // Temporary row highlight for scan result (spec point 3 + 6).
+      rowHighlight.highlight(product.id)
+
       toast.success(`${product.name} ditemukan`)
       return true
     } catch (err) {
@@ -963,6 +971,7 @@ export default function ProductsPage() {
           if (detailOpen && detailProduct?.id === restockProduct.id) {
             fetchDetail(restockProduct, detailPage)
           }
+          rowHighlight.highlight(restockProduct.id) // spec point 6: selesai sync
           setRestockOpen(false)
           setRestockQty('')
           setRestockProduct(null)
@@ -991,6 +1000,7 @@ export default function ProductsPage() {
           if (detailOpen && detailProduct?.id === restockProduct.id) {
             fetchDetail({ ...restockProduct, stock: restockProduct.stock + Number(restockQty) }, detailPage)
           }
+          rowHighlight.highlight(restockProduct.id) // spec point 6: selesai sync
           setRestockOpen(false)
           setRestockQty('')
           setRestockProduct(null)
@@ -1033,6 +1043,7 @@ export default function ProductsPage() {
           if (detailOpen && detailProduct?.id === adjustProduct.id) {
             fetchDetail(detailProduct, detailPage)
           }
+          rowHighlight.highlight(adjustProduct.id) // spec point 6: selesai sync
         } else {
           const data = await res.json().catch(() => ({}))
           toast.error(data.error || 'Gagal menyesuaikan stok varian')
@@ -1067,6 +1078,7 @@ export default function ProductsPage() {
           if (detailOpen && detailProduct?.id === adjustProduct.id) {
             fetchDetail({ ...adjustProduct, stock: newStock }, detailPage)
           }
+          rowHighlight.highlight(adjustProduct.id) // spec point 6: selesai sync
         } else {
           const errData = await res.json().catch(() => ({}))
           toast.error(errData.error || 'Gagal menyesuaikan stok')
@@ -2255,22 +2267,21 @@ export default function ProductsPage() {
                   // Same-day highlight: priority 1 = created today, 2 = changed today.
                   const sameDayBadge = getSameDayBadge(product.createdAt ?? product._lastChangedAt, product._lastChangedAt)
 
-                  let rowClass = 'border-white/[0.06] hover:bg-white/[0.03] transition-colors'
-                  if (isPro) {
-                    if (isOutOfStock) {
-                      rowClass = 'border-white/[0.06] bg-red-500/[0.03] hover:bg-red-500/[0.06] transition-colors'
-                    } else if (isLowStock) {
-                      rowClass = 'border-white/[0.06] bg-amber-500/[0.03] hover:bg-amber-500/[0.06] transition-colors'
-                    } else if (sameDayBadge) {
-                      rowClass = cn('border-white/[0.06]', SAME_DAY_ROW_TINT, 'transition-colors')
-                    }
-                  } else if (sameDayBadge) {
-                    rowClass = cn('border-white/[0.06]', SAME_DAY_ROW_TINT, 'transition-colors')
-                  }
+                  // CANONICAL ROW STRUCTURE (spec point 1 + 3):
+                  // - Every row uses the SAME base class — no conditional tints.
+                  // - No left vertical accent bars.
+                  // - No full-row warning backgrounds.
+                  // - Stock state is communicated ONLY via:
+                  //     1. The numeric stock value's color (red/amber/slate)
+                  //     2. A compact StockStatusBadge in the Stok cell
+                  // - Temporary emerald tint (from useRowHighlight) for scan/create/edit/sync.
+                  const rowClass = cn(
+                    'border-white/[0.06] hover:bg-white/[0.03] transition-colors duration-300',
+                    rowHighlight.classNameFor(product.id),
+                  )
 
                   return (
                     <TableRow key={product.id} className={rowClass}>
-                      {sameDayBadge && <div className={SAME_DAY_LEFT_ACCENT} />}
                       {bulkMode && (
                         <TableCell className="w-10 py-3 px-3">
                           <Checkbox
@@ -2291,32 +2302,30 @@ export default function ProductsPage() {
                               <Package className="h-3.5 w-3.5 text-slate-600" />
                             </div>
                           )}
-                          <div className="flex flex-col gap-0.5">
-                            <span className="flex items-center gap-1.5">
-                              {isPro && isOutOfStock && (
-                                <span className="relative flex h-1.5 w-1.5">
-                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
-                                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-red-500" />
-                                </span>
-                              )}
-                              {isPro && isLowStock && !isOutOfStock && (
-                                <span className="relative flex h-1.5 w-1.5">
-                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
-                                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-amber-500" />
-                                </span>
-                              )}
-                              {product.name}
+                          <div className="flex flex-col gap-0.5 min-w-0">
+                            {/* Nama dominan + inline badges (spec point 2 + 5) */}
+                            <span className="flex items-center gap-1.5 flex-wrap">
+                              <span className="truncate max-w-[200px]">{product.name}</span>
                               {sameDayBadge && <SameDayBadge variant={sameDayBadge} />}
                               {product.hasVariants && product._variantCount != null && product._variantCount > 0 && (
-                                <Badge className="bg-violet-500/10 border-violet-500/20 text-violet-400 text-[10px] px-1.5 py-0 ml-1.5 inline-flex items-center gap-0.5">
+                                <Badge className="bg-violet-500/10 border-violet-500/20 text-violet-400 text-[10px] px-1.5 py-0 inline-flex items-center gap-0.5">
                                   <Layers className="h-2.5 w-2.5" />
                                   {product._variantCount} varian
                                 </Badge>
                               )}
                               {product.hasComposition && (
-                                <Badge className="bg-sky-500/10 border-sky-500/20 text-sky-400 text-[10px] px-1.5 py-0 ml-1.5 inline-flex items-center gap-0.5">
+                                <Badge className="bg-sky-500/10 border-sky-500/20 text-sky-400 text-[10px] px-1.5 py-0 inline-flex items-center gap-0.5">
                                   <Beaker className="h-2.5 w-2.5" />
                                   Komposisi
+                                </Badge>
+                              )}
+                              {product.hasComposition && (
+                                <Badge
+                                  title="Stok dihitung otomatis dari inventory"
+                                  className="bg-emerald-500/10 border-emerald-500/20 text-emerald-400 text-[10px] px-1.5 py-0 inline-flex items-center gap-0.5"
+                                >
+                                  <RefreshCw className="h-2.5 w-2.5" />
+                                  Stok Otomatis
                                 </Badge>
                               )}
                             </span>
@@ -2332,7 +2341,7 @@ export default function ProductsPage() {
                             </span>
                           </div>
                         ) : (
-                          <span className="text-[11px] text-slate-600">-</span>
+                          <span className="text-[11px] text-slate-600 italic">Tanpa kategori</span>
                         )}
                       </TableCell>
                       <TableCell className="text-xs text-slate-500 font-mono py-3 px-3">{product.sku || '-'}</TableCell>
@@ -2342,37 +2351,23 @@ export default function ProductsPage() {
                         </Badge>
                       </TableCell>
                       {isOwner && (
-                        <TableCell className="text-xs text-slate-400 text-right py-3 px-3">{formatCurrency(product.hpp)}</TableCell>
+                        <TableCell className="text-xs text-slate-400 text-right py-3 px-3 tabular-nums">{formatCurrency(product.hpp)}</TableCell>
                       )}
-                      <TableCell className="text-xs text-white font-medium text-right py-3 px-3">
+                      <TableCell className="text-xs text-white font-medium text-right py-3 px-3 tabular-nums">
                         {product.hasVariants && product._maxPrice && product._maxPrice !== product.price
                           ? <>{formatCurrency(product.price)}<span className="text-slate-500"> ~ </span>{formatCurrency(product._maxPrice)}</>
                           : formatCurrency(product.price)
                         }
                       </TableCell>
                       <TableCell className="text-xs text-right py-3 px-3">
-                        {isPro ? (
-                          <div className="flex items-center justify-end gap-1.5">
-                            {isOutOfStock ? (
-                              <Badge className="bg-red-500/10 border-red-500/20 text-red-400 text-[10px] px-2 py-0.5">
-                                <PackageX className="mr-0.5 h-2.5 w-2.5" />
-                                HABIS
-                              </Badge>
-                            ) : isLowStock ? (
-                              <Badge className="bg-amber-500/10 border-amber-500/20 text-amber-400 text-[10px] px-2 py-0.5">
-                                {formatNumber(product.stock)}
-                              </Badge>
-                            ) : (
-                              <span className="text-slate-200">{formatNumber(product.stock)}</span>
-                            )}
-                          </div>
-                        ) : product.stock <= product.lowStockAlert ? (
-                          <Badge className="bg-red-500/10 border-red-500/20 text-red-400 text-[10px] px-2 py-0.5">
+                        {/* Stok cell: numeric value (colored by status) + compact StockStatusBadge.
+                            NO "Tersedia"/"Aman" badge (spec point 2). */}
+                        <div className="flex items-center justify-end gap-1.5">
+                          <span className={cn('tabular-nums font-medium', stockValueColorClass(product.stock, product.lowStockAlert))}>
                             {formatNumber(product.stock)}
-                          </Badge>
-                        ) : (
-                          <span className="text-slate-200">{formatNumber(product.stock)}</span>
-                        )}
+                          </span>
+                          <StockStatusBadge stock={product.stock} lowThreshold={product.lowStockAlert} />
+                        </div>
                       </TableCell>
                       <TableCell className="text-[11px] text-slate-400 text-right py-3 px-3 tabular-nums whitespace-nowrap">
                         {formatRelativeDateTime(product._lastChangedAt)}
@@ -2401,11 +2396,19 @@ export default function ProductsPage() {
                                   setVariantRestocks([])
                                   setRestockOpen(true)
                                 },
+                                disabled: product.hasComposition,
+                                title: product.hasComposition
+                                  ? 'Stok dihitung otomatis dari inventory'
+                                  : undefined,
                               },
                               {
                                 label: 'Sync / Adjust Stok',
                                 icon: <FilePenLine className="h-3.5 w-3.5" />,
                                 onClick: () => openAdjustDialog(product),
+                                disabled: product.hasComposition,
+                                title: product.hasComposition
+                                  ? 'Stok dihitung otomatis dari inventory'
+                                  : undefined,
                               },
                               {
                                 label: 'Lihat / Cetak Barcode',
@@ -2514,39 +2517,34 @@ export default function ProductsPage() {
               const isOutOfStock = product.stock === 0
               const isLowStock = product.stock > 0 && product.stock <= product.lowStockAlert
               const isSelected = selectedIds.has(product.id)
+              // Same-day highlight (spec point 4) — was missing on mobile.
+              const sameDayBadge = getSameDayBadge(product.createdAt ?? product._lastChangedAt, product._lastChangedAt)
 
-              // Stock status color config
-              const stockStatusColor = isOutOfStock ? 'red' : isLowStock ? 'amber' : null
-              
-              // Base card styling
-              let cardBorder = 'border-white/[0.06]'
-              let cardBg = 'bg-nebula'
-              
-              if (isPro) {
-                if (isOutOfStock) {
-                  cardBorder = 'border-red-500/25'
-                  cardBg = 'bg-red-500/[0.03]'
-                } else if (isLowStock) {
-                  cardBorder = 'border-amber-500/25'
-                  cardBg = 'bg-amber-500/[0.03]'
-                }
-              }
-              
-              // Selected state override
-              if (isSelected) {
-                cardBorder = 'border-emerald-500/40 ring-1 ring-emerald-500/15'
-                cardBg = 'bg-emerald-500/[0.02]'
-              }
+              // CANONICAL CARD STRUCTURE (spec point 1 + 3):
+              // - Same border + bg for all cards — no stock-state tints.
+              // - No left accent bars.
+              // - Selected state keeps its emerald ring (selection is a user action, not a status).
+              // - Temporary emerald tint for scan/create/edit/sync.
+              const cardBorder = isSelected
+                ? 'border-emerald-500/40 ring-1 ring-emerald-500/15'
+                : 'border-white/[0.06]'
+              const cardBg = isSelected
+                ? 'bg-emerald-500/[0.02]'
+                : rowHighlight.highlightedId === product.id
+                  ? 'bg-emerald-500/[0.06]'
+                  : 'bg-nebula'
 
               return (
                 <div
                   key={product.id}
-                  className={`relative rounded-xl ${cardBg} border ${cardBorder} p-4 transition-all duration-200 active:bg-white/${isSelected ? '[0.05]' : '[0.04]'} ${isSelected ? 'shadow-sm shadow-emerald-500/5' : ''}`}
-                >
-                  {/* Left accent bar for selection or stock status */}
-                  {(stockStatusColor || isSelected) && (
-                    <div className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-xl bg-gradient-to-b ${isSelected ? 'from-emerald-500 to-emerald-500/40' : stockStatusColor === 'red' ? 'from-red-500 to-red-500/40' : 'from-amber-500 to-amber-500/40'}`} />
+                  className={cn(
+                    'relative rounded-xl border p-4 transition-colors duration-300',
+                    cardBg,
+                    cardBorder,
+                    isSelected ? 'shadow-sm shadow-emerald-500/5' : '',
+                    'active:bg-white/[0.04]',
                   )}
+                >
                   {/* Main: Image + Info row */}
                   <div className="flex items-start gap-3 mb-3">
                     {/* Left side: Checkbox or Thumbnail */}
@@ -2589,8 +2587,9 @@ export default function ProductsPage() {
                           <span className="text-[15px] font-semibold text-white truncate leading-snug block">
                             {product.name}
                           </span>
-                          {/* Variant & Composition Badges */}
+                          {/* Inline badges (spec point 2) — Baru/Update + Komposisi + varian count. NO stock badge here. */}
                           <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                            {sameDayBadge && <SameDayBadge variant={sameDayBadge} />}
                             {product.hasVariants && product._variantCount != null && product._variantCount > 0 && (
                               <Badge className="bg-violet-500/10 border-violet-500/20 text-violet-400 text-[10px] px-2 py-0.5 rounded-full inline-flex items-center gap-1">
                                 <Layers className="h-2.5 w-2.5" />
@@ -2603,28 +2602,19 @@ export default function ProductsPage() {
                                 Komposisi
                               </Badge>
                             )}
-                          </div>
-                        </div>
-                        {/* Stock Status Badge - Prominent */}
-                        {isPro && (
-                          <div className="flex-shrink-0 ml-2">
-                            {isOutOfStock ? (
-                              <Badge className="bg-red-500/15 border border-red-500/30 text-red-400 text-[11px] px-2.5 py-1 rounded-lg font-semibold gap-1">
-                                <PackageX className="h-3.5 w-3.5" />
-                                HABIS
-                              </Badge>
-                            ) : isLowStock ? (
-                              <Badge className="bg-amber-500/15 border border-amber-500/30 text-amber-400 text-[11px] px-2.5 py-1 rounded-lg font-semibold gap-1">
-                                <AlertTriangle className="h-3.5 w-3.5" />
-                                Stok Rendah
-                              </Badge>
-                            ) : (
-                              <Badge className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[11px] px-2.5 py-1 rounded-lg font-medium">
-                                Tersedia
+                            {product.hasComposition && (
+                              <Badge
+                                title="Stok dihitung otomatis dari inventory"
+                                className="bg-emerald-500/10 border-emerald-500/20 text-emerald-400 text-[10px] px-2 py-0.5 rounded-full inline-flex items-center gap-1"
+                              >
+                                <RefreshCw className="h-2.5 w-2.5" />
+                                Stok Otomatis
                               </Badge>
                             )}
                           </div>
-                        )}
+                        </div>
+                        {/* Compact StockStatusBadge (spec point 2) — NO "Tersedia"/"Aman" */}
+                        <StockStatusBadge stock={product.stock} lowThreshold={product.lowStockAlert} className="ml-2 !text-[10px] !px-2 !py-0.5" />
                       </div>
                       {/* Category + SKU + Unit Row */}
                       <div className="flex items-center gap-2 mt-1">
@@ -2635,7 +2625,9 @@ export default function ProductsPage() {
                               {product.category.name}
                             </span>
                           </div>
-                        ) : null}
+                        ) : (
+                          <span className="text-[11px] text-slate-600 italic">Tanpa kategori</span>
+                        )}
                         {product.sku && (
                           <span className="text-[11px] text-slate-500 font-mono bg-white/[0.02] rounded-lg px-2 py-1">{product.sku}</span>
                         )}
@@ -2663,19 +2655,11 @@ export default function ProductsPage() {
                           }
                         </span>
                       </div>
-                      {/* Stock Display - More Prominent */}
+                      {/* Stock Display — colored number per status (spec point 3). No background tint. */}
                       <div className="flex items-center gap-2">
                         <div className={cn(
-                          "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-semibold text-sm tabular-nums",
-                          isPro
-                            ? isOutOfStock
-                              ? "bg-red-500/10 text-red-400"
-                              : isLowStock
-                                ? "bg-amber-500/10 text-amber-400"
-                                : "bg-white/[0.04] text-slate-300"
-                            : product.stock <= product.lowStockAlert
-                              ? "bg-red-500/10 text-red-400"
-                              : "bg-white/[0.04] text-slate-300"
+                          "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-semibold text-sm tabular-nums bg-white/[0.04]",
+                          stockValueColorClass(product.stock, product.lowStockAlert),
                         )}>
                           <Package className="h-3.5 w-3.5" />
                           {formatNumber(product.stock)}
@@ -2707,11 +2691,19 @@ export default function ProductsPage() {
                             setVariantRestocks([])
                             setRestockOpen(true)
                           },
+                          disabled: product.hasComposition,
+                          title: product.hasComposition
+                            ? 'Stok dihitung otomatis dari inventory'
+                            : undefined,
                         },
                         {
                           label: 'Sync / Adjust Stok',
                           icon: <FilePenLine className="h-3.5 w-3.5" />,
                           onClick: () => openAdjustDialog(product),
+                          disabled: product.hasComposition,
+                          title: product.hasComposition
+                            ? 'Stok dihitung otomatis dari inventory'
+                            : undefined,
                         },
                         {
                           label: 'Lihat / Cetak Barcode',
@@ -2819,6 +2811,11 @@ export default function ProductsPage() {
           if (detailOpen && detailProduct) {
             fetchDetail(detailProduct, detailPage)
           }
+          // spec point 6: selesai create / selesai edit
+          // (For edit, we know the id. For create, the new product appears at
+          // the top of the list with a "Baru" badge that already serves as a
+          // visual cue, so we don't need to highlight a specific row.)
+          if (editProduct?.id) rowHighlight.highlight(editProduct.id)
         }}
       />
 
@@ -4040,40 +4037,54 @@ export default function ProductsPage() {
                                 : 'text-slate-200'
                             }>
                               {formatNumber(detailData.product.stock)}
+                              {detailData.product.hasComposition && (
+                                <span className="ml-1.5 inline-flex items-center gap-0.5 text-[9px] text-emerald-400 align-middle">
+                                  <RefreshCw className="h-2 w-2" /> auto
+                                </span>
+                              )}
                             </p>
                           </div>
-                          <div className="col-span-2 flex gap-1.5 mt-0.5">
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-6 text-[10px] px-2 theme-bg-very-light theme-text border theme-border-light hover:theme-bg-subtle"
-                              onClick={() => {
-                                setRestockProduct(detailData.product as unknown as Product)
-                                setRestockQty('')
-                                setVariantRestocks([])
-                                setRestockOpen(true)
-                              }}
-                            >
-                              <RefreshCw className="h-2.5 w-2.5 mr-0.5" /> Restock
-                            </Button>
-                            {(
+                          {detailData.product.hasComposition ? (
+                            <div className="col-span-2 mt-0.5 flex items-center gap-1.5 rounded-md border border-emerald-500/20 bg-emerald-500/10 px-2 py-1.5">
+                              <RefreshCw className="h-3 w-3 text-emerald-400 flex-shrink-0" />
+                              <span className="text-[10px] text-emerald-300 leading-tight">
+                                Stok dihitung otomatis dari inventory. Restock & Penyesuaian dinonaktifkan — ubah stok inventory item terkait.
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="col-span-2 flex gap-1.5 mt-0.5">
                               <Button
                                 size="sm"
                                 variant="ghost"
-                                className="h-6 text-[10px] px-2 bg-orange-500/10 text-orange-400 border border-orange-500/20 hover:bg-orange-500/20"
+                                className="h-6 text-[10px] px-2 theme-bg-very-light theme-text border theme-border-light hover:theme-bg-subtle"
                                 onClick={() => {
-                                  // Use detailData.product as the base since it has fresh variants data
-                                  const productForAdjust = detailProduct ? {
-                                    ...detailProduct,
-                                    variants: detailData?.product.variants || detailProduct.variants
-                                  } : detailData.product as unknown as Product
-                                  openAdjustDialog(productForAdjust, detailData?.product.variants)
+                                  setRestockProduct(detailData.product as unknown as Product)
+                                  setRestockQty('')
+                                  setVariantRestocks([])
+                                  setRestockOpen(true)
                                 }}
                               >
-                                <FilePenLine className="h-2.5 w-2.5 mr-0.5" /> Penyesuaian
+                                <RefreshCw className="h-2.5 w-2.5 mr-0.5" /> Restock
                               </Button>
-                            )}
-                          </div>
+                              {(
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 text-[10px] px-2 bg-orange-500/10 text-orange-400 border border-orange-500/20 hover:bg-orange-500/20"
+                                  onClick={() => {
+                                    // Use detailData.product as the base since it has fresh variants data
+                                    const productForAdjust = detailProduct ? {
+                                      ...detailProduct,
+                                      variants: detailData?.product.variants || detailProduct.variants
+                                    } : detailData.product as unknown as Product
+                                    openAdjustDialog(productForAdjust, detailData?.product.variants)
+                                  }}
+                                >
+                                  <FilePenLine className="h-2.5 w-2.5 mr-0.5" /> Penyesuaian
+                                </Button>
+                              )}
+                            </div>
+                          )}
                           {isOwner && (
                             <div>
                               <span className="text-slate-500 text-[11px]">HPP</span>

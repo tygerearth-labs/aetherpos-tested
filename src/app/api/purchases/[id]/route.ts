@@ -7,6 +7,7 @@ import {
   emitAuditEvent,
   buildPurchaseChangeEvent,
 } from '@/lib/audit-v2'
+import { recalculateAffectedProductStock } from '@/lib/comp-stock'
 
 // Helper: recalculate HPP for all products affected by the given inventory item IDs
 async function recalculateHppForAffectedProducts(
@@ -398,9 +399,13 @@ export async function PUT(
         supplierName: orderSupplier?.supplier?.name || null,
       })
 
-      // ── STEP 6: Recalculate HPP ──
+      // ── STEP 6: Recalculate HPP + Product stock auto-sync ──
       const uniqueAffectedIds = [...new Set(affectedInventoryItemIds)]
       await recalculateHppForAffectedProducts(tx, uniqueAffectedIds)
+      // InventoryItem is source of truth — recompute sellable capacity of every
+      // linked Product/Variant inside the same transaction. PUT already reversed
+      // old quantities and re-applied new ones, so InventoryItem.stock is fresh.
+      await recalculateAffectedProductStock(tx, outletId, uniqueAffectedIds)
 
       // V2: emit ONE PURCHASE_CHANGE (updated) audit event inside the tx so
       // it commits atomically with the inventory reversal + re-apply. This
@@ -609,8 +614,11 @@ export async function DELETE(
         where: { id },
       })
 
-      // Recalculate HPP for affected products
+      // Recalculate HPP + Product stock auto-sync for affected products.
+      // DELETE already reversed the inventory increments (decrements now),
+      // so InventoryItem.stock reflects the post-delete reality.
       await recalculateHppForAffectedProducts(tx, affectedInventoryItemIds)
+      await recalculateAffectedProductStock(tx, outletId, affectedInventoryItemIds)
 
       // V2: emit ONE PURCHASE_CHANGE (deleted) audit event inside the tx so
       // it commits atomically with the inventory reversal + PO hard-delete.
