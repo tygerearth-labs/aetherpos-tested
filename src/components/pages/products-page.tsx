@@ -60,6 +60,7 @@ import {
 import { Pagination } from '@/components/shared/pagination'
 import { SortableTableHead, nextSortState } from '@/components/shared/sortable-header'
 import { SameDayBadge, SAME_DAY_ROW_TINT, SAME_DAY_LEFT_ACCENT } from '@/components/shared/same-day-badge'
+import { RowActionsMenu } from '@/components/shared/row-actions-menu'
 import { BarcodeScannerDialog, type LookupResult } from '@/components/shared/barcode-scanner-dialog'
 import { formatRelativeDateTime, getSameDayBadge } from '@/lib/relative-date'
 import {
@@ -2243,7 +2244,7 @@ export default function ProductsPage() {
                   >
                     Terakhir Diubah
                   </SortableTableHead>
-                  <TableHead className="text-slate-500 text-[11px] font-semibold uppercase tracking-wider text-right w-[180px]">Aksi</TableHead>
+                  <TableHead className="text-slate-500 text-[11px] font-semibold uppercase tracking-wider text-right w-[96px]">Aksi</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -2377,52 +2378,49 @@ export default function ProductsPage() {
                         {formatRelativeDateTime(product._lastChangedAt)}
                       </TableCell>
                       <TableCell className="text-right py-3 px-3">
-                        <div className="flex items-center justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-slate-500 hover:text-sky-400 hover:bg-sky-500/10 rounded-lg"
-                            onClick={() => openDetail(product)}
-                          >
-                            <Eye className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 rounded-lg text-slate-500 hover:theme-text hover:theme-bg-very-light"
-                            onClick={() => {
-                              setRestockProduct(product)
-                              setRestockQty('')
-                              setVariantRestocks([])
-                              setRestockOpen(true)
+                        <div className="flex items-center justify-end opacity-60 group-hover:opacity-100 transition-opacity">
+                          <RowActionsMenu
+                            size="sm"
+                            primaryAction={{
+                              label: 'Lihat Detail',
+                              icon: <Eye className="h-3.5 w-3.5" />,
+                              onClick: () => openDetail(product),
                             }}
-                          >
-                            <RefreshCw className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-slate-500 hover:text-orange-400 hover:bg-orange-500/10 rounded-lg"
-                            onClick={() => openAdjustDialog(product)}
-                          >
-                            <FilePenLine className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-slate-500 hover:text-white hover:bg-white/[0.04] rounded-lg"
-                            onClick={() => handleEdit(product)}
-                          >
-                            <Edit className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg"
-                            onClick={() => setDeleteId(product.id)}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
+                            items={[
+                              {
+                                label: 'Edit',
+                                icon: <Edit className="h-3.5 w-3.5" />,
+                                onClick: () => handleEdit(product),
+                              },
+                              {
+                                label: 'Restock',
+                                icon: <RefreshCw className="h-3.5 w-3.5" />,
+                                onClick: () => {
+                                  setRestockProduct(product)
+                                  setRestockQty('')
+                                  setVariantRestocks([])
+                                  setRestockOpen(true)
+                                },
+                              },
+                              {
+                                label: 'Sync / Adjust Stok',
+                                icon: <FilePenLine className="h-3.5 w-3.5" />,
+                                onClick: () => openAdjustDialog(product),
+                              },
+                              {
+                                label: 'Lihat / Cetak Barcode',
+                                icon: <ScanBarcode className="h-3.5 w-3.5" />,
+                                onClick: () => setBatchBarcodeOpen(true),
+                              },
+                            ]}
+                            dangerItems={[
+                              {
+                                label: 'Hapus',
+                                icon: <Trash2 className="h-3.5 w-3.5" />,
+                                onClick: () => setDeleteId(product.id),
+                              },
+                            ]}
+                          />
                         </div>
                       </TableCell>
                     </TableRow>
@@ -2686,58 +2684,49 @@ export default function ProductsPage() {
                       </div>
                     </div>
                     
-                    {/* Action Buttons - Larger touch targets */}
-                    <div className="flex items-center gap-1 bg-white/[0.03] rounded-xl p-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-9 w-9 text-slate-500 hover:text-sky-400 hover:bg-sky-500/10 rounded-lg transition-colors"
-                        onClick={() => openDetail(product)}
-                        title="Detail"
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-9 w-9 text-slate-500 hover:theme-text hover:theme-bg-very-light rounded-lg transition-colors"
-                        onClick={() => {
-                          setRestockProduct(product)
-                          setRestockQty('')
-                          setVariantRestocks([])
+                    {/* Action Menu - Slim pattern: primary View + kebab dropdown */}
+                    <RowActionsMenu
+                      size="md"
+                      primaryAction={{
+                        label: 'Lihat Detail',
+                        icon: <Eye className="h-4 w-4" />,
+                        onClick: () => openDetail(product),
+                      }}
+                      items={[
+                        {
+                          label: 'Edit',
+                          icon: <Edit className="h-3.5 w-3.5" />,
+                          onClick: () => handleEdit(product),
+                        },
+                        {
+                          label: 'Restock',
+                          icon: <RefreshCw className="h-3.5 w-3.5" />,
+                          onClick: () => {
+                            setRestockProduct(product)
+                            setRestockQty('')
+                            setVariantRestocks([])
                             setRestockOpen(true)
-                          }}
-                      >
-                        <RefreshCw className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-9 w-9 text-slate-500 hover:text-orange-400 hover:bg-orange-500/10 rounded-lg transition-colors"
-                        onClick={() => openAdjustDialog(product)}
-                        title="Penyesuaian Stok"
-                      >
-                        <FilePenLine className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-9 w-9 text-slate-500 hover:text-white hover:bg-white/[0.06] rounded-lg transition-colors"
-                        onClick={() => handleEdit(product)}
-                        title="Edit"
-                      >
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-9 w-9 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
-                        onClick={() => setDeleteId(product.id)}
-                        title="Hapus"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
+                          },
+                        },
+                        {
+                          label: 'Sync / Adjust Stok',
+                          icon: <FilePenLine className="h-3.5 w-3.5" />,
+                          onClick: () => openAdjustDialog(product),
+                        },
+                        {
+                          label: 'Lihat / Cetak Barcode',
+                          icon: <ScanBarcode className="h-3.5 w-3.5" />,
+                          onClick: () => setBatchBarcodeOpen(true),
+                        },
+                      ]}
+                      dangerItems={[
+                        {
+                          label: 'Hapus',
+                          icon: <Trash2 className="h-3.5 w-3.5" />,
+                          onClick: () => setDeleteId(product.id),
+                        },
+                      ]}
+                    />
                   </div>
                 </div>
               )
