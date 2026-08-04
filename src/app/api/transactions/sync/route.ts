@@ -490,7 +490,7 @@ export async function POST(request: NextRequest) {
                   "updatedAt" = ${new Date()}
               WHERE id = ${payload.customerId}
                 AND points >= ${pointsToUse}
-                AND outletId = ${outletId}
+                AND "outletId" = ${outletId}
                 AND "deletedAt" IS NULL
             `
             if (loyaltyAffected === 0) {
