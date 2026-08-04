@@ -8,6 +8,7 @@ import {
   buildPurchaseChangeEvent,
 } from '@/lib/audit-v2'
 import { recalculateAffectedProductStock } from '@/lib/comp-stock'
+import { evaluatePurchaseMutationSafety } from '@/lib/purchase-mutation-safety'
 
 // Helper: recalculate HPP for all products affected by the given inventory item IDs
 async function recalculateHppForAffectedProducts(
@@ -208,6 +209,22 @@ export async function PUT(
 
     if (!order) {
       return safeJsonError('Purchase order not found', 404)
+    }
+
+    // ── Canonical mutation-safety guard ──
+    // Runs BEFORE opening the $transaction so we don't hold the tx open
+    // during the ~8 safety queries. The existing in-tx stock + FEFO throws
+    // (STEP 1 + STEP 5.5 below) remain as defense-in-depth against races
+    // between this read and the actual mutation.
+    const safety = await evaluatePurchaseMutationSafety(id)
+    if (!safety) {
+      return safeJsonError('Purchase order not found', 404)
+    }
+    if (!safety.canEdit) {
+      return safeJsonError(
+        `Tidak dapat diedit: ${safety.reasons.join('; ')}`,
+        409,
+      )
     }
 
     // Validate all inventory items
@@ -535,6 +552,21 @@ export async function DELETE(
 
     if (!poWithSupplier) {
       return safeJsonError('Purchase order not found', 404)
+    }
+
+    // ── Canonical mutation-safety guard ──
+    // Runs BEFORE opening the $transaction (cheaper, no tx held open during
+    // the ~8 safety queries). The existing in-tx stock + FEFO throws below
+    // remain as defense-in-depth against races.
+    const safety = await evaluatePurchaseMutationSafety(id)
+    if (!safety) {
+      return safeJsonError('Purchase order not found', 404)
+    }
+    if (!safety.canDelete) {
+      return safeJsonError(
+        `Tidak dapat dihapus: ${safety.reasons.join('; ')}`,
+        409,
+      )
     }
 
     // Fetch items separately to handle orphaned inventory items gracefully

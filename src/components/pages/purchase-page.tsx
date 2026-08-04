@@ -183,6 +183,26 @@ interface PurchaseOrderItem {
   expiredDate: string
 }
 
+// Canonical mutation safety result (mirrors backend PurchaseMutationSafety).
+// Fetched per-PO from /api/purchases/[id]/safety and cached in poSafetyCache.
+interface PurchaseMutationSafety {
+  canEdit: boolean
+  canDelete: boolean
+  canReverse: boolean
+  reasons: string[]
+  blockers: {
+    compositionLinks: number
+    transactionConsumption: number
+    batchConsumption: number
+    batchPartiallyConsumed: number
+    subsequentMovements: number
+    transferLinks: number
+    wasteOrExpiry: number
+    stockOpname: number
+    insufficientStock: number
+  }
+}
+
 interface PurchaseOrder {
   id: string
   orderNumber: string
@@ -694,6 +714,23 @@ export default function PurchasePage() {
   // Track real business history for consistent edit/disable logic with table
   const [poDetailHasRealBusinessHistory, setPoDetailHasRealBusinessHistory] = useState(false)
 
+  // Canonical purchase mutation safety cache (per-PO, fetched from backend).
+  // Overrides the list-hint flags (hasRealBusinessHistory etc.) with the
+  // authoritative evaluator result from /api/purchases/[id]/safety.
+  const [poSafetyCache, setPoSafetyCache] = useState<Record<string, PurchaseMutationSafety>>({})
+  const fetchPurchaseSafety = useCallback(async (purchaseId: string) => {
+    if (poSafetyCache[purchaseId]) return poSafetyCache[purchaseId]
+    try {
+      const res = await fetch(`/api/purchases/${purchaseId}/safety`)
+      if (res.ok) {
+        const data = await res.json() as PurchaseMutationSafety
+        setPoSafetyCache(prev => ({ ...prev, [purchaseId]: data }))
+        return data
+      }
+    } catch { /* ignore — fall back to list flags */ }
+    return null
+  }, [poSafetyCache])
+
   // Purchase create dialog
   const [poCreateOpen, setPoCreateOpen] = useState(false)
   const [poCreateLoading, setPoCreateLoading] = useState(false)
@@ -717,6 +754,10 @@ export default function PurchasePage() {
   // Track which "Batch & Kedaluwarsa" accordions are expanded (per-item index)
   const [poCreateAdvancedOpen, setPoCreateAdvancedOpen] = useState<Set<number>>(new Set())
   const [poEditAdvancedOpen, setPoEditAdvancedOpen] = useState<Set<number>>(new Set())
+  // Collapsible detail for the Create-PO sticky summary (Dampak + HPP lists).
+  // Default collapsed — keeps the summary compact so the item editor gets the
+  // most modal space. User clicks "Lihat Detail" to expand.
+  const [poSummaryDetailOpen, setPoSummaryDetailOpen] = useState(false)
 
   // Quick add new item from purchase dialog
   const [showQuickAddItem, setShowQuickAddItem] = useState(false)
@@ -976,6 +1017,39 @@ export default function PurchasePage() {
     if (tab === 'purchase') void fetchPurchaseOrders()
   }, [tab, fetchPurchaseOrders])
 
+  // Bulk-fetch canonical safety for loaded POs (parallel, fire-and-forget).
+  // The list-hint flags (hasRealBusinessHistory etc.) give instant disabled
+  // state; the canonical evaluator overrides them once loaded. Only fetches
+  // POs not already in the cache.
+  useEffect(() => {
+    if (poList.length === 0) return
+    void Promise.all(
+      poList
+        .filter(po => !poSafetyCache[po.id])
+        .map(po => fetchPurchaseSafety(po.id)),
+    )
+  }, [poList, poSafetyCache, fetchPurchaseSafety])
+
+  // Resolve the effective safety for a PO. Falls back to list-hint flags
+  // (instant) when the canonical fetch hasn't landed yet.
+  const resolvePoSafety = useCallback((po: PurchaseOrder): {
+    canEdit: boolean
+    canDelete: boolean
+    reasons: string[]
+    loaded: boolean
+  } => {
+    const cached = poSafetyCache[po.id]
+    if (cached) {
+      return { canEdit: cached.canEdit, canDelete: cached.canDelete, reasons: cached.reasons, loaded: true }
+    }
+    // Fallback: approximate from list flags. hasRealBusinessHistory blocks
+    // both edit + delete; hasUsageHistory blocks delete only. hasProductLinks
+    // is a soft warning (amber) but does NOT block (matches old behavior).
+    const canEdit = !po.hasRealBusinessHistory
+    const canDelete = !po.hasRealBusinessHistory && !po.hasUsageHistory
+    return { canEdit, canDelete, reasons: [], loaded: false }
+  }, [poSafetyCache])
+
   // Debounce search
   useEffect(() => {
     const t = setTimeout(() => setPoDebouncedSearch(poSearch), 300)
@@ -1171,6 +1245,8 @@ export default function PurchasePage() {
     setPoDetailHasUsageHistory(!!po.hasUsageHistory)
     // Sync with table logic - use same hasRealBusinessHistory flag
     setPoDetailHasRealBusinessHistory(!!po.hasRealBusinessHistory)
+    // Fetch canonical safety (overrides list-hint flags above once loaded).
+    void fetchPurchaseSafety(po.id)
     try {
       const res = await fetch(`/api/purchases/${po.id}`)
       if (res.ok) {
@@ -1311,6 +1387,8 @@ export default function PurchasePage() {
       if (res.ok) {
         toast.success('Pembelian berhasil diperbarui')
         setPoEditOpen(false)
+        // Invalidate safety cache for edited PO (stock/batches changed).
+        setPoSafetyCache(prev => { const next = { ...prev }; delete next[poEditId]; return next })
         void fetchPurchaseOrders()
         void fetchInventoryItems()
         void fetchPurchaseSummary()
@@ -1469,6 +1547,7 @@ export default function PurchasePage() {
     setShowImportPreview(false)
     setImportPreviewData(null)
     setPoCreateAdvancedOpen(new Set())
+    setPoSummaryDetailOpen(false)
   }
 
   // Fetch suppliers for purchase dialog dropdown
@@ -1570,6 +1649,30 @@ export default function PurchasePage() {
   }
 
   // Apply import preview items to purchase form
+  // Apply import preview items to the canonical purchase form.
+  // FIX (split-state bug): the old mapping left `unit`/`baseUnit` empty when
+  // the Excel file omitted them, which caused `validatePoItem` to flag every
+  // row as invalid → Save button stayed disabled even though the preview
+  // summary showed valid data. The form (poCreateItems) and the preview
+  // (importPreviewData) had different shapes + different validation rules.
+  //
+  // This mapping now:
+  //   1. Fills `baseUnit` with a non-empty default (matched item's unit, or 'pcs').
+  //   2. Fills `unit` (purchase unit) with `baseUnit` when missing → 1:1, no
+  //      conversion needed, so `needsConversion` returns false and conversion
+  //      errors never fire.
+  //   3. Sets `conversionUnit` = `baseUnit` (always unit-compatible with itself).
+  //   4. Sets `baseQty` = '1' when no conversion needed (1 purchase unit = 1 base unit).
+  //   5. Sets `inputMethod='manual'` so the Create-PO dialog shows the FORM,
+  //      not the upload zone (the old code left inputMethod in its prior state).
+  //   6. Carries over `importSupplierId` → `poCreateSupplierId`.
+  //   7. Pre-counts rows needing attention (price=0) and toasts a warning.
+  //
+  // After this, `poCreateValidation` (useMemo) recomputes on the next render
+  // and `poCreateCanSubmit` becomes true if all rows have qty>0, unit, baseUnit,
+  // and price>0. The Save button enables. The user can still edit qty/price/
+  // batch/expiry before submit. Submit uses the normal `handlePoCreateSubmit`
+  // path (same as manual entry) — no split state.
   const handleApplyImport = () => {
     if (!importPreviewData) return
     const newItems: PurchaseOrderItem[] = []
@@ -1577,15 +1680,26 @@ export default function PurchasePage() {
     importPreviewData.forEach((item, idx) => {
       if (item.error) return
       const itemId = item.matchedItemId || `__pending_${item.name}_${item.sku || ''}_${idx}_${Date.now()}`
+      // Resolve base unit: prefer explicit, then matched inventory item's unit, then 'pcs'.
+      const resolvedBaseUnit = item.baseUnit || item.matchedItemUnit || 'pcs'
+      // Resolve purchase unit: prefer explicit, then fall back to base unit (1:1).
+      const resolvedUnit = item.purchaseUnit || resolvedBaseUnit
+      // Conversion needed only when purchase unit !== base unit.
+      const needsConv = resolvedUnit !== resolvedBaseUnit
+      // baseQty: if conversion needed, use the import's baseQty (already in base units).
+      // If no conversion, default to '1' (1 purchase unit = 1 base unit).
+      const resolvedBaseQty = needsConv ? String(item.baseQty || 1) : '1'
+      // conversionUnit: the unit that baseQty is expressed in (= base unit).
+      const resolvedConversionUnit = resolvedBaseUnit
       newItems.push({
         inventoryItemId: itemId,
         inventoryItemName: item.name,
-        inventoryItemSku: item.matchedItemSku || item.sku,
-        baseUnit: item.baseUnit || item.matchedItemUnit || '',
+        inventoryItemSku: item.matchedItemSku || item.sku || null,
+        baseUnit: resolvedBaseUnit,
         qty: String(item.qty || 1),
-        unit: item.purchaseUnit || '',
-        baseQty: String(item.baseQty || 1),
-        conversionUnit: item.baseUnit || item.matchedItemUnit || '',
+        unit: resolvedUnit,
+        baseQty: resolvedBaseQty,
+        conversionUnit: resolvedConversionUnit,
         pricePerItem: String(item.pricePerUnit || 0),
         batch: item.batch || '',
         expiredDate: item.expiredDate || '',
@@ -1596,7 +1710,7 @@ export default function PurchasePage() {
           id: itemId,
           name: item.name,
           sku: item.sku || null,
-          baseUnit: item.baseUnit || item.matchedItemUnit || 'pcs',
+          baseUnit: resolvedBaseUnit,
           stock: 0,
           active: true,
           _isNew: true,
@@ -1608,11 +1722,24 @@ export default function PurchasePage() {
         setPoItemOptions(prev => [...newOptions, ...prev])
       }
       setPoCreateItems(newItems)
+      // CRITICAL: switch to manual mode so the form (not upload zone) renders.
+      setInputMethod('manual')
+      // Carry over supplier from import preview → form.
+      if (importSupplierId) setPoCreateSupplierId(importSupplierId)
       setShowImportPreview(false)
       setImportPreviewData(null)
       setPoCreateOpen(true)
       void fetchSuppliers()
-      toast.success(`${newItems.length} item berhasil ditambahkan ke pembelian`)
+      // Pre-validate: count rows that still need user attention (price = 0).
+      // These rows will block Save until the user fills in a price.
+      const needsAttention = newItems.filter(i => parseFloat(i.pricePerItem) <= 0).length
+      if (needsAttention > 0) {
+        toast.warning(`${newItems.length} item diterapkan ke form. ${needsAttention} item perlu diisi harga sebelum simpan.`)
+      } else {
+        toast.success(`${newItems.length} item berhasil ditambahkan ke pembelian — siap disimpan`)
+      }
+    } else {
+      toast.error('Tidak ada item valid untuk diterapkan')
     }
   }
 
@@ -2318,17 +2445,19 @@ export default function PurchasePage() {
     try {
       const res = await fetch(`/api/purchases/${deletePoId}`, { method: 'DELETE' })
       if (res.ok) {
-        toast.success('Pembelian berhasil dihapus')
+        toast.success('Pembelian berhasil dibatalkan')
         setDeletePoId(null)
         setPoDetailOpen(false)
+        // Invalidate safety cache for deleted PO + related items (stock changed).
+        setPoSafetyCache(prev => { const next = { ...prev }; delete next[deletePoId]; return next })
         void fetchPurchaseOrders()
         void fetchInventoryItems()
       } else {
         const data = await res.json().catch(() => ({}))
-        toast.error(data.error || 'Gagal menghapus pembelian')
+        toast.error(data.error || 'Gagal membatalkan pembelian')
       }
     } catch {
-      toast.error('Gagal menghapus pembelian')
+      toast.error('Gagal membatalkan pembelian')
     } finally {
       setDeletingPo(false)
     }
@@ -4022,7 +4151,9 @@ export default function PurchasePage() {
                         </TableCell>
                       </TableRow>
                     ) : (
-                      poList.map((po) => (
+                      poList.map((po) => {
+                        const poSafety = resolvePoSafety(po)
+                        return (
                         <TableRow key={po.id} className="border-white/[0.04] hover:bg-white/[0.02] transition-colors">
                           <TableCell className="text-xs text-slate-200 font-medium font-mono">{po.orderNumber}</TableCell>
                           <TableCell className="text-xs text-slate-400">{po.supplierName || '-'}</TableCell>
@@ -4067,64 +4198,80 @@ export default function PurchasePage() {
                                 size="sm"
                                 className={cn(
                                   "h-7 px-2 transition-colors",
-                                  po.hasRealBusinessHistory
+                                  !poSafety.canEdit
                                     ? "text-slate-600 cursor-not-allowed"
                                     : "text-slate-400 hover:text-white hover:bg-white/[0.04]"
                                 )}
                                 onClick={() => {
-                                  if (po.hasRealBusinessHistory) {
-                                    toast.error('Pembelian memiliki riwayat bisnis (transfer/penjualan) — tidak bisa diedit')
+                                  if (!poSafety.canEdit) {
+                                    toast.error('Pembelian tidak bisa diedit — lihat alasan di ikon info')
                                     return
                                   }
                                   openPoEdit(po)
                                 }}
-                                disabled={po.hasRealBusinessHistory}
-                                title={
-                                  po.hasRealBusinessHistory
-                                    ? 'Ada riwayat transfer/penjualan'
-                                    : 'Edit pembelian'
-                                }
+                                disabled={!poSafety.canEdit}
+                                title={poSafety.canEdit ? 'Edit pembelian' : 'Tidak dapat diedit'}
                               >
                                 <Pencil className="h-3.5 w-3.5" />
                               </Button>
+                              {!poSafety.canEdit && poSafety.reasons.length > 0 && (
+                                <StatusIconPopover
+                                  ariaLabel="Alasan pembelian tidak dapat diedit"
+                                  icon={<Info className="h-3.5 w-3.5" />}
+                                  tooltip="Tidak dapat diedit"
+                                  popoverContent={
+                                    <PopoverContentBody title="Tidak Dapat Diedit">
+                                      <ul className="space-y-0.5 list-disc list-inside">
+                                        {poSafety.reasons.map((r, i) => <li key={i}>{r}</li>)}
+                                      </ul>
+                                    </PopoverContentBody>
+                                  }
+                                  tone="amber"
+                                />
+                              )}
                               {isOwner && (
                               <Button
                                 variant="ghost"
                                 size="sm"
                                 className={cn(
                                   "h-7 px-2 hover:text-red-300 hover:bg-red-500/[0.06]",
-                                  (po.hasRealBusinessHistory || po.hasUsageHistory) 
-                                    ? "opacity-50 cursor-not-allowed text-red-400/50" 
-                                    : po.hasProductLinks
-                                      ? "text-amber-400 hover:text-amber-300 hover:bg-amber-500/[0.06]"
-                                      : "text-red-400"
+                                  !poSafety.canDelete
+                                    ? "opacity-50 cursor-not-allowed text-red-400/50"
+                                    : "text-red-400"
                                 )}
                                 onClick={() => {
-                                  if (po.hasRealBusinessHistory || po.hasUsageHistory) {
-                                    toast.error('Pembelian memiliki riwayat bisnis — tidak bisa dihapus')
+                                  if (!poSafety.canDelete) {
+                                    toast.error('Pembelian tidak dapat dibatalkan — lihat alasan di ikon info')
                                     return
-                                  }
-                                  if (po.hasProductLinks) {
-                                    toast.warning('Link ke produk akan dibersihkan otomatis')
                                   }
                                   setDeletePoId(po.id)
                                 }}
-                                disabled={po.hasRealBusinessHistory || po.hasUsageHistory}
-                                title={
-                                  (po.hasRealBusinessHistory || po.hasUsageHistory)
-                                    ? 'Ada riwayat bisnis — tidak bisa dihapus'
-                                    : po.hasProductLinks
-                                      ? 'Hapus (link produk akan dibersihkan)'
-                                      : 'Hapus pembelian'
-                                }
+                                disabled={!poSafety.canDelete}
+                                title={poSafety.canDelete ? 'Batalkan pembelian' : 'Tidak dapat dibatalkan'}
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
                               </Button>
                               )}
+                              {isOwner && !poSafety.canDelete && poSafety.reasons.length > 0 && (
+                                <StatusIconPopover
+                                  ariaLabel="Alasan pembelian tidak dapat dibatalkan"
+                                  icon={<Info className="h-3.5 w-3.5" />}
+                                  tooltip="Tidak dapat dibatalkan"
+                                  popoverContent={
+                                    <PopoverContentBody title="Tidak Dapat Dibatalkan">
+                                      <ul className="space-y-0.5 list-disc list-inside">
+                                        {poSafety.reasons.map((r, i) => <li key={i}>{r}</li>)}
+                                      </ul>
+                                    </PopoverContentBody>
+                                  }
+                                  tone="amber"
+                                />
+                              )}
                             </div>
                           </TableCell>
                         </TableRow>
-                      ))
+                        )
+                      })
                     )}
                   </TableBody>
                 </Table>
@@ -4159,6 +4306,7 @@ export default function PurchasePage() {
                     // Determine card accent based on expiry status
                     const hasExpiredItems = po._batchSummary?.expiredItems > 0
                     const hasExpiringSoon = po._batchSummary?.nearestExp && !hasExpiredItems
+                    const poSafety = resolvePoSafety(po)
                     
                     return (
                     <motion.div
@@ -4228,53 +4376,72 @@ export default function PurchasePage() {
                             <button
                               className={cn(
                                 "w-8 h-8 rounded-lg flex items-center justify-center transition-colors",
-                                po.hasRealBusinessHistory
+                                !poSafety.canEdit
                                   ? "text-slate-700 cursor-not-allowed"
                                   : "text-slate-500 hover:text-white hover:bg-white/[0.06]"
                               )}
                               onClick={() => {
-                                if (po.hasRealBusinessHistory) {
-                                  toast.error('Pembelian memiliki riwayat bisnis — tidak bisa diedit')
+                                if (!poSafety.canEdit) {
+                                  toast.error('Pembelian tidak bisa diedit — lihat alasan di ikon info')
                                   return
                                 }
                                 openPoEdit(po)
                               }}
-                              disabled={po.hasRealBusinessHistory}
-                              title={po.hasRealBusinessHistory ? 'Ada riwayat bisnis' : 'Edit'}
+                              disabled={!poSafety.canEdit}
+                              title={poSafety.canEdit ? 'Edit' : 'Tidak dapat diedit'}
                             >
                               <Pencil className="h-3.5 w-3.5" />
                             </button>
+                            {!poSafety.canEdit && poSafety.reasons.length > 0 && (
+                              <StatusIconPopover
+                                ariaLabel="Alasan pembelian tidak dapat diedit"
+                                icon={<Info className="h-3.5 w-3.5" />}
+                                tooltip="Tidak dapat diedit"
+                                popoverContent={
+                                  <PopoverContentBody title="Tidak Dapat Diedit">
+                                    <ul className="space-y-0.5 list-disc list-inside">
+                                      {poSafety.reasons.map((r, i) => <li key={i}>{r}</li>)}
+                                    </ul>
+                                  </PopoverContentBody>
+                                }
+                                tone="amber"
+                              />
+                            )}
                             {isOwner && (
                               <button
                                 className={cn(
                                   "w-8 h-8 rounded-lg flex items-center justify-center transition-colors",
-                                  (po.hasRealBusinessHistory || po.hasUsageHistory)
+                                  !poSafety.canDelete
                                     ? "text-red-400/20 cursor-not-allowed"
-                                    : po.hasProductLinks
-                                      ? "text-amber-400 hover:text-amber-300 hover:bg-amber-500/[0.08]"
-                                      : "text-slate-500 hover:text-red-400 hover:bg-red-500/[0.06]"
+                                    : "text-slate-500 hover:text-red-400 hover:bg-red-500/[0.06]"
                                 )}
                                 onClick={() => {
-                                  if (po.hasRealBusinessHistory || po.hasUsageHistory) {
-                                    toast.error('Pembelian memiliki riwayat bisnis — tidak bisa dihapus')
+                                  if (!poSafety.canDelete) {
+                                    toast.error('Pembelian tidak dapat dibatalkan — lihat alasan di ikon info')
                                     return
-                                  }
-                                  if (po.hasProductLinks) {
-                                    toast.warning('Link ke produk akan dibersihkan otomatis')
                                   }
                                   setDeletePoId(po.id)
                                 }}
-                                disabled={po.hasRealBusinessHistory || po.hasUsageHistory}
-                                title={
-                                  (po.hasRealBusinessHistory || po.hasUsageHistory)
-                                    ? 'Ada riwayat bisnis'
-                                    : po.hasProductLinks
-                                      ? 'Hapus (link dibersihkan)'
-                                      : 'Hapus'
-                                }
+                                disabled={!poSafety.canDelete}
+                                title={poSafety.canDelete ? 'Batalkan pembelian' : 'Tidak dapat dibatalkan'}
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
                               </button>
+                            )}
+                            {isOwner && !poSafety.canDelete && poSafety.reasons.length > 0 && (
+                              <StatusIconPopover
+                                ariaLabel="Alasan pembelian tidak dapat dibatalkan"
+                                icon={<Info className="h-3.5 w-3.5" />}
+                                tooltip="Tidak dapat dibatalkan"
+                                popoverContent={
+                                  <PopoverContentBody title="Tidak Dapat Dibatalkan">
+                                    <ul className="space-y-0.5 list-disc list-inside">
+                                      {poSafety.reasons.map((r, i) => <li key={i}>{r}</li>)}
+                                    </ul>
+                                  </PopoverContentBody>
+                                }
+                                tone="amber"
+                              />
                             )}
                           </div>
                         </div>
@@ -5358,89 +5525,81 @@ export default function PurchasePage() {
                 </p>
               )}
 
-              {/* Actions — Owner only */}
-              {isOwner && (
+              {/* Actions — Owner only. Uses canonical safety evaluator
+                  (fetched on openPoDetail) instead of list-hint flags. */}
+              {isOwner && poDetailData && (() => {
+                const detailSafety = resolvePoSafety(poDetailData)
+                return (
               <div>
                 <div className="flex gap-2 pt-2 border-t border-white/[0.04]">
-                  {/* EDIT BUTTON - SINKRON DENGAN TABLE LOGIC */}
+                  {/* EDIT BUTTON */}
                   <Button
                     size="sm"
                     variant="ghost"
                     className={cn(
                       "flex-1 h-8 text-xs gap-1.5",
-                      poDetailHasRealBusinessHistory
+                      !detailSafety.canEdit
                         ? "text-slate-600 cursor-not-allowed"
                         : "text-slate-400 hover:text-white hover:bg-white/[0.04]"
                     )}
                     onClick={() => {
-                      if (poDetailHasRealBusinessHistory) {
-                        toast.error('Pembelian memiliki riwayat bisnis (transfer/penjualan) — tidak bisa diedit')
+                      if (!detailSafety.canEdit) {
+                        toast.error('Pembelian tidak dapat diedit — lihat alasan di bawah')
                         return
                       }
                       openPoEdit(poDetailData!)
                     }}
-                    disabled={poDetailHasRealBusinessHistory}
-                    title={poDetailHasRealBusinessHistory ? 'Ada riwayat transfer/penjualan' : 'Edit pembelian'}
+                    disabled={!detailSafety.canEdit}
+                    title={detailSafety.canEdit ? 'Edit pembelian' : 'Tidak dapat diedit'}
                   >
                     <Edit3 className="h-3.5 w-3.5" />
                     Edit
                   </Button>
-                  {/* HAPUS BUTTON - SINKRON DENGAN TABLE LOGIC */}
+                  {/* BATALKAN BUTTON (reverse + hard delete) */}
                   <Button
                     size="sm"
                     variant="ghost"
                     className={cn(
                       "flex-1 h-8 text-xs gap-1.5",
-                      (poDetailHasRealBusinessHistory || poDetailHasUsageHistory)
+                      !detailSafety.canDelete
                         ? "text-red-400/40 cursor-not-allowed"
-                        : poDetailHasLinked
-                          ? "text-amber-400 hover:text-amber-300 hover:bg-amber-500/[0.06]"
-                          : "text-red-400 hover:text-red-300 hover:bg-red-500/[0.06]"
+                        : "text-red-400 hover:text-red-300 hover:bg-red-500/[0.06]"
                     )}
                     onClick={() => {
-                      if (poDetailHasRealBusinessHistory || poDetailHasUsageHistory) {
-                        toast.error('Pembelian memiliki riwayat bisnis — tidak bisa dihapus')
+                      if (!detailSafety.canDelete) {
+                        toast.error('Pembelian tidak dapat dibatalkan — lihat alasan di bawah')
                         return
-                      }
-                      if (poDetailHasLinked) {
-                        toast.warning('Link ke produk akan dibersihkan otomatis')
                       }
                       setDeletePoId(poDetailData!.id)
                     }}
-                    disabled={poDetailHasRealBusinessHistory || poDetailHasUsageHistory}
-                    title={
-                      (poDetailHasRealBusinessHistory || poDetailHasUsageHistory)
-                        ? 'Ada riwayat bisnis — tidak bisa dihapus'
-                        : poDetailHasLinked
-                          ? 'Hapus (link produk akan dibersihkan)'
-                          : 'Hapus pembelian'
-                    }
+                    disabled={!detailSafety.canDelete}
+                    title={detailSafety.canDelete ? 'Batalkan pembelian' : 'Tidak dapat dibatalkan'}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
-                    Hapus
+                    Batalkan
                   </Button>
                 </div>
-                {/* Warning message - sinkron dengan table logic */}
-                {poDetailHasRealBusinessHistory && (
-                  <p className="text-[10px] text-red-400/70 text-center -mt-1 flex items-center justify-center gap-1">
-                    <AlertTriangle className="h-3 w-3 shrink-0" />
-                    <span>Pembelian memiliki riwayat transfer/penjualan — tidak bisa edit/hapus</span>
-                  </p>
-                )}
-                {!poDetailHasRealBusinessHistory && poDetailHasLinked && (
-                  <p className="text-[10px] text-amber-400/70 text-center -mt-1 flex items-center justify-center gap-1">
-                    <AlertTriangle className="h-3 w-3 shrink-0" />
-                    <span>Item terkait produk — hapus pembelian bisa mengubah komposisi</span>
-                  </p>
-                )}
-                {!poDetailHasRealBusinessHistory && !poDetailHasLinked && poDetailHasUsageHistory && (
-                  <p className="text-[10px] text-amber-400/70 text-center -mt-1 flex items-center justify-center gap-1">
-                    <AlertTriangle className="h-3 w-3 shrink-0" />
-                    <span>Item sudah terpakai dalam transaksi — tidak bisa dihapus</span>
-                  </p>
+                {/* Reason list — shown when either action is locked.
+                    Uses canonical evaluator reasons (specific + Indonesian). */}
+                {((!detailSafety.canEdit || !detailSafety.canDelete) && detailSafety.reasons.length > 0) && (
+                  <div className="mt-2 rounded-lg border border-amber-500/20 bg-amber-500/[0.04] p-2.5">
+                    <p className="text-[10px] font-semibold text-amber-400 uppercase tracking-wide mb-1 flex items-center gap-1">
+                      <AlertTriangle className="h-3 w-3 shrink-0" />
+                      Tidak dapat diedit/dibatalkan
+                    </p>
+                    <ul className="space-y-0.5">
+                      {detailSafety.reasons.map((r, i) => (
+                        <li key={i} className="text-[11px] text-amber-300/80 flex items-start gap-1.5">
+                          <span className="text-amber-500/60 mt-0.5">•</span>
+                          <span>{r}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
               </div>
-              )}
+                )
+              })()}
             </div>
           ) : null}
         </ResponsiveDialogContent>
@@ -6271,65 +6430,122 @@ export default function PurchasePage() {
             )}
           </div>
 
-          {/* ── Sticky Summary + Footer ── */}
+          {/* ── Sticky Summary + Footer (compact, collapsible) ──
+              Layout: Total Pembelian row + compact counts row + "Lihat Detail"
+              toggle. Dampak/HPP lists only render when expanded. Keeps the
+              summary under ~30% of modal height so the item editor stays the
+              primary area. Footer (Batal/Simpan) always visible below. */}
           <div className="pt-3 mt-auto border-t border-white/[0.06]">
-            <div className="rounded-xl p-3.5 border border-white/[0.06] bg-white/[0.02] mb-3 space-y-2.5">
-              {/* Total Pembelian */}
+            <div className="rounded-xl p-3 border border-white/[0.06] bg-white/[0.02] mb-2.5 space-y-2">
+              {/* Row 1: Total Pembelian (always shown) */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Banknote className="h-4 w-4 text-emerald-400" />
                   <span className="text-xs text-slate-400">Total Pembelian</span>
                 </div>
-                <span className="text-lg font-bold text-emerald-400">{formatCurrency(poTotalCost)}</span>
+                <span className="text-base font-bold text-emerald-400">{formatCurrency(poTotalCost)}</span>
               </div>
 
-              {/* Dampak ke Inventory */}
-              {poCreateInventoryImpact.length > 0 && (
-                <div className="space-y-1 pt-1 border-t border-white/[0.04]">
-                  <div className="flex items-center gap-1.5 pt-1">
-                    <PackagePlus className="h-3 w-3 text-sky-400" />
-                    <span className="text-[10px] text-slate-500 font-medium uppercase tracking-wide">Dampak ke Inventory</span>
+              {/* Row 2: Compact counts + "Lihat Detail" toggle.
+                  Only show this row when there's detail to expand. */}
+              {(() => {
+                const selectedItemCount = poCreateItems.filter(i => i.inventoryItemId).length
+                const inventoryImpacted = poCreateInventoryImpact.length
+                const hppChanged = poCreateItems.filter(i => i.inventoryItemId).filter(i => {
+                  const hpp = estimatedHpp(i)
+                  return hpp != null && hpp > 0 && i.baseUnit
+                }).length
+                const hasDetail = inventoryImpacted > 0 || hppChanged > 0
+                if (!hasDetail && selectedItemCount === 0) return null
+                return (
+                  <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-white/[0.04]">
+                    <div className="flex items-center gap-3 text-[10px] text-slate-400">
+                      {selectedItemCount > 0 && (
+                        <span className="flex items-center gap-1">
+                          <PackagePlus className="h-3 w-3 text-sky-400" />
+                          <span><span className="text-slate-200 font-semibold tabular-nums">{selectedItemCount}</span> item</span>
+                        </span>
+                      )}
+                      {inventoryImpacted > 0 && (
+                        <span className="flex items-center gap-1">
+                          <PackagePlus className="h-3 w-3 text-sky-400" />
+                          <span><span className="text-slate-200 font-semibold tabular-nums">{inventoryImpacted}</span> inventory terdampak</span>
+                        </span>
+                      )}
+                      {hppChanged > 0 && (
+                        <span className="flex items-center gap-1">
+                          <Calculator className="h-3 w-3 text-amber-400" />
+                          <span><span className="text-slate-200 font-semibold tabular-nums">{hppChanged}</span> HPP berubah</span>
+                        </span>
+                      )}
+                    </div>
+                    {hasDetail && (
+                      <button
+                        type="button"
+                        onClick={() => setPoSummaryDetailOpen(prev => !prev)}
+                        className="text-[10px] text-slate-400 hover:text-white flex items-center gap-0.5 transition-colors shrink-0"
+                      >
+                        {poSummaryDetailOpen ? 'Sembunyikan' : 'Lihat Detail'}
+                        <ChevronDown className={cn('h-3 w-3 transition-transform', poSummaryDetailOpen && 'rotate-180')} />
+                      </button>
+                    )}
                   </div>
-                  <div className="space-y-0.5 max-h-32 overflow-y-auto">
-                    {poCreateInventoryImpact.map((imp, i) => (
-                      <div key={i} className="flex items-center justify-between text-[11px]">
-                        <span className="text-slate-300 truncate flex-1 min-w-0 pr-2">
-                          {imp.name}
-                          {imp.isNew && <span className="text-amber-400/70 ml-1">(baru)</span>}
-                        </span>
-                        <span className={cn('font-semibold shrink-0', imp.impact == null ? 'text-red-400' : 'text-emerald-400')}>
-                          {imp.impact == null ? 'konversi invalid' : `+${formatNumber(imp.impact)} ${imp.baseUnit}`}
-                        </span>
+                )
+              })()}
+
+              {/* Collapsible detail: Dampak ke Inventory + Estimasi HPP.
+                  Only renders when expanded AND there's content. */}
+              {poSummaryDetailOpen && (
+                <div className="space-y-2 pt-1.5 border-t border-white/[0.04]">
+                  {/* Dampak ke Inventory */}
+                  {poCreateInventoryImpact.length > 0 && (
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-1.5">
+                        <PackagePlus className="h-3 w-3 text-sky-400" />
+                        <span className="text-[10px] text-slate-500 font-medium uppercase tracking-wide">Dampak ke Inventory</span>
                       </div>
-                    ))}
-                  </div>
+                      <div className="space-y-0.5 max-h-28 overflow-y-auto">
+                        {poCreateInventoryImpact.map((imp, i) => (
+                          <div key={i} className="flex items-center justify-between text-[11px]">
+                            <span className="text-slate-300 truncate flex-1 min-w-0 pr-2">
+                              {imp.name}
+                              {imp.isNew && <span className="text-amber-400/70 ml-1">(baru)</span>}
+                            </span>
+                            <span className={cn('font-semibold shrink-0', imp.impact == null ? 'text-red-400' : 'text-emerald-400')}>
+                              {imp.impact == null ? 'konversi invalid' : `+${formatNumber(imp.impact)} ${imp.baseUnit}`}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Estimasi HPP */}
+                  {poCreateItems.filter(i => i.inventoryItemId).some(i => estimatedHpp(i) != null && (estimatedHpp(i) || 0) > 0) && (
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-1.5">
+                        <Calculator className="h-3 w-3 text-amber-400" />
+                        <span className="text-[10px] text-slate-500 font-medium uppercase tracking-wide">Estimasi HPP</span>
+                      </div>
+                      <div className="space-y-0.5 max-h-24 overflow-y-auto">
+                        {poCreateItems.filter(i => i.inventoryItemId).map((i, mapIdx) => {
+                          const hpp = estimatedHpp(i)
+                          if (hpp == null || hpp <= 0 || !i.baseUnit) return null
+                          return (
+                            <div key={mapIdx} className="flex items-center justify-between text-[11px]">
+                              <span className="text-slate-300 truncate flex-1 min-w-0 pr-2">{i.inventoryItemName}</span>
+                              <span className="text-amber-400/90 font-medium shrink-0">{formatCurrency(hpp)}/{i.baseUnit}</span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                      <p className="text-[9px] text-slate-600 pt-0.5">HPP final dihitung backend setelah simpan (weighted average untuk item existing).</p>
+                    </div>
+                  )}
                 </div>
               )}
 
-              {/* Estimasi HPP */}
-              {poCreateItems.filter(i => i.inventoryItemId).some(i => estimatedHpp(i) != null && (estimatedHpp(i) || 0) > 0) && (
-                <div className="space-y-1 pt-1 border-t border-white/[0.04]">
-                  <div className="flex items-center gap-1.5 pt-1">
-                    <Calculator className="h-3 w-3 text-amber-400" />
-                    <span className="text-[10px] text-slate-500 font-medium uppercase tracking-wide">Estimasi HPP</span>
-                  </div>
-                  <div className="space-y-0.5 max-h-24 overflow-y-auto">
-                    {poCreateItems.filter(i => i.inventoryItemId).map((i, mapIdx) => {
-                      const hpp = estimatedHpp(i)
-                      if (hpp == null || hpp <= 0 || !i.baseUnit) return null
-                      return (
-                        <div key={mapIdx} className="flex items-center justify-between text-[11px]">
-                          <span className="text-slate-300 truncate flex-1 min-w-0 pr-2">{i.inventoryItemName}</span>
-                          <span className="text-amber-400/90 font-medium shrink-0">{formatCurrency(hpp)}/{i.baseUnit}</span>
-                        </div>
-                      )
-                    })}
-                  </div>
-                  <p className="text-[9px] text-slate-600 pt-0.5">HPP final dihitung backend setelah simpan (weighted average untuk item existing).</p>
-                </div>
-              )}
-
-              {/* Helper notes */}
+              {/* Helper notes — always shown (warning, not detail) */}
               {poCreateItems.some(i => i.inventoryItemId.startsWith('__pending_')) && (
                 <p className="text-[10px] text-amber-400/70 flex items-center gap-1 pt-1 border-t border-white/[0.04]">
                   <PackageOpen className="h-3 w-3" />
@@ -7004,9 +7220,9 @@ export default function PurchasePage() {
       <AlertDialog open={!!deletePoId} onOpenChange={(open) => { if (!open) setDeletePoId(null) }}>
         <AlertDialogContent className="bg-nebula border-white/[0.06]">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-white">Hapus Pembelian?</AlertDialogTitle>
+            <AlertDialogTitle className="text-white">Batalkan Pembelian?</AlertDialogTitle>
             <AlertDialogDescription className="text-slate-400">
-              Pembelian yang dihapus tidak dapat dikembalikan. Stok item yang sudah masuk dari pembelian ini juga akan dikurangi.
+              Stok item yang sudah masuk dari pembelian ini akan dikurangi kembali (reverse). Batch inventory yang terkait akan dihapus. Pembelian yang sudah dibatalkan tidak dapat dikembalikan.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="gap-2">
@@ -7016,7 +7232,7 @@ export default function PurchasePage() {
               onClick={handleDeletePo}
               disabled={deletingPo}
             >
-              {deletingPo ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Hapus'}
+              {deletingPo ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Batalkan Pembelian'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
