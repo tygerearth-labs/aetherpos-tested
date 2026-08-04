@@ -60,6 +60,7 @@ import {
 import { Pagination } from '@/components/shared/pagination'
 import { SortableTableHead, nextSortState } from '@/components/shared/sortable-header'
 import { SameDayBadge } from '@/components/shared/same-day-badge'
+import { StatusIconPopover, PopoverContentBody } from '@/components/shared/status-icon-popover'
 import { RowActionsMenu } from '@/components/shared/row-actions-menu'
 import { StockStatusBadge, stockValueColorClass } from '@/components/shared/stock-status-badge'
 import { useRowHighlight } from '@/hooks/use-row-highlight'
@@ -2303,30 +2304,52 @@ export default function ProductsPage() {
                             </div>
                           )}
                           <div className="flex flex-col gap-0.5 min-w-0">
-                            {/* Nama dominan + inline badges (spec point 2 + 5) */}
-                            <span className="flex items-center gap-1.5 flex-wrap">
+                            {/* Nama dominan + inline status icons (spec point 2 + 5).
+                                "Update" badge removed — "Terakhir Diubah" column already shows it.
+                                "Baru" (created today) badge kept as text — it's high-signal for new items.
+                                Max 3 visible status icons enforced by conditional rendering below. */}
+                            <span className="flex items-center gap-1 flex-wrap">
                               <span className="truncate max-w-[200px]">{product.name}</span>
-                              {sameDayBadge && <SameDayBadge variant={sameDayBadge} />}
+                              {sameDayBadge === 'new' && <SameDayBadge variant="new" />}
                               {product.hasVariants && product._variantCount != null && product._variantCount > 0 && (
-                                <Badge className="bg-violet-500/10 border-violet-500/20 text-violet-400 text-[10px] px-1.5 py-0 inline-flex items-center gap-0.5">
-                                  <Layers className="h-2.5 w-2.5" />
-                                  {product._variantCount} varian
-                                </Badge>
+                                <StatusIconPopover
+                                  ariaLabel={`${product._variantCount} varian`}
+                                  icon={<Layers className="h-3 w-3" />}
+                                  tooltip={`${product._variantCount} varian`}
+                                  popoverContent={
+                                    <PopoverContentBody title={`${product._variantCount} Varian`}>
+                                      Produk ini memiliki {product._variantCount} varian dengan harga/stok terpisah.
+                                    </PopoverContentBody>
+                                  }
+                                  trailing={<span className="text-[10px] font-semibold tabular-nums">{product._variantCount}</span>}
+                                  tone="violet"
+                                />
                               )}
                               {product.hasComposition && (
-                                <Badge className="bg-sky-500/10 border-sky-500/20 text-sky-400 text-[10px] px-1.5 py-0 inline-flex items-center gap-0.5">
-                                  <Beaker className="h-2.5 w-2.5" />
-                                  Komposisi
-                                </Badge>
-                              )}
-                              {product.hasComposition && (
-                                <Badge
-                                  title="Stok dihitung otomatis dari inventory"
-                                  className="bg-emerald-500/10 border-emerald-500/20 text-emerald-400 text-[10px] px-1.5 py-0 inline-flex items-center gap-0.5"
-                                >
-                                  <RefreshCw className="h-2.5 w-2.5" />
-                                  Stok Otomatis
-                                </Badge>
+                                <>
+                                  <StatusIconPopover
+                                    ariaLabel="Komposisi"
+                                    icon={<Beaker className="h-3 w-3" />}
+                                    tooltip="Komposisi"
+                                    popoverContent={
+                                      <PopoverContentBody title="Komposisi">
+                                        Produk menggunakan inventory sebagai bahan.
+                                      </PopoverContentBody>
+                                    }
+                                    tone="sky"
+                                  />
+                                  <StatusIconPopover
+                                    ariaLabel="Stok otomatis"
+                                    icon={<RefreshCw className="h-3 w-3" />}
+                                    tooltip="Stok Otomatis"
+                                    popoverContent={
+                                      <PopoverContentBody title="Stok Otomatis">
+                                        Stok dihitung otomatis dari inventory. Restock manual dinonaktifkan.
+                                      </PopoverContentBody>
+                                    }
+                                    tone="emerald"
+                                  />
+                                </>
                               )}
                             </span>
                           </div>
@@ -2587,29 +2610,51 @@ export default function ProductsPage() {
                           <span className="text-[15px] font-semibold text-white truncate leading-snug block">
                             {product.name}
                           </span>
-                          {/* Inline badges (spec point 2) — Baru/Update + Komposisi + varian count. NO stock badge here. */}
-                          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                            {sameDayBadge && <SameDayBadge variant={sameDayBadge} />}
+                          {/* Inline status icons (spec point 2 + 5).
+                              "Update" badge removed — "Terakhir Diubah" column already shows it.
+                              "Baru" (created today) badge kept as text — high-signal for new items.
+                              NO stock badge here (stock badge renders in the right-side compact slot). */}
+                          <div className="flex items-center gap-1 mt-1 flex-wrap">
+                            {sameDayBadge === 'new' && <SameDayBadge variant="new" />}
                             {product.hasVariants && product._variantCount != null && product._variantCount > 0 && (
-                              <Badge className="bg-violet-500/10 border-violet-500/20 text-violet-400 text-[10px] px-2 py-0.5 rounded-full inline-flex items-center gap-1">
-                                <Layers className="h-2.5 w-2.5" />
-                                {product._variantCount} varian
-                              </Badge>
+                              <StatusIconPopover
+                                ariaLabel={`${product._variantCount} varian`}
+                                icon={<Layers className="h-3.5 w-3.5" />}
+                                tooltip={`${product._variantCount} varian`}
+                                popoverContent={
+                                  <PopoverContentBody title={`${product._variantCount} Varian`}>
+                                    Produk ini memiliki {product._variantCount} varian dengan harga/stok terpisah.
+                                  </PopoverContentBody>
+                                }
+                                trailing={<span className="text-[11px] font-semibold tabular-nums">{product._variantCount}</span>}
+                                tone="violet"
+                              />
                             )}
                             {product.hasComposition && (
-                              <Badge className="bg-sky-500/10 border-sky-500/20 text-sky-400 text-[10px] px-2 py-0.5 rounded-full inline-flex items-center gap-1">
-                                <Beaker className="h-2.5 w-2.5" />
-                                Komposisi
-                              </Badge>
-                            )}
-                            {product.hasComposition && (
-                              <Badge
-                                title="Stok dihitung otomatis dari inventory"
-                                className="bg-emerald-500/10 border-emerald-500/20 text-emerald-400 text-[10px] px-2 py-0.5 rounded-full inline-flex items-center gap-1"
-                              >
-                                <RefreshCw className="h-2.5 w-2.5" />
-                                Stok Otomatis
-                              </Badge>
+                              <>
+                                <StatusIconPopover
+                                  ariaLabel="Komposisi"
+                                  icon={<Beaker className="h-3.5 w-3.5" />}
+                                  tooltip="Komposisi"
+                                  popoverContent={
+                                    <PopoverContentBody title="Komposisi">
+                                      Produk menggunakan inventory sebagai bahan.
+                                    </PopoverContentBody>
+                                  }
+                                  tone="sky"
+                                />
+                                <StatusIconPopover
+                                  ariaLabel="Stok otomatis"
+                                  icon={<RefreshCw className="h-3.5 w-3.5" />}
+                                  tooltip="Stok Otomatis"
+                                  popoverContent={
+                                    <PopoverContentBody title="Stok Otomatis">
+                                      Stok dihitung otomatis dari inventory. Restock manual dinonaktifkan.
+                                    </PopoverContentBody>
+                                  }
+                                  tone="emerald"
+                                />
+                              </>
                             )}
                           </div>
                         </div>

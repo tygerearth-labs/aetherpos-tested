@@ -64,6 +64,7 @@ import {
 import { Pagination } from '@/components/shared/pagination'
 import { SortableTableHead, nextSortState } from '@/components/shared/sortable-header'
 import { SameDayBadge } from '@/components/shared/same-day-badge'
+import { StatusIconPopover, PopoverContentBody } from '@/components/shared/status-icon-popover'
 import { BarcodeScannerDialog } from '@/components/shared/barcode-scanner-dialog'
 import { RowActionsMenu } from '@/components/shared/row-actions-menu'
 import { StockStatusBadge, stockValueColorClass } from '@/components/shared/stock-status-badge'
@@ -4875,26 +4876,41 @@ export default function PurchasePage() {
                                       )}>
                                         {item.name}
                                       </span>
-                                      {sameDayBadge && <SameDayBadge variant={sameDayBadge} />}
+                                      {sameDayBadge === 'new' && <SameDayBadge variant="new" />}
                                       {isArchived && (
                                         <Badge variant="secondary" className="text-[9px] px-2 py-0.5 bg-amber-500/15 text-amber-400 border-amber-500/25 rounded-full shrink-0">
                                           <Archive className="h-2.5 w-2.5 mr-1" />
                                           Nonaktif
                                         </Badge>
                                       )}
-                                      {/* Delete Safety Indicators — "Migrasi" + "Terkunci" only.
+                                      {/* Delete Safety Indicators — compact status icons with popover.
+                                          "Update" badge removed — "Terakhir Diubah" column already shows it.
                                           "Aman" dihilangkan dari list utama (spec point 2). */}
                                       {!isArchived && deleteStatus.riskLevel === 'warning' && (
-                                        <Badge variant="secondary" className="text-[9px] px-1.5 py-0 bg-amber-500/10 text-amber-400 border-amber-500/20 rounded-full shrink-0" title={deleteStatus.description}>
-                                          <AlertCircle className="h-2.5 w-2.5 mr-0.5" />
-                                          Migrasi
-                                        </Badge>
+                                        <StatusIconPopover
+                                          ariaLabel="Migrasi — item memiliki data historis"
+                                          icon={<AlertCircle className="h-3 w-3" />}
+                                          tooltip="Migrasi"
+                                          popoverContent={
+                                            <PopoverContentBody title="Migrasi">
+                                              Item ini memiliki data historis (transaksi / movement). Hapus dengan hati-hati.
+                                            </PopoverContentBody>
+                                          }
+                                          tone="amber"
+                                        />
                                       )}
                                       {!isArchived && deleteStatus.riskLevel === 'blocked' && (
-                                        <Badge variant="secondary" className="text-[9px] px-1.5 py-0 bg-red-500/10 text-red-400 border-red-500/20 rounded-full shrink-0" title={deleteStatus.description}>
-                                          <Lock className="h-2.5 w-2.5 mr-0.5" />
-                                          Terkunci
-                                        </Badge>
+                                        <StatusIconPopover
+                                          ariaLabel="Terkunci — item tidak bisa dihapus"
+                                          icon={<Lock className="h-3 w-3" />}
+                                          tooltip="Terkunci"
+                                          popoverContent={
+                                            <PopoverContentBody title="Terkunci">
+                                              Item ini tidak dapat dihapus karena masih terikat relasi aktif.
+                                            </PopoverContentBody>
+                                          }
+                                          tone="red"
+                                        />
                                       )}
                                     </span>
                                     {/* SKU below name (spec point 5) */}
@@ -5103,21 +5119,37 @@ export default function PurchasePage() {
                               )}>
                                 {item.name}
                               </span>
-                              {sameDayBadge && <SameDayBadge variant={sameDayBadge} />}
+                              {sameDayBadge === 'new' && <SameDayBadge variant="new" />}
                               {isArchived && (
                                 <span className="px-1.5 py-0 rounded bg-amber-500/15 text-amber-400 text-[9px] font-bold shrink-0 inline-flex items-center gap-0.5">
                                   <Archive className="h-2 w-2" /> Nonaktif
                                 </span>
                               )}
                               {!isArchived && deleteStatus.riskLevel === 'warning' && (
-                                <span className="px-1.5 py-0 rounded bg-amber-500/15 text-amber-400 text-[9px] font-bold shrink-0 inline-flex items-center gap-0.5" title={deleteStatus.description}>
-                                  <AlertCircle className="h-2 w-2" /> Migrasi
-                                </span>
+                                <StatusIconPopover
+                                  ariaLabel="Migrasi — item memiliki data historis"
+                                  icon={<AlertCircle className="h-3.5 w-3.5" />}
+                                  tooltip="Migrasi"
+                                  popoverContent={
+                                    <PopoverContentBody title="Migrasi">
+                                      Item ini memiliki data historis (transaksi / movement). Hapus dengan hati-hati.
+                                    </PopoverContentBody>
+                                  }
+                                  tone="amber"
+                                />
                               )}
                               {!isArchived && deleteStatus.riskLevel === 'blocked' && (
-                                <span className="px-1.5 py-0 rounded bg-red-500/15 text-red-400 text-[9px] font-bold shrink-0 inline-flex items-center gap-0.5" title={deleteStatus.description}>
-                                  <Lock className="h-2 w-2" /> Terkunci
-                                </span>
+                                <StatusIconPopover
+                                  ariaLabel="Terkunci — item tidak bisa dihapus"
+                                  icon={<Lock className="h-3.5 w-3.5" />}
+                                  tooltip="Terkunci"
+                                  popoverContent={
+                                    <PopoverContentBody title="Terkunci">
+                                      Item ini tidak dapat dihapus karena masih terikat relasi aktif.
+                                    </PopoverContentBody>
+                                  }
+                                  tone="red"
+                                />
                               )}
                               {/* Compact StockStatusBadge (spec point 2) — replaces "!" + "OFF" */}
                               <StockStatusBadge stock={item.stock} lowThreshold={item.lowStockAlert} className="!text-[9px] !px-1.5" />
