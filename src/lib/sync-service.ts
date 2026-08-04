@@ -11,9 +11,9 @@
  *  4. Offline → data is already cached, search still works
  */
 
-import { localDB } from './local-db'
+import { localDB } from './offline/legacy-stub'
 import { getAetherDB } from '@/lib/offline/aether-db'
-import type { CachedProduct, CachedCustomer, CachedPromo, CachedCategory } from './local-db'
+import type { CachedProduct, CachedCustomer, CachedPromo, CachedCategory } from './offline/legacy-stub'
 
 // ==================== HELPERS ====================
 

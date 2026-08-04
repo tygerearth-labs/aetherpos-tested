@@ -34,6 +34,7 @@
 import { Prisma, PrismaClient } from '@prisma/client'
 import { ciContains } from '@/lib/api/api-helpers'
 import type { CheckoutPerf } from '@/lib/perf-timer'
+import { txPhase } from '@/lib/tx-phase'
 
 /**
  * A client that can be either the singleton PrismaClient OR a transaction
@@ -91,7 +92,7 @@ interface AvailableBatch {
   }
 }
 
-type TxClient = Parameters<Parameters<typeof Prisma.prototype.$transaction>[0]>[0]
+type TxClient = Prisma.TransactionClient
 
 // ════════════════════════════════════════════════════════════
 // FEFO Engine
@@ -947,16 +948,18 @@ export class FEFOEngine {
     // ── STEP A: Fetch ALL expiring batches for ALL items in ONE findMany ──
     //    (BAT-008 fix — expired batches must never be consumed)
     trackQuery()
-    const expiringBatches = await tx.inventoryBatch.findMany({
-      where: {
-        inventoryItemId: { in: invItemIds },
-        outletId,
-        status: 'AVAILABLE',
-        expiredDate: { lt: now },
-        remainingQty: { gt: 0 },
-      },
-      select: { id: true, inventoryItemId: true, remainingQty: true, batchNumber: true },
-    })
+    const expiringBatches = await txPhase(perf, 'fefoBatch.fetchExpiring', () =>
+      tx.inventoryBatch.findMany({
+        where: {
+          inventoryItemId: { in: invItemIds },
+          outletId,
+          status: 'AVAILABLE',
+          expiredDate: { lt: now },
+          remainingQty: { gt: 0 },
+        },
+        select: { id: true, inventoryItemId: true, remainingQty: true, batchNumber: true },
+      })
+    )
 
     // ── STEP B/C/D: Only if any expiring batches exist ──
     if (expiringBatches.length > 0) {
@@ -979,10 +982,12 @@ export class FEFOEngine {
 
       // B. Mark ALL expired batches in ONE updateMany
       trackQuery()
-      await tx.inventoryBatch.updateMany({
-        where: { id: { in: expiringBatches.map(b => b.id) } },
-        data: { status: 'EXPIRED', updatedAt: now },
-      })
+      await txPhase(perf, 'fefoBatch.markExpired', () =>
+        tx.inventoryBatch.updateMany({
+          where: { id: { in: expiringBatches.map(b => b.id) } },
+          data: { status: 'EXPIRED', updatedAt: now },
+        })
+      )
 
       // C. Decrement InventoryItem.stock for ALL expired items in ONE raw SQL
       //    Uses CASE WHEN id = ... THEN stock - qty END (per-item totals).
@@ -994,21 +999,28 @@ export class FEFOEngine {
         return Prisma.sql`WHEN id = ${itemId} THEN CASE WHEN stock - ${qty} < 0 THEN 0 ELSE stock - ${qty} END`
       })
       trackQuery()
-      await tx.$executeRaw`
-        UPDATE "InventoryItem"
-        SET stock = CASE
-          ${Prisma.join(stockCases, ' ')}
-          ELSE stock
-        END
-        WHERE id IN (${Prisma.join(expiredItemIds)}) AND "outletId" = ${outletId}
-      `
+      await txPhase(perf, 'fefoBatch.decExpiredStock', () =>
+        tx.$executeRaw`
+          UPDATE "InventoryItem"
+          SET stock = CASE
+            ${Prisma.join(stockCases, ' ')}
+            ELSE stock
+          END
+          WHERE id IN (${Prisma.join(expiredItemIds)}) AND "outletId" = ${outletId}
+        `
+      )
 
-      // D. Create ALL EXPIRY_WRITEOFF movements in ONE createMany (best-effort)
-      //    Wrapped in try/catch — movement logging is best-effort, must not
-      //    rollback the sale (mirrors the per-item method's try/catch).
-      try {
-        trackQuery()
-        await tx.inventoryMovement.createMany({
+      // D. Create ALL EXPIRY_WRITEOFF movements in ONE createMany.
+      //    25P02 FIX: previously wrapped in try/catch that SWALLOWED DB errors
+      //    ("NON-FATAL, movement logging is best-effort"). On PostgreSQL that
+      //    is FATAL: a failed createMany poisons the transaction, so the next
+      //    query (STEP E $queryRaw, STEP I $executeRaw, STEP J createMany) all
+      //    fail with 25P02. Now we let the error propagate → clean rollback.
+      //    If truly best-effort audit/movement logging is needed, run it
+      //    OUTSIDE the transaction using the `db` singleton.
+      trackQuery()
+      await txPhase(perf, 'fefoBatch.expiryWriteoffMovement', () =>
+        tx.inventoryMovement.createMany({
           data: expiredItemIds.map(itemId => {
             const info = expiredByItem.get(itemId)!
             return {
@@ -1024,12 +1036,7 @@ export class FEFOEngine {
             }
           }),
         })
-      } catch (err) {
-        console.warn(
-          `[FEFO:RECORD-BATCH] ${invoiceNumber} — EXPIRY_WRITEOFF movement createMany failed (NON-FATAL): ` +
-          `${err instanceof Error ? err.message : String(err)}`
-        )
-      }
+      )
 
       console.log(
         `[FEFO:RECORD-BATCH] ${invoiceNumber} — marked ${expiringBatches.length} batch(es) EXPIRED across ` +
@@ -1052,24 +1059,26 @@ export class FEFOEngine {
       status: string
       itemName: string
       baseUnit: string
-    }> = await tx.$queryRaw`
-      SELECT
-        ib.id, ib."batchNumber", ib."inventoryItemId", ib."initialQty",
-        ib."remainingQty", ib."unitCost", ib."expiredDate", ib.status,
-        ii.name as "itemName", ii."baseUnit" as "baseUnit"
-      FROM "InventoryBatch" ib
-      JOIN "InventoryItem" ii ON ii.id = ib."inventoryItemId"
-      WHERE ib."inventoryItemId" IN (${Prisma.join(invItemIds)})
-        AND ib."outletId" = ${outletId}
-        AND ib.status = 'AVAILABLE'
-        AND ib."remainingQty" > 0
-        AND (ib."expiredDate" IS NULL OR ib."expiredDate" >= ${now})
-      ORDER BY
-        ib."inventoryItemId",
-        CASE WHEN ib."expiredDate" IS NULL THEN 1 ELSE 0 END,
-        ib."expiredDate" ASC,
-        ib."createdAt" ASC
-    `
+    }> = await txPhase(perf, 'fefoBatch.fetchAvailableBatches', () =>
+      tx.$queryRaw`
+        SELECT
+          ib.id, ib."batchNumber", ib."inventoryItemId", ib."initialQty",
+          ib."remainingQty", ib."unitCost", ib."expiredDate", ib.status,
+          ii.name as "itemName", ii."baseUnit" as "baseUnit"
+        FROM "InventoryBatch" ib
+        JOIN "InventoryItem" ii ON ii.id = ib."inventoryItemId"
+        WHERE ib."inventoryItemId" IN (${Prisma.join(invItemIds)})
+          AND ib."outletId" = ${outletId}
+          AND ib.status = 'AVAILABLE'
+          AND ib."remainingQty" > 0
+          AND (ib."expiredDate" IS NULL OR ib."expiredDate" >= ${now})
+        ORDER BY
+          ib."inventoryItemId",
+          CASE WHEN ib."expiredDate" IS NULL THEN 1 ELSE 0 END,
+          ib."expiredDate" ASC,
+          ib."createdAt" ASC
+      `
+    )
 
     // Group batches by inventoryItemId (preserves FEFO order within each item)
     const batchesByItem = new Map<string, AvailableBatch[]>()
@@ -1091,10 +1100,12 @@ export class FEFOEngine {
 
     // ── STEP F: Self-heal check — read InventoryItem.stock + avgCost for ALL items ──
     trackQuery()
-    const invItems = await tx.inventoryItem.findMany({
-      where: { id: { in: invItemIds } },
-      select: { id: true, name: true, baseUnit: true, stock: true, avgCost: true },
-    })
+    const invItems = await txPhase(perf, 'fefoBatch.fetchInvItems', () =>
+      tx.inventoryItem.findMany({
+        where: { id: { in: invItemIds } },
+        select: { id: true, name: true, baseUnit: true, stock: true, avgCost: true },
+      })
+    )
     const invItemMap = new Map(invItems.map(i => [i.id, i]))
 
     // ── STEP G: In-memory drift detection + per-item RECONCILE (rare) ──
@@ -1122,21 +1133,24 @@ export class FEFOEngine {
         // RECONCILE batch — per-item create (rare; cannot batch a create with
         // different per-item conditions). Mirrors per-item method exactly.
         const reconcileBatchNumber = `RECONCILE-${invoiceNumber}-${deduction.inventoryItemId.slice(-6)}-${Date.now()}`
-        const reconcileBatch = await tx.inventoryBatch.create({
-          data: {
-            batchNumber: reconcileBatchNumber,
-            inventoryItemId: deduction.inventoryItemId,
-            outletId,
-            initialQty: drift,
-            remainingQty: drift,
-            unitCost: Number(invItem?.avgCost ?? 0),
-            expiredDate: null,
-            status: 'AVAILABLE',
-            purchaseOrderId: null,
-            supplierId: null,
-            supplierName: null,
-          },
-        })
+        trackQuery()
+        const reconcileBatch = await txPhase(perf, `fefoBatch.reconcileCreate.${deduction.inventoryItemId.slice(-6)}`, () =>
+          tx.inventoryBatch.create({
+            data: {
+              batchNumber: reconcileBatchNumber,
+              inventoryItemId: deduction.inventoryItemId,
+              outletId,
+              initialQty: drift,
+              remainingQty: drift,
+              unitCost: Number(invItem?.avgCost ?? 0),
+              expiredDate: null,
+              status: 'AVAILABLE',
+              purchaseOrderId: null,
+              supplierId: null,
+              supplierName: null,
+            },
+          })
+        )
 
         batches.push({
           id: reconcileBatch.id,
@@ -1151,8 +1165,14 @@ export class FEFOEngine {
         })
         totalAvailable += drift
 
-        try {
-          await tx.auditLog.create({
+        // 25P02 FIX: audit log previously wrapped in swallowing try/catch
+        //   (`catch { /* best-effort */ }`). On PostgreSQL a failed auditLog.create
+        //   poisons the transaction → STEP I/J createMany fail with 25P02.
+        //   Now we let it propagate. If truly best-effort, run it AFTER commit
+        //   via `safeEmitAuditEvent(db, ...)` (outside the transaction).
+        trackQuery()
+        await txPhase(perf, `fefoBatch.reconcileAudit.${deduction.inventoryItemId.slice(-6)}`, () =>
+          tx.auditLog.create({
             data: {
               action: 'INVENTORY_RECONCILIATION',
               entityType: 'INVENTORY_ITEM',
@@ -1173,7 +1193,7 @@ export class FEFOEngine {
               userId,
             },
           })
-        } catch { /* audit log is best-effort */ }
+        )
 
         console.warn(
           `[FEFO:RECORD-BATCH] ${invoiceNumber} — SELF-HEAL: Created RECONCILE batch "${reconcileBatchNumber}" ` +
@@ -1181,8 +1201,10 @@ export class FEFOEngine {
           `Pre-sale stock=${preSaleStock}, batches were=${totalAvailable - drift}, drift=${drift}.`
         )
       } else if (drift < -0.001) {
-        try {
-          await tx.auditLog.create({
+        // 25P02 FIX: audit log must not be swallowed inside tx (see note above).
+        trackQuery()
+        await txPhase(perf, `fefoBatch.anomalyAudit.${deduction.inventoryItemId.slice(-6)}`, () =>
+          tx.auditLog.create({
             data: {
               action: 'INVENTORY_ANOMALY',
               entityType: 'INVENTORY_ITEM',
@@ -1201,7 +1223,7 @@ export class FEFOEngine {
               userId,
             },
           })
-        } catch { /* audit log is best-effort */ }
+        )
 
         console.error(
           `[FEFO:RECORD-BATCH] ${invoiceNumber} — ANOMALY: Batch totals (${totalAvailable} ${baseUnit}) ` +
@@ -1306,38 +1328,42 @@ export class FEFOEngine {
         Prisma.sql`WHEN id = ${b.batchId} THEN ${b.newStatus}`
       )
       trackQuery()
-      await tx.$executeRaw`
-        UPDATE "InventoryBatch"
-        SET
-          "remainingQty" = CASE
-            ${Prisma.join(remainingCases, ' ')}
-            ELSE "remainingQty"
-          END,
-          status = CASE
-            ${Prisma.join(statusCases, ' ')}
-            ELSE status
-          END,
-          "updatedAt" = ${now}
-        WHERE id IN (${Prisma.join(consumedBatchIds)})
-      `
+      await txPhase(perf, 'fefoBatch.updateConsumedBatches', () =>
+        tx.$executeRaw`
+          UPDATE "InventoryBatch"
+          SET
+            "remainingQty" = CASE
+              ${Prisma.join(remainingCases, ' ')}
+              ELSE "remainingQty"
+            END,
+            status = CASE
+              ${Prisma.join(statusCases, ' ')}
+              ELSE status
+            END,
+            "updatedAt" = ${now}
+          WHERE id IN (${Prisma.join(consumedBatchIds)})
+        `
+      )
     }
 
     // ── STEP J: Create ALL BatchConsumptionLog rows in ONE createMany ──
     if (consumptionLogs.length > 0) {
       trackQuery()
-      await tx.batchConsumptionLog.createMany({
-        data: consumptionLogs.map(log => ({
-          transactionId,
-          inventoryBatchId: log.inventoryBatchId,
-          inventoryItemId: log.inventoryItemId,
-          quantityConsumed: log.quantityConsumed,
-          batchNumber: log.batchNumber,
-          expiredDate: log.expiredDate,
-          invoiceNumber,
-          sourceDetails: log.sourceDetails,
-          outletId,
-        })),
-      })
+      await txPhase(perf, 'fefoBatch.createConsumptionLogs', () =>
+        tx.batchConsumptionLog.createMany({
+          data: consumptionLogs.map(log => ({
+            transactionId,
+            inventoryBatchId: log.inventoryBatchId,
+            inventoryItemId: log.inventoryItemId,
+            quantityConsumed: log.quantityConsumed,
+            batchNumber: log.batchNumber,
+            expiredDate: log.expiredDate,
+            invoiceNumber,
+            sourceDetails: log.sourceDetails,
+            outletId,
+          })),
+        })
+      )
     }
 
     return results
