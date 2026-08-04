@@ -148,7 +148,6 @@ import {
   ClipboardList,
   Calendar,
   Camera,
-  RefreshCw,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useBulkWorker } from '@/components/bulk-engine/bulk-worker-context'
@@ -839,19 +838,9 @@ export default function PurchasePage() {
   const [invDetailTab, setInvDetailTab] = useState('products')
   const [invDetailMovementPage, setInvDetailMovementPage] = useState(1)
 
-  // Inventory quick stock dialog — covers both Restock (+qty) and Adjustment (set new stock).
-  // Both modes hit the SAME endpoint: POST /api/inventory/items/[id]/adjust with { newStock, reason }.
-  // The endpoint always creates an InventoryMovement row of type 'ADJUSTMENT' and reconciles
-  // batches (FEFO) on the server. We do NOT touch backend logic — only UI flow.
-  const [invStockOpen, setInvStockOpen] = useState(false)
-  const [invStockMode, setInvStockMode] = useState<'restock' | 'adjust'>('restock')
-  const [invStockItem, setInvStockItem] = useState<InventoryItem | null>(null)
-  const [invStockQty, setInvStockQty] = useState('')        // restock mode: quantity to ADD
-  const [invStockNew, setInvStockNew] = useState('')        // adjust mode: target new stock
-  const [invStockReason, setInvStockReason] = useState('')
-  const [invStockSubmitting, setInvStockSubmitting] = useState(false)
-  // Temporary row highlight for inventory scan/restock/adjust/sync results (spec point 3 + 6).
+  // Temporary row highlight for inventory scan/sync results (spec point 3 + 6).
   // Auto-fades after 2.5s. Pure UI — no backend interaction.
+  // (Previously also used by Restock/Adjust dialogs — those were removed per UX request.)
   const invRowHighlight = useRowHighlight<string>({ durationMs: 2500 })
 
   // Batch timeline for inventory detail
@@ -2920,29 +2909,6 @@ export default function PurchasePage() {
     } catch { /* ignore pagination fetch errors */ }
   }
 
-  // ── Inventory quick stock dialog openers ──
-  // Both Restock and Adjustment call the SAME /adjust endpoint. The only UX
-  // difference: Restock asks for a delta (qty to add), Adjustment asks for
-  // the absolute new stock value. The server records an InventoryMovement
-  // row of type 'ADJUSTMENT' either way.
-  const openInvRestock = useCallback((item: InventoryItem) => {
-    setInvStockItem(item)
-    setInvStockMode('restock')
-    setInvStockQty('')
-    setInvStockNew('')
-    setInvStockReason('')
-    setInvStockOpen(true)
-  }, [])
-
-  const openInvAdjust = useCallback((item: InventoryItem) => {
-    setInvStockItem(item)
-    setInvStockMode('adjust')
-    setInvStockQty('')
-    setInvStockNew(String(item.stock ?? 0))
-    setInvStockReason('')
-    setInvStockOpen(true)
-  }, [])
-
   // Handler for the dropdown "View Movement / Batch" action — opens the
   // inventory detail dialog and immediately selects the Movements tab.
   // (The Batch tab is one click away inside the dialog.)
@@ -2968,63 +2934,6 @@ export default function PurchasePage() {
       setInvDetailLoading(false)
     }
   }, [])
-
-  const handleInvStockSubmit = async () => {
-    if (!invStockItem) return
-    const currentStock = invStockItem.stock ?? 0
-    let newStock: number
-    let reason: string
-
-    if (invStockMode === 'restock') {
-      const qty = Number(invStockQty)
-      if (!invStockQty || isNaN(qty) || qty <= 0) {
-        toast.error('Jumlah restock harus lebih besar dari 0')
-        return
-      }
-      newStock = currentStock + qty
-      reason = invStockReason.trim() || `Restock manual +${qty} ${invStockItem.baseUnit}`
-    } else {
-      const target = Number(invStockNew)
-      if (invStockNew === '' || isNaN(target) || target < 0) {
-        toast.error('Stok baru tidak valid (harus ≥ 0)')
-        return
-      }
-      newStock = target
-      const delta = newStock - currentStock
-      reason = invStockReason.trim() || `Penyesuaian stok manual (${delta >= 0 ? '+' : ''}${delta} ${invStockItem.baseUnit})`
-    }
-
-    setInvStockSubmitting(true)
-    try {
-      const res = await fetch(`/api/inventory/items/${invStockItem.id}/adjust`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ newStock, reason }),
-      })
-      if (res.ok) {
-        const verb = invStockMode === 'restock' ? 'Restock' : 'Penyesuaian'
-        toast.success(`${verb} ${invStockItem.name} berhasil`)
-        invRowHighlight.highlight(invStockItem.id) // spec point 6: selesai sync
-        setInvStockOpen(false)
-        setInvStockItem(null)
-        setInvStockQty('')
-        setInvStockNew('')
-        setInvStockReason('')
-        void fetchInventoryItems()
-        // If the detail dialog is open for this item, refresh it too.
-        if (invDetailOpen && invDetailData?.id === invStockItem.id) {
-          void fetchInvDetailMovements(invStockItem.id, 1)
-        }
-      } else {
-        const data = await res.json().catch(() => ({}))
-        toast.error(data.error || 'Gagal menyimpan perubahan stok')
-      }
-    } catch {
-      toast.error('Gagal menyimpan perubahan stok')
-    } finally {
-      setInvStockSubmitting(false)
-    }
-  }
 
   // ══════════════════════════════════════════════════════════
   // INVENTORY SCANNER ADAPTER (closeOnSuccess = TRUE)
@@ -5074,16 +4983,6 @@ export default function PurchasePage() {
                                         title: editBlockStatus.isBlocked ? editBlockStatus.reason : undefined,
                                       },
                                       {
-                                        label: 'Restock',
-                                        icon: <RefreshCw className="h-3.5 w-3.5" />,
-                                        onClick: () => openInvRestock(item),
-                                      },
-                                      {
-                                        label: 'Penyesuaian Stok',
-                                        icon: <FilePenLine className="h-3.5 w-3.5" />,
-                                        onClick: () => openInvAdjust(item),
-                                      },
-                                      {
                                         label: 'Lihat Movement / Batch',
                                         icon: <Activity className="h-3.5 w-3.5" />,
                                         onClick: () => void openInvDetailAtMovements(item),
@@ -5264,16 +5163,6 @@ export default function PurchasePage() {
                                   },
                                   disabled: editBlockStatus.isBlocked,
                                   title: editBlockStatus.isBlocked ? editBlockStatus.reason : undefined,
-                                },
-                                {
-                                  label: 'Restock',
-                                  icon: <RefreshCw className="h-3.5 w-3.5" />,
-                                  onClick: () => openInvRestock(item),
-                                },
-                                {
-                                  label: 'Penyesuaian Stok',
-                                  icon: <FilePenLine className="h-3.5 w-3.5" />,
-                                  onClick: () => openInvAdjust(item),
                                 },
                                 {
                                   label: 'Lihat Movement / Batch',
@@ -9381,164 +9270,6 @@ export default function PurchasePage() {
               </Tabs>
             </div>
           ) : null}
-        </ResponsiveDialogContent>
-      </ResponsiveDialog>
-
-      {/* ── Inventory Quick Stock Dialog (Restock + Adjustment) ──
-          Both modes call the SAME /api/inventory/items/[id]/adjust endpoint
-          with { newStock, reason }. The server records an ADJUSTMENT
-          InventoryMovement row + reconciles batches (FEFO) + emits an audit
-          event. We do NOT touch backend logic — just provide two UX flows:
-            • Restock mode  → user types qty to ADD → newStock = current + qty
-            • Adjust mode   → user types the target stock → newStock = target
-      */}
-      <ResponsiveDialog open={invStockOpen} onOpenChange={(open) => { if (!open && !invStockSubmitting) setInvStockOpen(false) }}>
-        <ResponsiveDialogContent className="sm:max-w-md">
-          <ResponsiveDialogHeader>
-            <ResponsiveDialogTitle className="text-white text-base flex items-center gap-2">
-              <div className={cn(
-                'w-8 h-8 rounded-xl flex items-center justify-center',
-                invStockMode === 'restock'
-                  ? 'bg-emerald-500/10 text-emerald-400'
-                  : 'bg-amber-500/10 text-amber-400'
-              )}>
-                {invStockMode === 'restock'
-                  ? <RefreshCw className="h-4 w-4" />
-                  : <FilePenLine className="h-4 w-4" />}
-              </div>
-              {invStockMode === 'restock' ? 'Restock Item' : 'Penyesuaian Stok'}
-            </ResponsiveDialogTitle>
-            <ResponsiveDialogDescription className="text-slate-400 text-xs">
-              {invStockItem?.name}
-              {invStockItem?.sku && (
-                <span className="text-slate-500 font-mono"> · {invStockItem.sku}</span>
-              )}
-            </ResponsiveDialogDescription>
-          </ResponsiveDialogHeader>
-
-          {invStockItem && (
-            <div className="space-y-3 mt-1">
-              {/* Current stock display */}
-              <div className="grid grid-cols-2 gap-2">
-                <div className="bg-white/[0.03] rounded-xl p-2.5 border border-white/[0.04]">
-                  <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Stok Saat Ini</p>
-                  <p className="text-sm font-bold text-white">
-                    {formatNumber(invStockItem.stock)} <span className="text-[10px] font-normal text-slate-400">{invStockItem.baseUnit}</span>
-                  </p>
-                </div>
-                <div className="bg-white/[0.03] rounded-xl p-2.5 border border-white/[0.04]">
-                  <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">
-                    {invStockMode === 'restock' ? 'Stok Setelah Restock' : 'Selisih'}
-                  </p>
-                  {(() => {
-                    if (invStockMode === 'restock') {
-                      const qty = Number(invStockQty) || 0
-                      const total = invStockItem.stock + qty
-                      return (
-                        <p className={cn(
-                          'text-sm font-bold tabular-nums',
-                          qty > 0 ? 'text-emerald-400' : 'text-slate-300'
-                        )}>
-                          {formatNumber(total)} <span className="text-[10px] font-normal text-slate-400">{invStockItem.baseUnit}</span>
-                        </p>
-                      )
-                    }
-                    const target = Number(invStockNew)
-                    const delta = isNaN(target) ? 0 : target - invStockItem.stock
-                    return (
-                      <p className={cn(
-                        'text-sm font-bold tabular-nums',
-                        delta > 0 ? 'text-emerald-400' : delta < 0 ? 'text-red-400' : 'text-slate-300'
-                      )}>
-                        {delta >= 0 ? '+' : ''}{formatNumber(delta)} <span className="text-[10px] font-normal text-slate-400">{invStockItem.baseUnit}</span>
-                      </p>
-                    )
-                  })()}
-                </div>
-              </div>
-
-              {/* Input field — varies by mode */}
-              {invStockMode === 'restock' ? (
-                <div className="space-y-1.5">
-                  <Label className="text-[11px] text-slate-400">Jumlah Restock <span className="text-red-400">*</span></Label>
-                  <Input
-                    type="number"
-                    inputMode="decimal"
-                    min="0"
-                    step="any"
-                    placeholder={`0 ${invStockItem.baseUnit}`}
-                    value={invStockQty}
-                    onChange={(e) => setInvStockQty(e.target.value)}
-                    className="bg-white/[0.04] border-white/[0.06] text-white"
-                    autoFocus
-                  />
-                  <p className="text-[10px] text-slate-500">Jumlah ini akan ditambahkan ke stok saat ini.</p>
-                </div>
-              ) : (
-                <div className="space-y-1.5">
-                  <Label className="text-[11px] text-slate-400">Stok Baru <span className="text-red-400">*</span></Label>
-                  <Input
-                    type="number"
-                    inputMode="decimal"
-                    min="0"
-                    step="any"
-                    placeholder={`0 ${invStockItem.baseUnit}`}
-                    value={invStockNew}
-                    onChange={(e) => setInvStockNew(e.target.value)}
-                    className="bg-white/[0.04] border-white/[0.06] text-white"
-                    autoFocus
-                  />
-                  <p className="text-[10px] text-slate-500">Set stok ke nilai absolut ini. Bisa kurang dari stok saat ini.</p>
-                </div>
-              )}
-
-              <div className="space-y-1.5">
-                <Label className="text-[11px] text-slate-400">Catatan / Alasan</Label>
-                <Textarea
-                  rows={2}
-                  placeholder={invStockMode === 'restock' ? 'Contoh: restock dari supplier X' : 'Contoh: rusak / expired / hasil opname'}
-                  value={invStockReason}
-                  onChange={(e) => setInvStockReason(e.target.value)}
-                  className="bg-white/[0.04] border-white/[0.06] text-white text-xs resize-none"
-                />
-              </div>
-
-              <ResponsiveDialogFooter className="gap-2 pt-1">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-9 text-xs text-slate-400 hover:text-white hover:bg-white/[0.04]"
-                  onClick={() => setInvStockOpen(false)}
-                  disabled={invStockSubmitting}
-                >
-                  Batal
-                </Button>
-                <Button
-                  size="sm"
-                  className={cn(
-                    'h-9 text-xs gap-1.5 text-white',
-                    invStockMode === 'restock'
-                      ? 'bg-emerald-600 hover:bg-emerald-500'
-                      : 'bg-amber-600 hover:bg-amber-500'
-                  )}
-                  disabled={
-                    invStockSubmitting ||
-                    (invStockMode === 'restock'
-                      ? (!invStockQty || Number(invStockQty) <= 0)
-                      : (invStockNew === '' || Number(invStockNew) < 0))
-                  }
-                  onClick={() => void handleInvStockSubmit()}
-                >
-                  {invStockSubmitting
-                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    : invStockMode === 'restock'
-                      ? <RefreshCw className="h-3.5 w-3.5" />
-                      : <FilePenLine className="h-3.5 w-3.5" />}
-                  {invStockMode === 'restock' ? 'Restock' : 'Simpan Penyesuaian'}
-                </Button>
-              </ResponsiveDialogFooter>
-            </div>
-          )}
         </ResponsiveDialogContent>
       </ResponsiveDialog>
 
