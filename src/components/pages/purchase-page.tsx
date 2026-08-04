@@ -11,6 +11,8 @@ import {
   getConvertibleUnits,
   areUnitsCompatible,
 } from '@/lib/unit-conversion'
+import { normalizeImportToPurchaseDraft, type PurchaseDraftItem, type ImportPreviewRow } from '@/lib/purchase-draft'
+import { resolvePurchaseUnit } from '@/lib/purchase-unit-resolver'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -790,14 +792,23 @@ export default function PurchasePage() {
   const [importPosting, setImportPosting] = useState(false)
   const [importProgress, setImportProgress] = useState({ step: 0, total: 0, label: '' })
   const [importSupplierId, setImportSupplierId] = useState('')
-  const [importPreviewData, setImportPreviewData] = useState<Array<{
-    row: number; name: string; sku: string | null; purchaseUnit: string;
-    qty: number; baseQty: number; baseUnit: string; pricePerUnit: number;
-    batch: string | null; expiredDate: string | null;
-    matchedItemId: string | null; matchedItemName: string | null;
-    matchedItemSku: string | null; matchedItemUnit: string | null;
-    isNew: boolean; error?: string;
-  }> | null>(null)
+  const [importPreviewData, setImportPreviewData] = useState<ImportPreviewRow[] | null>(null)
+
+  // ── Canonical unit resolution state ──
+  // The frontend runs `resolvePurchaseUnit()` on every preview row and lets
+  // the user resolve NEEDS_MAPPING rows by entering an explicit conversion
+  // factor. Both "Posting Langsung" and "Terapkan ke Form" share the SAME
+  // gate: every row must reach VALID before submission.
+  //
+  // `unitFactorInputs` / `unitBaseInputs` hold the in-progress text the user
+  // types into the per-row mapping editor (string for input control).
+  // `rowUnitOverrides` stores per-row confirmed mappings.
+  // `unitMappings` stores per-imported-unit confirmed mappings (the "apply to
+  // all rows with same imported unit" convenience).
+  const [unitFactorInputs, setUnitFactorInputs] = useState<Record<number, string>>({})
+  const [unitBaseInputs, setUnitBaseInputs] = useState<Record<number, string>>({})
+  const [rowUnitOverrides, setRowUnitOverrides] = useState<Record<number, { purchaseUnit: string; baseUnit: string; conversionFactor: number }>>({})
+  const [unitMappings, setUnitMappings] = useState<Record<string, { purchaseUnit: string; baseUnit: string; conversionFactor: number }>>({})
   const importFileRef = useRef<HTMLInputElement | null>(null)
 
   // Edit Excel state
@@ -1374,6 +1385,7 @@ export default function PurchasePage() {
               inventoryItemId: i.inventoryItemId,
               purchaseQty,
               purchaseUnit: i.unit || '',
+              conversionFactor: effPerUnit,
               baseQty: totalBaseQty,
               baseUnit: i.baseUnit,
               unitCost,
@@ -1424,78 +1436,52 @@ export default function PurchasePage() {
       }
     }
 
-    // ── Step 1: Create any pending items in DB first ──
-    const pendingItems = validItems.filter(i => i.inventoryItemId.startsWith('__pending_'))
-    const idMap = new Map<string, string>() // tempId → realId
-
-    if (pendingItems.length > 0) {
-      setPoCreateLoading(true)
-      toast.loading(`Membuat ${pendingItems.length} item baru di inventory...`, { id: 'pending-create' })
-      for (const pItem of pendingItems) {
-        // Find the option to get full details (sku, baseUnit)
-        const opt = poItemOptions.find(o => o.id === pItem.inventoryItemId)
-        try {
-          const res = await fetch('/api/inventory/items', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              name: pItem.inventoryItemName,
-              sku: opt?.sku || undefined,
-              baseUnit: pItem.baseUnit,
-              stock: 0,
-              avgCost: 0,
-            }),
-          })
-          if (res.ok) {
-            const data = await res.json()
-            idMap.set(pItem.inventoryItemId, data.id)
-          } else {
-            const err = await res.json()
-            toast.error(err.error || `Gagal membuat item "${pItem.inventoryItemName}"`)
-            toast.dismiss('pending-create')
-            setPoCreateLoading(false)
-            return
-          }
-        } catch {
-          toast.error(`Gagal membuat item "${pItem.inventoryItemName}"`)
-          toast.dismiss('pending-create')
-          setPoCreateLoading(false)
-          return
-        }
-      }
-      toast.dismiss('pending-create')
-    }
-
-    // ── Step 2: Submit purchase with real IDs ──
-    if (!pendingItems.length) setPoCreateLoading(true)
+    // ── Build canonical PurchaseDraftItem[] ──
+    // Existing items → { inventoryItemId, newKey: null }.
+    // Pending items (Quick Add / Apply-to-Form new items with __pending_ IDs)
+    //   → { inventoryItemId: null, newKey: <pending-id> }.
+    // The backend creates new InventoryItems INSIDE the purchase $transaction
+    // (via createPurchaseFromDraft) — no pre-creation, no orphan-cleanup.
+    setPoCreateLoading(true)
     try {
+      const draftItems: PurchaseDraftItem[] = validItems.map(i => {
+        const purchaseQty = parseFloat(i.qty) || 0
+        // Convert user-entered package contents into the inventory base unit
+        // (e.g. 1 box = 1000 gram -> effective 1 kg).
+        const effPerUnit = effectiveBaseQtyPerPurchaseUnit(i) ?? 0
+        const pricePerItem = parseFloat(i.pricePerItem) || 0
+        const totalCost = pricePerItem * purchaseQty
+        const totalBaseQty = purchaseQty * effPerUnit
+        const unitCost = totalBaseQty > 0 ? totalCost / totalBaseQty : 0
+        const isPending = i.inventoryItemId.startsWith('__pending_')
+        // Look up the option for pending items to get sku.
+        const opt = isPending ? poItemOptions.find(o => o.id === i.inventoryItemId) : null
+        return {
+          inventoryItemId: isPending ? null : i.inventoryItemId,
+          newKey: isPending ? i.inventoryItemId : null,
+          name: i.inventoryItemName,
+          sku: opt?.sku ?? i.inventoryItemSku ?? null,
+          baseUnit: i.baseUnit,
+          purchaseQty,
+          purchaseUnit: i.unit || '',
+          // Canonical conversion factor (base units per purchase unit).
+          // Same value the backend re-validates via validateCanonicalPurchaseUnits.
+          conversionFactor: effPerUnit,
+          baseQty: totalBaseQty,
+          unitCost,
+          totalCost,
+          batch: i.batch?.trim() || null,
+          expiredDate: i.expiredDate || null,
+        }
+      })
+
       const res = await fetch('/api/purchases', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           supplierId: poCreateSupplierId || undefined,
           notes: poCreateNotes || undefined,
-          items: validItems.map(i => {
-            const purchaseQty = parseFloat(i.qty) || 0
-            // Convert user-entered package contents into the inventory base unit
-            // (e.g. 1 box = 1000 gram -> effective 1 kg). API contract unchanged.
-            const effPerUnit = effectiveBaseQtyPerPurchaseUnit(i) ?? 0
-            const pricePerItem = parseFloat(i.pricePerItem) || 0
-            const totalCost = pricePerItem * purchaseQty
-            const totalBaseQty = purchaseQty * effPerUnit
-            const unitCost = totalBaseQty > 0 ? totalCost / totalBaseQty : 0
-            return {
-              inventoryItemId: idMap.get(i.inventoryItemId) || i.inventoryItemId,
-              purchaseQty,
-              purchaseUnit: i.unit || '',
-              baseQty: totalBaseQty,
-              baseUnit: i.baseUnit,
-              unitCost,
-              totalCost,
-              batch: i.batch?.trim() || undefined,
-              expiredDate: i.expiredDate || undefined,
-            }
-          }),
+          items: draftItems,
         }),
       })
       if (res.ok) {
@@ -1507,22 +1493,11 @@ export default function PurchasePage() {
       } else {
         const data = await res.json()
         toast.error(data.error || 'Gagal membuat pembelian')
-        // Cleanup: delete orphaned pending items if PO creation failed
-        if (idMap.size > 0) {
-          for (const [, realId] of idMap) {
-            try { await fetch(`/api/inventory/items/${realId}`, { method: 'DELETE' }) } catch { /* ignore cleanup errors */ }
-          }
-          toast.info(`${idMap.size} item baru dibatalkan karena pembelian gagal`)
-        }
+        // No cleanup needed — the backend tx rolled back any new InventoryItems.
       }
     } catch {
       toast.error('Gagal membuat pembelian')
-      // Cleanup: delete orphaned pending items on network error
-      if (idMap.size > 0) {
-        for (const [, realId] of idMap) {
-          try { await fetch(`/api/inventory/items/${realId}`, { method: 'DELETE' }) } catch { /* ignore cleanup errors */ }
-        }
-      }
+      // No cleanup needed — nothing was persisted.
     } finally {
       setPoCreateLoading(false)
     }
@@ -1628,8 +1603,24 @@ export default function PurchasePage() {
       })
       if (res.ok) {
         const data = await res.json()
-        setImportPreviewData(data.items || [])
-        if (data.items.length === 0) {
+        const items: ImportPreviewRow[] = data.items || []
+        setImportPreviewData(items)
+        // Initialize per-row unit factor/base inputs. For each non-error row,
+        // pre-fill the factor input with the Excel-provided `baseQty` (the
+        // per-purchase-unit conversion from the file) and the base-unit input
+        // with the matched item's baseUnit (or the Excel baseUnit, or "pcs").
+        const initFactors: Record<number, string> = {}
+        const initBases: Record<number, string> = {}
+        for (const r of items) {
+          if (r.error) continue
+          initFactors[r.row] = r.baseQty > 0 ? String(r.baseQty) : '1'
+          initBases[r.row] = (r.matchedItemUnit || r.baseUnit || 'pcs').trim()
+        }
+        setUnitFactorInputs(initFactors)
+        setUnitBaseInputs(initBases)
+        setRowUnitOverrides({})
+        setUnitMappings({})
+        if (items.length === 0) {
           toast.error('Tidak ada data yang bisa diproses dari file')
         }
       } else {
@@ -1648,109 +1639,293 @@ export default function PurchasePage() {
     }
   }
 
-  // Apply import preview items to purchase form
-  // Apply import preview items to the canonical purchase form.
-  // FIX (split-state bug): the old mapping left `unit`/`baseUnit` empty when
-  // the Excel file omitted them, which caused `validatePoItem` to flag every
-  // row as invalid → Save button stayed disabled even though the preview
-  // summary showed valid data. The form (poCreateItems) and the preview
-  // (importPreviewData) had different shapes + different validation rules.
+  // ══════════════════════════════════════════════════════════
+  // Canonical unit resolution (shared by Direct Posting + Apply-to-Form)
   //
-  // This mapping now:
-  //   1. Fills `baseUnit` with a non-empty default (matched item's unit, or 'pcs').
-  //   2. Fills `unit` (purchase unit) with `baseUnit` when missing → 1:1, no
-  //      conversion needed, so `needsConversion` returns false and conversion
-  //      errors never fire.
-  //   3. Sets `conversionUnit` = `baseUnit` (always unit-compatible with itself).
-  //   4. Sets `baseQty` = '1' when no conversion needed (1 purchase unit = 1 base unit).
-  //   5. Sets `inputMethod='manual'` so the Create-PO dialog shows the FORM,
-  //      not the upload zone (the old code left inputMethod in its prior state).
-  //   6. Carries over `importSupplierId` → `poCreateSupplierId`.
-  //   7. Pre-counts rows needing attention (price=0) and toasts a warning.
+  // `importPreviewResolved` derives the final `unitResolution` for every row
+  // by combining:
+  //   1. Per-row confirmed override (`rowUnitOverrides[row]`)
+  //   2. Per-imported-unit confirmed mapping (`unitMappings[unitLower]`)
+  //   3. Auto-resolution via `resolvePurchaseUnit()`
+  //
+  // Both submission buttons read `importCanSubmit` — the SAME gate — so Direct
+  // Posting can never bypass the unit contract that Apply-to-Form enforces.
+  // ══════════════════════════════════════════════════════════
+  const importPreviewResolved = useMemo<ImportPreviewRow[] | null>(() => {
+    if (!importPreviewData) return null
+    return importPreviewData.map((row) => {
+      if (row.error) return row
+      const lower = (row.purchaseUnit || '').trim().toLowerCase()
+      const override = rowUnitOverrides[row.row]
+      if (override && override.conversionFactor > 0) {
+        return {
+          ...row,
+          unitResolution: {
+            status: 'VALID' as const,
+            purchaseUnit: override.purchaseUnit,
+            baseUnit: override.baseUnit,
+            conversionFactor: override.conversionFactor,
+          },
+        }
+      }
+      const unitMap = lower ? unitMappings[lower] : undefined
+      if (unitMap && unitMap.conversionFactor > 0) {
+        return {
+          ...row,
+          unitResolution: {
+            status: 'VALID' as const,
+            purchaseUnit: unitMap.purchaseUnit,
+            baseUnit: unitMap.baseUnit,
+            conversionFactor: unitMap.conversionFactor,
+          },
+        }
+      }
+      // Auto-resolve. Use the matched item's baseUnit (preferred) or the
+      // Excel-provided baseUnit as the target.
+      const baseUnitForResolve = (row.matchedItemUnit || row.baseUnit || '').trim()
+      const res = resolvePurchaseUnit(row.purchaseUnit, { baseUnit: baseUnitForResolve })
+      if (res.status === 'VALID') {
+        return {
+          ...row,
+          unitResolution: {
+            status: 'VALID' as const,
+            purchaseUnit: res.purchaseUnit,
+            baseUnit: res.baseUnit,
+            conversionFactor: res.conversionFactor,
+          },
+        }
+      }
+      if (res.status === 'NEEDS_MAPPING') {
+        return {
+          ...row,
+          unitResolution: {
+            status: 'NEEDS_MAPPING' as const,
+            purchaseUnit: row.purchaseUnit || '',
+            baseUnit: res.targetBaseUnit,
+            conversionFactor: 0,
+            reason: res.reason,
+          },
+        }
+      }
+      return {
+        ...row,
+        unitResolution: {
+          status: 'INVALID' as const,
+          purchaseUnit: row.purchaseUnit || '',
+          baseUnit: '',
+          conversionFactor: 0,
+          reason: res.reason,
+        },
+      }
+    })
+  }, [importPreviewData, rowUnitOverrides, unitMappings])
+
+  /** Count of submittable (non-error) rows that share each imported unit string. */
+  const importUnitCounts = useMemo<Record<string, number>>(() => {
+    const counts: Record<string, number> = {}
+    if (!importPreviewData) return counts
+    for (const r of importPreviewData) {
+      if (r.error) continue
+      const lower = (r.purchaseUnit || '').trim().toLowerCase()
+      if (!lower) continue
+      counts[lower] = (counts[lower] || 0) + 1
+    }
+    return counts
+  }, [importPreviewData])
+
+  /**
+   * Shared submission gate for BOTH "Posting Langsung" and "Terapkan ke Form".
+   * Disabled until every non-error row has:
+   *  - a valid unit resolution (status === VALID)
+   *  - quantity > 0
+   *  - unit cost >= 0 (non-negative; the manual form enforces > 0 on its own Save)
+   *  - a name (for new items)
+   */
+  const importCanSubmit = useMemo(() => {
+    if (!importPreviewResolved) return false
+    const submittable = importPreviewResolved.filter((r) => !r.error)
+    if (submittable.length === 0) return false
+    return submittable.every((r) =>
+      r.unitResolution?.status === 'VALID' &&
+      (r.qty || 0) > 0 &&
+      (r.pricePerUnit || 0) >= 0 &&
+      (!r.isNew || !!r.name.trim()),
+    )
+  }, [importPreviewResolved])
+
+  /** Apply the user-entered factor + base unit to a single row. */
+  const handleApplyUnitMapping = (rowNum: number, importedUnit: string) => {
+    const factorStr = (unitFactorInputs[rowNum] || '').trim()
+    const factor = parseFloat(factorStr)
+    const baseUnit = (unitBaseInputs[rowNum] || '').trim()
+    if (!Number.isFinite(factor) || factor <= 0) {
+      toast.error('Faktor konversi harus berupa angka lebih dari 0')
+      return
+    }
+    if (!baseUnit) {
+      toast.error('Satuan dasar wajib diisi')
+      return
+    }
+    setRowUnitOverrides((prev) => ({
+      ...prev,
+      [rowNum]: { purchaseUnit: importedUnit, baseUnit, conversionFactor: factor },
+    }))
+  }
+
+  /** Apply the user-entered factor + base unit to EVERY row sharing the same imported unit. */
+  const handleApplyUnitMappingToAll = (importedUnit: string) => {
+    const lower = importedUnit.trim().toLowerCase()
+    // Use the first row with this unit as the source of factor/base inputs.
+    const firstRow = importPreviewData?.find(
+      (r) => !r.error && (r.purchaseUnit || '').trim().toLowerCase() === lower,
+    )
+    if (!firstRow) return
+    const factorStr = (unitFactorInputs[firstRow.row] || '').trim()
+    const factor = parseFloat(factorStr)
+    const baseUnit = (unitBaseInputs[firstRow.row] || '').trim()
+    if (!Number.isFinite(factor) || factor <= 0) {
+      toast.error('Faktor konversi harus berupa angka lebih dari 0')
+      return
+    }
+    if (!baseUnit) {
+      toast.error('Satuan dasar wajib diisi')
+      return
+    }
+    setUnitMappings((prev) => ({
+      ...prev,
+      [lower]: { purchaseUnit: importedUnit, baseUnit, conversionFactor: factor },
+    }))
+    // Also clear any per-row overrides for rows with this unit so the unit
+    // mapping applies uniformly (the user can still re-override individual
+    // rows afterwards if needed).
+    setRowUnitOverrides((prev) => {
+      const next = { ...prev }
+      for (const r of importPreviewData || []) {
+        if (r.error) continue
+        if ((r.purchaseUnit || '').trim().toLowerCase() === lower) {
+          delete next[r.row]
+        }
+      }
+      return next
+    })
+    const count = importUnitCounts[lower] || 0
+    toast.success(`Mapping "${importedUnit}" = ${factor} ${baseUnit} diterapkan ke ${count} baris`)
+  }
+
+  // Apply import preview items to the canonical purchase form.
+  //
+  // Uses `normalizeImportToPurchaseDraft()` to produce canonical
+  // `PurchaseDraftItem[]` (the same shape Posting Langsung and manual submit
+  // consume), then maps each draft item → form `PurchaseOrderItem`:
+  //   - Existing items → real inventoryItemId.
+  //   - New items → `__pending_` placeholder ID (detected by handlePoCreateSubmit
+  //     and sent as `newKey` — backend creates the InventoryItem inside the tx).
+  //
+  // The form's `baseQty` field holds the PER-PURCHASE-UNIT conversion factor
+  // (e.g. 1.85 for 1 Ekor = 1.85 kg), recovered from the draft's total baseQty:
+  //   formBaseQty = draft.baseQty / draft.purchaseQty.
+  // `pricePerItem` holds the price per PURCHASE unit:
+  //   formPricePerItem = draft.totalCost / draft.purchaseQty.
   //
   // After this, `poCreateValidation` (useMemo) recomputes on the next render
   // and `poCreateCanSubmit` becomes true if all rows have qty>0, unit, baseUnit,
-  // and price>0. The Save button enables. The user can still edit qty/price/
-  // batch/expiry before submit. Submit uses the normal `handlePoCreateSubmit`
-  // path (same as manual entry) — no split state.
+  // and price>0. The Save button enables. The user can still edit before submit.
+  // Submit uses `handlePoCreateSubmit` (same canonical service as manual + import).
   const handleApplyImport = () => {
-    if (!importPreviewData) return
+    if (!importPreviewResolved) return
+    // Use the RESOLVED preview rows so the canonical unit resolution flows
+    // into the draft. Rows still in NEEDS_MAPPING / INVALID are dropped by
+    // the normalizer (defense-in-depth; the submission gate already blocks
+    // them).
+    const draftItems = normalizeImportToPurchaseDraft(importPreviewResolved)
+    if (draftItems.length === 0) {
+      toast.error('Tidak ada item valid untuk diterapkan')
+      return
+    }
+
+    const ts = Date.now()
     const newItems: PurchaseOrderItem[] = []
     const newOptions: InventoryItemOption[] = []
-    importPreviewData.forEach((item, idx) => {
-      if (item.error) return
-      const itemId = item.matchedItemId || `__pending_${item.name}_${item.sku || ''}_${idx}_${Date.now()}`
-      // Resolve base unit: prefer explicit, then matched inventory item's unit, then 'pcs'.
-      const resolvedBaseUnit = item.baseUnit || item.matchedItemUnit || 'pcs'
-      // Resolve purchase unit: prefer explicit, then fall back to base unit (1:1).
-      const resolvedUnit = item.purchaseUnit || resolvedBaseUnit
-      // Conversion needed only when purchase unit !== base unit.
-      const needsConv = resolvedUnit !== resolvedBaseUnit
-      // baseQty: if conversion needed, use the import's baseQty (already in base units).
-      // If no conversion, default to '1' (1 purchase unit = 1 base unit).
-      const resolvedBaseQty = needsConv ? String(item.baseQty || 1) : '1'
-      // conversionUnit: the unit that baseQty is expressed in (= base unit).
-      const resolvedConversionUnit = resolvedBaseUnit
+
+    draftItems.forEach((d, idx) => {
+      const isExisting = !!d.inventoryItemId
+      const itemId = isExisting
+        ? d.inventoryItemId!
+        : `__pending_${d.name}_${d.sku || ''}_${idx}_${ts}`
+      // The draft's `conversionFactor` IS the per-purchase-unit factor the
+      // form's `baseQty` field expects (e.g. 1.85 for 1 Ekor = 1.85 kg).
+      // `conversionUnit` = baseUnit so `effectiveBaseQtyPerPurchaseUnit()` in
+      // the form returns the same factor the backend re-validates.
+      const needsConv = !isSameUnit(d.purchaseUnit, d.baseUnit)
+      const pricePerPurchaseUnit = d.purchaseQty > 0 ? d.totalCost / d.purchaseQty : 0
+
       newItems.push({
         inventoryItemId: itemId,
-        inventoryItemName: item.name,
-        inventoryItemSku: item.matchedItemSku || item.sku || null,
-        baseUnit: resolvedBaseUnit,
-        qty: String(item.qty || 1),
-        unit: resolvedUnit,
-        baseQty: resolvedBaseQty,
-        conversionUnit: resolvedConversionUnit,
-        pricePerItem: String(item.pricePerUnit || 0),
-        batch: item.batch || '',
-        expiredDate: item.expiredDate || '',
+        inventoryItemName: d.name,
+        inventoryItemSku: d.sku,
+        baseUnit: d.baseUnit,
+        qty: String(d.purchaseQty || 1),
+        unit: d.purchaseUnit || d.baseUnit,
+        baseQty: needsConv ? String(d.conversionFactor) : '1',
+        conversionUnit: d.baseUnit,
+        pricePerItem: String(pricePerPurchaseUnit),
+        batch: d.batch || '',
+        expiredDate: d.expiredDate || '',
       })
-      // Add new items to poItemOptions so pending creation works
-      if (item.isNew && !item.matchedItemId) {
+
+      // Add new items to poItemOptions so the form can render them.
+      if (!isExisting) {
         newOptions.push({
           id: itemId,
-          name: item.name,
-          sku: item.sku || null,
-          baseUnit: resolvedBaseUnit,
+          name: d.name,
+          sku: d.sku,
+          baseUnit: d.baseUnit,
           stock: 0,
           active: true,
           _isNew: true,
         })
       }
     })
-    if (newItems.length > 0) {
-      if (newOptions.length > 0) {
-        setPoItemOptions(prev => [...newOptions, ...prev])
-      }
-      setPoCreateItems(newItems)
-      // CRITICAL: switch to manual mode so the form (not upload zone) renders.
-      setInputMethod('manual')
-      // Carry over supplier from import preview → form.
-      if (importSupplierId) setPoCreateSupplierId(importSupplierId)
-      setShowImportPreview(false)
-      setImportPreviewData(null)
-      setPoCreateOpen(true)
-      void fetchSuppliers()
-      // Pre-validate: count rows that still need user attention (price = 0).
-      // These rows will block Save until the user fills in a price.
-      const needsAttention = newItems.filter(i => parseFloat(i.pricePerItem) <= 0).length
-      if (needsAttention > 0) {
-        toast.warning(`${newItems.length} item diterapkan ke form. ${needsAttention} item perlu diisi harga sebelum simpan.`)
-      } else {
-        toast.success(`${newItems.length} item berhasil ditambahkan ke pembelian — siap disimpan`)
-      }
+
+    if (newOptions.length > 0) {
+      setPoItemOptions(prev => [...newOptions, ...prev])
+    }
+    setPoCreateItems(newItems)
+    // CRITICAL: switch to manual mode so the form (not upload zone) renders.
+    setInputMethod('manual')
+    // Carry over supplier from import preview → form.
+    if (importSupplierId) setPoCreateSupplierId(importSupplierId)
+    setShowImportPreview(false)
+    setImportPreviewData(null)
+    // Reset unit-mapping state (cleared when the dialog closes).
+    setUnitFactorInputs({})
+    setUnitBaseInputs({})
+    setRowUnitOverrides({})
+    setUnitMappings({})
+    setPoCreateOpen(true)
+    void fetchSuppliers()
+    // Pre-validate: count rows that still need user attention (price = 0).
+    const needsAttention = newItems.filter(i => parseFloat(i.pricePerItem) <= 0).length
+    if (needsAttention > 0) {
+      toast.warning(`${newItems.length} item diterapkan ke form. ${needsAttention} item perlu diisi harga sebelum simpan.`)
     } else {
-      toast.error('Tidak ada item valid untuk diterapkan')
+      toast.success(`${newItems.length} item berhasil ditambahkan ke pembelian — siap disimpan`)
     }
   }
 
-  // Direct posting from import preview (creates new items + PO in one shot)
+  // Direct posting from import preview: normalize → submit canonical service.
+  // The backend's `createPurchaseFromDraft()` creates any new InventoryItems
+  // INSIDE the purchase $transaction (no pre-creation, no orphans on failure).
   const handleImportPost = async () => {
-    if (!importPreviewData) return
-    const validItems = importPreviewData.filter(i => !i.error)
-    if (validItems.length === 0) return
+    if (!importPreviewResolved) return
+    // Use the RESOLVED preview rows — same canonical path as Apply-to-Form.
+    // The submission gate (`importCanSubmit`) already ensures every row is
+    // VALID; the normalizer drops any stragglers as defense-in-depth.
+    const draftItems = normalizeImportToPurchaseDraft(importPreviewResolved)
+    if (draftItems.length === 0) return
 
     setImportPosting(true)
-    const total = validItems.length
+    const total = draftItems.length
 
     // Animate progress while backend processes
     let progressTimer: ReturnType<typeof setInterval> | null = null
@@ -1776,74 +1951,30 @@ export default function PurchasePage() {
     try {
       startProgress()
 
-      // Separate existing items vs new items
-      const existingItems = validItems.filter(i => !i.isNew && i.matchedItemId)
-      const newItems = validItems.filter(i => i.isNew && !i.matchedItemId)
-
-      // Build purchase items (existing — already have IDs)
-      const purchaseItems = existingItems.map(item => {
-        const baseQtyVal = item.baseQty || 1
-        const qtyVal = item.qty || 0
-        const pricePerUnit = item.pricePerUnit || 0
-        const totalCost = pricePerUnit * qtyVal
-        const totalBaseQty = qtyVal * baseQtyVal
-        const unitCost = totalBaseQty > 0 ? totalCost / totalBaseQty : 0
-
-        return {
-          inventoryItemId: item.matchedItemId!,
-          purchaseQty: qtyVal,
-          purchaseUnit: item.purchaseUnit || '',
-          baseQty: totalBaseQty,
-          baseUnit: item.baseUnit || item.matchedItemUnit || '',
-          unitCost,
-          totalCost,
-          batch: item.batch?.trim() || undefined,
-          expiredDate: item.expiredDate || undefined,
-        }
-      })
-
-      // Build new items (no inventoryItemId — backend creates them)
-      const newItemsPayload = newItems.map(item => {
-        const baseQtyVal = item.baseQty || 1
-        const qtyVal = item.qty || 0
-        const pricePerUnit = item.pricePerUnit || 0
-        const totalCost = pricePerUnit * qtyVal
-        const totalBaseQty = qtyVal * baseQtyVal
-        const unitCost = totalBaseQty > 0 ? totalCost / totalBaseQty : 0
-
-        return {
-          key: `import_row_${item.row}`,
-          name: item.name,
-          sku: item.sku || undefined,
-          baseUnit: item.baseUnit || item.matchedItemUnit || 'pcs',
-          purchaseQty: qtyVal,
-          purchaseUnit: item.purchaseUnit || '',
-          baseQty: totalBaseQty,
-          unitCost,
-          totalCost,
-          batch: item.batch?.trim() || undefined,
-          expiredDate: item.expiredDate || undefined,
-        }
-      })
-
-      // ONE API CALL: backend creates new items + PO atomically
+      // ONE API CALL: backend creates new items + PO atomically in one tx.
+      // The unified `items[]` shape carries either `inventoryItemId` (existing)
+      // or `newKey` (new) per item — same shape as manual + apply-to-form.
       const res = await fetch('/api/purchases', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           supplierId: importSupplierId || undefined,
-          items: purchaseItems,
-          newItems: newItemsPayload.length > 0 ? newItemsPayload : undefined,
+          items: draftItems,
         }),
       })
 
       if (res.ok) {
         const data = await res.json()
         stopProgress()
-        toast.success(`Pembelian berhasil! ${data.orderNumber} (${validItems.length} item, ${formatCurrency(data.totalCost)})`)
+        toast.success(`Pembelian berhasil! ${data.orderNumber} (${draftItems.length} item, ${formatCurrency(data.totalCost)})`)
         setShowImportPreview(false)
         setImportPreviewData(null)
         setImportSupplierId('')
+        // Reset unit-mapping state.
+        setUnitFactorInputs({})
+        setUnitBaseInputs({})
+        setRowUnitOverrides({})
+        setUnitMappings({})
         void fetchPurchaseOrders()
         void fetchInventoryItems()
         void fetchPurchaseSummary()
@@ -6579,7 +6710,17 @@ export default function PurchasePage() {
       </ResponsiveDialog>
 
       {/* ── Import Excel Preview Dialog ── */}
-      <ResponsiveDialog open={showImportPreview} onOpenChange={(open) => { if (importPosting) return; if (!open) { setShowImportPreview(false); setImportPreviewData(null) } }}>
+      <ResponsiveDialog open={showImportPreview} onOpenChange={(open) => {
+        if (importPosting) return
+        if (!open) {
+          setShowImportPreview(false)
+          setImportPreviewData(null)
+          setUnitFactorInputs({})
+          setUnitBaseInputs({})
+          setRowUnitOverrides({})
+          setUnitMappings({})
+        }
+      }}>
         <ResponsiveDialogContent className="sm:max-w-2xl flex flex-col max-h-[85vh]">
           <ResponsiveDialogHeader>
             <ResponsiveDialogTitle className="text-white text-base flex items-center gap-2">
@@ -6589,8 +6730,16 @@ export default function PurchasePage() {
               <div>
                 <span>Preview Import Excel</span>
                 <p className="text-[11px] text-slate-500 font-normal mt-0.5">
-                  {importPreviewData
-                    ? `${importPreviewData.filter(i => !i.error).length} item ditemukan, ${importPreviewData.filter(i => i.isNew).length} barang baru`
+                  {importPreviewResolved
+                    ? (() => {
+                        const valid = importPreviewResolved.filter(i => !i.error)
+                        const needsMapping = valid.filter(i => i.unitResolution?.status === 'NEEDS_MAPPING').length
+                        const invalid = valid.filter(i => i.unitResolution?.status === 'INVALID').length
+                        const parts = [`${valid.length} item`, `${valid.filter(i => i.isNew).length} barang baru`]
+                        if (needsMapping > 0) parts.push(`${needsMapping} perlu mapping`)
+                        if (invalid > 0) parts.push(`${invalid} invalid`)
+                        return parts.join(', ')
+                      })()
                     : 'Membaca file...'}
                 </p>
               </div>
@@ -6601,12 +6750,14 @@ export default function PurchasePage() {
           </ResponsiveDialogHeader>
 
           {/* Summary bar */}
-          {importPreviewData && (
-            <div className="flex items-center gap-3 px-1 mt-1">
+          {importPreviewResolved && (
+            <div className="flex items-center gap-3 px-1 mt-1 flex-wrap">
               {(() => {
-                const valid = importPreviewData.filter(i => !i.error)
+                const valid = importPreviewResolved.filter(i => !i.error)
                 const totalCost = valid.reduce((sum, i) => sum + ((i.qty || 0) * (i.pricePerUnit || 0)), 0)
-                const errorCount = importPreviewData.filter(i => i.error).length
+                const errorCount = importPreviewResolved.filter(i => i.error).length
+                const needsMapping = valid.filter(i => i.unitResolution?.status === 'NEEDS_MAPPING').length
+                const invalid = valid.filter(i => i.unitResolution?.status === 'INVALID').length
                 return (
                   <>
                     <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
@@ -6617,6 +6768,18 @@ export default function PurchasePage() {
                       <div className="flex items-center gap-1.5 text-[11px] text-emerald-400">
                         <Banknote className="h-3 w-3" />
                         <span className="font-mono">{formatCurrency(totalCost)}</span>
+                      </div>
+                    )}
+                    {needsMapping > 0 && (
+                      <div className="flex items-center gap-1.5 text-[11px] text-amber-400">
+                        <AlertCircle className="h-3 w-3" />
+                        <span>{needsMapping} perlu mapping satuan</span>
+                      </div>
+                    )}
+                    {invalid > 0 && (
+                      <div className="flex items-center gap-1.5 text-[11px] text-red-400">
+                        <XCircle className="h-3 w-3" />
+                        <span>{invalid} satuan invalid</span>
                       </div>
                     )}
                     {errorCount > 0 && (
@@ -6632,7 +6795,7 @@ export default function PurchasePage() {
           )}
 
           {/* Supplier selector */}
-          {importPreviewData && importPreviewData.filter(i => !i.error).length > 0 && (
+          {importPreviewResolved && importPreviewResolved.filter(i => !i.error).length > 0 && (
             <div className="mt-2">
               <Label className="text-[11px] text-slate-400 mb-1.5 block">Supplier (opsional)</Label>
               <SupplierSearchInput
@@ -6652,8 +6815,20 @@ export default function PurchasePage() {
                 <span className="text-xs text-slate-400 ml-2">Membaca file Excel...</span>
               </div>
             )}
-            {importPreviewData && importPreviewData.map((item) => {
+            {importPreviewResolved && importPreviewResolved.map((item) => {
               const itemTotal = (item.qty || 0) * (item.pricePerUnit || 0)
+              const res = item.unitResolution
+              const isNeedsMapping = res?.status === 'NEEDS_MAPPING'
+              const isInvalidUnit = res?.status === 'INVALID'
+              const isValidUnit = res?.status === 'VALID'
+              const resolvedFactor = isValidUnit ? res.conversionFactor : 0
+              const resolvedBaseUnit = isValidUnit ? res.baseUnit : (res?.baseUnit || item.matchedItemUnit || item.baseUnit || '')
+              const resolvedBaseQty = isValidUnit && (item.qty || 0) > 0 ? item.qty * resolvedFactor : 0
+              const importedUnit = item.purchaseUnit || ''
+              const lowerUnit = importedUnit.trim().toLowerCase()
+              const sameUnitCount = lowerUnit ? (importUnitCounts[lowerUnit] || 0) : 0
+              const hasUnitMapping = lowerUnit ? !!unitMappings[lowerUnit] : false
+              const hasRowOverride = !!rowUnitOverrides[item.row]
               return (
                 <div
                   key={item.row}
@@ -6661,9 +6836,13 @@ export default function PurchasePage() {
                     'rounded-lg border p-2.5 text-xs',
                     item.error
                       ? 'border-red-500/20 bg-red-500/[0.04]'
-                      : item.isNew
-                        ? 'border-amber-500/20 bg-amber-500/[0.04]'
-                        : 'border-white/[0.04] bg-white/[0.02]'
+                      : isInvalidUnit
+                        ? 'border-red-500/30 bg-red-500/[0.06]'
+                        : isNeedsMapping
+                          ? 'border-amber-500/30 bg-amber-500/[0.06]'
+                          : item.isNew
+                            ? 'border-amber-500/20 bg-amber-500/[0.04]'
+                            : 'border-white/[0.04] bg-white/[0.02]'
                   )}
                 >
                   <div className="flex items-center justify-between">
@@ -6677,6 +6856,27 @@ export default function PurchasePage() {
                       ) : item.matchedItemName ? (
                         <Badge className="text-[9px] px-1.5 py-0 h-4 bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shrink-0">Match</Badge>
                       ) : null}
+                      {/* Unit resolution badge */}
+                      {isValidUnit && resolvedFactor !== 1 && resolvedBaseUnit && (
+                        <Badge className="text-[9px] px-1.5 py-0 h-4 bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shrink-0 font-mono" title={`1 ${importedUnit || resolvedBaseUnit} = ${resolvedFactor} ${resolvedBaseUnit}`}>
+                          1 {importedUnit || resolvedBaseUnit} = {resolvedFactor} {resolvedBaseUnit}
+                        </Badge>
+                      )}
+                      {isValidUnit && resolvedFactor === 1 && importedUnit && resolvedBaseUnit && !item.error && (
+                        <Badge className="text-[9px] px-1.5 py-0 h-4 bg-sky-500/10 text-sky-400 border-sky-500/20 shrink-0" title={`1 ${importedUnit} = 1 ${resolvedBaseUnit}`}>
+                          1:1
+                        </Badge>
+                      )}
+                      {isNeedsMapping && (
+                        <Badge className="text-[9px] px-1.5 py-0 h-4 bg-amber-500/10 text-amber-400 border-amber-500/20 shrink-0">
+                          Perlu mapping
+                        </Badge>
+                      )}
+                      {isInvalidUnit && (
+                        <Badge className="text-[9px] px-1.5 py-0 h-4 bg-red-500/10 text-red-400 border-red-500/20 shrink-0">
+                          Invalid
+                        </Badge>
+                      )}
                     </div>
                     <div className="flex items-center gap-3 shrink-0 ml-2">
                       {item.expiredDate && (
@@ -6691,9 +6891,9 @@ export default function PurchasePage() {
                       )}
                       {item.qty > 0 && (
                         <span className="text-[11px] text-slate-300">
-                          {item.qty}{item.purchaseUnit ? ` ${item.purchaseUnit}` : ''}
-                          {item.baseQty > 0 && item.baseQty !== 1 && item.baseUnit ? (
-                            <span className="text-slate-500"> → {item.qty * item.baseQty} {item.baseUnit}</span>
+                          {item.qty}{importedUnit ? ` ${importedUnit}` : ''}
+                          {resolvedBaseQty > 0 && resolvedFactor !== 1 && resolvedBaseUnit ? (
+                            <span className="text-slate-500"> → {formatNumber(resolvedBaseQty)} {resolvedBaseUnit}</span>
                           ) : null}
                         </span>
                       )}
@@ -6707,6 +6907,84 @@ export default function PurchasePage() {
                   </div>
                   {item.error && (
                     <p className="text-[10px] text-red-400/80 mt-1">{item.error}</p>
+                  )}
+                  {/* INVALID unit — show reason, no editor */}
+                  {isInvalidUnit && res?.reason && (
+                    <p className="text-[10px] text-red-400/90 mt-1 flex items-center gap-1">
+                      <XCircle className="h-3 w-3 shrink-0" />
+                      {res.reason}
+                    </p>
+                  )}
+                  {/* NEEDS_MAPPING — inline mapping editor */}
+                  {isNeedsMapping && (
+                    <div className="mt-1.5 pt-1.5 border-t border-amber-500/10">
+                      {res?.reason && (
+                        <p className="text-[10px] text-amber-400/90 mb-1.5 flex items-center gap-1">
+                          <AlertCircle className="h-3 w-3 shrink-0" />
+                          {res.reason}
+                        </p>
+                      )}
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[10px] text-slate-500 shrink-0">1</span>
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5 border-amber-500/30 text-amber-300 bg-amber-500/[0.08] shrink-0 font-mono">
+                          {importedUnit || '(kosong)'}
+                        </Badge>
+                        <span className="text-[10px] text-slate-500 shrink-0">=</span>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="any"
+                          inputMode="decimal"
+                          className="h-6 w-16 text-[11px] px-1.5 bg-white/[0.04] border-amber-500/20 text-amber-200"
+                          value={unitFactorInputs[item.row] ?? ''}
+                          onChange={(e) => setUnitFactorInputs(prev => ({ ...prev, [item.row]: e.target.value }))}
+                          placeholder="faktor"
+                          aria-label={`Faktor konversi untuk ${importedUnit}`}
+                        />
+                        <Input
+                          type="text"
+                          className="h-6 w-16 text-[11px] px-1.5 bg-white/[0.04] border-amber-500/20 text-amber-200"
+                          value={unitBaseInputs[item.row] ?? ''}
+                          onChange={(e) => setUnitBaseInputs(prev => ({ ...prev, [item.row]: e.target.value }))}
+                          placeholder="satuan"
+                          aria-label={`Satuan dasar untuk ${importedUnit}`}
+                          disabled={!!item.matchedItemId && !!item.matchedItemUnit}
+                          title={item.matchedItemId && item.matchedItemUnit ? `Dari inventory: ${item.matchedItemUnit}` : 'Satuan dasar'}
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-2 text-[10px] text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10"
+                          onClick={() => handleApplyUnitMapping(item.row, importedUnit)}
+                        >
+                          <Check className="h-3 w-3 mr-1" />
+                          Terapkan
+                        </Button>
+                        {sameUnitCount > 1 && !hasUnitMapping && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 text-[10px] text-sky-400 hover:text-sky-300 hover:bg-sky-500/10"
+                            onClick={() => handleApplyUnitMappingToAll(importedUnit)}
+                          >
+                            <CheckCircle2 className="h-3 w-3 mr-1" />
+                            Terapkan ke {sameUnitCount} baris &ldquo;{importedUnit}&rdquo;
+                          </Button>
+                        )}
+                        {hasUnitMapping && (
+                          <Badge className="text-[9px] px-1.5 py-0 h-4 bg-sky-500/10 text-sky-400 border-sky-500/20 shrink-0">
+                            Mapping global aktif
+                          </Badge>
+                        )}
+                        {hasRowOverride && !hasUnitMapping && (
+                          <Badge className="text-[9px] px-1.5 py-0 h-4 bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shrink-0">
+                            Mapping baris aktif
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
                   )}
                 </div>
               )
@@ -6740,27 +7018,34 @@ export default function PurchasePage() {
 
             <Button
               className="w-full h-10 text-xs theme-bg theme-hover text-white font-medium"
-              disabled={!importPreviewData || importPreviewData.filter(i => !i.error).length === 0 || importPosting}
+              disabled={!importCanSubmit || importPosting}
               onClick={handleImportPost}
             >
               {!importPosting && <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />}
               {importPosting
                 ? 'Memproses...'
-                : `Posting ${importPreviewData ? importPreviewData.filter(i => !i.error).length : 0} Item`}
+                : `Posting ${importPreviewResolved ? importPreviewResolved.filter(i => !i.error && i.unitResolution?.status === 'VALID').length : 0} Item`}
             </Button>
             <div className="flex gap-2">
               <Button
                 variant="ghost"
                 className="flex-1 h-9 text-[11px] text-slate-400 hover:text-white"
                 disabled={importPosting}
-                onClick={() => { setShowImportPreview(false); setImportPreviewData(null) }}
+                onClick={() => {
+                  setShowImportPreview(false)
+                  setImportPreviewData(null)
+                  setUnitFactorInputs({})
+                  setUnitBaseInputs({})
+                  setRowUnitOverrides({})
+                  setUnitMappings({})
+                }}
               >
                 {importPosting ? 'Menyimpan...' : 'Batal'}
               </Button>
               <Button
                 variant="ghost"
                 className="flex-1 h-9 text-[11px] text-slate-400 hover:text-white"
-                disabled={!importPreviewData || importPreviewData.filter(i => !i.error).length === 0 || importPosting}
+                disabled={!importCanSubmit || importPosting}
                 onClick={handleApplyImport}
               >
                 <ClipboardPaste className="h-3 w-3 mr-1" />

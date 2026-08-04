@@ -8,66 +8,9 @@ import {
   buildPurchaseChangeEvent,
 } from '@/lib/audit-v2'
 import { recalculateAffectedProductStock } from '@/lib/comp-stock'
+import { recalculateHppForAffectedProducts } from '@/lib/purchase-hpp'
 import { evaluatePurchaseMutationSafety } from '@/lib/purchase-mutation-safety'
-
-// Helper: recalculate HPP for all products affected by the given inventory item IDs
-async function recalculateHppForAffectedProducts(
-  tx: Parameters<Parameters<typeof db.$transaction>[0]>[0],
-  inventoryItemIds: string[]
-) {
-  const compositions = await tx.productComposition.findMany({
-    where: {
-      inventoryItemId: { in: inventoryItemIds },
-      product: { hasComposition: true },
-    },
-    include: {
-      product: {
-        select: { id: true, hasVariants: true },
-      },
-      variant: {
-        select: { id: true },
-      },
-      inventoryItem: {
-        select: { avgCost: true },
-      },
-    },
-  })
-
-  if (compositions.length === 0) return
-
-  const affectedProductIds = [...new Set(compositions.map((c) => c.productId))]
-
-  for (const productId of affectedProductIds) {
-    const productComps = compositions.filter((c) => c.productId === productId)
-    const hasVariants = productComps[0].product.hasVariants
-
-    if (hasVariants) {
-      const variantIds = [...new Set(productComps.filter((c) => c.variantId).map((c) => c.variantId!))]
-      for (const variantId of variantIds) {
-        const variantComps = productComps.filter((c) => c.variantId === variantId)
-        const batchCost = variantComps.reduce((sum, c) => sum + c.qty * c.inventoryItem.avgCost, 0)
-        const yieldPerBatch = variantComps[0]?.yieldPerBatch || 1
-        const newHpp = yieldPerBatch > 1 ? batchCost / yieldPerBatch : batchCost
-        await tx.productVariant.update({
-          where: { id: variantId },
-          data: { hpp: newHpp },
-        })
-      }
-      await tx.product.update({
-        where: { id: productId },
-        data: { hpp: 0 },
-      })
-    } else {
-      const batchCost = productComps.reduce((sum, c) => sum + c.qty * c.inventoryItem.avgCost, 0)
-      const yieldPerBatch = productComps[0]?.yieldPerBatch || 1
-      const newHpp = yieldPerBatch > 1 ? batchCost / yieldPerBatch : batchCost
-      await tx.product.update({
-        where: { id: productId },
-        data: { hpp: newHpp },
-      })
-    }
-  }
-}
+import { validateCanonicalPurchaseUnits } from '@/lib/purchase-unit-resolver'
 
 // GET /api/purchases/[id] — get purchase order detail
 export async function GET(
@@ -165,6 +108,7 @@ export async function PUT(
         baseUnit: string
         unitCost: number
         totalCost: number
+        conversionFactor?: number
         batch?: string | null
         expiredDate?: string | null
       }>
@@ -190,6 +134,24 @@ export async function PUT(
       }
       if (!item.totalCost || item.totalCost <= 0) {
         return safeJsonError('Total biaya item harus lebih dari 0', 400)
+      }
+
+      // ── Canonical unit enforcement (same contract as POST) ──
+      // Independent of frontend validation — rejects unsupported unit,
+      // unresolved mapping, missing baseUnit, conversionFactor <= 0,
+      // inconsistent baseQty. See purchase-unit-resolver.ts.
+      const unitViolations = validateCanonicalPurchaseUnits(
+        {
+          purchaseQty: item.purchaseQty,
+          purchaseUnit: item.purchaseUnit,
+          baseQty: item.baseQty,
+          baseUnit: item.baseUnit,
+          conversionFactor: item.conversionFactor,
+        },
+        item.inventoryItemId,
+      )
+      if (unitViolations.length > 0) {
+        return safeJsonError(unitViolations[0].message, 400)
       }
     }
 
