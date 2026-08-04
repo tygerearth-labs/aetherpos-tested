@@ -153,8 +153,6 @@ export function usePosCheckout(options: UsePosCheckoutOptions): UsePosCheckoutRe
       return
     }
     setCheckingOut(true)
-    // PHASE 1: Frontend timing instrumentation (click → request → response → refetch)
-    const tClick = performance.now()
     try {
       const localTransactionId = (typeof crypto !== 'undefined' && crypto.randomUUID)
         ? crypto.randomUUID()
@@ -201,9 +199,7 @@ export function usePosCheckout(options: UsePosCheckoutOptions): UsePosCheckoutRe
       //     cart preserved so cashier can fix and retry).
       //   - Offline → "Tersimpan offline, menunggu sinkronisasi" + receipt.
       if (isOnline) {
-        const tRequestStart = performance.now()
-        const syncResult = await syncOutbox()
-        const tResponse = performance.now()
+        await syncOutbox()
         const row = db ? await db.transactionOutbox.get(localTransactionId) : null
         if (row?.status === 'SYNCED') {
           const invoiceNum = row.invoiceNumber || `INV-${Date.now().toString(36).toUpperCase()}`
@@ -213,23 +209,8 @@ export function usePosCheckout(options: UsePosCheckoutOptions): UsePosCheckoutRe
           await saveLastReceiptSnapshot(result, cart, calcResult, paymentMethod, paidAmount, selectedCustomer, selectedPromo)
           setPaymentDialogOpen(false)
           setReceiptDialogOpen(true)
-          // PHASE 2 OPTIMIZATION (rule 10): Skip full catalog refetch when
-          // the sync response included updatedStock and we patched the local
-          // catalog. Only refetch customers (loyalty points changed) and
-          // products if stock wasn't patched (e.g. variant parents).
-          if (!syncResult.stockPatched) {
-            onRefreshProducts?.()
-          }
+          onRefreshProducts?.()
           onRefreshCustomers?.()
-          // PHASE 1: Log frontend timing
-          const tEnd = performance.now()
-          console.log(
-            `[checkout:fe-perf] click→request: ${Math.round(tRequestStart - tClick)}ms, ` +
-            `network: ${Math.round(tResponse - tRequestStart)}ms, ` +
-            `response→dialogClose: ${Math.round(tEnd - tResponse)}ms, ` +
-            `total: ${Math.round(tEnd - tClick)}ms, ` +
-            `stockPatched: ${syncResult.stockPatched}`
-          )
         } else {
           // Online but this transaction's sync failed — genuine failure.
           // Keep the row (for manual retry from the sync panel) but do NOT
@@ -508,9 +489,6 @@ export interface SyncOutboxResult {
   duplicateResolved: number
   /** Rows that exceeded MAX_SYNC_RETRY and were marked ABANDONED. */
   abandoned: number
-  /** PHASE 2: true if the sync response included updatedStock and the local
-   *  catalog was patched. The caller can skip onRefreshProducts when true. */
-  stockPatched: boolean
 }
 
 /**
@@ -568,14 +546,12 @@ export async function syncOutboxTracked(): Promise<{ result: SyncOutboxResult; i
 
 async function doSyncOutbox(): Promise<SyncOutboxResult> {
   const db = tryGetPosDB()
-  if (!db) return { synced: 0, failed: 0, duplicateResolved: 0, abandoned: 0, stockPatched: false }
+  if (!db) return { synced: 0, failed: 0, duplicateResolved: 0, abandoned: 0 }
 
   let synced = 0
   let failed = 0
   let duplicateResolved = 0
   let abandoned = 0
-  let stockPatched = false
-  let needsStockRefetch = true
 
   // ── 1. Sync customerOutbox ──
   const pendingCustomers = await db.customerOutbox.where('status').equals('PENDING').toArray()
@@ -683,29 +659,6 @@ async function doSyncOutbox(): Promise<SyncOutboxResult> {
             })
             synced++
             if (previouslyFailed.has(eventId)) duplicateResolved++
-
-            // PHASE 2 OPTIMIZATION (rule 10): Patch local product stock
-            // from the server response instead of triggering a full catalog
-            // refetch. Only products NOT in updatedStock (e.g. variant parents)
-            // will need a refetch — tracked in needsRefetch.
-            if (result.updatedStock) {
-              const { products: prodStock, variants: varStock } = result.updatedStock
-              if (db && prodStock) {
-                for (const [pid, stock] of Object.entries(prodStock)) {
-                  await db.products.update(pid, { stock, cachedAt: Date.now() })
-                }
-              }
-              if (db && varStock) {
-                for (const [vid, stock] of Object.entries(varStock)) {
-                  await db.variants.update(vid, { stock, cachedAt: Date.now() })
-                }
-              }
-              // If we patched at least one product, skip the full catalog refetch
-              if (prodStock && Object.keys(prodStock).length > 0) {
-                stockPatched = true
-                needsStockRefetch = false
-              }
-            }
           } else {
             // DEFENSIVE: never overwrite a SYNCED row with FAILED. If a
             // concurrent syncOutbox call (or the server's DEX-007 late
@@ -747,5 +700,5 @@ async function doSyncOutbox(): Promise<SyncOutboxResult> {
     }
   }
 
-  return { synced, failed, duplicateResolved, abandoned, stockPatched }
+  return { synced, failed, duplicateResolved, abandoned }
 }

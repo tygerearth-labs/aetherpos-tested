@@ -375,51 +375,35 @@ export async function POST(request: NextRequest) {
           //    is atomic in SQLite — the WHERE check and the SET happen under a
           //    single statement-level lock. If affected rows = 0, another transaction
           //    took the last stock; we abort the whole batch (transaction rolls back).
-          //    Pattern backported from /api/pos/checkout.
-          //
-          //    PHASE 2 OPTIMIZATION: Batch stock deduction by grouping items
-          //    by (productId, variantId). Reduces N queries to (unique products + unique variants).
-          const productQtyMap = new Map<string, number>()
-          const variantQtyMap = new Map<string, { qty: number; productId: string }>()
+          //    Pattern backported from /api/pos/checkout (lines 213-240).
           for (const item of payload.items) {
+            const product = productMap.get(item.productId)!
             if (item.variantId) {
-              const existing = variantQtyMap.get(item.variantId)
-              if (existing) {
-                existing.qty += item.qty
-              } else {
-                variantQtyMap.set(item.variantId, { qty: item.qty, productId: item.productId })
+              const affected = await txDb.$executeRaw`
+                UPDATE "ProductVariant" SET stock = stock - ${item.qty}
+                WHERE id = ${item.variantId} AND stock >= ${item.qty} AND "outletId" = ${outletId}
+              `
+              if (affected === 0) {
+                throw new Error(
+                  `Stok tidak cukup untuk ${product.name} - ${item.variantName || item.variantId}. Kemungkinan stok terakhir sudah diambil transaksi lain. Coba lagi.`
+                )
               }
             } else {
-              productQtyMap.set(item.productId, (productQtyMap.get(item.productId) || 0) + item.qty)
-            }
-          }
-
-          for (const [productId, totalQty] of productQtyMap) {
-            const product = productMap.get(productId)!
-            const affected = await txDb.$executeRaw`
-              UPDATE "Product" SET stock = stock - ${totalQty}
-              WHERE id = ${productId} AND stock >= ${totalQty} AND "outletId" = ${outletId}
-            `
-            if (affected === 0) {
-              throw new Error(
-                `Stok tidak cukup untuk ${product.name}. Kemungkinan stok terakhir sudah diambil transaksi lain. Coba lagi.`
-              )
-            }
-          }
-          for (const [variantId, info] of variantQtyMap) {
-            const product = productMap.get(info.productId)!
-            const affected = await txDb.$executeRaw`
-              UPDATE "ProductVariant" SET stock = stock - ${info.qty}
-              WHERE id = ${variantId} AND stock >= ${info.qty} AND "outletId" = ${outletId}
-            `
-            if (affected === 0) {
-              throw new Error(
-                `Stok tidak cukung untuk ${product.name} - ${variantId}. Kemungkinan stok terakhir sudah diambil transaksi lain. Coba lagi.`
-              )
+              const affected = await txDb.$executeRaw`
+                UPDATE "Product" SET stock = stock - ${item.qty}
+                WHERE id = ${item.productId} AND stock >= ${item.qty} AND "outletId" = ${outletId}
+              `
+              if (affected === 0) {
+                throw new Error(
+                  `Stok tidak cukup untuk ${product.name}. Kemungkinan stok terakhir sudah diambil transaksi lain. Coba lagi.`
+                )
+              }
             }
           }
 
           // 7b. Recalculate parent product stock for variant products (atomic)
+          //     This keeps parent.stock == SUM(variants.stock) invariant after
+          //     variant stock changes. Mirrors /api/pos/checkout pattern.
           const variantProductIds = new Set<string>()
           for (const item of payload.items) {
             if (item.variantId) variantProductIds.add(item.productId)
@@ -434,28 +418,9 @@ export async function POST(request: NextRequest) {
             `
           }
 
-          // 7c. PHASE 2 OPTIMIZATION: Compute updated stock in JS (no DB re-read).
-          //    Returns updated stock to the frontend for local catalog patching.
-          const updatedProductStock: Record<string, number> = {}
-          const updatedVariantStock: Record<string, number> = {}
-          for (const [variantId, info] of variantQtyMap) {
-            const variant = variantMap.get(variantId)
-            if (variant) {
-              updatedVariantStock[variantId] = variant.stock - info.qty
-            }
-          }
-          for (const productId of productIds) {
-            const product = productMap.get(productId)
-            if (!product) continue
-            if (!variantProductIds.has(productId)) {
-              const deducted = productQtyMap.get(productId) || 0
-              updatedProductStock[productId] = product.stock - deducted
-            }
-          }
-
           // 7c. Deduct inventory via InventoryConsumptionService (atomic, yield-aware)
           //     Jika stok bahan tidak cukup → error → seluruh transaksi di-rollback
-          const syncConsumptionResult = await InventoryConsumptionService.consumeForTransaction(txDb, null, {
+          const syncConsumptionResult = await InventoryConsumptionService.consumeForTransaction(txDb, {
             items: payload.items.map(item => ({
               productId: item.productId,
               variantId: item.variantId || null,
@@ -652,7 +617,7 @@ export async function POST(request: NextRequest) {
             `
           }
 
-          return { transactionId: transaction.id, invoiceNumber, updatedProductStock, updatedVariantStock }
+          return { transactionId: transaction.id, invoiceNumber }
         }, { timeout: 15000 })
 
         results.push({
@@ -660,11 +625,6 @@ export async function POST(request: NextRequest) {
           success: true,
           invoiceNumber: result.invoiceNumber,
           serverId: result.transactionId,
-          // PHASE 2 OPTIMIZATION (rule 10): Return updated stock for frontend patching
-          updatedStock: {
-            products: result.updatedProductStock,
-            variants: result.updatedVariantStock,
-          },
         })
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : 'Sync failed'

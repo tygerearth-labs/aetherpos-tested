@@ -40,7 +40,6 @@
  */
 
 import { Prisma } from '@prisma/client'
-import type { CheckoutPerf } from '@/lib/perf-timer'
 
 // ════════════════════════════════════════════════════════════
 // Types
@@ -120,7 +119,6 @@ export class InventoryConsumptionService {
    */
   static async consumeForTransaction(
     tx: TxClient,
-    perf: CheckoutPerf | null,
     params: {
       items: ConsumptionItem[]
       transactionId: string
@@ -130,8 +128,6 @@ export class InventoryConsumptionService {
     }
   ): Promise<ConsumptionResult> {
     const { items, transactionId, invoiceNumber, outletId, userId } = params
-
-    const trackQuery = () => perf?.trackQuery()
 
     if (items.length === 0) {
       return { success: true, deductions: [], totalMaterialCost: 0 }
@@ -143,7 +139,6 @@ export class InventoryConsumptionService {
 
     // ── 2. LANGSUNG query ProductComposition — bukan via hasComposition flag ──
     //    Ini adalah fix utama: kita cek data aktual, bukan flag yang bisa stale.
-    trackQuery()
     const allComps: CompositionRow[] = await tx.productComposition.findMany({
       where: {
         productId: { in: allProductIds },
@@ -231,7 +226,6 @@ export class InventoryConsumptionService {
     //    Race-condition-free: UPDATE SET stock = stock - qty WHERE stock >= qty
     //    Jika affected = 0 → stok tidak cukup (mungkin transaksi lain ambil duluan)
     const invItemIds = [...deductions.keys()]
-    trackQuery()
     const invItems = await tx.inventoryItem.findMany({
       where: { id: { in: invItemIds } },
       select: { id: true, name: true, stock: true, avgCost: true },
@@ -246,7 +240,6 @@ export class InventoryConsumptionService {
       const previousStock = stockMap.get(invItemId) ?? 0
 
       // Atomic: check + decrement in one SQL operation
-      trackQuery()
       const affected = (await tx.$executeRaw`
         UPDATE "InventoryItem" SET stock = stock - ${deduction.totalDeducted}
         WHERE id = ${invItemId} AND stock >= ${deduction.totalDeducted}
@@ -289,63 +282,51 @@ export class InventoryConsumptionService {
     //    and compute Actual COGS (Σ batch.qty × batch.unitCost) for each deduction.
     //    For non-batch items (Mode B), recordBatchConsumption returns null and
     //    we keep the avgCost-based fallback (weighted-average costing).
-    //
-    //    PERF: Batch-optimized — ALL deductions are processed in a SINGLE call
-    //    to FEFOEngine.recordBatchConsumptionBatch, which fetches/marks/updates
-    //    ALL affected batches in a handful of batched Prisma/Raw-SQL calls
-    //    (vs N × ~10 queries for the per-item loop). For a cart with 2
-    //    composition products sharing 1 inventory item, this drops the
-    //    `invConsume` phase query count from ~20 to ~6-10.
-    if (resultDeductions.length > 0) {
-      try {
-        const { FEFOEngine } = await import('@/lib/fefo-engine')
-        const batchResults = await FEFOEngine.recordBatchConsumptionBatch(tx, perf, {
+    try {
+      const { FEFOEngine } = await import('@/lib/fefo-engine')
+      for (const deduction of resultDeductions) {
+        const batchResult = await FEFOEngine.recordBatchConsumption(tx, {
+          inventoryItemId: deduction.inventoryItemId,
+          quantityNeeded: deduction.totalDeducted,
           transactionId,
           invoiceNumber,
           outletId,
           userId,
-          deductions: resultDeductions.map(d => ({
-            inventoryItemId: d.inventoryItemId,
-            quantityNeeded: d.totalDeducted,
-            sourceDetails: JSON.stringify(d.sources),
-          })),
+          sourceDetails: JSON.stringify(deduction.sources),
         })
 
-        for (const deduction of resultDeductions) {
-          const batchResult = batchResults.get(deduction.inventoryItemId)
-          if (batchResult && batchResult.batchConsumptions.length > 0) {
-            // Actual COGS = Σ(batch.quantityConsumed × batch.unitCost)
-            const actualMaterialCost = batchResult.batchConsumptions.reduce(
-              (sum, bc) => sum + bc.quantityConsumed * bc.unitCost, 0
-            )
-            // Immutable per-batch cost snapshot for audit / variance analysis
-            const unitCostSnapshot = JSON.stringify(
-              batchResult.batchConsumptions.map(bc => ({
-                batchId: bc.batchId,
-                batchNumber: bc.batchNumber,
-                unitCost: bc.unitCost,
-                quantityConsumed: bc.quantityConsumed,
-                expiredDate: bc.expiredDate ? bc.expiredDate.toISOString() : null,
-              }))
-            )
-            deduction.materialCost = actualMaterialCost
-            deduction.unitCostSnapshot = unitCostSnapshot
-          }
-          // else: no batches for this item (Mode B non-batch). Keep avgCost fallback.
+        if (batchResult && batchResult.batchConsumptions.length > 0) {
+          // Actual COGS = Σ(batch.quantityConsumed × batch.unitCost)
+          const actualMaterialCost = batchResult.batchConsumptions.reduce(
+            (sum, bc) => sum + bc.quantityConsumed * bc.unitCost, 0
+          )
+          // Immutable per-batch cost snapshot for audit / variance analysis
+          const unitCostSnapshot = JSON.stringify(
+            batchResult.batchConsumptions.map(bc => ({
+              batchId: bc.batchId,
+              batchNumber: bc.batchNumber,
+              unitCost: bc.unitCost,
+              quantityConsumed: bc.quantityConsumed,
+              expiredDate: bc.expiredDate ? bc.expiredDate.toISOString() : null,
+            }))
+          )
+          deduction.materialCost = actualMaterialCost
+          deduction.unitCostSnapshot = unitCostSnapshot
         }
-      } catch (batchError) {
-        // INV-HC-05 (REVISED): FEFO batch recording errors are now NON-FATAL.
-        // The InventoryItem.stock was already deducted atomically above (the
-        // authoritative ledger). Batch tracking is a CAPABILITY, not a requirement.
-        // If batch recording fails (e.g., unexpected DB error), we log the error
-        // but do NOT rollback the sale — the customer's transaction succeeds.
-        // The materialCost stays at the avgCost fallback (best-effort Actual COGS).
-        const msg = batchError instanceof Error ? batchError.message : String(batchError)
-        console.error(
-          `[InvConsumption] ${invoiceNumber} — FEFO batch recording failed (NON-FATAL, sale continues, avgCost fallback used for COGS): ${msg}`
-        )
-        // Do NOT re-throw — let the transaction commit with stock deduction intact.
+        // else: no batches for this item (Mode B non-batch). Keep avgCost fallback.
       }
+    } catch (batchError) {
+      // INV-HC-05 (REVISED): FEFO batch recording errors are now NON-FATAL.
+      // The InventoryItem.stock was already deducted atomically above (the
+      // authoritative ledger). Batch tracking is a CAPABILITY, not a requirement.
+      // If batch recording fails (e.g., unexpected DB error), we log the error
+      // but do NOT rollback the sale — the customer's transaction succeeds.
+      // The materialCost stays at the avgCost fallback (best-effort Actual COGS).
+      const msg = batchError instanceof Error ? batchError.message : String(batchError)
+      console.error(
+        `[InvConsumption] ${invoiceNumber} — FEFO batch recording failed (NON-FATAL, sale continues, avgCost fallback used for COGS): ${msg}`
+      )
+      // Do NOT re-throw — let the transaction commit with stock deduction intact.
     }
 
     // Recompute totalMaterialCost from per-deduction actual costs (post-FEFO)
@@ -358,7 +339,6 @@ export class InventoryConsumptionService {
 
     // ── 7. CREATE INVENTORY MOVEMENTS ──
     if (resultDeductions.length > 0) {
-      trackQuery()
       await tx.inventoryMovement.createMany({
         data: resultDeductions.map(d => ({
           type: 'CONSUMPTION',
