@@ -486,7 +486,7 @@ export async function POST(request: NextRequest) {
             const loyaltyAffected = await txDb.$executeRaw`
               UPDATE "Customer"
               SET points = points + ${netPointsDelta},
-                  totalSpend = totalSpend + ${payload.total},
+                  "totalSpend" = "totalSpend" + ${payload.total},
                   "updatedAt" = ${new Date()}
               WHERE id = ${payload.customerId}
                 AND points >= ${pointsToUse}
