@@ -257,10 +257,47 @@ table { border-collapse: separate; border-spacing: 0; }
   }
 }
 
-/* ── Mobile bottom nav safe area ── */
+/* ── Mobile safe-area utilities (top + bottom) ──
+   Activated by `viewport-fit=cover` in layout.tsx.
+   Use these on any fixed/sticky element that touches a screen edge
+   so iOS notch / home indicator doesn't clip content. */
+@supports (padding-top: env(safe-area-inset-top)) {
+  .safe-area-top {
+    padding-top: env(safe-area-inset-top);
+  }
+}
 @supports (padding-bottom: env(safe-area-inset-bottom)) {
-  .mobile-safe-bottom {
+  .safe-area-bottom,
+  .mobile-safe-bottom { /* legacy alias kept for back-compat */
     padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+@supports (padding-top: env(safe-area-inset-top)) and (padding-bottom: env(safe-area-inset-bottom)) {
+  .safe-area-y {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* ── Minimum tap target (44×44px iOS HIG / 48dp Material) ──
+   Apply to interactive icons / compact buttons that would otherwise
+   fall below the touch-target floor. */
+.min-tap-target {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+/* ── Mobile modal/sheet height cap (100dvh, not 100vh) ──
+   100vh on iOS Safari excludes the URL bar inconsistently; 100dvh
+   tracks the dynamic viewport so modals don't get clipped by the
+   toolbar or home indicator. */
+@media (max-width: 767px) {
+  .modal-mobile-full {
+    max-height: 100dvh !important;
+    height: 100dvh;
+  }
+  .modal-mobile-sheet {
+    max-height: 100dvh !important;
   }
 }
 

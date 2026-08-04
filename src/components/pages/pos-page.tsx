@@ -374,10 +374,25 @@ export default function PosPage() {
         </div>
       )}
 
-      {/* ── Mobile cart sheet ── */}
+      {/* ── Mobile cart sheet — full-height bottom sheet ──
+          AETHER MOBILE UI CLEANUP (Section B):
+          - Converted from centered ResponsiveDialog (h-[90vh]) to a bottom Sheet
+            with h-[100dvh] so the URL bar / home indicator never clips the
+            Bayar/Tunda action row.
+          - flex-column layout: header (shrink-0) → customer (shrink-0) → body
+            (flex-1 overflow-y-auto) → summary/footer (shrink-0).
+          - Footer gets safe-area-bottom padding; body gets matching padding-bottom
+            so the last cart item is never hidden behind the footer.
+          - Toasts are top-center on mobile (sonner.tsx) → never cover the header.
+          - Sheet portal renders above the bottom nav (z-50) so the nav cannot
+            overlap the footer. */}
       {isMobile && (
-        <ResponsiveDialog open={checkout.mobileCartOpen} onOpenChange={checkout.setMobileCartOpen}>
-          <ResponsiveDialogContent className="h-[90vh] p-0">
+        <Sheet open={checkout.mobileCartOpen} onOpenChange={checkout.setMobileCartOpen}>
+          <SheetContent
+            side="bottom"
+            showCloseButton={false}
+            className="h-[100dvh] max-h-[100dvh] p-0 rounded-t-2xl border-t border-white/[0.06] bg-nebula flex flex-col safe-area-top"
+          >
             <CartPanel
               cart={cart}
               customers={customers}
@@ -389,9 +404,10 @@ export default function PosPage() {
               checkout={checkout}
               onCheckout={checkout.openPaymentDialog}
               isMobile
+              onCloseMobile={() => checkout.setMobileCartOpen(false)}
             />
-          </ResponsiveDialogContent>
-        </ResponsiveDialog>
+          </SheetContent>
+        </Sheet>
       )}
 
       {/* ═══════════════════════════════════════════════════════════
@@ -999,7 +1015,7 @@ function ProductCard({ product, onClick }: { product: Product; onClick: () => vo
 
 // ==================== CART PANEL (25% full-height, 5 sections incl. cart header) ====================
 
-function CartPanel({ cart, customers, settings, selectedPromo, onSelectPromo, pointsToUse, onPointsChange, checkout, onCheckout, isMobile }: {
+function CartPanel({ cart, customers, settings, selectedPromo, onSelectPromo, pointsToUse, onPointsChange, checkout, onCheckout, isMobile, onCloseMobile }: {
   cart: ReturnType<typeof usePosCart>
   customers: ReturnType<typeof usePosCustomers>
   settings: ReturnType<typeof usePosSettings>
@@ -1010,9 +1026,25 @@ function CartPanel({ cart, customers, settings, selectedPromo, onSelectPromo, po
   checkout: ReturnType<typeof usePosCheckout>
   onCheckout: () => void
   isMobile?: boolean
+  onCloseMobile?: () => void
 }) {
   return (
     <div className="flex flex-col h-full bg-gradient-to-b from-nebula to-deep-space/60">
+      {/* ── Mobile drag handle + close row (replaces default SheetContent X) ── */}
+      {isMobile && (
+        <div className="flex items-center justify-between shrink-0 px-3 pt-2 pb-1 safe-area-top">
+          <div className="w-10" aria-hidden />
+          <div className="h-1.5 w-10 rounded-full bg-white/15" aria-hidden />
+          <button
+            type="button"
+            onClick={onCloseMobile}
+            className="h-8 w-8 -mr-1 rounded-md flex items-center justify-center text-slate-400 hover:text-slate-100 hover:bg-white/[0.06] transition-colors min-tap-target"
+            aria-label="Tutup keranjang"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
       {/* ── Section 1: Cart header — gradient surface, icon tile + title + count + actions ── */}
       <div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-white/[0.05] shrink-0 bg-gradient-to-r from-white/[0.03] to-transparent">
         <div className="flex items-center gap-2 min-w-0">
@@ -1092,12 +1124,17 @@ function CartPanel({ cart, customers, settings, selectedPromo, onSelectPromo, po
         </div>
       </div>
 
-      {/* ── Section 2: Customer (compact, p-2.5, border-b) ── */}
-      <CustomerSelector customers={customers} />
+      {/* ── Section 2: Customer (compact, p-2.5, border-b) — shrink-0 so it never collapses ── */}
+      <div className="shrink-0">
+        <CustomerSelector customers={customers} />
+      </div>
 
-      {/* ── Section 3: Items (flex-1, scroll) — card-based, not flat list ── */}
+      {/* ── Section 3: Items (flex-1, scroll) — card-based, not flat list ──
+          Mobile-only pb-28: safety net for when the soft keyboard opens and
+          the dvh viewport reflows, so the last cart item can always be
+          scrolled clear of the Bayar/Tunda footer. Desktop uses py-2.5 only. */}
       <ScrollArea className="flex-1 min-h-0">
-        <div className="px-2.5 py-2.5 space-y-2">
+        <div className="px-2.5 py-2.5 space-y-2 md:pb-2.5 pb-28">
           {cart.cart.length === 0 ? (
             /* V4 — purposeful empty cart state */
             <div className="flex flex-col items-center justify-center py-10 px-3 gap-3 text-center">
@@ -1171,8 +1208,9 @@ function CartPanel({ cart, customers, settings, selectedPromo, onSelectPromo, po
         </div>
       </div>
 
-      {/* ── Section 5: Summary + Action — receipt-style elevated card with accent total ── */}
-      <div className="border-t border-white/[0.05] p-2.5 shrink-0">
+      {/* ── Section 5: Summary + Action — receipt-style elevated card with accent total ──
+          safe-area-bottom: ensures the Bayar button clears the iOS home indicator. */}
+      <div className="border-t border-white/[0.05] p-2.5 shrink-0 safe-area-bottom">
         {/* Summary card — elevated surface */}
         <div className="rounded-xl bg-gradient-to-b from-white/[0.04] to-white/[0.02] border border-white/[0.06] p-2.5 space-y-1 text-xs shadow-md">
           {/* Subtotal row */}

@@ -4054,7 +4054,7 @@ export default function ProductsPage() {
                 </SheetDescription>
               </SheetHeader>
 
-              <ScrollArea className="h-[calc(100vh-64px)]">
+              <ScrollArea className="h-[calc(100dvh-64px)]">
                 <div className="px-4 pb-4 space-y-4">
                   {detailLoading && !detailData ? (
                     <div className="space-y-3">
@@ -4164,20 +4164,28 @@ export default function ProductsPage() {
                         </div>
                       </div>
 
-                      {/* Barcode Card — Non-variant product */}
+                      {/* Barcode Card — Non-variant product (compact on mobile)
+                          AETHER BARCODE CONTRACT: encoded value + generator unchanged.
+                          Only the visual preview is shrunk so it stops dominating the sheet. */}
                       {!detailData.product.hasVariants && detailData.product.barcode && (
-                        <div className="rounded-lg border border-white/[0.06] bg-nebula/50 p-3 space-y-2">
-                          <h3 className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-                            <ScanBarcode className="h-3.5 w-3.5 theme-text" />
-                            Barcode
-                          </h3>
-                          {/* AETHER BARCODE CONTRACT: Show source indicator */}
-                          <p className="text-[10px] text-slate-400">
-                            {detailData.product.barcode.startsWith('AET-')
-                              ? 'Dibuat otomatis oleh Aether'
-                              : 'Barcode diisi manual'}
-                          </p>
-                          <div className="flex justify-center bg-white rounded-lg p-3">
+                        <div className="rounded-lg border border-white/[0.06] bg-nebula/50 p-2.5 sm:p-3 space-y-1.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <h3 className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                              <ScanBarcode className="h-3.5 w-3.5 theme-text" />
+                              Barcode
+                            </h3>
+                            {/* Source indicator — compact pill, not a long paragraph */}
+                            <span className={cn(
+                              'text-[9px] px-1.5 py-0.5 rounded-md font-medium shrink-0',
+                              detailData.product.barcode.startsWith('AET-')
+                                ? 'bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20'
+                                : 'bg-white/[0.05] text-slate-400 ring-1 ring-white/[0.06]'
+                            )}>
+                              {detailData.product.barcode.startsWith('AET-') ? 'Otomatis' : 'Manual'}
+                            </span>
+                          </div>
+                          {/* Compact barcode preview — max 150px tall, print button BELOW bars (not overlaying) */}
+                          <div className="flex flex-col items-center bg-white rounded-md p-2 max-h-[150px] overflow-hidden">
                             <BarcodeDisplay
                               value={detailData.product.barcode}
                               width={2}
@@ -4192,32 +4200,13 @@ export default function ProductsPage() {
                         </div>
                       )}
 
-                      {/* Barcode Card — Variant product: show each variant barcode in its own card */}
+                      {/* Barcode Card — Variant product: 1 active barcode + collapsible list for the rest.
+                          Generator + encoded values unchanged. */}
                       {detailData.product.hasVariants && detailData.product.variants && detailData.product.variants.some((v: any) => v.barcode) && (
-                        <div className="rounded-lg border border-white/[0.06] bg-nebula/50 p-3 space-y-3">
-                          <h3 className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-                            <ScanBarcode className="h-3.5 w-3.5 theme-text" />
-                            Barcode Varian
-                          </h3>
-                          <div className="space-y-3">
-                            {detailData.product.variants.filter((v: any) => v.barcode).map((v: any) => (
-                              <div key={v.id} className="bg-white rounded-lg p-3 flex flex-col items-center gap-1">
-                                <p className="text-[10px] font-semibold text-zinc-700 text-center">{v.name}</p>
-                                <BarcodeDisplay
-                                  value={v.barcode}
-                                  width={2}
-                                  height={50}
-                                  displayValue={false}
-                                  margin={2}
-                                  showPrint
-                                  label={`${detailData.product.name} — ${v.name}`}
-                                  priceLabel={formatCurrency(v.price)}
-                                />
-                                <p className="text-[10px] font-mono text-zinc-500">{v.barcode}</p>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
+                        <VariantBarcodeCard
+                          productName={detailData.product.name}
+                          variants={detailData.product.variants}
+                        />
                       )}
 
                       {/* Variant List Card */}
@@ -4466,6 +4455,132 @@ export default function ProductsPage() {
         title="Scan Barcode Produk"
         inputPlaceholder="Ketik barcode / SKU produk..."
       />
+    </div>
+  )
+}
+
+// ============================================================================
+// VariantBarcodeCard — compact mobile barcode card for variant products.
+// Shows ONE active barcode (the first variant with a barcode) in a 150px-max
+// preview, and collapses the remaining variants behind a "Lihat barcode varian
+// lainnya" toggle so the card stops dominating the mobile detail sheet.
+//
+// AETHER BARCODE CONTRACT: the BarcodeDisplay component, the encoded value,
+// and the print label are all unchanged — only the layout/visibility is reshaped.
+// ============================================================================
+function VariantBarcodeCard({
+  productName,
+  variants,
+}: {
+  productName: string
+  variants: Array<{ id: string; name: string; barcode: string; price?: number }>
+}) {
+  const withBarcode = variants.filter((v) => v.barcode)
+  // Active = first variant with a barcode. The rest are collapsible.
+  const [activeId, setActiveId] = useState<string>(withBarcode[0]?.id ?? '')
+  const [expanded, setExpanded] = useState(false)
+
+  if (withBarcode.length === 0) return null
+
+  const active = withBarcode.find((v) => v.id === activeId) ?? withBarcode[0]
+  const rest = withBarcode.filter((v) => v.id !== active.id)
+
+  return (
+    <div className="rounded-lg border border-white/[0.06] bg-nebula/50 p-2.5 sm:p-3 space-y-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+          <ScanBarcode className="h-3.5 w-3.5 theme-text" />
+          Barcode Varian
+        </h3>
+        <span className="text-[9px] px-1.5 py-0.5 rounded-md font-medium bg-white/[0.05] text-slate-400 ring-1 ring-white/[0.06] shrink-0 tabular-nums">
+          {withBarcode.length} varian
+        </span>
+      </div>
+
+      {/* Compact active barcode preview — max 150px tall, print button BELOW bars */}
+      <div className="flex flex-col items-center bg-white rounded-md p-2 max-h-[150px] overflow-hidden">
+        <p className="text-[10px] font-semibold text-zinc-700 text-center leading-tight mb-0.5 truncate max-w-full">
+          {active.name}
+        </p>
+        <BarcodeDisplay
+          value={active.barcode}
+          width={2}
+          height={50}
+          displayValue={false}
+          margin={2}
+          showPrint
+          label={`${productName} — ${active.name}`}
+          priceLabel={formatCurrency(active.price || 0)}
+        />
+        <p className="text-[10px] font-mono text-zinc-500 mt-0.5">{active.barcode}</p>
+      </div>
+
+      {/* Variant switcher — pills to swap the active barcode without expanding the list */}
+      {withBarcode.length > 1 && (
+        <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide -mx-0.5 px-0.5 py-0.5">
+          {withBarcode.map((v) => (
+            <button
+              key={v.id}
+              type="button"
+              onClick={() => setActiveId(v.id)}
+              className={cn(
+                'shrink-0 text-[10px] px-2 py-1 rounded-md transition-colors min-w-[44px] min-h-[28px]',
+                v.id === active.id
+                  ? 'bg-[var(--theme-500)]/15 text-[var(--theme-300)] ring-1 ring-[var(--theme-500)]/30 font-medium'
+                  : 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.08] hover:text-slate-200 ring-1 ring-white/[0.05]'
+              )}
+              title={v.name}
+            >
+              <span className="truncate max-w-[80px] inline-block align-middle">{v.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Collapsible "Lihat barcode varian lainnya" — shows each remaining variant's
+          barcode in its own compact preview. Off by default to save vertical space. */}
+      {rest.length > 0 && (
+        <div className="border-t border-white/[0.05] pt-1.5">
+          <button
+            type="button"
+            onClick={() => setExpanded((e) => !e)}
+            className="flex items-center justify-between w-full text-[10px] text-slate-400 hover:text-slate-200 transition-colors min-h-[28px]"
+            aria-expanded={expanded}
+          >
+            <span className="flex items-center gap-1">
+              <ChevronDown className={cn('h-3 w-3 transition-transform', expanded && 'rotate-180')} />
+              {expanded
+                ? 'Sembunyikan barcode varian lainnya'
+                : `Lihat barcode varian lainnya (${rest.length})`}
+            </span>
+          </button>
+          {expanded && (
+            <div className="mt-1.5 space-y-1.5">
+              {rest.map((v) => (
+                <div
+                  key={v.id}
+                  className="flex flex-col items-center bg-white rounded-md p-2 max-h-[150px] overflow-hidden"
+                >
+                  <p className="text-[10px] font-semibold text-zinc-700 text-center leading-tight mb-0.5 truncate max-w-full">
+                    {v.name}
+                  </p>
+                  <BarcodeDisplay
+                    value={v.barcode}
+                    width={2}
+                    height={50}
+                    displayValue={false}
+                    margin={2}
+                    showPrint
+                    label={`${productName} — ${v.name}`}
+                    priceLabel={formatCurrency(v.price || 0)}
+                  />
+                  <p className="text-[10px] font-mono text-zinc-500 mt-0.5">{v.barcode}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

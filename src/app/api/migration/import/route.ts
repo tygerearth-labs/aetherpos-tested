@@ -1443,6 +1443,60 @@ export async function POST(request: NextRequest) {
             for (const [name, id] of createdInvMap) {
               inventoryItemCache.set(name, id)
             }
+
+            // 4d.5. Create MIGRATION- batches for items with stock > 0.
+            // BATCH INVARIANT: InventoryItem.stock must equal Σ(available
+            // batch.remainingQty). Without a batch, the item is an "orphan" and
+            // FEFO at checkout would skip it (avgCost fallback, no traceability).
+            // Proactively creating a MIGRATION- batch here ensures every migrated
+            // item with opening stock has batch traceability from day one, so:
+            //   - FEFO works correctly (allocates from the migration batch)
+            //   - Void reversal restores to the exact batch
+            //   - No self-heal RECONCILE- batch is needed at first checkout
+            // purchaseOrderId is null (migration has no source PO). This is the
+            // CASE B contract: non-purchase batches are valid, source is explicit
+            // via the MIGRATION- prefix + InventoryMovement(referenceType='MIGRATION').
+            const migrationBatchData: Array<{
+              batchNumber: string
+              inventoryItemId: string
+              initialQty: number
+              remainingQty: number
+              unitCost: number
+              expiredDate: Date | null
+              purchaseOrderId: string | null
+              purchaseOrderItemId: string | null
+              supplierId: string | null
+              supplierName: string | null
+              status: string
+              outletId: string
+            }> = []
+            const migNow = Date.now()
+            for (let mi = 0; mi < invItemsToCreate.length; mi++) {
+              const src = invItemsToCreate[mi]
+              if (!src.stock || src.stock <= 0) continue
+              const invId = createdInvMap.get(src.name)
+              if (!invId) continue
+              migrationBatchData.push({
+                batchNumber: `MIGRATION-${invId.slice(-8)}-${migNow}-${mi}`,
+                inventoryItemId: invId,
+                initialQty: src.stock,
+                remainingQty: src.stock,
+                unitCost: src.avgCost ?? 0,
+                expiredDate: null,
+                purchaseOrderId: null,
+                purchaseOrderItemId: null,
+                supplierId: null,
+                supplierName: null,
+                status: 'AVAILABLE',
+                outletId,
+              })
+            }
+            if (migrationBatchData.length > 0) {
+              const BATCH_CHUNK = 100
+              for (let i = 0; i < migrationBatchData.length; i += BATCH_CHUNK) {
+                await tx.inventoryBatch.createMany({ data: migrationBatchData.slice(i, i + BATCH_CHUNK) })
+              }
+            }
           }
 
           // 4e. Create 1:1 composition links (batched via createMany)
@@ -2311,6 +2365,52 @@ export async function POST(request: NextRequest) {
                 // Populate inventoryItemCache
                 for (const [name, id] of createdVariantInvMap) {
                   inventoryItemCache.set(name, id)
+                }
+
+                // 4e.5. Create MIGRATION- batches for variant inventory items with stock > 0.
+                // Same invariant as the non-variant path (4d.5): every InventoryItem
+                // with stock > 0 must have a corresponding batch so FEFO works at
+                // checkout and void reversal is precise. See 4d.5 for full rationale.
+                const variantMigrationBatchData: Array<{
+                  batchNumber: string
+                  inventoryItemId: string
+                  initialQty: number
+                  remainingQty: number
+                  unitCost: number
+                  expiredDate: Date | null
+                  purchaseOrderId: string | null
+                  purchaseOrderItemId: string | null
+                  supplierId: string | null
+                  supplierName: string | null
+                  status: string
+                  outletId: string
+                }> = []
+                const varMigNow = Date.now()
+                for (let vi = 0; vi < variantInvToCreate.length; vi++) {
+                  const src = variantInvToCreate[vi]
+                  if (!src.stock || src.stock <= 0) continue
+                  const invId = createdVariantInvMap.get(src.name)
+                  if (!invId) continue
+                  variantMigrationBatchData.push({
+                    batchNumber: `MIGRATION-${invId.slice(-8)}-${varMigNow}-${vi}`,
+                    inventoryItemId: invId,
+                    initialQty: src.stock,
+                    remainingQty: src.stock,
+                    unitCost: src.avgCost ?? 0,
+                    expiredDate: null,
+                    purchaseOrderId: null,
+                    purchaseOrderItemId: null,
+                    supplierId: null,
+                    supplierName: null,
+                    status: 'AVAILABLE',
+                    outletId,
+                  })
+                }
+                if (variantMigrationBatchData.length > 0) {
+                  const BATCH_CHUNK = 100
+                  for (let i = 0; i < variantMigrationBatchData.length; i += BATCH_CHUNK) {
+                    await tx.inventoryBatch.createMany({ data: variantMigrationBatchData.slice(i, i + BATCH_CHUNK) })
+                  }
                 }
               }
 

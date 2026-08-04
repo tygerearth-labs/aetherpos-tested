@@ -149,6 +149,63 @@ export async function POST(request: NextRequest) {
           createdIds.push({ key: item.key, id })
         }
       }
+
+      // ── 5b. Create RECONCILE-INIT- batches for items with stock > 0 ──
+      // BATCH INVARIANT: InventoryItem.stock must equal Σ(available
+      // batch.remainingQty). Mirrors the single-create pattern in
+      // inventory/items/route.ts (call site #4). Without this, bulk-created
+      // items would be "orphans" — FEFO would skip them at checkout (avgCost
+      // fallback, no batch traceability, no precise void reversal).
+      // purchaseOrderId is null (no source PO — opening balance batch).
+      // Non-fatal: if batch creation fails, items still exist (same as pre-fix
+      // behavior). A warning is logged so the drift can be backfilled later.
+      const bulkBatchData: Array<{
+        batchNumber: string
+        inventoryItemId: string
+        initialQty: number
+        remainingQty: number
+        unitCost: number
+        expiredDate: Date | null
+        purchaseOrderId: string | null
+        purchaseOrderItemId: string | null
+        supplierId: string | null
+        supplierName: string | null
+        status: string
+        outletId: string
+      }> = []
+      const bulkNow = Date.now()
+      for (let bi = 0; bi < toCreate.length; bi++) {
+        const src = toCreate[bi]
+        if (!src.stock || src.stock <= 0) continue
+        const invId = createdByName.get(src.name.trim().toLowerCase())
+        if (!invId) continue
+        bulkBatchData.push({
+          batchNumber: `RECONCILE-INIT-${invId.slice(-8)}-${bulkNow}-${bi}`,
+          inventoryItemId: invId,
+          initialQty: src.stock,
+          remainingQty: src.stock,
+          unitCost: src.avgCost ?? 0,
+          expiredDate: null,
+          purchaseOrderId: null,
+          purchaseOrderItemId: null,
+          supplierId: null,
+          supplierName: null,
+          status: 'AVAILABLE',
+          outletId,
+        })
+      }
+      if (bulkBatchData.length > 0) {
+        try {
+          const BATCH_CHUNK = 100
+          for (let i = 0; i < bulkBatchData.length; i += BATCH_CHUNK) {
+            await db.inventoryBatch.createMany({ data: bulkBatchData.slice(i, i + BATCH_CHUNK) })
+          }
+        } catch (batchErr) {
+          // Non-fatal: items are already created. Log so the orphan can be
+          // detected and backfilled by the MIGRATION-BACKFILL script later.
+          console.warn('[Bulk Create] Failed to create RECONCILE-INIT batches (items still created):', batchErr)
+        }
+      }
     }
 
     // ── 6. Build final idMap ──

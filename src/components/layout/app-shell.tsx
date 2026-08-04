@@ -2,6 +2,7 @@
 
 import { lazy, Suspense, useState, useCallback, useEffect } from 'react'
 import { SessionProvider, useSession } from 'next-auth/react'
+import { useLiveQuery } from 'dexie-react-hooks'
 import { usePageStore } from '@/hooks/use-page-store'
 import { useSidebarStore } from '@/components/layout/sidebar'
 import { useOnlineStatus, useBlockRefresh } from '@/hooks/use-online-status'
@@ -21,6 +22,7 @@ import { BulkUploadDialog } from '@/components/bulk-engine/bulk-upload-dialog'
 import { BulkFloatingWidget } from '@/components/bulk-engine/bulk-floating-widget'
 import { BulkQueueDrawer } from '@/components/bulk-engine/bulk-queue-drawer'
 import { StockOpnameFloatingWidget } from '@/components/stock-opname/floating-widget'
+import { getAetherDB } from '@/lib/offline/aether-db'
 
 // ── Lazy-loaded pages (code splitting for faster initial load) ──
 const DashboardPage = lazy(() => import('@/components/pages/dashboard-page'))
@@ -133,6 +135,16 @@ function AppContent() {
   const [showAuth, setShowAuth] = useState(false)
   const isOnline = useOnlineStatus()
 
+  // AETHER MOBILE UI CLEANUP (Section C): track whether the Stock Opname
+  // floating widget would be visible on mobile. When it is, the page content
+  // gets extra bottom padding so the widget never covers the last list items.
+  // Mirrors the visibility gate in floating-widget.tsx.
+  const soSession = useLiveQuery(() => getAetherDB().stockOpnameSession.get('current'), [])
+  const soWidgetVisibleMobile =
+    !!soSession &&
+    (soSession.status === 'COUNTING' || soSession.status === 'PAUSED') &&
+    currentPage !== 'stock-opname'
+
   // Block refresh (F5, Ctrl+R, Cmd+R, beforeunload) when offline
   const isOffline = useCallback(() => !isOnline, [isOnline])
   useBlockRefresh(isOffline)
@@ -213,7 +225,11 @@ function AppContent() {
                 <div className={`max-w-full ${
                   currentPage === 'pos'
                     ? 'pb-20 md:h-full md:pb-0 md:px-3 md:py-2 md:overflow-y-hidden'
-                    : 'pb-20 md:pb-0 px-3 sm:px-4 md:py-4 lg:px-5 lg:py-4'
+                    : soWidgetVisibleMobile
+                      // Reserve space for both the bottom nav (5rem) AND the SO
+                      // floating mini-bar (~4.5rem + safe-area). pb-44 = 11rem.
+                      ? 'pb-44 md:pb-0 px-3 sm:px-4 md:py-4 lg:px-5 lg:py-4'
+                      : 'pb-20 md:pb-0 px-3 sm:px-4 md:py-4 lg:px-5 lg:py-4'
                 }`}>
                   {renderPage()}
                 </div>
