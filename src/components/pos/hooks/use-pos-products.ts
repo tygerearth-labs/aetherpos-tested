@@ -114,6 +114,11 @@ interface UsePosProductsReturn {
   handleVariantSelect: (variant: ProductVariant) => void
   fetchFeatured: () => Promise<void>
   refreshProducts: () => Promise<void>
+  /** Patch the React product-grid state from updatedStock (no network refetch).
+   *  Used after checkout when the sync response included updatedStock and the
+   *  Dexie cache was already patched. Without this, the UI shows stale stock
+   *  because the product grid uses useState (not useLiveQuery). */
+  patchProductStock: (stock: { products: Record<string, number>; variants: Record<string, number> }) => void
 }
 
 // ==================== HOOK IMPLEMENTATION ====================
@@ -491,6 +496,68 @@ export function usePosProducts(options: UsePosProductsOptions): UsePosProductsRe
     }
   }, [productSearch, productPage, selectedCategoryId, fetchFeatured, fetchSearch])
 
+  /**
+   * Patch the React product-grid state from the sync response's updatedStock.
+   *
+   * This is the UI half of the Phase 2 optimization (rule 10). The sync route
+   * returns updatedStock → doSyncOutbox patches Dexie → THIS function patches
+   * the React `products` state so the grid reflects the new stock immediately,
+   * without a full catalog refetch (which was the 200-400ms slow path).
+   *
+   * What it patches:
+   *  - products[]: simple-product stock (productId in stock.products)
+   *  - products[]: variant-parent stock (recalculated as SUM of variant stock
+   *    from stock.variants — matches the server's variant-parent recalculation)
+   *  - outOfStockProducts[]: moved to products if stock rose above 0, or vice
+   *    versa (keeps the "Stok habis" grid consistent)
+   *
+   * What it does NOT do:
+   *  - No network fetch (pure local state update — O(n) in products.length)
+   *  - No Dexie write (doSyncOutbox already did that)
+   *  - No category/search refilter (the grid is already showing these products;
+   *    only their stock field changes)
+   */
+  const patchProductStock = useCallback((stock: { products: Record<string, number>; variants: Record<string, number> }) => {
+    const prodEntries = Object.entries(stock.products || {})
+    const varEntries = Object.entries(stock.variants || {})
+    if (prodEntries.length === 0 && varEntries.length === 0) return
+
+    // Build a map of variantId → stock for variant-parent recalculation
+    const varStockMap = new Map<string, number>(varEntries)
+
+    setProducts(prev => prev.map(p => {
+      // Simple product: direct stock patch
+      if (stock.products[p.id] != null) {
+        return { ...p, stock: stock.products[p.id] }
+      }
+      // Variant parent: recalc stock as SUM of its variants' patched stock.
+      // Only recalc if at least one variant was patched (otherwise leave as-is;
+      // the parent's variants weren't in this transaction).
+      if (p.hasVariants && p.variants && p.variants.length > 0) {
+        const patchedVariants = p.variants.filter(v => varStockMap.has(v.id))
+        if (patchedVariants.length > 0) {
+          // Merge patched variant stock with existing variant stock
+          const updatedVariants = p.variants.map(v =>
+            varStockMap.has(v.id) ? { ...v, stock: varStockMap.get(v.id)! } : v
+          )
+          const newParentStock = updatedVariants.reduce((sum, v) => sum + v.stock, 0)
+          return { ...p, stock: newParentStock, variants: updatedVariants }
+        }
+      }
+      return p
+    }))
+
+    // Also patch outOfStockProducts (in case stock rose above 0)
+    if (prodEntries.length > 0) {
+      setOutOfStockProducts(prev => prev.map(p => {
+        if (stock.products[p.id] != null) {
+          return { ...p, stock: stock.products[p.id] }
+        }
+        return p
+      }))
+    }
+  }, [])
+
   // ── Phase 7 resolver: exact barcode/SKU lookup → structured LookupResult ──
   // Used by BarcodeScannerDialog for telemetry + Phase 8 context-action pipeline.
   // Returns { status, entityType, productId, variantId?, barcode }.
@@ -585,7 +652,7 @@ export function usePosProducts(options: UsePosProductsOptions): UsePosProductsRe
     lastInputTimeRef, inputCharCountRef, barcodeDetectedRef,
     setProductSearch, setProductPage, setSelectedCategoryId, setVariantPicker,
     handleSearchChange, handleSearchKeyDown, handleScanResult, handleCategorySelect,
-    openVariantPicker, handleVariantSelect, fetchFeatured, refreshProducts,
+    openVariantPicker, handleVariantSelect, fetchFeatured, refreshProducts, patchProductStock,
     // Exposed for BarcodeScannerDialog full-pipeline mode (Phases 7 + 8):
     //   resolveBarcode → resolver (Phase 7 lookup contract)
     //   applyLookupToCart → onContextAction (Phase 8 POS adapter)

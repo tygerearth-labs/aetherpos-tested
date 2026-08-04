@@ -91,6 +91,7 @@ export default function PosPage() {
   // ── Hooks ──
   const sync = usePosSync({
     onRefreshProducts: () => products.refreshProducts(),
+    onPatchProductStock: (stock) => products.patchProductStock(stock),
     onRefreshCustomers: () => customers.loadCustomersFromCache(),
   })
   const isOnline = sync.isOnline
@@ -132,6 +133,7 @@ export default function PosPage() {
     onSetPaymentMethod: setPaymentMethod,
     onSetPaidAmount: setPaidAmount,
     onRefreshProducts: () => products.refreshProducts(),
+    onPatchProductStock: (stock) => products.patchProductStock(stock),
     onRefreshCustomers: () => customers.loadCustomersFromCache(),
     onClearCart: () => cart.clearCart(),
     onSetPointsToUse: setPointsToUse,

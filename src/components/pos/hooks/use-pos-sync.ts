@@ -32,6 +32,9 @@ export type SyncStatus = 'synced' | 'syncing' | 'offline' | 'failed' | 'conflict
 
 interface UsePosSyncOptions {
   onRefreshProducts?: () => void
+  /** Patch React product-grid state from updatedStock (no refetch). See
+   *  use-pos-products.patchProductStock for details. */
+  onPatchProductStock?: (stock: { products: Record<string, number>; variants: Record<string, number> }) => void
   onRefreshCustomers?: () => void
   onRefreshCategories?: () => void
 }
@@ -53,7 +56,7 @@ interface UsePosSyncReturn {
 // ==================== HOOK IMPLEMENTATION ====================
 
 export function usePosSync(options?: UsePosSyncOptions): UsePosSyncReturn {
-  const { onRefreshProducts, onRefreshCustomers, onRefreshCategories } = options || {}
+  const { onRefreshProducts, onPatchProductStock, onRefreshCustomers, onRefreshCategories } = options || {}
 
   const [isOnline, setIsOnline] = useState(true)
   const [syncing, setSyncing] = useState(false)
@@ -114,13 +117,25 @@ export function usePosSync(options?: UsePosSyncOptions): UsePosSyncReturn {
       // Success toast: only when THIS call initiated the sync AND there were
       // genuinely new syncs (not just duplicate resolutions). Duplicates are
       // silent per the outbox contradiction fix.
+      // PHASE 2 OPTIMIZATION (rule 10): When the sync response included
+      // updatedStock and the Dexie cache was patched, also patch the React
+      // product-grid state (no network refetch). Only fall back to a full
+      // refetch when the patch didn't apply (threw, or no stock payload).
+      const patchReactState = () => {
+        if (result.stockUpdateSource === 'patched' && result.mergedStock) {
+          onPatchProductStock?.(result.mergedStock)
+        } else if (result.stockUpdateSource === 'refetched') {
+          onRefreshProducts?.()
+        }
+        // 'skipped' → no product refresh needed (no stock changes)
+      }
       if (initiated && result.synced > 0 && result.synced > result.duplicateResolved) {
         toast.success(`${result.synced} transaksi tersinkron`)
-        onRefreshProducts?.()
+        patchReactState()
         onRefreshCustomers?.()
       } else if (initiated && result.synced > 0) {
         // All synced rows were duplicate resolutions — refresh data but stay silent.
-        onRefreshProducts?.()
+        patchReactState()
         onRefreshCustomers?.()
       }
       if (result.abandoned > 0) {
@@ -141,7 +156,7 @@ export function usePosSync(options?: UsePosSyncOptions): UsePosSyncReturn {
       syncingRef.current = false
       setSyncing(false)
     }
-  }, [onRefreshProducts, onRefreshCustomers])
+  }, [onRefreshProducts, onPatchProductStock, onRefreshCustomers])
 
   // ── Online/offline detection ──
   useEffect(() => {

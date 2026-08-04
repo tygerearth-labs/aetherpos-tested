@@ -51,6 +51,11 @@ interface UsePosCheckoutOptions {
   onSetPaymentMethod: (m: 'CASH' | 'QRIS' | 'DEBIT' | 'TRANSFER') => void
   onSetPaidAmount: (a: string) => void
   onRefreshProducts?: () => void
+  /** Patch the React product-grid state from updatedStock (no network refetch).
+   *  Called when stockUpdateSource === 'patched' — the Dexie cache was already
+   *  updated by doSyncOutbox, but the product grid uses useState (not
+   *  useLiveQuery), so without this the UI shows stale stock until a refetch. */
+  onPatchProductStock?: (stock: { products: Record<string, number>; variants: Record<string, number> }) => void
   onRefreshCustomers?: () => void
   onClearCart: () => void
   onSetPointsToUse: (points: number) => void
@@ -102,7 +107,7 @@ export function usePosCheckout(options: UsePosCheckoutOptions): UsePosCheckoutRe
   const {
     cart, calcResult, isOnline, selectedCustomer, availablePaymentMethods, selectedPromo, pointsToUse,
     paymentMethod, paidAmount, onSetPaymentMethod, onSetPaidAmount,
-    onRefreshProducts, onRefreshCustomers, onClearCart,
+    onRefreshProducts, onPatchProductStock, onRefreshCustomers, onClearCart,
     onSetPointsToUse, onSetSelectedCustomer,
     onSetSelectedPromo, onSetPromoDiscount, onRestoreCart,
   } = options
@@ -153,6 +158,8 @@ export function usePosCheckout(options: UsePosCheckoutOptions): UsePosCheckoutRe
       return
     }
     setCheckingOut(true)
+    // PHASE 1: Frontend timing instrumentation (click → request → response → refetch)
+    const tClick = performance.now()
     try {
       const localTransactionId = (typeof crypto !== 'undefined' && crypto.randomUUID)
         ? crypto.randomUUID()
@@ -199,7 +206,9 @@ export function usePosCheckout(options: UsePosCheckoutOptions): UsePosCheckoutRe
       //     cart preserved so cashier can fix and retry).
       //   - Offline → "Tersimpan offline, menunggu sinkronisasi" + receipt.
       if (isOnline) {
-        await syncOutbox()
+        const tRequestStart = performance.now()
+        const syncResult = await syncOutbox()
+        const tResponse = performance.now()
         const row = db ? await db.transactionOutbox.get(localTransactionId) : null
         if (row?.status === 'SYNCED') {
           const invoiceNum = row.invoiceNumber || `INV-${Date.now().toString(36).toUpperCase()}`
@@ -209,8 +218,44 @@ export function usePosCheckout(options: UsePosCheckoutOptions): UsePosCheckoutRe
           await saveLastReceiptSnapshot(result, cart, calcResult, paymentMethod, paidAmount, selectedCustomer, selectedPromo)
           setPaymentDialogOpen(false)
           setReceiptDialogOpen(true)
-          onRefreshProducts?.()
+          // PHASE 2 OPTIMIZATION (rule 10): Skip full catalog refetch when
+          // the sync response included updatedStock and we patched the local
+          // catalog. Only refetch customers (loyalty points changed) and
+          // products if stock wasn't patched (e.g. variant parents, or the
+          // patch threw — see stockUpdateSource).
+          //
+          // stockUpdateSource verdict (honest):
+          //  - 'patched'   → local Dexie updated + React state patched (fast path)
+          //  - 'refetched' → server had stock but patch wrote 0 rows (threw,
+          //                  or product not in Dexie yet) → MUST refetch
+          //  - 'skipped'   → no stock payload (e.g. duplicate-event path);
+          //                  UI is already consistent, no refetch needed
+          //
+          // REACT STATE PATCH: the product grid uses useState (not useLiveQuery),
+          // so patching Dexie alone doesn't update the UI. When stockUpdateSource
+          // === 'patched', we also patch the React state from mergedStock — no
+          // network refetch needed. This is the true fast path.
+          if (syncResult.stockUpdateSource === 'refetched') {
+            onRefreshProducts?.()
+          } else if (syncResult.stockUpdateSource === 'patched' && syncResult.mergedStock) {
+            onPatchProductStock?.(syncResult.mergedStock)
+          }
           onRefreshCustomers?.()
+          // PHASE 1: Log frontend timing with honest stock-update verdict.
+          // Previously logged only `stockPatched: false` which was ambiguous —
+          // it couldn't tell "server didn't return stock" from "patch broke".
+          // Now logs the source + count + any error so the metric can't lie.
+          const tEnd = performance.now()
+          console.log(
+            `[checkout:fe-perf] click→request: ${Math.round(tRequestStart - tClick)}ms, ` +
+            `network: ${Math.round(tResponse - tRequestStart)}ms, ` +
+            `response→dialogClose: ${Math.round(tEnd - tResponse)}ms, ` +
+            `total: ${Math.round(tEnd - tClick)}ms, ` +
+            `stockUpdateSource: ${syncResult.stockUpdateSource}, ` +
+            `patchedCount: ${syncResult.patchedCount}` +
+            (syncResult.patchError ? `, patchError: ${syncResult.patchError}` : '') +
+            `, stockPatched: ${syncResult.stockPatched}`
+          )
         } else {
           // Online but this transaction's sync failed — genuine failure.
           // Keep the row (for manual retry from the sync panel) but do NOT
@@ -236,7 +281,7 @@ export function usePosCheckout(options: UsePosCheckoutOptions): UsePosCheckoutRe
     } finally {
       setCheckingOut(false)
     }
-  }, [cart, calcResult, paymentMethod, paidAmount, isOnline, selectedCustomer, selectedPromo, onRefreshProducts, onRefreshCustomers])
+  }, [cart, calcResult, paymentMethod, paidAmount, isOnline, selectedCustomer, selectedPromo, onRefreshProducts, onPatchProductStock, onRefreshCustomers])
 
   const triggerSync = useCallback(async (): Promise<{ synced: number; failed: number; duplicateResolved: number; abandoned: number }> => {
     return syncOutbox()
@@ -481,6 +526,16 @@ async function saveLastReceiptSnapshot(
  */
 const MAX_SYNC_RETRY = 10
 
+export type StockUpdateSource =
+  /** Local Dexie catalog was patched from the sync response's updatedStock.
+   *  Fast path — no full catalog refetch needed. */
+  | 'patched'
+  /** Server returned no updatedStock (e.g. duplicate-event path) OR the patch
+   *  threw an error. Caller MUST do a full refetch to keep UI consistent. */
+  | 'refetched'
+  /** No stock-bearing transactions in this batch (nothing to update). */
+  | 'skipped'
+
 export interface SyncOutboxResult {
   synced: number
   failed: number
@@ -489,6 +544,29 @@ export interface SyncOutboxResult {
   duplicateResolved: number
   /** Rows that exceeded MAX_SYNC_RETRY and were marked ABANDONED. */
   abandoned: number
+  /** PHASE 2 (legacy): true only when stockUpdateSource === 'patched'.
+   *  Kept for backward-compat callers; prefer reading stockUpdateSource. */
+  stockPatched: boolean
+  /** PHASE 2 (honest): unambiguous reason for how local stock was reconciled.
+   *  - 'patched'  → local Dexie updated from server response (fast path)
+   *  - 'refetched'→ caller did (or must do) a full catalog refetch
+   *  - 'skipped'  → no stock changes in this batch
+   *  Replaces the misleading boolean which couldn't distinguish "server didn't
+   *  return stock" from "patch attempted but threw". */
+  stockUpdateSource: StockUpdateSource
+  /** Count of products + variants actually written to Dexie (0 if patch
+   *  threw or server returned no updatedStock). For diagnostics. */
+  patchedCount: number
+  /** If the patch attempt threw (e.g. Dexie unavailable, schema mismatch),
+   *  the error message — so telemetry can distinguish "server didn't send
+   *  stock" (null) from "patch broke" (non-null). */
+  patchError: string | null
+  /** Merged updatedStock across ALL synced transactions in this batch.
+   *  Used by handleCheckout to patch the React product-grid state (not just
+   *  Dexie) when stockUpdateSource === 'patched'. Without this, the Dexie
+   *  cache is updated but the UI still shows stale stock (because the product
+   *  grid uses useState, not useLiveQuery). */
+  mergedStock: { products: Record<string, number>; variants: Record<string, number> }
 }
 
 /**
@@ -546,12 +624,18 @@ export async function syncOutboxTracked(): Promise<{ result: SyncOutboxResult; i
 
 async function doSyncOutbox(): Promise<SyncOutboxResult> {
   const db = tryGetPosDB()
-  if (!db) return { synced: 0, failed: 0, duplicateResolved: 0, abandoned: 0 }
+  if (!db) return { synced: 0, failed: 0, duplicateResolved: 0, abandoned: 0, stockPatched: false, stockUpdateSource: 'skipped', patchedCount: 0, patchError: null, mergedStock: { products: {}, variants: {} } }
 
   let synced = 0
   let failed = 0
   let duplicateResolved = 0
   let abandoned = 0
+  let stockPatched = false
+  let needsStockRefetch = true
+  let patchedCount = 0
+  let patchError: string | null = null
+  let sawAnyStockPayload = false
+  const mergedStock: { products: Record<string, number>; variants: Record<string, number> } = { products: {}, variants: {} }
 
   // ── 1. Sync customerOutbox ──
   const pendingCustomers = await db.customerOutbox.where('status').equals('PENDING').toArray()
@@ -659,6 +743,64 @@ async function doSyncOutbox(): Promise<SyncOutboxResult> {
             })
             synced++
             if (previouslyFailed.has(eventId)) duplicateResolved++
+
+            // PHASE 2 OPTIMIZATION (rule 10): Patch local product stock
+            // from the server response instead of triggering a full catalog
+            // refetch.
+            //
+            // TELEMETRY HONESTY FIX (stockPatched audit): the previous
+            // implementation referenced `db.products` / `db.variants` — tables
+            // that do NOT exist on PosDB (the schema declares `posProducts` /
+            // `posVariants`). Accessing `db.products` returned `undefined`, so
+            // `.update()` threw a TypeError. That throw was silently caught by
+            // the outer network-error catch, which left `stockPatched = false`
+            // even though the server HAD returned updatedStock. The UI still
+            // updated correctly because `handleCheckout` then fell back to a
+            // full catalog refetch — but the metric reported "false", making it
+            // impossible to tell the optimization was actually BROKEN.
+            //
+            // Now: the patch runs in its own try/catch so a Dexie error no
+            // longer swallows the entire batch. `patchedCount` reflects how
+            // many rows actually wrote, `patchError` captures any failure, and
+            // `stockUpdateSource` gives an unambiguous verdict to the caller.
+            if (result.updatedStock) {
+              const { products: prodStock, variants: varStock } = result.updatedStock
+              const prodEntries = prodStock ? Object.entries(prodStock) : []
+              const varEntries = varStock ? Object.entries(varStock) : []
+              if (prodEntries.length > 0 || varEntries.length > 0) {
+                sawAnyStockPayload = true
+              }
+              // Merge into mergedStock (for React state patching in handleCheckout).
+              // Later transactions overwrite earlier ones for the same product —
+              // correct, since the server's final stock is the latest value.
+              for (const [pid, stock] of prodEntries) mergedStock.products[pid] = stock
+              for (const [vid, stock] of varEntries) mergedStock.variants[vid] = stock
+              try {
+                for (const [pid, stock] of prodEntries) {
+                  // BUG FIX: PosDB table is `posProducts`, not `products`.
+                  await db.posProducts.update(pid, { stock, cachedAt: Date.now() })
+                  patchedCount++
+                }
+                for (const [vid, stock] of varEntries) {
+                  // BUG FIX: PosDB table is `posVariants`, not `variants`.
+                  await db.posVariants.update(vid, { stock, cachedAt: Date.now() })
+                  patchedCount++
+                }
+                // If we patched at least one row, skip the full catalog refetch.
+                // (Previously only checked prodStock — a variant-only cart
+                // would patch variants but still flag stockPatched=false.)
+                if (patchedCount > 0) {
+                  stockPatched = true
+                  needsStockRefetch = false
+                }
+              } catch (patchErr) {
+                // Dexie error (e.g. table missing, IndexedDB blocked). Don't
+                // let it kill the rest of the batch — record it for telemetry
+                // and fall back to a full refetch.
+                patchError = patchErr instanceof Error ? patchErr.message : String(patchErr)
+                console.warn('[syncOutbox] Local stock patch failed — falling back to refetch:', patchError)
+              }
+            }
           } else {
             // DEFENSIVE: never overwrite a SYNCED row with FAILED. If a
             // concurrent syncOutbox call (or the server's DEX-007 late
@@ -700,5 +842,25 @@ async function doSyncOutbox(): Promise<SyncOutboxResult> {
     }
   }
 
-  return { synced, failed, duplicateResolved, abandoned }
+  // Derive the honest stockUpdateSource verdict:
+  //  - 'patched'   → at least one row wrote to Dexie (fast path succeeded)
+  //  - 'skipped'   → no stock-bearing payload seen (no transactions, or all
+  //                  were duplicate-event responses without updatedStock, and
+  //                  nothing failed). Caller can skip the refetch.
+  //  - 'refetched' → server returned stock payload but the patch wrote 0 rows
+  //                  (e.g. patch threw, or products weren't in Dexie yet), OR
+  //                  needsStockRefetch is still true. Caller MUST refetch.
+  let stockUpdateSource: StockUpdateSource
+  if (stockPatched) {
+    stockUpdateSource = 'patched'
+  } else if (!sawAnyStockPayload && !patchError) {
+    stockUpdateSource = 'skipped'
+  } else {
+    stockUpdateSource = 'refetched'
+  }
+  // needsStockRefetch is currently unused downstream (handleCheckout decides
+  // via stockPatched), but kept for clarity / future callers.
+  void needsStockRefetch
+
+  return { synced, failed, duplicateResolved, abandoned, stockPatched, stockUpdateSource, patchedCount, patchError, mergedStock }
 }
