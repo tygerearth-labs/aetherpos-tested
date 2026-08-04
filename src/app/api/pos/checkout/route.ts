@@ -12,6 +12,7 @@ import { ensureMigrated } from '@/lib/db-migrate'
 import { InventoryConsumptionService } from '@/lib/inventory-consumption-service'
 import { emitAuditEvent, buildSaleEvent } from '@/lib/audit-v2'
 import { createCheckoutPerf, trackedQuery, isPerfEnabled, type CheckoutPerf } from '@/lib/perf-timer'
+import { txPhase, formatTxError, isTransactionAbortedError } from '@/lib/tx-phase'
 
 interface CheckoutItem {
   productId: string
@@ -251,22 +252,24 @@ export async function POST(request: NextRequest) {
 
       perf.start('txCreate')
       // 5. Create Transaction record
-      const transaction = await trackedQuery(perf, () => tx.transaction.create({
-        data: {
-          invoiceNumber,
-          subtotal,
-          discount: discount || 0,
-          pointsUsed: pointsUsed || 0,
-          taxAmount: taxAmount || 0,
-          total,
-          paymentMethod,
-          paidAmount: paidAmount || 0,
-          change: change || 0,
-          outletId,
-          customerId: customerId || null,
-          userId,
-        },
-      }))
+      const transaction = await txPhase(perf, 'txCreate', () =>
+        tx.transaction.create({
+          data: {
+            invoiceNumber,
+            subtotal,
+            discount: discount || 0,
+            pointsUsed: pointsUsed || 0,
+            taxAmount: taxAmount || 0,
+            total,
+            paymentMethod,
+            paidAmount: paidAmount || 0,
+            change: change || 0,
+            outletId,
+            customerId: customerId || null,
+            userId,
+          },
+        })
+      )
       perf.end('txCreate')
 
       perf.start('txItems')
@@ -309,7 +312,9 @@ export async function POST(request: NextRequest) {
         }
       })
 
-      await trackedQuery(perf, () => tx.transactionItem.createMany({ data: itemData }))
+      await txPhase(perf, 'txItems', () =>
+        tx.transactionItem.createMany({ data: itemData })
+      )
       perf.end('txItems')
 
       perf.start('stockDeduct')
@@ -340,10 +345,14 @@ export async function POST(request: NextRequest) {
 
       for (const [productId, totalQty] of productQtyMap) {
         const product = productMap.get(productId)!
-        const affected = await tx.$executeRaw`
-          UPDATE "Product" SET stock = stock - ${totalQty}
-          WHERE id = ${productId} AND stock >= ${totalQty} AND "outletId" = ${outletId}
-        `
+        // 25P02 FIX: wrapped in txPhase — a failed UPDATE poisons the PG txn;
+        //   the error must propagate (not be swallowed) so Prisma rolls back.
+        const affected = await txPhase(perf, `stockDeduct.product.${productId.slice(-6)}`, () =>
+          tx.$executeRaw`
+            UPDATE "Product" SET stock = stock - ${totalQty}
+            WHERE id = ${productId} AND stock >= ${totalQty} AND "outletId" = ${outletId}
+          `
+        )
         if (affected === 0) {
           throw new Error(
             `Stok tidak cukup untuk ${product.name}. Kemungkinan stok terakhir sudah diambil transaksi lain. Coba lagi.`
@@ -352,10 +361,12 @@ export async function POST(request: NextRequest) {
       }
       for (const [variantId, info] of variantQtyMap) {
         const product = productMap.get(info.productId)!
-        const affected = await tx.$executeRaw`
-          UPDATE "ProductVariant" SET stock = stock - ${info.qty}
-          WHERE id = ${variantId} AND stock >= ${info.qty} AND "outletId" = ${outletId}
-        `
+        const affected = await txPhase(perf, `stockDeduct.variant.${variantId.slice(-6)}`, () =>
+          tx.$executeRaw`
+            UPDATE "ProductVariant" SET stock = stock - ${info.qty}
+            WHERE id = ${variantId} AND stock >= ${info.qty} AND "outletId" = ${outletId}
+          `
+        )
         if (affected === 0) {
           throw new Error(
             `Stok tidak cukup untuk ${product.name} - ${variantId}. Kemungkinan stok terakhir sudah diambil transaksi lain. Coba lagi.`
@@ -369,13 +380,15 @@ export async function POST(request: NextRequest) {
         if (item.variantId) variantProductIds.add(item.productId)
       }
       for (const productId of variantProductIds) {
-        await tx.$executeRaw`
-          UPDATE "Product" SET stock = (
-            SELECT COALESCE(SUM(stock), 0) FROM "ProductVariant"
-            WHERE "productId" = ${productId} AND "outletId" = ${outletId}
-          )
-          WHERE id = ${productId}
-        `
+        await txPhase(perf, `stockDeduct.recalcParent.${productId.slice(-6)}`, () =>
+          tx.$executeRaw`
+            UPDATE "Product" SET stock = (
+              SELECT COALESCE(SUM(stock), 0) FROM "ProductVariant"
+              WHERE "productId" = ${productId} AND "outletId" = ${outletId}
+            )
+            WHERE id = ${productId}
+          `
+        )
       }
       perf.end('stockDeduct')
 
@@ -436,7 +449,12 @@ export async function POST(request: NextRequest) {
           consumptionResult.deductions,
           transaction.id,
         )
-        await trackedQuery(perf, () => tx.transactionConsumption.createMany({ data: snapshots }))
+        // 25P02 FIX: createMany wrapped in txPhase — payload verified against
+        //   TransactionConsumption schema (transactionId, inventoryItemId,
+        //   itemName, baseUnit, quantityUsed, sourceDetails). All fields valid.
+        await txPhase(perf, 'snapshots.createMany', () =>
+          tx.transactionConsumption.createMany({ data: snapshots })
+        )
       }
       perf.end('snapshots')
 
@@ -522,16 +540,19 @@ export async function POST(request: NextRequest) {
         // and over-spend the customer's loyalty balance. If affected rows = 0,
         // another transaction drained the balance first — abort and rollback.
         const netPointsDelta = earnedPoints - pointsToUse
-        const loyaltyAffected = await tx.$executeRaw`
-          UPDATE "Customer"
-          SET points = points + ${netPointsDelta},
-              "totalSpend" = "totalSpend" + ${total},
-              "updatedAt" = ${new Date()}
-          WHERE id = ${customerId}
-            AND points >= ${pointsToUse}
-            AND "outletId" = ${outletId}
-            AND "deletedAt" IS NULL
-        `
+        // 25P02 FIX: wrapped in txPhase — raw SQL UPDATE must propagate errors.
+        const loyaltyAffected = await txPhase(perf, 'loyalty.updatePoints', () =>
+          tx.$executeRaw`
+            UPDATE "Customer"
+            SET points = points + ${netPointsDelta},
+                "totalSpend" = "totalSpend" + ${total},
+                "updatedAt" = ${new Date()}
+            WHERE id = ${customerId}
+              AND points >= ${pointsToUse}
+              AND "outletId" = ${outletId}
+              AND "deletedAt" IS NULL
+          `
+        )
         if (loyaltyAffected === 0) {
           throw new Error(
             `Poin loyalitas tidak mencukupi (butuh ${pointsToUse}, kemungkinan baru saja dipakai transaksi lain). Coba lagi.`
@@ -570,7 +591,9 @@ export async function POST(request: NextRequest) {
           })
         }
         if (loyaltyLogs.length > 0) {
-          await trackedQuery(perf, () => tx.loyaltyLog.createMany({ data: loyaltyLogs }))
+          await txPhase(perf, 'loyalty.createLogs', () =>
+            tx.loyaltyLog.createMany({ data: loyaltyLogs })
+          )
         }
       }
       perf.end('loyalty')
@@ -648,8 +671,16 @@ export async function POST(request: NextRequest) {
       ...(isPerfEnabled() ? { _perf: perfReport } : {}),
     })
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Checkout failed'
-    console.error('Checkout POST error:', error)
+    // 25P02 FIX: surface the FIRST failing query via formatTxError. If the
+    //   error is a 25P02 symptom ("current transaction is aborted"), an
+    //   EARLIER query inside the same db.$transaction is the real root cause —
+    //   the `.checkoutPhase` annotation on the error points to it.
+    const message = formatTxError(error)
+    const aborted = isTransactionAbortedError(error)
+    console.error(
+      `[checkout] POST error${aborted ? ' (25P02 — earlier query is root cause, see checkoutPhase above)' : ''}:`,
+      error
+    )
     return safeJsonError(message, 400)
   }
 }
