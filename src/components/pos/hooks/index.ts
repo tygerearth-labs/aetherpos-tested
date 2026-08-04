@@ -28,4 +28,6 @@ export type { CartItem as CartItemFull, BelowHppItem } from './use-pos-cart'
 export { usePosSync } from './use-pos-sync'
 
 export { usePosCheckout } from './use-pos-checkout'
-export type { CheckoutResult, PendingTransaction } from './use-pos-checkout'
+export type { CheckoutResult } from './use-pos-checkout'
+// `PendingTransaction` is the legacy alias for `PendingTransactionRow`.
+export type { PendingTransaction } from '@/lib/local-db'
