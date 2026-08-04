@@ -509,6 +509,7 @@ model InventoryItem {
   categoryId    String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+  lastBusinessChangeAt DateTime?               // Last "business-meaningful" change (restock, adjust, purchase, transfer). Immune to POS-sale FEFO re-sync which only bumps updatedAt. Nullable for backfill; reads fall back to updatedAt.
 
   @@unique([name, outletId])
 
