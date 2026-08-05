@@ -110,6 +110,19 @@ export interface BatchError {
   message: string
   /** Present only when the error is a composition-cap violation. */
   stockCapInfo?: StockCapInfo
+  /**
+   * Canonical 9-column error contract (AETHER BULK TEMPLATE CONTRACT ALIGNMENT):
+   *  - originalValue   : the raw cell value that triggered the error (Nilai Asli)
+   *  - normalizedValue : the value after sanitize/normalize, if applicable (Nilai Normalisasi)
+   *  - suggestion      : human-readable fix hint (Saran Perbaikan)
+   *
+   * NEVER export a blank Field or Pesan Error. When `field` is unknown, set it
+   * to the row's primary identifier (e.g. name). When `suggestion` is unknown,
+   * fall back to the field-defs correctionHint for the error code.
+   */
+  originalValue?: string
+  normalizedValue?: string
+  suggestion?: string
 }
 
 export interface BatchResult {

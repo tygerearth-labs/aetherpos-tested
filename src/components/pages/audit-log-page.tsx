@@ -6,7 +6,7 @@ import { formatDate, formatCurrency } from '@/lib/format'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import {
   Table,
   TableBody,
@@ -30,6 +30,9 @@ import { Separator } from '@/components/ui/separator'
 import { Pagination } from '@/components/shared/pagination'
 import { ProGate } from '@/components/shared/pro-gate'
 import { DateFilter } from '@/components/shared/date-filter'
+import { useIsMobile } from '@/hooks/use-mobile'
+import { MobileFullScreenSheet } from '@/components/mobile/mobile-fullscreen-sheet'
+import { MobileResultList, type MobileResultColumn } from '@/components/mobile/mobile-result-list'
 import {
   Search,
   Download,
@@ -229,6 +232,62 @@ function toneLabel(tone?: AuditSectionTone): string {
   return TONE_LABEL[tone || 'default'] || 'Info'
 }
 
+/**
+ * Fields that should be rendered as "hero metrics" (big numbers) in the
+ * mobile summary grid, as opposed to metadata (Mode, File, Batch, etc.).
+ */
+const METRIC_FIELD_KEYS = new Set([
+  'Status',
+  'Processed',
+  'Created',
+  'Skipped',
+  'Failed',
+  'Inventory Items Created',
+  'Compositions Created',
+  'Total Stock',
+  'Total Modal Value',
+  'Updated',
+  'Deleted',
+])
+
+/** Metadata keys rendered as a compact strip above the metric grid. */
+const METADATA_FIELD_KEYS = new Set([
+  'Mode',
+  'File',
+  'Batch',
+  'Operation ID',
+  'Operation',
+  'Job ID',
+])
+
+function isMetricField(key: string): boolean {
+  return METRIC_FIELD_KEYS.has(key)
+}
+
+function isMetadataField(key: string): boolean {
+  return METADATA_FIELD_KEYS.has(key)
+}
+
+/**
+ * Convert AuditSection items + columns into MobileResultColumn[] for the
+ * MobileResultList component. The "name" or "entity" column is marked as
+ * primary so it renders prominently on the mobile card.
+ */
+function toMobileResultColumns(columns: string[]): MobileResultColumn[] {
+  return columns.map((c) => {
+    const lower = c.toLowerCase()
+    const isPrimary = lower === 'name' || lower === 'entity'
+    // Hide "row" on mobile card — it's shown as a badge instead.
+    const hideOnMobile = lower === 'row'
+    return {
+      key: c,
+      label: c,
+      primary: isPrimary,
+      hideOnMobile,
+    }
+  })
+}
+
 function parseSections(sections: string | null): AuditSection[] {
   if (!sections) return []
   try {
@@ -336,6 +395,7 @@ function SectionBlock({ section }: { section: AuditSection }) {
   const hasDownload = !!section.download
   // Hooks MUST be called before any early return (Rules of Hooks).
   const [expanded, setExpanded] = useState(false)
+  const isMobile = useIsMobile()
   if (!hasFields && !hasItems && !hasDownload) return null
 
   const items = (section.items || []) as Record<string, string>[]
@@ -349,6 +409,14 @@ function SectionBlock({ section }: { section: AuditSection }) {
   const shouldCollapse = section.collapsed === true || items.length > 10
   const visibleItems =
     shouldCollapse && !expanded ? items.slice(0, 5) : items
+
+  // Split summary fields into metrics vs metadata for the mobile grid.
+  const fields = (section.fields as AuditField[]) || []
+  const metricFields = fields.filter((f) => isMetricField(safeText(f.k)))
+  const metadataFields = fields.filter((f) => isMetadataField(safeText(f.k)))
+  const otherFields = fields.filter(
+    (f) => !isMetricField(safeText(f.k)) && !isMetadataField(safeText(f.k)),
+  )
 
   return (
     <Card className="bg-white/[0.02] border-white/[0.06] py-0 gap-3 rounded-xl overflow-hidden">
@@ -366,9 +434,77 @@ function SectionBlock({ section }: { section: AuditSection }) {
         </div>
       </CardHeader>
       <CardContent className="px-4 pb-3 text-xs space-y-3">
-        {hasFields && (
+        {hasFields && isMobile && (
+          <>
+            {/* Metadata strip (Mode, File, Batch, etc.) */}
+            {metadataFields.length > 0 && (
+              <div className="space-y-1 pb-2 border-b border-white/[0.04]">
+                {metadataFields.map((f, i) => (
+                  <div
+                    key={`meta-${f.k}-${i}`}
+                    className="flex items-center gap-2 text-[11px] min-w-0"
+                  >
+                    <span className="text-slate-600 shrink-0">{safeText(f.k)}:</span>
+                    <span className="text-slate-400 break-words line-clamp-2 min-w-0">
+                      {safeText(f.v)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {/* Metric grid — 2 columns, compact */}
+            {metricFields.length > 0 && (
+              <div className="grid grid-cols-2 gap-2">
+                {metricFields.map((f, i) => {
+                  const val = safeText(f.v)
+                  const isStatus = safeText(f.k).toLowerCase() === 'status'
+                  return (
+                    <div
+                      key={`metric-${f.k}-${i}`}
+                      className="rounded-lg bg-white/[0.03] border border-white/[0.04] px-2.5 py-2 min-w-0"
+                    >
+                      <p className="text-[9px] text-slate-500 uppercase tracking-wide truncate mb-0.5">
+                        {safeText(f.k)}
+                      </p>
+                      <p
+                        className={`text-sm font-bold tabular-nums break-words leading-tight ${
+                          isStatus
+                            ? val.toLowerCase().includes('fail')
+                              ? 'text-red-400'
+                              : val.toLowerCase().includes('partial') || val.toLowerCase().includes('warn')
+                                ? 'text-amber-400'
+                                : 'text-emerald-400'
+                            : 'text-white'
+                        }`}
+                      >
+                        {val}
+                      </p>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+            {/* Other fields (not metric, not metadata) — compact list */}
+            {otherFields.length > 0 && (
+              <dl className="grid grid-cols-1 gap-y-1.5">
+                {otherFields.map((f, i) => (
+                  <div key={`other-${f.k}-${i}`} className="flex flex-col gap-0.5 min-w-0">
+                    <dt className="text-[10px] text-slate-500 uppercase tracking-wide truncate">
+                      {safeText(f.k)}
+                    </dt>
+                    <dd className="text-slate-200 break-words text-xs">
+                      {safeText(f.v)}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+          </>
+        )}
+
+        {hasFields && !isMobile && (
           <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5">
-            {(section.fields as AuditField[]).map((f, i) => (
+            {fields.map((f, i) => (
               <div key={`${f.k}-${i}`} className="flex flex-col gap-0.5 min-w-0">
                 <dt className="text-[10px] text-slate-500 uppercase tracking-wide truncate">
                   {safeText(f.k)}
@@ -382,47 +518,13 @@ function SectionBlock({ section }: { section: AuditSection }) {
         )}
 
         {hasItems && (
-          <div className="rounded-lg border border-white/[0.06] overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow className="border-white/[0.06] hover:bg-transparent">
-                  {columns.map((c) => (
-                    <TableHead
-                      key={c}
-                      className="text-[10px] text-slate-500 font-medium px-2 py-1.5 whitespace-nowrap"
-                    >
-                      {safeText(c)}
-                    </TableHead>
-                  ))}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {visibleItems.length === 0 ? (
-                  <TableRow className="border-white/[0.04]">
-                    <TableCell
-                      colSpan={columns.length || 1}
-                      className="text-[11px] text-slate-500 italic px-2 py-2"
-                    >
-                      Tidak ada data
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  visibleItems.map((row, i) => (
-                    <TableRow key={i} className="border-white/[0.04]">
-                      {columns.map((c) => (
-                        <TableCell
-                          key={c}
-                          className="text-[11px] text-slate-300 px-2 py-1.5 align-top break-words whitespace-normal"
-                        >
-                          {safeText(row[c])}
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
+          <MobileResultList
+            columns={toMobileResultColumns(columns)}
+            rows={visibleItems}
+            defaultCollapsed={shouldCollapse}
+            collapseLabel={(total) => `Tampilkan semua (${total})`}
+            emptyMessage="Tidak ada data"
+          />
         )}
 
         {shouldCollapse && (
@@ -505,16 +607,46 @@ function LegacyDetailsBlock({ details }: { details: string | null }) {
 }
 
 // ==================== DETAIL CONTENT ====================
+
+/**
+ * Group parsed sections into mobile tabs:
+ *  - summary: summary + inventory + metadata
+ *  - created: changes
+ *  - skipped: skipped
+ *  - errors: errors + warnings
+ */
+function groupSectionsForTabs(sections: AuditSection[]) {
+  const summarySections = sections.filter(
+    (s) => s.type === 'summary' || s.type === 'inventory' || s.type === 'metadata',
+  )
+  const createdSections = sections.filter((s) => s.type === 'changes')
+  const skippedSections = sections.filter((s) => s.type === 'skipped')
+  const errorSections = sections.filter(
+    (s) => s.type === 'errors' || s.type === 'warnings',
+  )
+  return { summarySections, createdSections, skippedSections, errorSections }
+}
+
+/** Count total items across sections (for tab badges). */
+function countSectionItems(sections: AuditSection[]): number {
+  return sections.reduce((sum, s) => sum + (s.items?.length ?? 0), 0)
+}
+
 function DetailContent({ log }: { log: AuditLog }) {
   const sections = parseSections(log.sections)
   const title = log.title || `${log.action} · ${log.entityType}`
   const showLegacyFallback = sections.length === 0 && !!log.details
+  const isMobile = useIsMobile()
 
-  // Group sections by type in the required order
+  // Group sections by type in the required order (desktop)
   const grouped = SECTION_ORDER.map((type) => ({
     type,
     items: sections.filter((s) => s.type === type),
   })).filter((g) => g.items.length > 0)
+
+  // Group sections into tabs (mobile)
+  const { summarySections, createdSections, skippedSections, errorSections } =
+    groupSectionsForTabs(sections)
 
   // Show batch-export for inventory / purchase source entities
   const sourceType = log.sourceEntityType || log.entityType
@@ -523,6 +655,97 @@ function DetailContent({ log }: { log: AuditLog }) {
     !!sourceId &&
     (sourceType === 'INVENTORY_ITEM' || sourceType === 'PURCHASE_ORDER')
 
+  const batchExportNode = canBatchExport ? (
+    <ProGate feature="exportExcel" label="Export Batch Detail" variant="inline">
+      <BatchExportButton entityType={sourceType} entityId={sourceId || ''} />
+    </ProGate>
+  ) : null
+
+  // ── Mobile: tabbed layout (header is in the MobileFullScreenSheet) ──
+  if (isMobile) {
+    const hasCreated = createdSections.length > 0
+    const hasSkipped = skippedSections.length > 0
+    const hasErrors = errorSections.length > 0
+    const hasSummary = summarySections.length > 0
+    const createdCount = countSectionItems(createdSections)
+    const skippedCount = countSectionItems(skippedSections)
+    const errorCount = countSectionItems(errorSections)
+
+    return (
+      <div className="space-y-3">
+        {showLegacyFallback ? (
+          <LegacyDetailsBlock details={log.details} />
+        ) : (
+          <Tabs defaultValue="summary" className="w-full">
+            <TabsList className="bg-white/[0.04] border border-white/[0.06] h-9 p-0.5 rounded-lg grid grid-cols-4 w-full mb-3">
+              <TabsTrigger
+                value="summary"
+                className="text-[10px] font-medium h-7 rounded-md data-[state=active]:bg-white/[0.08] data-[state=active]:text-white text-slate-400 gap-0.5"
+              >
+                Ringkasan
+              </TabsTrigger>
+              <TabsTrigger
+                value="created"
+                disabled={!hasCreated}
+                className="text-[10px] font-medium h-7 rounded-md data-[state=active]:bg-white/[0.08] data-[state=active]:text-white text-slate-400 gap-0.5 disabled:opacity-30"
+              >
+                Dibuat{hasCreated ? ` (${createdCount})` : ''}
+              </TabsTrigger>
+              <TabsTrigger
+                value="skipped"
+                disabled={!hasSkipped}
+                className="text-[10px] font-medium h-7 rounded-md data-[state=active]:bg-white/[0.08] data-[state=active]:text-white text-slate-400 gap-0.5 disabled:opacity-30"
+              >
+                Skip{hasSkipped ? ` (${skippedCount})` : ''}
+              </TabsTrigger>
+              <TabsTrigger
+                value="errors"
+                disabled={!hasErrors}
+                className="text-[10px] font-medium h-7 rounded-md data-[state=active]:bg-white/[0.08] data-[state=active]:text-white text-slate-400 gap-0.5 disabled:opacity-30"
+              >
+                Error{hasErrors ? ` (${errorCount})` : ''}
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="summary" className="space-y-2 mt-0">
+              {hasSummary ? (
+                summarySections.map((section, idx) => (
+                  <SectionBlock key={`summary-${idx}`} section={section} />
+                ))
+              ) : (
+                <div className="text-xs text-slate-500 italic">
+                  Tidak ada ringkasan
+                </div>
+              )}
+              {batchExportNode && (
+                <div className="pt-2">{batchExportNode}</div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="created" className="space-y-2 mt-0">
+              {createdSections.map((section, idx) => (
+                <SectionBlock key={`created-${idx}`} section={section} />
+              ))}
+            </TabsContent>
+
+            <TabsContent value="skipped" className="space-y-2 mt-0">
+              {skippedSections.map((section, idx) => (
+                <SectionBlock key={`skipped-${idx}`} section={section} />
+              ))}
+            </TabsContent>
+
+            <TabsContent value="errors" className="space-y-2 mt-0">
+              {errorSections.map((section, idx) => (
+                <SectionBlock key={`errors-${idx}`} section={section} />
+              ))}
+            </TabsContent>
+          </Tabs>
+        )}
+      </div>
+    )
+  }
+
+  // ── Desktop: stacked layout with header ──
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -532,13 +755,13 @@ function DetailContent({ log }: { log: AuditLog }) {
           {log.operationId && (
             <Badge
               variant="outline"
-              className="bg-white/[0.04] border-white/[0.08] text-slate-400 text-[10px] font-mono"
+              className="bg-white/[0.04] border-white/[0.08] text-slate-400 text-[10px] font-mono max-w-[300px] truncate"
             >
               op: {log.operationId}
             </Badge>
           )}
         </div>
-        <h2 className="text-base font-semibold text-white break-words">
+        <h2 className="text-base font-semibold text-white break-words line-clamp-3">
           {safeText(title)}
         </h2>
         {log.summary && (
@@ -719,6 +942,7 @@ export default function AuditLogPage() {
   const [dateTo, setDateTo] = useState('')
   const [search, setSearch] = useState('')
   const [searchInput, setSearchInput] = useState('')
+  const isMobile = useIsMobile()
   const [detailLog, setDetailLog] = useState<AuditLog | null>(null)
   const [exporting, setExporting] = useState(false)
 
@@ -1092,17 +1316,49 @@ export default function AuditLogPage() {
         />
       </div>
 
-      {/* Detail Dialog */}
-      <ResponsiveDialog
-        open={!!detailLog}
-        onOpenChange={(open) => {
-          if (!open) setDetailLog(null)
-        }}
-      >
-        <ResponsiveDialogContent className="bg-nebula border-white/[0.06] sm:max-w-2xl">
+      {/* ── Detail Dialog ──
+          Mobile: full-screen sheet with sticky header + single scroll.
+          Desktop: centered ResponsiveDialog with stacked sections. */}
+      {isMobile ? (
+        <MobileFullScreenSheet
+          open={!!detailLog}
+          onOpenChange={(open) => { if (!open) setDetailLog(null) }}
+          title={detailLog ? safeText(detailLog.title || `${detailLog.action} · ${detailLog.entityType}`) : ''}
+          subtitle={
+            detailLog
+              ? `${detailLog.user?.name || 'System'} · ${formatDate(detailLog.createdAt)}`
+              : undefined
+          }
+          badges={
+            detailLog ? (
+              <>
+                <EventBadge eventType={detailLog.eventType} />
+                {detailLog.operationId && (
+                  <Badge
+                    variant="outline"
+                    className="bg-white/[0.04] border-white/[0.08] text-slate-400 text-[10px] font-mono max-w-[200px] truncate"
+                  >
+                    op: {detailLog.operationId}
+                  </Badge>
+                )}
+              </>
+            ) : undefined
+          }
+        >
           {detailLog && <DetailContent key={detailLog.id} log={detailLog} />}
-        </ResponsiveDialogContent>
-      </ResponsiveDialog>
+        </MobileFullScreenSheet>
+      ) : (
+        <ResponsiveDialog
+          open={!!detailLog}
+          onOpenChange={(open) => {
+            if (!open) setDetailLog(null)
+          }}
+        >
+          <ResponsiveDialogContent className="bg-nebula border-white/[0.06] sm:max-w-2xl">
+            {detailLog && <DetailContent key={detailLog.id} log={detailLog} />}
+          </ResponsiveDialogContent>
+        </ResponsiveDialog>
+      )}
     </div>
   )
 }

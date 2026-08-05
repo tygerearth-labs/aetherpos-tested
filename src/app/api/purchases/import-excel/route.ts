@@ -7,10 +7,20 @@ import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 // Shared Excel utilities (fixes: inconsistent sanitizeNumber, code duplication, date parsing)
 import {
   sanitizeNumber,
-  normalizeHeader,
   findColumn,
   parseExcelDate,
 } from '@/lib/excel-utils'
+// AETHER BULK TEMPLATE CONTRACT ALIGNMENT — canonical field-defs source.
+import {
+  getPurchaseAliases,
+  PURCHASE_ERROR_HINTS,
+} from '@/lib/purchases/purchase-import-fields'
+import {
+  PURCHASE_TEMPLATE_VERSION,
+  PURCHASE_SUPPORTED_OLD_VERSIONS,
+  readTemplateVersion,
+  checkTemplateVersion,
+} from '@/lib/bulk-template-version'
 
 export const maxDuration = 30
 const MAX_ROWS = 200
@@ -74,6 +84,29 @@ export async function POST(request: NextRequest) {
       return safeJsonError('File tidak dapat dibaca. Pastikan format Excel valid.', 400)
     }
 
+    // ── TEMPLATE_VERSION check (AETHER BULK TEMPLATE CONTRACT ALIGNMENT) ──
+    //  - current version → parse normally
+    //  - known older version → continue (alias map applied via canonical field-defs)
+    //  - unsupported version → reject BEFORE row processing
+    //  - null (legacy file) → accept with a warning so users aren't blocked
+    const fileVersion = readTemplateVersion(workbook as never)
+    const versionCheck = checkTemplateVersion(
+      fileVersion,
+      PURCHASE_TEMPLATE_VERSION,
+      PURCHASE_SUPPORTED_OLD_VERSIONS,
+      'pembelian',
+    )
+    if (versionCheck.status === 'unsupported') {
+      return safeJsonError(
+        `${versionCheck.message} Unduh ulang template terbaru dari menu Pembelian → Import Excel.`,
+        400,
+      )
+    }
+    const templateVersionWarning =
+      versionCheck.status === 'unknown'
+        ? 'Template tidak memiliki versi (legacy). Disarankan unduh template terbaru untuk dukungan penuh.'
+        : null
+
     const sheetName = workbook.SheetNames[0]
     if (!sheetName) return safeJsonError('File Excel kosong', 400)
 
@@ -134,6 +167,20 @@ export async function POST(request: NextRequest) {
     console.log(`[Purchase Import] Pre-loaded ${existingItems.length} items + ${existingBatches.length} batches in ${Date.now() - preLoadStart}ms`)
 
     // Parse rows with validation (Safety Net preserved)
+    // AETHER BULK TEMPLATE CONTRACT ALIGNMENT: each parsedItem now also carries
+    // `structuredErrors` with the canonical 9-column export fields so the
+    // frontend can build an Excel error file via /lib/bulk-engine/error-export.ts.
+    type StructuredError = {
+      row: number
+      field: string
+      code: string
+      message: string
+      originalValue: string
+      normalizedValue: string
+      suggestion: string
+      rowSnapshot: Record<string, unknown>
+    }
+    const structuredErrors: StructuredError[] = []
     const parsedItems: Array<{
       row: number
       name: string
@@ -155,7 +202,7 @@ export async function POST(request: NextRequest) {
       error?: string
       warning?: string  // NEW: Warnings (non-blocking)
     }> = []
-    
+
     // Stats tracking
     let itemsWithBatch = 0
     let itemsWithExpiry = 0
@@ -167,66 +214,28 @@ export async function POST(request: NextRequest) {
       const row = rows[i]
       const rowNum = i + 2
 
-      // Extract fields with flexible column matching
-      const name = String(findColumn(row, [
-        'NAMA BARANG', 'Nama Barang', 'NAMA ITEM', 'Nama Item',
-        'BARANG', 'ITEM', 'Nama', 'NAME', 'name',
-        'Product Name', 'Produk', 'Deskripsi',
-      ]) || '').trim()
+      // Extract fields with canonical aliases from
+      // src/lib/purchases/purchase-import-fields.ts (single source of truth).
+      const name = String(findColumn(row, getPurchaseAliases('name')) || '').trim()
 
-      const sku = String(findColumn(row, [
-        'SKU', 'sku', 'Kode', 'kode', 'KODE SKU', 'Kode Barang', 'Barcode',
-      ]) || '').trim() || null
+      const sku = String(findColumn(row, getPurchaseAliases('sku')) || '').trim() || null
 
-      const purchaseUnit = String(findColumn(row, [
-        'SATUAN BELI', 'Satuan Beli', 'SATUAN', 'Satuan', 'satuan',
-        'Unit', 'unit', 'UOM', 'Sat',
-      ]) || '').trim()
+      const purchaseUnit = String(findColumn(row, getPurchaseAliases('purchaseUnit')) || '').trim()
 
-      const qty = sanitizeNumber(findColumn(row, [
-        'JUMLAH', 'Jumlah', 'QTY', 'Qty', 'qty', 'Quantity', 'quantity',
-        'QTY BELI', 'Qty Beli', 'Banyak', 'Total Qty',
-      ]))
+      const qty = sanitizeNumber(findColumn(row, getPurchaseAliases('qty')))
 
-      let baseQty = sanitizeNumber(findColumn(row, [
-        'ISI PER SATUAN', 'Isi per Satuan', 'ISI', 'Isi', 'isi',
-        'Konversi', 'konversi', 'KONVERSI', 'Base Qty', 'Isi Satuan',
-        'Isi per Unit', 'Qty per Unit', 'Berat Bersih',
-      ]))
+      let baseQty = sanitizeNumber(findColumn(row, getPurchaseAliases('baseQty')))
 
-      let baseUnit = String(findColumn(row, [
-        'SATUAN DASAR', 'Satuan Dasar', 'Base Unit', 'base unit',
-        'UNIT DASAR', 'Unit Dasar', 'Sat Dasar',
-        'KG', 'kg', 'GR', 'gr', 'ML', 'ml', 'PCS', 'pcs',
-        'LITER', 'liter', 'METER', 'LUSIN', 'EKOR',
-      ]) || '').trim()
+      let baseUnit = String(findColumn(row, getPurchaseAliases('baseUnit')) || '').trim()
 
-      let pricePerUnit = sanitizeNumber(findColumn(row, [
-        'HARGA', 'Harga', 'harga', 'PRICE', 'price',
-        'HARGA BELI', 'Harga Beli', 'HARGA SATUAN', 'Harga Satuan',
-        'Harga per Unit', 'Price per Unit', 'Unit Price',
-        'TOTAL', 'Total', 'TOTAL HARGA', 'Total Harga', 'Subtotal', 'subtotal',
-        'NOMINAL', 'Nominal', 'BIAYA', 'Biaya',
-      ]))
+      let pricePerUnit = sanitizeNumber(findColumn(row, getPurchaseAliases('pricePerUnit')))
 
       // Parse batch / lot number (optional)
-      const batchRaw = findColumn(row, [
-        'BATCH', 'Batch', 'batch', 'NO BATCH', 'No Batch',
-        'NO LOT', 'No Lot', 'LOT', 'Lot', 'LOT NUMBER', 'Lot Number',
-        'NO LOT NUMBER', 'No Lot Number', 'BATCH NUMBER', 'Batch Number',
-        'NOMOR BATCH', 'Nomor Batch', 'NOMOR LOT', 'Nomor Lot',
-      ])
+      const batchRaw = findColumn(row, getPurchaseAliases('batch'))
       const batch = batchRaw ? String(batchRaw).trim() || null : null
 
       // Parse expired date using shared utility
-      const expiredRaw = findColumn(row, [
-        'EXPIRED', 'Expired', 'expired', 'EXP DATE', 'Exp Date',
-        'EXPIRY DATE', 'Expiry Date', 'EXPIRY', 'Expiry',
-        'TANGGAL EXPIRED', 'Tanggal Expired', 'TGL KADALUARSA', 'Tgl Kadaluarsa',
-        'KADALUARSA', 'Kadaluarsa', 'TGL EXPIRED', 'Tgl Expired',
-        'TANGGAL KADALUARSA', 'EXP', 'Exp', 'BEST BEFORE', 'USE BY',
-        'TANGGAL EXPIRY', 'Tanggal Expiry',
-      ])
+      const expiredRaw = findColumn(row, getPurchaseAliases('expiredDate'))
       const expiredDate = parseExcelDate(expiredRaw)
 
       // Auto-infer baseQty/baseUnit when not specified (1:1 conversion)
@@ -238,15 +247,55 @@ export async function POST(request: NextRequest) {
       }
 
       // ── SAFETY NET: Validation ──
+      // AETHER BULK TEMPLATE CONTRACT ALIGNMENT: emit both the legacy
+      // `errors: string[]` (for backward-compat with the existing preview UI)
+      // AND structured error records with the canonical 9-column fields.
       const errors: string[] = []
       const warnings: string[] = []  // Non-blocking warnings
-      if (!name) errors.push('Nama barang wajib diisi')
-      
-      // Block negative quantity
-      if (qty <= 0) errors.push('Jumlah harus lebih dari 0')
-      
+      const rowSnapshot = { name, sku, purchaseUnit, qty, baseQty, baseUnit, pricePerUnit, batch, expiredDate }
+      if (!name) {
+        errors.push('Nama barang wajib diisi')
+        structuredErrors.push({
+          row: rowNum,
+          field: 'Nama Barang*',
+          code: 'PUR_NAME_REQUIRED',
+          message: 'Nama barang wajib diisi',
+          originalValue: name,
+          normalizedValue: name,
+          suggestion: PURCHASE_ERROR_HINTS['PUR_NAME_REQUIRED'],
+          rowSnapshot,
+        })
+      }
+
+      // Block non-positive quantity
+      if (qty <= 0) {
+        errors.push('Jumlah harus lebih dari 0')
+        structuredErrors.push({
+          row: rowNum,
+          field: 'Jumlah*',
+          code: 'PUR_QTY_INVALID',
+          message: 'Jumlah harus lebih dari 0',
+          originalValue: String(qty),
+          normalizedValue: String(qty),
+          suggestion: PURCHASE_ERROR_HINTS['PUR_QTY_INVALID'],
+          rowSnapshot,
+        })
+      }
+
       // Block negative price
-      if (pricePerUnit < 0) errors.push('Harga tidak boleh negatif')
+      if (pricePerUnit < 0) {
+        errors.push('Harga tidak boleh negatif')
+        structuredErrors.push({
+          row: rowNum,
+          field: 'Harga Satuan (Rp)*',
+          code: 'PUR_PRICE_INVALID',
+          message: 'Harga tidak boleh negatif',
+          originalValue: String(pricePerUnit),
+          normalizedValue: String(pricePerUnit),
+          suggestion: PURCHASE_ERROR_HINTS['PUR_PRICE_INVALID'],
+          rowSnapshot,
+        })
+      }
 
       // ══════════════════════════════════════════════════════════════════
       // BATCH & EXPIRED DATE SAFETY NETS
@@ -397,6 +446,14 @@ export async function POST(request: NextRequest) {
       headers: Object.keys(rows[0]),
       items: parsedItems,
       existingItemCount: existingItems.length,
+      // AETHER BULK TEMPLATE CONTRACT ALIGNMENT: structured errors carry the
+      // canonical 9-column export fields so the frontend can build an Excel
+      // error file via /lib/bulk-engine/error-export.ts. The legacy per-row
+      // `error`/`warning` strings on each parsedItem remain for backward-compat.
+      structuredErrors,
+      templateVersion: fileVersion,
+      templateVersionStatus: versionCheck.status,
+      ...(templateVersionWarning ? { templateVersionWarning } : {}),
       // Stats for frontend display
       _stats: {
         matchedItems: parseStats.matchedItems,

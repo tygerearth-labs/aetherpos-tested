@@ -123,6 +123,8 @@ import {
 import { ProGate } from '@/components/shared/pro-gate'
 import { useBulkWorker } from '@/components/bulk-engine/bulk-worker-context'
 import { useMigrationProcessor } from '@/components/migration/migration-context'
+import { MobileStickyActionBar } from '@/components/mobile/mobile-sticky-action-bar'
+import { useMobileUiStore } from '@/hooks/use-mobile-ui-store'
 
 import ProductFormDialog from './product-form-dialog'
 import dynamic from 'next/dynamic'
@@ -571,6 +573,17 @@ export default function ProductsPage() {
     if (selectAllMode) return products.filter(p => p.hasVariants).length
     return products.filter(p => selectedIds.has(p.id) && p.hasVariants).length
   }, [products, selectedIds, selectAllMode])
+
+  // AETHER MOBILE UI: signal selection-overlay state to the app shell so it
+  // hides the bottom nav and reserves padding for the MobileStickyActionBar.
+  // The bar height is ~96px (count row + action row) + safe-area. Cleared on
+  // unmount or when selection mode exits.
+  const setSelectionOverlay = useMobileUiStore((s) => s.setSelectionOverlay)
+  const mobileSelectionActive = bulkMode && selectedIds.size > 0
+  useEffect(() => {
+    setSelectionOverlay(mobileSelectionActive, 96)
+    return () => setSelectionOverlay(false, 0)
+  }, [mobileSelectionActive, setSelectionOverlay])
 
   // Bulk upload Excel state
   const [uploadOpen, setUploadOpen] = useState(false)
@@ -2460,55 +2473,24 @@ export default function ProductsPage() {
 
       {/* Mobile Card View */}
       <div className="md:hidden">
-        {/* Sticky Selection Header for Bulk Mode */}
-        {bulkMode && !loading && products.length > 0 && (
-          <div className="sticky top-0 z-30 -mx-4 -mt-4 mb-3 px-4 py-3 bg-nebula/95 backdrop-blur-sm border-b border-white/[0.06] rounded-b-xl">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={selectAllMode ? () => { setSelectAllMode(false); setSelectedIds(new Set()) } : toggleSelectAll}
-                  className="flex items-center justify-center h-11 w-11 -ml-2 rounded-lg hover:bg-white/[0.04] active:bg-white/[0.06] transition-colors"
-                >
-                  <Checkbox
-                    checked={selectAllMode || (selectedIds.size === products.length && products.length > 0)}
-                    className="h-5 w-5 border-2 border-white/[0.15] data-[state=checked]:theme-bg data-[state=checked]:theme-border pointer-events-none"
-                  />
-                </button>
-                <div className="flex flex-col">
-                  <span className="text-xs font-medium text-slate-200">
-                    {selectAllMode 
-                      ? `Semua ${stats.total} produk`
-                      : `${selectedIds.size} dari ${products.length} di halaman ini`
-                    }
-                  </span>
-                  {!selectAllMode && (
-                    <span className="text-[10px] text-slate-500">Total {stats.total} produk</span>
-                  )}
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                {!selectAllMode && stats.total > products.length && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={handleSelectAll}
-                    className="h-8 text-[11px] px-2.5 theme-text hover:theme-bg-very-light border border-theme-border-light/50 rounded-lg gap-1.5"
-                  >
-                    <ListChecks className="h-3.5 w-3.5" />
-                    Pilih Semua
-                  </Button>
-                )}
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => { setSelectedIds(new Set()); setSelectAllMode(false) }}
-                  className="h-8 text-[11px] px-2.5 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg"
-                >
-                  Batal
-                </Button>
-              </div>
-            </div>
+        {/* AETHER MOBILE UI: the bulk-mode selection summary + actions now
+            live in a single fixed bottom bar (MobileStickyActionBar) rendered
+            below. The app-shell hides the bottom nav while selection is
+            active so the two never overlap. A compact inline hint is shown
+            here only when in bulk mode but nothing is selected yet. */}
+        {bulkMode && !loading && products.length > 0 && selectedIds.size === 0 && !selectAllMode && (
+          <div className="-mx-4 -mt-4 mb-3 px-4 py-2 bg-white/[0.03] border-b border-white/[0.06] flex items-center justify-between">
+            <span className="text-xs text-slate-400">
+              Mode Seleksi — ketuk kartu untuk memilih
+            </span>
+            <button
+              type="button"
+              onClick={toggleSelectAll}
+              className="text-[11px] theme-text hover:theme-bg-very-light px-2 py-1 rounded-md transition-colors min-h-[36px] flex items-center gap-1"
+            >
+              <ListChecks className="h-3.5 w-3.5" />
+              Pilih Halaman Ini
+            </button>
           </div>
         )}
         {loading ? (
@@ -2774,9 +2756,9 @@ export default function ProductsPage() {
 
       <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
 
-      {/* Floating Bulk Edit Bar */}
+      {/* ── Desktop Floating Bulk Edit Bar ── (mobile uses MobileStickyActionBar below) */}
       {bulkMode && selectedIds.size > 0 && (
-        <div className="fixed bottom-16 md:bottom-0 left-0 right-0 z-40 md:z-50 border-t border-white/[0.04] bg-nebula/95 backdrop-blur-sm p-3">
+        <div className="hidden md:block fixed bottom-0 left-0 right-0 z-50 border-t border-white/[0.04] bg-nebula/95 backdrop-blur-sm p-3">
           <div className="max-w-4xl mx-auto flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">
               <div className="flex items-center gap-1.5">
@@ -2842,6 +2824,56 @@ export default function ProductsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── Mobile Sticky Action Bar ── (safe-area aware, hides bottom nav via app-shell) */}
+      {bulkMode && selectedIds.size > 0 && (
+        <MobileStickyActionBar
+          selectedCount={selectAllMode ? stats.total : selectedIds.size}
+          countLabel={selectAllMode ? 'produk dipilih' : 'dipilih'}
+          secondaryText={
+            selectAllMode
+              ? 'Semua hasil filter'
+              : `${selectedIds.size} di halaman ini · ${stats.total} total`
+          }
+          onCancel={() => { setSelectedIds(new Set()); setSelectAllMode(false) }}
+          onSelectAll={
+            !selectAllMode && stats.total > products.length
+              ? () => { void handleSelectAll() }
+              : undefined
+          }
+          selectAllLabel={`Pilih Semua (${stats.total})`}
+          actions={[
+            {
+              key: 'delete',
+              label: 'Hapus',
+              icon: <Trash2 className="h-4 w-4" />,
+              onClick: () => setBulkDeleteOpen(true),
+              variant: 'danger',
+            },
+            {
+              key: 'price',
+              label: 'Ubah Harga',
+              icon: <Tag className="h-4 w-4" />,
+              onClick: () => setBulkPriceOpen(true),
+              variant: 'warning',
+            },
+          ]}
+          overflowActions={[
+            {
+              key: 'stock',
+              label: 'Ubah Stok',
+              icon: <Package className="h-4 w-4" />,
+              onClick: () => setBulkStockOpen(true),
+            },
+            {
+              key: 'category',
+              label: 'Ubah Kategori',
+              icon: <Tags className="h-4 w-4" />,
+              onClick: () => { setBulkCategoryOpen(true); setBulkCategoryId('') },
+            },
+          ]}
+        />
       )}
 
       {/* Product Form Dialog */}

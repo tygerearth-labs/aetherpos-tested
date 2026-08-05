@@ -77,6 +77,15 @@ export interface BulkErrorRecord {
   code: string
   message: string
   createdAt: number
+  /**
+   * Canonical 9-column error contract (AETHER BULK TEMPLATE CONTRACT ALIGNMENT).
+   * Optional for backward-compat with records created before this field existed.
+   * The error exporter (error-export.ts) reads these to populate the
+   * `Nilai Asli`, `Nilai Normalisasi`, and `Saran Perbaikan` columns.
+   */
+  originalValue?: string
+  normalizedValue?: string
+  suggestion?: string
 }
 
 export interface BulkFile {
@@ -368,6 +377,10 @@ export async function addBatchErrors(
     code: e.code,
     message: e.message,
     createdAt: Date.now(),
+    // Canonical 9-column contract — pass-through optional fields.
+    originalValue: e.originalValue,
+    normalizedValue: e.normalizedValue,
+    suggestion: e.suggestion,
   }))
 
   // Cap stored errors per job to avoid unbounded growth.

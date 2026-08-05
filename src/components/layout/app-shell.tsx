@@ -4,6 +4,7 @@ import { lazy, Suspense, useState, useCallback, useEffect } from 'react'
 import { SessionProvider, useSession } from 'next-auth/react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { usePageStore } from '@/hooks/use-page-store'
+import { useMobileUiStore } from '@/hooks/use-mobile-ui-store'
 import { useSidebarStore } from '@/components/layout/sidebar'
 import { useOnlineStatus, useBlockRefresh } from '@/hooks/use-online-status'
 import { usePlan } from '@/hooks/use-plan'
@@ -135,6 +136,13 @@ function AppContent() {
   const [showAuth, setShowAuth] = useState(false)
   const isOnline = useOnlineStatus()
 
+  // AETHER MOBILE UI: when a page-level selection overlay (e.g. ProductsPage
+  // bulk-mode) is active on mobile, hide the persistent bottom nav so the
+  // two bars never overlap. The page sets `selectionOverlayActive` via
+  // `useMobileUiStore` and is responsible for clearing it on exit.
+  const selectionOverlayActive = useMobileUiStore((s) => s.selectionOverlayActive)
+  const selectionBarHeight = useMobileUiStore((s) => s.selectionBarHeight)
+
   // AETHER MOBILE UI CLEANUP (Section C): track whether the Stock Opname
   // floating widget would be visible on mobile. When it is, the page content
   // gets extra bottom padding so the widget never covers the last list items.
@@ -214,7 +222,9 @@ function AppContent() {
                 </div>
               )}
               <Sidebar />
-              <MobileBottomNav />
+              {/* Hide the bottom nav when a mobile selection overlay is
+                  active — the page renders its own MobileStickyActionBar. */}
+              {!selectionOverlayActive && <MobileBottomNav />}
               <main
                 className={`transition-all duration-300 ease-out ${
                   collapsed ? 'md:ml-[68px]' : 'md:ml-[260px]'
@@ -225,11 +235,17 @@ function AppContent() {
                 <div className={`max-w-full ${
                   currentPage === 'pos'
                     ? 'pb-20 md:h-full md:pb-0 md:px-3 md:py-2 md:overflow-y-hidden'
-                    : soWidgetVisibleMobile
-                      // Reserve space for both the bottom nav (5rem) AND the SO
-                      // floating mini-bar (~4.5rem + safe-area). pb-44 = 11rem.
-                      ? 'pb-44 md:pb-0 px-3 sm:px-4 md:py-4 lg:px-5 lg:py-4'
-                      : 'pb-20 md:pb-0 px-3 sm:px-4 md:py-4 lg:px-5 lg:py-4'
+                    : selectionOverlayActive
+                      // Selection overlay is active — reserve space for the
+                      // MobileStickyActionBar (barHeight + safe-area) instead
+                      // of the default bottom-nav padding. md:pb-0 because the
+                      // bar is md:hidden.
+                      ? `pb-[calc(${selectionBarHeight}px+env(safe-area-inset-bottom))] md:pb-0 px-3 sm:px-4 md:py-4 lg:px-5 lg:py-4`
+                      : soWidgetVisibleMobile
+                        // Reserve space for both the bottom nav (5rem) AND the SO
+                        // floating mini-bar (~4.5rem + safe-area). pb-44 = 11rem.
+                        ? 'pb-44 md:pb-0 px-3 sm:px-4 md:py-4 lg:px-5 lg:py-4'
+                        : 'pb-20 md:pb-0 px-3 sm:px-4 md:py-4 lg:px-5 lg:py-4'
                 }`}>
                   {renderPage()}
                 </div>

@@ -8,10 +8,26 @@ import { safeAuditLog } from '@/lib/safe-audit'
 import { safeJson, safeJsonError } from '@/lib/api/safe-response'
 import { generateUniqueSKU, generateVariantSKU, generateUniqueBarcode, generateVariantBarcode } from '@/lib/sku-generator'
 import { safeEmitAuditEvent, buildMigrationBatchEvent, type MigrationCreatedRow } from '@/lib/audit-v2'
+import {
+  NON_VARIANT_FIELDS,
+  VARIANT_FIELDS,
+  INVENTORY_FIELDS,
+  COMPOSITION_FIELDS,
+  MIGRATION_VALID_UNITS,
+  MIGRATION_ERROR_HINTS,
+  MIGRATION_ROW_ERROR_GENERIC,
+  getAliases,
+} from '@/lib/migration/field-defs'
+import {
+  MIGRATION_TEMPLATE_VERSION,
+  MIGRATION_SUPPORTED_OLD_VERSIONS,
+  readTemplateVersion,
+  checkTemplateVersion,
+} from '@/lib/bulk-template-version'
 
 export const maxDuration = 300
 
-const VALID_UNITS = ['pcs', 'ml', 'lt', 'gr', 'kg', 'box', 'pack', 'botol', 'gelas', 'mangkuk', 'porsi', 'bungkus', 'sachet', 'dus', 'rim', 'lembar', 'meter', 'cm', 'ons', 'roll', 'strip', 'ekor']
+const VALID_UNITS = MIGRATION_VALID_UNITS
 
 // ==================== NUMBER PARSING ====================
 
@@ -581,6 +597,29 @@ export async function POST(request: NextRequest) {
       return safeJsonError('File Excel kosong', 400)
     }
 
+    // ── TEMPLATE_VERSION check (AETHER BULK TEMPLATE CONTRACT ALIGNMENT) ──
+    //  - current version → parse normally
+    //  - known older version → continue (alias map applied downstream via canonical field-defs)
+    //  - unsupported version → reject BEFORE row processing
+    //  - null (legacy file) → accept with a warning so users aren't blocked
+    const fileVersion = readTemplateVersion(workbook as never)
+    const versionCheck = checkTemplateVersion(
+      fileVersion,
+      MIGRATION_TEMPLATE_VERSION,
+      MIGRATION_SUPPORTED_OLD_VERSIONS,
+      'migrasi',
+    )
+    if (versionCheck.status === 'unsupported') {
+      return safeJsonError(
+        `${versionCheck.message} Unduh ulang template terbaru dari menu Migrasi.`,
+        400,
+      )
+    }
+    const templateVersionWarning =
+      versionCheck.status === 'unknown'
+        ? 'Template tidak memiliki versi (legacy). Disarankan unduh template terbaru untuk dukungan penuh.'
+        : null
+
     // MIG-BATCH-V3: Quota uses ONLY DB-aware features.maxProducts (enforced
     // below). maxBulkUploadRows is intentionally NOT enforced here per founder
     // rule ("Jangan gunakan maxBulkUploadRows"). The bulkUpload boolean gate
@@ -617,7 +656,27 @@ export async function POST(request: NextRequest) {
     // See src/lib/audit-v2/builders.ts → AuditIssueRow / AuditWarningRow / AuditSkippedRow.
     // Invariant: productsFailed === errors.length (errors contains ONLY real row-level failures).
     // Invariant: productsSkipped === skippedRows.length (when skippedRows is provided).
-    type MigrationIssueRow = { row: number; sheet?: string; entity?: string; identifier?: string; message: string }
+    //
+    // AETHER BULK TEMPLATE CONTRACT ALIGNMENT: MigrationIssueRow now carries
+    // the canonical 9-column error export fields (Batch, Baris, Field, Kode
+    // Error, Pesan Error, Nilai Asli, Nilai Normalisasi, Snapshot Baris,
+    // Saran Perbaikan). The `sheet` and `entity` columns are kept for
+    // backward-compat with the existing audit log; the new fields feed the
+    // Excel error exporter.
+    type MigrationIssueRow = {
+      row: number
+      sheet?: string
+      entity?: string
+      identifier?: string
+      message: string
+      // Canonical 9-column error export fields.
+      field?: string
+      code?: string
+      originalValue?: string
+      normalizedValue?: string
+      suggestion?: string
+      rowSnapshot?: Record<string, unknown>
+    }
     type MigrationWarningRow = { row?: number; sheet?: string; entity?: string; identifier?: string; message: string }
     type MigrationSkippedRow = { row: number; sheet?: string; entity?: string; identifier?: string; message: string }
     const errors: MigrationIssueRow[] = []
@@ -903,19 +962,19 @@ export async function POST(request: NextRequest) {
 
           for (let i = batchStart; i < batchEnd; i++) {
             const row = nonVarianRows[i]
-            const unitRaw = String(findColumn(row, ['SATUAN', 'Satuan', 'satuan', 'Unit', 'unit', 'Sat']) || 'pcs').trim().toLowerCase()
+            const unitRaw = String(findColumn(row, getAliases(NON_VARIANT_FIELDS, 'unit')) || 'pcs').trim().toLowerCase()
             batchRows.push({
               rowNum: i + 2,
-              name: String(findColumn(row, ['NAMA PRODUK*', 'NAMA PRODUK', 'Nama Produk', 'Nama', 'NAME', 'name', 'Product Name', 'Produk']) || '').trim(),
-              sku: String(findColumn(row, ['SKU', 'sku', 'Kode']) || '').trim() || null,
-              barcode: String(findColumn(row, ['BARCODE', 'Barcode', 'barcode', 'BAR CODE', 'Bar Code']) || '').trim() || null,
-              hpp: sanitizeNumber(findColumn(row, ['HPP / MODAL (Rp)', 'HPP (Rp)', 'HPP', 'Harga Pokok', 'harga_pokok', 'Cost', 'Modal', 'HPP MODAL Rp'])),
-              price: sanitizeNumber(findColumn(row, ['HARGA JUAL* (Rp)', 'HARGA JUAL (Rp)', 'HARGA JUAL', 'Harga Jual', 'Harga', 'Price', 'harga_jual', 'harga', 'price', 'Sell Price', 'Jual'])),
-              stock: sanitizeNumber(findColumn(row, ['STOK AWAL', 'STOK', 'QTY / STOK', 'QTY', 'qty', 'Stok', 'stok', 'Stock', 'stock', 'Quantity', 'Jumlah'])),
+              name: String(findColumn(row, getAliases(NON_VARIANT_FIELDS, 'name')) || '').trim(),
+              sku: String(findColumn(row, getAliases(NON_VARIANT_FIELDS, 'sku')) || '').trim() || null,
+              barcode: String(findColumn(row, getAliases(NON_VARIANT_FIELDS, 'barcode')) || '').trim() || null,
+              hpp: sanitizeNumber(findColumn(row, getAliases(NON_VARIANT_FIELDS, 'hpp'))),
+              price: sanitizeNumber(findColumn(row, getAliases(NON_VARIANT_FIELDS, 'price'))),
+              stock: sanitizeNumber(findColumn(row, getAliases(NON_VARIANT_FIELDS, 'stock'))),
               unit: VALID_UNITS.includes(unitRaw) ? unitRaw : 'pcs',
-              categoryRaw: String(findColumn(row, ['KATEGORI', 'Kategori', 'kategori', 'Category', 'category', 'Kat']) || '').trim(),
-              lowStockAlert: sanitizeNumber(findColumn(row, ['LOW STOCK ALERT', 'Low Stock Alert', 'low stock alert', 'Low Stock', 'LOW STOCK', 'Stock Alert', 'STOK MINIMUM'])),
-              komposisiInline: String(findColumn(row, ['KOMPOSISI INLINE', 'KOMPOSISI INLINE (Opsional)', 'Komposisi Inline', 'KOMPOSISI', 'Komposisi', 'komposisi']) || '').trim(),
+              categoryRaw: String(findColumn(row, getAliases(NON_VARIANT_FIELDS, 'category')) || '').trim(),
+              lowStockAlert: sanitizeNumber(findColumn(row, getAliases(NON_VARIANT_FIELDS, 'lowStockAlert'))),
+              komposisiInline: String(findColumn(row, getAliases(NON_VARIANT_FIELDS, 'komposisiInline')) || '').trim(),
             })
           }
 
@@ -1074,22 +1133,60 @@ export async function POST(request: NextRequest) {
           for (const rowData of batchRows) {
             const { rowNum, name, sku, barcode, hpp, price, stock, unit, categoryRaw, lowStockAlert, komposisiInline } = rowData
 
-            // ── Validation (unchanged) ──
+            // ── Validation — AETHER BULK TEMPLATE CONTRACT ALIGNMENT ──
+            // Each error now carries the canonical 9-column export fields:
+            //   field, code, originalValue, normalizedValue, suggestion, rowSnapshot.
             if (!name) {
-              errors.push({ row: rowNum, entity: 'product', identifier: name || undefined, message: 'Nama produk wajib diisi' })
+              errors.push({
+                row: rowNum, sheet: 'produk', entity: 'product', identifier: name || undefined,
+                message: 'Nama produk wajib diisi',
+                field: 'NAMA PRODUK*',
+                code: 'MIG_NAME_REQUIRED',
+                originalValue: name || '',
+                normalizedValue: name || '',
+                suggestion: MIGRATION_ERROR_HINTS['MIG_NAME_REQUIRED'],
+                rowSnapshot: { name, sku, barcode, hpp, price, stock, unit },
+              })
               continue
             }
             if (!price || price < 0) {
-              errors.push({ row: rowNum, entity: 'product', identifier: name, message: 'Harga Jual tidak valid' })
+              errors.push({
+                row: rowNum, sheet: 'produk', entity: 'product', identifier: name,
+                message: 'Harga Jual tidak valid (harus > 0)',
+                field: 'HARGA JUAL* (Rp)',
+                code: 'MIG_PRICE_REQUIRED',
+                originalValue: String(rowData.price ?? ''),
+                normalizedValue: String(price),
+                suggestion: MIGRATION_ERROR_HINTS['MIG_PRICE_REQUIRED'],
+                rowSnapshot: { name, sku, barcode, hpp, price, stock, unit },
+              })
               continue
             }
             // MIG-003 (P1): Negative value validation.
             if (hpp < 0) {
-              errors.push({ row: rowNum, entity: 'product', identifier: name, message: 'HPP tidak boleh negatif' })
+              errors.push({
+                row: rowNum, sheet: 'produk', entity: 'product', identifier: name,
+                message: 'HPP tidak boleh negatif',
+                field: 'HPP / MODAL (Rp)',
+                code: 'MIG_HPP_INVALID',
+                originalValue: String(rowData.hpp ?? ''),
+                normalizedValue: String(hpp),
+                suggestion: MIGRATION_ERROR_HINTS['MIG_HPP_INVALID'],
+                rowSnapshot: { name, sku, barcode, hpp, price, stock, unit },
+              })
               continue
             }
             if (stock < 0) {
-              errors.push({ row: rowNum, entity: 'product', identifier: name, message: 'Stok tidak boleh negatif' })
+              errors.push({
+                row: rowNum, sheet: 'produk', entity: 'product', identifier: name,
+                message: 'Stok tidak boleh negatif',
+                field: 'STOK AWAL',
+                code: 'MIG_STOCK_INVALID',
+                originalValue: String(rowData.stock ?? ''),
+                normalizedValue: String(stock),
+                suggestion: MIGRATION_ERROR_HINTS['MIG_STOCK_INVALID'],
+                rowSnapshot: { name, sku, barcode, hpp, price, stock, unit },
+              })
               continue
             }
 
@@ -1748,19 +1845,19 @@ export async function POST(request: NextRequest) {
                 const row = rows[i]
                 variantSheetRows.push({
                   rowNum: i + 2,
-                  parentName: String(findColumn(row, ['NAMA PRODUK*', 'NAMA PRODUK', 'Nama Produk', 'Nama', 'NAME', 'name', 'Product Name', 'Produk']) || '').trim(),
-                  parentSku: String(findColumn(row, ['SKU PRODUK', 'SKU Produk', 'sku produk']) || '').trim() || null,
-                  parentBarcode: String(findColumn(row, ['BARCODE PRODUK', 'Barcode Produk', 'barcode produk']) || '').trim() || null,
-                  parentHpp: sanitizeNumber(findColumn(row, ['HPP PRODUK (Rp)', 'HPP PRODUK', 'HPP Produk', 'hpp produk'])),
-                  parentPrice: sanitizeNumber(findColumn(row, ['HARGA JUAL PRODUK* (Rp)', 'HARGA JUAL PRODUK', 'HARGA JUAL PRODUK (Rp)', 'harga jual produk'])),
-                  categoryRaw: String(findColumn(row, ['KATEGORI', 'Kategori', 'kategori', 'Category', 'category', 'Kat']) || '').trim(),
-                  variantName: String(findColumn(row, ['NAMA VARIAN*', 'NAMA VARIAN', 'Nama Varian', 'Nama Variant', 'nama varian', 'Varian', 'VARIAN']) || '').trim(),
-                  variantSku: String(findColumn(row, ['SKU VARIAN', 'SKU Varian', 'sku varian']) || '').trim() || null,
-                  variantBarcode: String(findColumn(row, ['BARCODE VARIAN', 'Barcode Varian', 'barcode varian']) || '').trim() || null,
-                  variantHpp: sanitizeNumber(findColumn(row, ['HPP VARIAN (Rp)', 'HPP VARIAN', 'HPP Varian', 'hpp varian'])),
-                  variantPrice: sanitizeNumber(findColumn(row, ['HARGA JUAL VARIAN* (Rp)', 'HARGA JUAL VARIAN', 'HARGA JUAL VARIAN (Rp)', 'harga jual varian'])),
-                  variantStock: sanitizeNumber(findColumn(row, ['STOK AWAL VARIAN', 'STOK VARIAN', 'Stok Varian', 'stok varian', 'stok awal varian'])),
-                  komposisiVariantInline: String(findColumn(row, ['KOMPOSISI VARIAN INLINE', 'KOMPOSISI VARIAN INLINE (Opsional)', 'Komposisi Varian', 'komposisi varian', 'KOMPOSISI INLINE']) || '').trim(),
+                  parentName: String(findColumn(row, getAliases(VARIANT_FIELDS, 'parentName')) || '').trim(),
+                  parentSku: String(findColumn(row, getAliases(VARIANT_FIELDS, 'parentSku')) || '').trim() || null,
+                  parentBarcode: String(findColumn(row, getAliases(VARIANT_FIELDS, 'parentBarcode')) || '').trim() || null,
+                  parentHpp: sanitizeNumber(findColumn(row, getAliases(VARIANT_FIELDS, 'parentHpp'))),
+                  parentPrice: sanitizeNumber(findColumn(row, getAliases(VARIANT_FIELDS, 'parentPrice'))),
+                  categoryRaw: String(findColumn(row, getAliases(VARIANT_FIELDS, 'category')) || '').trim(),
+                  variantName: String(findColumn(row, getAliases(VARIANT_FIELDS, 'variantName')) || '').trim(),
+                  variantSku: String(findColumn(row, getAliases(VARIANT_FIELDS, 'variantSku')) || '').trim() || null,
+                  variantBarcode: String(findColumn(row, getAliases(VARIANT_FIELDS, 'variantBarcode')) || '').trim() || null,
+                  variantHpp: sanitizeNumber(findColumn(row, getAliases(VARIANT_FIELDS, 'variantHpp'))),
+                  variantPrice: sanitizeNumber(findColumn(row, getAliases(VARIANT_FIELDS, 'variantPrice'))),
+                  variantStock: sanitizeNumber(findColumn(row, getAliases(VARIANT_FIELDS, 'variantStock'))),
+                  komposisiVariantInline: String(findColumn(row, getAliases(VARIANT_FIELDS, 'komposisiVariantInline')) || '').trim(),
                 })
               }
 
@@ -1970,6 +2067,26 @@ export async function POST(request: NextRequest) {
                     skippedRows.push({ row: rowNum, sheet: 'varian', entity: 'variant-parent', identifier: r.parentName, message: 'Duplikat parent dalam batch — ID akan diresolve setelah createMany' })
                   } else {
                     // New parent — collect for createMany (ID resolved after re-query)
+                    // AETHER BULK TEMPLATE CONTRACT ALIGNMENT: enforce HARGA JUAL
+                    // PRODUK* (Rp) — the template marks this column as required
+                    // (asterisk) but the prior import silently defaulted to 0.
+                    // Now: a missing/zero parentPrice on a NEW parent row is a
+                    // hard error (the row that INTRODUCES the parent must set
+                    // the price). Existing parents reuse their DB price.
+                    if (!r.parentPrice || r.parentPrice <= 0) {
+                      errors.push({
+                        row: rowNum, sheet: 'varian', entity: 'variant-parent',
+                        identifier: r.parentName,
+                        message: 'Harga Jual Produk wajib diisi (> 0) pada baris pertama kelompok varian',
+                        field: 'HARGA JUAL PRODUK* (Rp)',
+                        code: 'MIG_VARIANT_PARENT_PRICE_REQUIRED',
+                        originalValue: String(r.parentPrice ?? ''),
+                        normalizedValue: String(r.parentPrice),
+                        suggestion: MIGRATION_ERROR_HINTS['MIG_VARIANT_PARENT_PRICE_REQUIRED'],
+                        rowSnapshot: { parentName: r.parentName, parentPrice: r.parentPrice, parentHpp: r.parentHpp },
+                      })
+                      continue
+                    }
                     batchParentNamesSeen.add(r.parentName)
                     currentParentId = null
                     currentParentIsNew = true
@@ -2017,29 +2134,79 @@ export async function POST(request: NextRequest) {
                 // === Variant row (NAMA VARIAN must be filled) ===
                 if (r.variantName && currentParentName) {
                   if (!r.variantPrice || r.variantPrice < 0) {
-                    errors.push({ row: rowNum, sheet: 'varian', entity: 'variant', identifier: `${currentParentName} / ${r.variantName}`, message: 'Harga Jual Varian tidak valid' })
+                    errors.push({
+                      row: rowNum, sheet: 'varian', entity: 'variant',
+                      identifier: `${currentParentName} / ${r.variantName}`,
+                      message: 'Harga Jual Varian tidak valid (harus > 0)',
+                      field: 'HARGA JUAL VARIAN* (Rp)',
+                      code: 'MIG_VARIANT_PRICE_REQUIRED',
+                      originalValue: String(r.variantPrice ?? ''),
+                      normalizedValue: String(r.variantPrice),
+                      suggestion: MIGRATION_ERROR_HINTS['MIG_VARIANT_PRICE_REQUIRED'],
+                      rowSnapshot: { parentName: currentParentName, variantName: r.variantName, variantPrice: r.variantPrice, variantHpp: r.variantHpp, variantStock: r.variantStock },
+                    })
                     continue
                   }
 
                   // MIG-003 (P1): Negative value validation for variant HPP and stock.
                   if (r.variantHpp < 0) {
-                    errors.push({ row: rowNum, sheet: 'varian', entity: 'variant', identifier: `${currentParentName} / ${r.variantName}`, message: 'HPP Varian tidak boleh negatif' })
+                    errors.push({
+                      row: rowNum, sheet: 'varian', entity: 'variant',
+                      identifier: `${currentParentName} / ${r.variantName}`,
+                      message: 'HPP Varian tidak boleh negatif',
+                      field: 'HPP VARIAN (Rp)',
+                      code: 'MIG_VARIANT_HPP_INVALID',
+                      originalValue: String(r.variantHpp ?? ''),
+                      normalizedValue: String(r.variantHpp),
+                      suggestion: MIGRATION_ERROR_HINTS['MIG_VARIANT_HPP_INVALID'],
+                      rowSnapshot: { parentName: currentParentName, variantName: r.variantName, variantHpp: r.variantHpp },
+                    })
                     continue
                   }
                   if (r.variantStock < 0) {
-                    errors.push({ row: rowNum, sheet: 'varian', entity: 'variant', identifier: `${currentParentName} / ${r.variantName}`, message: 'Stok Varian tidak boleh negatif' })
+                    errors.push({
+                      row: rowNum, sheet: 'varian', entity: 'variant',
+                      identifier: `${currentParentName} / ${r.variantName}`,
+                      message: 'Stok Varian tidak boleh negatif',
+                      field: 'STOK AWAL VARIAN',
+                      code: 'MIG_VARIANT_STOCK_INVALID',
+                      originalValue: String(r.variantStock ?? ''),
+                      normalizedValue: String(r.variantStock),
+                      suggestion: MIGRATION_ERROR_HINTS['MIG_VARIANT_STOCK_INVALID'],
+                      rowSnapshot: { parentName: currentParentName, variantName: r.variantName, variantStock: r.variantStock },
+                    })
                     continue
                   }
 
                   // Duplicate variant check (in-batch + existing)
                   const variantKey = `${currentParentName}||${r.variantName}`
                   if (batchVariantKeys.has(variantKey)) {
-                    errors.push({ row: rowNum, sheet: 'varian', entity: 'variant', identifier: `${currentParentName} / ${r.variantName}`, message: `Varian "${r.variantName}" sudah ada untuk produk "${currentParentName}"` })
+                    errors.push({
+                      row: rowNum, sheet: 'varian', entity: 'variant',
+                      identifier: `${currentParentName} / ${r.variantName}`,
+                      message: `Varian "${r.variantName}" sudah ada untuk produk "${currentParentName}"`,
+                      field: 'NAMA VARIAN*',
+                      code: 'MIG_VARIANT_NAME_REQUIRED',
+                      originalValue: r.variantName,
+                      normalizedValue: r.variantName,
+                      suggestion: 'Gunakan nama varian yang unik per produk induk.',
+                      rowSnapshot: { parentName: currentParentName, variantName: r.variantName },
+                    })
                     continue
                   }
                   // Check existing variants (for existing parents only)
                   if (currentParentId && existingVariantKeySet.has(`${currentParentId}||${r.variantName}`)) {
-                    errors.push({ row: rowNum, sheet: 'varian', entity: 'variant', identifier: `${currentParentName} / ${r.variantName}`, message: `Varian "${r.variantName}" sudah ada untuk produk "${currentParentName}"` })
+                    errors.push({
+                      row: rowNum, sheet: 'varian', entity: 'variant',
+                      identifier: `${currentParentName} / ${r.variantName}`,
+                      message: `Varian "${r.variantName}" sudah ada untuk produk "${currentParentName}"`,
+                      field: 'NAMA VARIAN*',
+                      code: 'MIG_VARIANT_NAME_REQUIRED',
+                      originalValue: r.variantName,
+                      normalizedValue: r.variantName,
+                      suggestion: 'Varian dengan nama ini sudah ada di database; gunakan nama lain atau kosongkan untuk skip.',
+                      rowSnapshot: { parentName: currentParentName, variantName: r.variantName },
+                    })
                     continue
                   }
                   batchVariantKeys.add(variantKey)
@@ -2591,26 +2758,48 @@ export async function POST(request: NextRequest) {
                 const row = rows[i]
                 const rowNum = i + 2
 
-                const name = String(findColumn(row, ['NAMA ITEM*', 'NAMA ITEM', 'NAMA BAHAN*', 'NAMA BAHAN', 'Nama Bahan', 'nama bahan', 'Bahan', 'BAHAN', 'name', 'Nama']) || '').trim()
-                const sku = String(findColumn(row, ['SKU', 'sku', 'Kode']) || '').trim() || null
-                const baseUnitRaw = String(findColumn(row, ['SATUAN DASAR*', 'SATUAN DASAR', 'Satuan Dasar', 'satuan dasar', 'Satuan', 'satuan', 'Unit', 'unit']) || 'pcs').trim().toLowerCase()
-                const stock = sanitizeNumber(findColumn(row, ['STOK AWAL', 'STOK', 'QTY', 'qty', 'Stok', 'stok', 'Stock', 'stock', 'Jumlah']))
-                const avgCost = sanitizeNumber(findColumn(row, ['HPP RATA-RATA (Rp)', 'HPP RATA-RATA', 'HPP', 'hpp', 'Harga Pokok', 'Avg Cost', 'avg cost']))
-                const categoryRaw = String(findColumn(row, ['KATEGORI INVENTORY', 'KATEGORI', 'Kategori Inventory', 'kategori inventory', 'Kategori', 'kategori']) || '').trim()
-                const lowStockAlert = sanitizeNumber(findColumn(row, ['LOW STOCK ALERT', 'Low Stock Alert', 'low stock alert', 'Low Stock', 'LOW STOCK', 'Stock Alert', 'STOK MINIMUM']))
+                const name = String(findColumn(row, getAliases(INVENTORY_FIELDS, 'name')) || '').trim()
+                const sku = String(findColumn(row, getAliases(INVENTORY_FIELDS, 'sku')) || '').trim() || null
+                const baseUnitRaw = String(findColumn(row, getAliases(INVENTORY_FIELDS, 'baseUnit')) || 'pcs').trim().toLowerCase()
+                const stock = sanitizeNumber(findColumn(row, getAliases(INVENTORY_FIELDS, 'stock')))
+                const avgCost = sanitizeNumber(findColumn(row, getAliases(INVENTORY_FIELDS, 'avgCost')))
+                const categoryRaw = String(findColumn(row, getAliases(INVENTORY_FIELDS, 'category')) || '').trim()
+                const lowStockAlert = sanitizeNumber(findColumn(row, getAliases(INVENTORY_FIELDS, 'lowStockAlert')))
 
                 if (!name) {
-                  errors.push({ row: rowNum, sheet: 'inventory', entity: 'inventory', message: 'Nama item stok wajib diisi' })
+                  errors.push({
+                    row: rowNum, sheet: 'inventory', entity: 'inventory',
+                    message: 'Nama item stok wajib diisi',
+                    field: 'NAMA ITEM*',
+                    code: 'MIG_INV_NAME_REQUIRED',
+                    originalValue: '', normalizedValue: '',
+                    suggestion: MIGRATION_ERROR_HINTS['MIG_INV_NAME_REQUIRED'],
+                    rowSnapshot: { name, sku, baseUnit: baseUnitRaw, stock, avgCost },
+                  })
                   continue
                 }
 
                 // MIG-003 (P1): Negative value validation for inventory stock and avgCost.
                 if (stock < 0) {
-                  errors.push({ row: rowNum, sheet: 'inventory', entity: 'inventory', identifier: name, message: 'Stok tidak boleh negatif' })
+                  errors.push({
+                    row: rowNum, sheet: 'inventory', entity: 'inventory', identifier: name,
+                    message: 'Stok tidak boleh negatif',
+                    field: 'STOK AWAL', code: 'MIG_INV_STOCK_INVALID',
+                    originalValue: String(stock), normalizedValue: String(stock),
+                    suggestion: MIGRATION_ERROR_HINTS['MIG_INV_STOCK_INVALID'],
+                    rowSnapshot: { name, sku, baseUnit: baseUnitRaw, stock, avgCost },
+                  })
                   continue
                 }
                 if (avgCost < 0) {
-                  errors.push({ row: rowNum, sheet: 'inventory', entity: 'inventory', identifier: name, message: 'HPP Rata-rata tidak boleh negatif' })
+                  errors.push({
+                    row: rowNum, sheet: 'inventory', entity: 'inventory', identifier: name,
+                    message: 'HPP Rata-rata tidak boleh negatif',
+                    field: 'HPP RATA-RATA (Rp)', code: 'MIG_INV_AVGCOST_INVALID',
+                    originalValue: String(avgCost), normalizedValue: String(avgCost),
+                    suggestion: MIGRATION_ERROR_HINTS['MIG_INV_AVGCOST_INVALID'],
+                    rowSnapshot: { name, sku, baseUnit: baseUnitRaw, stock, avgCost },
+                  })
                   continue
                 }
 
@@ -2755,27 +2944,49 @@ export async function POST(request: NextRequest) {
                 const row = rows[i]
                 const rowNum = i + 2
 
-                const productName = String(findColumn(row, ['NAMA PRODUK*', 'NAMA PRODUK', 'Nama Produk', 'Nama', 'name', 'Produk', 'Product']) || '').trim()
-                const variantName = String(findColumn(row, ['NAMA VARIAN', 'Nama Varian', 'nama varian', 'Varian', 'Variant', 'VARIAN', 'Nama Variant']) || '').trim()
-                const bahanName = String(findColumn(row, ['NAMA BAHAN*', 'NAMA BAHAN', 'Nama Bahan', 'nama bahan', 'Bahan', 'BAHAN', 'Material']) || '').trim()
-                const bahanSku = String(findColumn(row, ['SKU BAHAN', 'SKU Bahan', 'sku bahan']) || '').trim() || null
-                const qty = sanitizeNumber(findColumn(row, ['QTY PER BATCH*', 'QTY PER BATCH', 'QTY', 'qty', 'Qty', 'Quantity', 'Jumlah']))
-                const satuanBahan = String(findColumn(row, ['SATUAN BAHAN', 'Satuan Bahan', 'satuan bahan', 'Satuan', 'satuan', 'Unit']) || '').trim().toLowerCase()
-                const yieldPerBatch = sanitizeNumber(findColumn(row, ['YIELD PER BATCH', 'YIELD', 'Yield', 'yield', 'Yield Per Batch', 'Hasil per Batch', 'yield per batch'])) || 1
-                const catatan = String(findColumn(row, ['CATATAN', 'Catatan', 'catatan', 'Note', 'note', 'Notes', 'Notes']) || '').trim()
+                const productName = String(findColumn(row, getAliases(COMPOSITION_FIELDS, 'productName')) || '').trim()
+                const variantName = String(findColumn(row, getAliases(COMPOSITION_FIELDS, 'variantName')) || '').trim()
+                const bahanName = String(findColumn(row, getAliases(COMPOSITION_FIELDS, 'bahanName')) || '').trim()
+                const bahanSku = String(findColumn(row, getAliases(COMPOSITION_FIELDS, 'bahanSku')) || '').trim() || null
+                const qty = sanitizeNumber(findColumn(row, getAliases(COMPOSITION_FIELDS, 'qty')))
+                const satuanBahan = String(findColumn(row, getAliases(COMPOSITION_FIELDS, 'satuanBahan')) || '').trim().toLowerCase()
+                const yieldPerBatch = sanitizeNumber(findColumn(row, getAliases(COMPOSITION_FIELDS, 'yieldPerBatch'))) || 1
+                const catatan = String(findColumn(row, getAliases(COMPOSITION_FIELDS, 'catatan')) || '').trim()
 
                 if (!productName) {
-                  errors.push({ row: rowNum, sheet: 'komposisi', entity: 'composition', message: 'Nama produk wajib diisi' })
+                  errors.push({
+                    row: rowNum, sheet: 'komposisi', entity: 'composition',
+                    message: 'Nama produk wajib diisi',
+                    field: 'NAMA PRODUK*', code: 'MIG_COMP_PRODUCT_REQUIRED',
+                    originalValue: '', normalizedValue: '',
+                    suggestion: MIGRATION_ERROR_HINTS['MIG_COMP_PRODUCT_REQUIRED'],
+                    rowSnapshot: { productName, variantName, bahanName, qty },
+                  })
                   continue
                 }
 
                 if (!bahanName) {
-                  errors.push({ row: rowNum, sheet: 'komposisi', entity: 'composition', identifier: productName, message: 'Nama bahan wajib diisi' })
+                  errors.push({
+                    row: rowNum, sheet: 'komposisi', entity: 'composition', identifier: productName,
+                    message: 'Nama bahan wajib diisi',
+                    field: 'NAMA BAHAN*', code: 'MIG_COMP_BAHAN_REQUIRED',
+                    originalValue: '', normalizedValue: '',
+                    suggestion: MIGRATION_ERROR_HINTS['MIG_COMP_BAHAN_REQUIRED'],
+                    rowSnapshot: { productName, variantName, bahanName, qty },
+                  })
                   continue
                 }
 
                 if (!qty || qty <= 0) {
-                  errors.push({ row: rowNum, sheet: 'komposisi', entity: 'composition', identifier: `${productName} / ${bahanName}`, message: 'QTY per batch harus > 0' })
+                  errors.push({
+                    row: rowNum, sheet: 'komposisi', entity: 'composition',
+                    identifier: `${productName} / ${bahanName}`,
+                    message: 'QTY per batch harus > 0',
+                    field: 'QTY PER BATCH*', code: 'MIG_COMP_QTY_INVALID',
+                    originalValue: String(qty ?? ''), normalizedValue: String(qty),
+                    suggestion: MIGRATION_ERROR_HINTS['MIG_COMP_QTY_INVALID'],
+                    rowSnapshot: { productName, variantName, bahanName, qty, satuanBahan },
+                  })
                   continue
                 }
 
@@ -3096,8 +3307,15 @@ export async function POST(request: NextRequest) {
         batchError,
         // v2.3: errors[] is now an object array (AuditIssueRow). For backward-compat
         // with any frontend still expecting strings, also expose `errorsText`.
+        // AETHER BULK TEMPLATE CONTRACT ALIGNMENT: errors[] now also carries the
+        // canonical 9-column export fields (field, code, originalValue,
+        // normalizedValue, suggestion, rowSnapshot) so the frontend can build
+        // an Excel error file via /lib/bulk-engine/error-export.ts.
         errors,
         errorsText: errors.map(e => `Baris ${e.row}: ${e.message}`),
+        templateVersion: fileVersion,
+        templateVersionStatus: versionCheck.status,
+        ...(templateVersionWarning ? { templateVersionWarning } : {}),
         categoriesCreated,
         barcodeCount,
         // Include remaining-sheets stats only on last batch (when they were processed)
@@ -3141,8 +3359,15 @@ export async function POST(request: NextRequest) {
       totalModalValue,
       // v2.3: errors[] is now an object array (AuditIssueRow). For backward-compat
       // with any frontend still expecting strings, also expose `errorsText`.
+      // AETHER BULK TEMPLATE CONTRACT ALIGNMENT: errors[] now also carries the
+      // canonical 9-column export fields (field, code, originalValue,
+      // normalizedValue, suggestion, rowSnapshot) so the frontend can build
+      // an Excel error file via /lib/bulk-engine/error-export.ts.
       errors,
       errorsText: errors.map(e => `Baris ${e.row}: ${e.message}`),
+      templateVersion: fileVersion,
+      templateVersionStatus: versionCheck.status,
+      ...(templateVersionWarning ? { templateVersionWarning } : {}),
       warnings,
       skipped: skippedRows,
       mode,

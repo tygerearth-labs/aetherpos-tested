@@ -1,8 +1,22 @@
 import { NextRequest } from 'next/server'
 import * as XLSX from 'xlsx'
 import { safeJsonError } from '@/lib/api/safe-response'
+import {
+  NON_VARIANT_FIELDS,
+  VARIANT_FIELDS,
+  INVENTORY_FIELDS,
+  COMPOSITION_FIELDS,
+  buildHeaderRow,
+  MIGRATION_UNIT_DROPDOWN,
+  type MigrationMode,
+} from '@/lib/migration/field-defs'
+import {
+  MIGRATION_TEMPLATE_VERSION,
+  META_SHEET_NAME,
+  buildMetaSheetRows,
+} from '@/lib/bulk-template-version'
 
-type TemplateMode = 'product_only' | 'product_stock' | 'product_inventory'
+type TemplateMode = MigrationMode
 
 export async function GET(request: NextRequest) {
   try {
@@ -25,18 +39,7 @@ export async function GET(request: NextRequest) {
     // ============================================================
     // SHEET 1: Produk Non-Varian
     // ============================================================
-    const nonVariantHeader = [
-      'NAMA PRODUK*',
-      'SKU',
-      'BARCODE',
-      'HPP / MODAL (Rp)',
-      'HARGA JUAL* (Rp)',
-      ...(showStock ? ['STOK AWAL'] : []),
-      'SATUAN',
-      'KATEGORI',
-      ...(showStock ? ['LOW STOCK ALERT'] : []),
-      ...(showComposition ? ['KOMPOSISI INLINE (Opsional)'] : []),
-    ]
+    const nonVariantHeader = buildHeaderRow(NON_VARIANT_FIELDS, mode)
 
     const nonVariantData: (string | number)[][] = [
       // ════════════════════════════════════════════════════════
@@ -126,7 +129,7 @@ export async function GET(request: NextRequest) {
       type: 'list',
       allowBlank: true,
       sqref: `${satuanCol}2:${satuanCol}5000`,
-      formulas: ['"pcs,ml,lt,gr,kg,box,pack,botol,gelas,mangkuk,porsi,bungkus,sachet,dus,rim,lembar,meter,cm,ons,roll,strip,ekor,sak,batang"'],
+      formulas: [`"${MIGRATION_UNIT_DROPDOWN}"`],
     }]
 
     XLSX.utils.book_append_sheet(wb, wsNonVariant, 'Produk Non-Varian')
@@ -134,21 +137,7 @@ export async function GET(request: NextRequest) {
     // ============================================================
     // SHEET 2: Produk Varian
     // ============================================================
-    const variantHeader = [
-      'NAMA PRODUK*',
-      'SKU PRODUK',
-      'BARCODE PRODUK',
-      'HPP PRODUK (Rp)',
-      'HARGA JUAL PRODUK* (Rp)',
-      'KATEGORI',
-      'NAMA VARIAN*',
-      'SKU VARIAN',
-      'BARCODE VARIAN',
-      'HPP VARIAN (Rp)',
-      'HARGA JUAL VARIAN* (Rp)',
-      ...(showStock ? ['STOK AWAL VARIAN'] : []),
-      ...(showComposition ? ['KOMPOSISI VARIAN INLINE (Opsional)'] : []),
-    ]
+    const variantHeader = buildHeaderRow(VARIANT_FIELDS, mode)
 
     const variantData: (string | number)[][] = [
       // ════════════════════════════════════════════════════════
@@ -220,16 +209,7 @@ export async function GET(request: NextRequest) {
     // SHEET 3: Bahan Baku (HANYA Mode 3)
     // ============================================================
     if (showComposition) {
-      const inventoryHeader = [
-        'NAMA ITEM*',
-        'SKU',
-        'SATUAN DASAR*',
-        'STOK AWAL',
-        'HPP RATA-RATA (Rp)',
-        'KATEGORI',
-        'LOW STOCK ALERT',
-        'TERHUBUNG DENGAN PRODUK (Opsional — koma-separated)',
-      ]
+      const inventoryHeader = buildHeaderRow(INVENTORY_FIELDS, mode)
 
       const inventoryData = [
         ['Beras', 'INV-FNB-001', 'kg', 50, 12000, 'Bahan Pokok', 10, 'Nasi Goreng Spesial,Mie Ayam'],
@@ -255,7 +235,7 @@ export async function GET(request: NextRequest) {
         type: 'list',
         allowBlank: true,
         sqref: 'C2:C5000',
-        formulas: ['"pcs,ml,lt,gr,kg,box,pack,botol,gelas,mangkuk,porsi,bungkus,sachet,dus,rim,lembar,meter,cm,ons,roll,strip,ekor,sak,batang,m3"'],
+        formulas: [`"${MIGRATION_UNIT_DROPDOWN}"`],
       }]
       XLSX.utils.book_append_sheet(wb, wsInventory, 'Bahan Baku')
     }
@@ -264,16 +244,7 @@ export async function GET(request: NextRequest) {
     // SHEET 4: Komposisi / Resep BOM (HANYA Mode 3)
     // ============================================================
     if (showComposition) {
-      const compositionHeader = [
-        'NAMA PRODUK*',
-        'NAMA VARIAN (Kosongkan jika non-varian)',
-        'NAMA BAHAN*',
-        'SKU BAHAN (Opsional — auto-match)',
-        'QTY PER BATCH*',
-        'SATUAN BAHAN',
-        'YIELD PER BATCH (Hasil per 1 batch)',
-        'CATATAN',
-      ]
+      const compositionHeader = buildHeaderRow(COMPOSITION_FIELDS, mode)
 
       const compositionData = [
         ['Nasi Goreng Spesial', '', 'Beras', 'INV-FNB-001', 200, 'gr', 1, 'Per porsi'],
@@ -303,6 +274,29 @@ export async function GET(request: NextRequest) {
     const wsGuide = XLSX.utils.aoa_to_sheet(guideData)
     wsGuide['!cols'] = [{ wch: 35 }, { wch: 70 }, { wch: 45 }, { wch: 10 }]
     XLSX.utils.book_append_sheet(wb, wsGuide, 'Panduan Import')
+
+    // ============================================================
+    // SHEET: _Meta (hidden) — TEMPLATE_VERSION stamp
+    // ============================================================
+    // The _Meta sheet carries the TEMPLATE_VERSION so the import parser can
+    // detect template drift and map aliases for older versions. Hidden so it
+    // does not clutter the user's view.
+    const wsMeta = XLSX.utils.aoa_to_sheet(buildMetaSheetRows(MIGRATION_TEMPLATE_VERSION))
+    wsMeta['!cols'] = [{ wch: 20 }, { wch: 24 }]
+    XLSX.utils.book_append_sheet(wb, wsMeta, META_SHEET_NAME)
+    try {
+      // SheetJS hides the sheet via the workbook-level Sheets[name].Hidden flag
+      // or the !sheetView property. The community build uses the Workbook.Sheets
+      // array which sets state: 'hidden'.
+      const sheetName = META_SHEET_NAME
+      if (!wb.Workbook) wb.Workbook = { Sheets: [] as { name: string; Hidden: number }[] } as never
+      ;(wb.Workbook as unknown as { Sheets: { name: string; Hidden: number }[] }).Sheets.push({
+        name: sheetName,
+        Hidden: 1, // 1 = hidden, 0 = visible, 2 = very hidden
+      })
+    } catch {
+      // Hiding is best-effort — the sheet still works if it stays visible.
+    }
 
     // Generate buffer
     const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })

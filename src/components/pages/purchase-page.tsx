@@ -151,10 +151,15 @@ import {
   ClipboardList,
   Calendar,
   Camera,
+  SlidersHorizontal,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useBulkWorker } from '@/components/bulk-engine/bulk-worker-context'
 import SupplierSearchInput from '@/components/purchase/supplier-search-input'
+import { MobileStickyActionBar } from '@/components/mobile/mobile-sticky-action-bar'
+import { MobileFilterSheet, type MobileFilterSection } from '@/components/mobile/mobile-filter-sheet'
+import { useMobileUiStore } from '@/hooks/use-mobile-ui-store'
+import { useIsMobile } from '@/hooks/use-mobile'
 
 // ════════════════════════════════════════════════════════════
 // Types
@@ -864,6 +869,11 @@ export default function PurchasePage() {
   const [invColumnSortBy, setInvColumnSortBy] = useState<InvColumnSortBy>('lastChangedAt')
   const [invColumnSortOrder, setInvColumnSortOrder] = useState<'asc' | 'desc'>('desc')
   const [invScannerOpen, setInvScannerOpen] = useState(false)
+  // Mobile filter sheet — consolidates Kategori + Status + secondary actions
+  // (Kelola Kategori / Cari Batch / Waste Report) into one bottom sheet on
+  // mobile so the toolbar doesn't wrap chaotically. Desktop keeps its inline
+  // controls (`hidden md:flex` Row 2 below).
+  const [invFilterSheetOpen, setInvFilterSheetOpen] = useState(false)
   // Picker for the case when a scanned product/variant barcode maps to MULTIPLE
   // inventory items via ProductComposition. The user picks one to open detail.
   const [invScanPickerOpen, setInvScanPickerOpen] = useState(false)
@@ -970,6 +980,16 @@ export default function PurchasePage() {
   // Post as Product feature
   const [selectedInvIds, setSelectedInvIds] = useState<Set<string>>(new Set())
   const [allInvIds, setAllInvIds] = useState<string[]>([]) // All item IDs across pages for select-all
+  // Mobile UI coordination — when the inventory selection bulk bar is visible,
+  // tell the app-shell (via useMobileUiStore) to hide the persistent bottom nav
+  // and reserve ~96px of bottom padding so the bar never covers list content.
+  // Cleared on unmount or when the selection is dismissed.
+  const setSelectionOverlay = useMobileUiStore((s) => s.setSelectionOverlay)
+  const invSelectionActive = selectedInvIds.size > 0
+  useEffect(() => {
+    setSelectionOverlay(invSelectionActive, 96)
+    return () => setSelectionOverlay(false, 0)
+  }, [invSelectionActive, setSelectionOverlay])
   const [postProductOpen, setPostProductOpen] = useState(false)
   const [postMode, setPostMode] = useState<'select'|'composition'|'retail'>('select')
   const [postStep, setPostStep] = useState<1|2|3>(1)
@@ -4007,22 +4027,27 @@ export default function PurchasePage() {
       {/* Tabs */}
       <motion.div variants={itemVariants}>
         <Tabs value={tab} onValueChange={setTab}>
-          <TabsList className="bg-white/[0.04] border border-white/[0.06] h-9 p-0.5 rounded-lg">
-            <TabsTrigger
-              value="purchase"
-              className="text-xs font-medium h-7 rounded-md data-[state=active]:bg-white/[0.08] data-[state=active]:text-white text-slate-400 px-3 gap-1.5"
-            >
-              <ShoppingCart className="h-3 w-3" />
-              Pembelian & Inventori
-            </TabsTrigger>
-            <TabsTrigger
-              value="inventory"
-              className="text-xs font-medium h-7 rounded-md data-[state=active]:bg-white/[0.08] data-[state=active]:text-white text-slate-400 px-3 gap-1.5"
-            >
-              <PackagePlus className="h-3 w-3" />
-              Inventory Items
-            </TabsTrigger>
-          </TabsList>
+          {/* Sticky tab header on mobile only — lets the user switch tabs
+              without scrolling all the way back to the top. Desktop (md+)
+              stays static. */}
+          <div className="sticky top-0 z-20 -mx-3 sm:mx-0 px-3 sm:px-0 py-2 bg-deep-space/95 backdrop-blur-sm md:static md:z-auto md:bg-transparent md:backdrop-blur-none md:py-0">
+            <TabsList className="bg-white/[0.04] border border-white/[0.06] h-9 p-0.5 rounded-lg">
+              <TabsTrigger
+                value="purchase"
+                className="text-xs font-medium h-7 rounded-md data-[state=active]:bg-white/[0.08] data-[state=active]:text-white text-slate-400 px-3 gap-1.5"
+              >
+                <ShoppingCart className="h-3 w-3" />
+                Pembelian & Inventori
+              </TabsTrigger>
+              <TabsTrigger
+                value="inventory"
+                className="text-xs font-medium h-7 rounded-md data-[state=active]:bg-white/[0.08] data-[state=active]:text-white text-slate-400 px-3 gap-1.5"
+              >
+                <PackagePlus className="h-3 w-3" />
+                Inventory Items
+              </TabsTrigger>
+            </TabsList>
+          </div>
 
           {/* ══════════════════════════════════════════════════════ */}
           {/* TAB 1: PEMBELIAN                                     */}
@@ -4133,11 +4158,11 @@ export default function PurchasePage() {
                 : "bg-white/[0.02] border-white/[0.06] hover:border-white/[0.1]"
             )}>
               <button
-                className="w-full flex items-center justify-between px-4 py-3 text-left group"
+                className="w-full flex items-center justify-between px-3 py-2 md:px-4 md:py-3 text-left group"
                 onClick={() => setShowPurchaseGuide(prev => !prev)}
               >
                 <div className="flex items-center gap-3">
-                  <div className="flex items-center justify-center w-7 h-7 rounded-md bg-white/[0.04]">
+                  <div className="flex items-center justify-center w-6 h-6 md:w-7 md:h-7 rounded-md bg-white/[0.04]">
                     <BookOpen className="h-3.5 w-3.5 text-slate-400 group-hover:text-slate-200 transition-colors" />
                   </div>
                   <div>
@@ -4639,8 +4664,54 @@ export default function PurchasePage() {
                 )}
               </div>
               
-              {/* Filter Actions Row - Secondary */}
-              <div className="flex flex-wrap items-center gap-2">
+              {/* Mobile-only compact filter row — single "Filter" button
+                  (opens MobileFilterSheet consolidating Kategori + Status +
+                  secondary actions) + compact Excel icon dropdown. Desktop
+                  keeps its full secondary row below (`hidden md:flex`). */}
+              <div className="md:hidden flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setInvFilterSheetOpen(true)}
+                  className="h-9 flex-1 text-xs justify-start gap-2 bg-white/[0.04] border-white/[0.06] text-slate-300 hover:text-white hover:bg-white/[0.06] rounded-lg"
+                >
+                  <SlidersHorizontal className="h-3.5 w-3.5 text-slate-500" />
+                  Filter
+                  {(invCategoryFilter !== 'all' || showInactiveItems) && (
+                    <Badge className="ml-auto bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 text-[10px] h-5 px-1.5 rounded-full tabular-nums">
+                      {(invCategoryFilter !== 'all' ? 1 : 0) + (showInactiveItems ? 1 : 0)}
+                    </Badge>
+                  )}
+                </Button>
+                {/* Compact Excel icon dropdown — same handlers as desktop */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="sm" className="h-9 px-3 text-xs gap-1.5 text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/[0.08] border border-white/[0.06] hover:border-emerald-500/20 rounded-lg shrink-0">
+                      <FileSpreadsheet className="h-3.5 w-3.5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-[220px] rounded-xl border-white/[0.08] bg-nebula p-1 shadow-2xl shadow-black/60">
+                    <DropdownMenuItem onClick={handleInvExport} disabled={invExporting} className="flex items-center gap-2.5 px-3 py-2.5 text-xs text-slate-300 hover:bg-white/[0.04] hover:text-white rounded-lg cursor-pointer focus:bg-white/[0.04] focus:text-white">
+                      {invExporting ? <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" /> : <Download className="h-3.5 w-3.5 text-emerald-500" />}
+                      <div className="flex-1">
+                        <span>Export Excel</span>
+                        <p className="text-[10px] text-slate-600">{invExporting ? 'Mengunduh...' : 'Download data inventory'}</p>
+                      </div>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator className="bg-white/[0.06] my-1" />
+                    <DropdownMenuItem onClick={() => openBulkDialog('inventory:edit')} className="flex items-center gap-2.5 px-3 py-2.5 text-xs text-slate-300 hover:bg-white/[0.04] hover:text-white rounded-lg cursor-pointer focus:bg-white/[0.04] focus:text-white group">
+                      <FilePenLine className="h-3.5 w-3.5 text-slate-500 group-hover:text-cyan-400 transition-colors" />
+                      <div className="flex-1">
+                        <span>Edit Bahan Excel</span>
+                        <p className="text-[10px] text-slate-600">Bulk Engine V2 — update massal</p>
+                      </div>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+
+              {/* Filter Actions Row - Secondary (desktop only) */}
+              <div className="hidden md:flex flex-wrap items-center gap-2">
                 {/* Category Filter Group */}
                 <div className="flex items-center gap-1.5 bg-white/[0.02] border border-white/[0.06] rounded-xl p-1 pr-2">
                   <span className="text-[10px] text-slate-600 uppercase tracking-wider pl-2 font-medium">Kategori</span>
@@ -4740,33 +4811,93 @@ export default function PurchasePage() {
                   </DropdownMenu>
                 </div>
               </div>
+
+              {/* Mobile filter sheet — Kategori + Status + secondary actions */}
+              <MobileFilterSheet
+                open={invFilterSheetOpen}
+                onOpenChange={setInvFilterSheetOpen}
+                title="Filter Inventory"
+                sections={[
+                  {
+                    key: 'category',
+                    title: 'Kategori',
+                    options: [
+                      { value: 'all', label: 'Semua Kategori' },
+                      ...categories.map((c) => ({ value: c.id, label: c.name })),
+                    ],
+                    selected: invCategoryFilter,
+                    onSelect: (v) => { setInvCategoryFilter(v); setInvPage(1); setSelectedInvIds(new Set()) },
+                  },
+                  {
+                    key: 'status',
+                    title: 'Status',
+                    options: [
+                      { value: 'active', label: 'Aktif' },
+                      { value: 'inactive', label: 'Nonaktif' },
+                    ],
+                    selected: showInactiveItems ? 'inactive' : 'active',
+                    onSelect: (v) => {
+                      setShowInactiveItems(v === 'inactive')
+                      setInvPage(1)
+                      setSelectedInvIds(new Set())
+                    },
+                  },
+                ]}
+                footerActions={[
+                  {
+                    key: 'categories',
+                    label: 'Kelola Kategori',
+                    icon: <Tags className="h-4 w-4" />,
+                    onClick: () => setCategoryDialogOpen(true),
+                  },
+                  {
+                    key: 'batch',
+                    label: 'Cari Batch',
+                    icon: <Hash className="h-4 w-4" />,
+                    onClick: () => { setBatchSearchOpen(true); setBatchSearchQuery(''); setBatchSearchResult(null) },
+                  },
+                  {
+                    key: 'waste',
+                    label: 'Waste Report',
+                    icon: <Flame className="h-4 w-4" />,
+                    onClick: () => { setWasteReportOpen(true); setWasteReportData(null) },
+                  },
+                ]}
+                onReset={() => {
+                  setInvSearch('')
+                  setInvCategoryFilter('all')
+                  setShowInactiveItems(false)
+                  setInvPage(1)
+                  setSelectedInvIds(new Set())
+                }}
+              />
             </div>
 
             {/* Enhanced Stats Cards */}
-            <div className="grid grid-cols-3 gap-2.5">
+            <div className="grid grid-cols-3 gap-2 md:gap-2.5">
               {/* Total Item Card */}
-              <div className="group relative rounded-xl bg-gradient-to-br from-emerald-500/[0.08] to-transparent border border-emerald-500/10 hover:border-emerald-500/20 p-3.5 transition-all duration-300 hover:shadow-lg hover:shadow-emerald-500/5 overflow-hidden">
+              <div className="group relative rounded-xl bg-gradient-to-br from-emerald-500/[0.08] to-transparent border border-emerald-500/10 hover:border-emerald-500/20 p-2.5 md:p-3.5 transition-all duration-300 hover:shadow-lg hover:shadow-emerald-500/5 overflow-hidden">
                 <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                 <div className="relative flex items-start justify-between">
                   <div>
                     <p className="text-[10px] text-slate-500 mb-1 uppercase tracking-wider font-medium">Total Item</p>
-                    <p className="text-lg font-bold text-white tabular-nums">{formatNumber(invStats.totalItems)}</p>
+                    <p className="text-sm md:text-lg font-bold text-white tabular-nums">{formatNumber(invStats.totalItems)}</p>
                   </div>
-                  <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0 group-hover:bg-emerald-500/15 transition-colors">
+                  <div className="w-7 h-7 md:w-8 md:h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0 group-hover:bg-emerald-500/15 transition-colors">
                     <Package className="h-4 w-4 text-emerald-400" />
                   </div>
                 </div>
               </div>
 
               {/* Total Nilai Card */}
-              <div className="group relative rounded-xl bg-gradient-to-br from-blue-500/[0.08] to-transparent border border-blue-500/10 hover:border-blue-500/20 p-3.5 transition-all duration-300 hover:shadow-lg hover:shadow-blue-500/5 overflow-hidden">
+              <div className="group relative rounded-xl bg-gradient-to-br from-blue-500/[0.08] to-transparent border border-blue-500/10 hover:border-blue-500/20 p-2.5 md:p-3.5 transition-all duration-300 hover:shadow-lg hover:shadow-blue-500/5 overflow-hidden">
                 <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                 <div className="relative flex items-start justify-between">
                   <div>
                     <p className="text-[10px] text-slate-500 mb-1 uppercase tracking-wider font-medium">Total Nilai</p>
                     <p className="text-sm font-bold text-white tabular-nums leading-tight">{formatCurrency(invStats.totalValue)}</p>
                   </div>
-                  <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center shrink-0 group-hover:bg-blue-500/15 transition-colors">
+                  <div className="w-7 h-7 md:w-8 md:h-8 rounded-lg bg-blue-500/10 flex items-center justify-center shrink-0 group-hover:bg-blue-500/15 transition-colors">
                     <Banknote className="h-4 w-4 text-blue-400" />
                   </div>
                 </div>
@@ -4774,7 +4905,7 @@ export default function PurchasePage() {
 
               {/* Stok Rendah Card */}
               <div className={cn(
-                'group relative rounded-xl bg-gradient-to-br p-3.5 transition-all duration-300 hover:shadow-lg overflow-hidden',
+                'group relative rounded-xl bg-gradient-to-br p-2.5 md:p-3.5 transition-all duration-300 hover:shadow-lg overflow-hidden',
                 invStats.lowStockCount > 0 
                   ? 'from-amber-500/[0.12] to-transparent border border-amber-500/20 hover:border-amber-500/30 hover:shadow-amber-500/10' 
                   : 'from-slate-500/[0.05] to-transparent border border-white/[0.06] hover:border-white/[0.1] hover:shadow-slate-500/5'
@@ -4786,10 +4917,10 @@ export default function PurchasePage() {
                 <div className="relative flex items-start justify-between">
                   <div>
                     <p className="text-[10px] text-slate-500 mb-1 uppercase tracking-wider font-medium">Stok Rendah</p>
-                    <p className={cn('text-lg font-bold tabular-nums', invStats.lowStockCount > 0 ? 'text-amber-400' : 'text-white')}>{formatNumber(invStats.lowStockCount)}</p>
+                    <p className={cn('text-sm md:text-lg font-bold tabular-nums', invStats.lowStockCount > 0 ? 'text-amber-400' : 'text-white')}>{formatNumber(invStats.lowStockCount)}</p>
                   </div>
                   <div className={cn(
-                    'w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors',
+                    'w-7 h-7 md:w-8 md:h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors',
                     invStats.lowStockCount > 0 ? 'bg-amber-500/15 group-hover:bg-amber-500/25' : 'bg-slate-500/10 group-hover:bg-slate-500/15'
                   )}>
                     {invStats.lowStockCount > 0 ? (
@@ -4810,11 +4941,11 @@ export default function PurchasePage() {
                 : "bg-white/[0.02] border-white/[0.06] hover:border-white/[0.1]"
             )}>
               <button
-                className="w-full flex items-center justify-between px-4 py-3 text-left group"
+                className="w-full flex items-center justify-between px-3 py-2 md:px-4 md:py-3 text-left group"
                 onClick={() => setShowInventoryGuide(prev => !prev)}
               >
                 <div className="flex items-center gap-3">
-                  <div className="flex items-center justify-center w-7 h-7 rounded-md bg-white/[0.04]">
+                  <div className="flex items-center justify-center w-6 h-6 md:w-7 md:h-7 rounded-md bg-white/[0.04]">
                     <PackageOpen className="h-3.5 w-3.5 text-slate-400 group-hover:text-slate-200 transition-colors" />
                   </div>
                   <div>
@@ -4950,60 +5081,109 @@ export default function PurchasePage() {
               )}
             </div>
 
-            {/* Selection action bar — floating */}
+            {/* Selection action bar — floating.
+                On desktop: keeps the existing centered floating pill (hidden
+                on mobile). On mobile: uses the shared MobileStickyActionBar
+                which is safe-area aware and signals the app-shell (via
+                useMobileUiStore) to hide the persistent bottom nav so the two
+                never overlap. */}
             {selectedInvIds.size > 0 && (
-              <motion.div
-                initial={{ opacity: 0, y: 16 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 16 }}
-                className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center justify-between gap-2 p-2.5 rounded-xl bg-nebula/95 backdrop-blur-xl border border-emerald-500/20 shadow-2xl shadow-emerald-500/10 max-w-[calc(100vw-2rem)]"
-              >
-                <div className="flex items-center gap-2 min-w-0">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
-                  <span className="text-xs text-slate-300 font-medium truncate">
-                    <span className="text-emerald-400">{selectedInvIds.size}</span> item terpilih
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <button
-                    className="text-[11px] text-slate-500 hover:text-slate-300 transition-colors px-1.5"
-                    onClick={() => setSelectedInvIds(new Set())}
-                  >
-                    Batal
-                  </button>
-                  <Button
-                    size="sm"
-                    onClick={() => { setBulkCatOpen(true); setBulkCatTarget('') }}
-                    className="h-7 text-[11px] bg-white/[0.06] hover:bg-white/[0.1] text-slate-300 px-3 gap-1.5 rounded-lg border border-white/[0.06]"
-                  >
-                    <FolderInput className="h-3 w-3" />
-                    <span className="hidden sm:inline">Pindah Kategori</span>
-                    <span className="sm:hidden">Kategori</span>
-                  </Button>
-                  {isOwner && (
+              <div className="hidden md:block">
+                <motion.div
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 16 }}
+                  className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center justify-between gap-2 p-2.5 rounded-xl bg-nebula/95 backdrop-blur-xl border border-emerald-500/20 shadow-2xl shadow-emerald-500/10 max-w-[calc(100vw-2rem)]"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                    <span className="text-xs text-slate-300 font-medium truncate">
+                      <span className="text-emerald-400">{selectedInvIds.size}</span> item terpilih
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      className="text-[11px] text-slate-500 hover:text-slate-300 transition-colors px-1.5"
+                      onClick={() => setSelectedInvIds(new Set())}
+                    >
+                      Batal
+                    </button>
                     <Button
                       size="sm"
-                      onClick={() => { setPostStep(1); setPostProductOpen(true); void fetchProductCategories() }}
-                      className="h-7 text-[11px] theme-bg theme-hover text-white px-3 gap-1.5 rounded-lg"
+                      onClick={() => { setBulkCatOpen(true); setBulkCatTarget('') }}
+                      className="h-7 text-[11px] bg-white/[0.06] hover:bg-white/[0.1] text-slate-300 px-3 gap-1.5 rounded-lg border border-white/[0.06]"
                     >
-                      <Sparkles className="h-3 w-3" />
-                      <span className="hidden sm:inline">Post ke Produk</span>
-                      <span className="sm:hidden">Post</span>
+                      <FolderInput className="h-3 w-3" />
+                      <span className="hidden sm:inline">Pindah Kategori</span>
+                      <span className="sm:hidden">Kategori</span>
                     </Button>
-                  )}
-                  {isOwner && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => setInvBulkDeleteOpen(true)}
-                      className="h-7 text-[11px] text-red-400 hover:text-red-300 hover:bg-red-500/[0.06] px-3 gap-1.5 rounded-lg border border-red-500/10"
-                    >
-                      <Trash2 className="h-3 w-3" />
-                      Hapus
-                    </Button>
-                  )}
-                </div>
-              </motion.div>
+                    {isOwner && (
+                      <Button
+                        size="sm"
+                        onClick={() => { setPostStep(1); setPostProductOpen(true); void fetchProductCategories() }}
+                        className="h-7 text-[11px] theme-bg theme-hover text-white px-3 gap-1.5 rounded-lg"
+                      >
+                        <Sparkles className="h-3 w-3" />
+                        <span className="hidden sm:inline">Post ke Produk</span>
+                        <span className="sm:hidden">Post</span>
+                      </Button>
+                    )}
+                    {isOwner && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setInvBulkDeleteOpen(true)}
+                        className="h-7 text-[11px] text-red-400 hover:text-red-300 hover:bg-red-500/[0.06] px-3 gap-1.5 rounded-lg border border-red-500/10"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                        Hapus
+                      </Button>
+                    )}
+                  </div>
+                </motion.div>
+              </div>
+            )}
+
+            {/* Mobile selection bar — shared safe-area aware component.
+                Internally md:hidden. Renders max 2 primary actions + overflow
+                sheet. When `isOwner` is false, primary actions reduce to
+                "Pindah Kategori" only and the overflow sheet is omitted. */}
+            {selectedInvIds.size > 0 && (
+              <MobileStickyActionBar
+                selectedCount={selectedInvIds.size}
+                countLabel="item terpilih"
+                secondaryText={`${selectedInvIds.size} item dipilih`}
+                onCancel={() => setSelectedInvIds(new Set())}
+                actions={[
+                  ...(isOwner
+                    ? [{
+                        key: 'post',
+                        label: 'Post ke Produk',
+                        icon: <Sparkles className="h-4 w-4" />,
+                        onClick: () => { setPostStep(1); setPostProductOpen(true); void fetchProductCategories() },
+                        variant: 'primary' as const,
+                      }]
+                    : []),
+                  {
+                    key: 'category',
+                    label: 'Pindah Kategori',
+                    icon: <FolderInput className="h-4 w-4" />,
+                    onClick: () => { setBulkCatOpen(true); setBulkCatTarget('') },
+                    variant: 'ghost' as const,
+                  },
+                ]}
+                overflowActions={
+                  isOwner
+                    ? [{
+                        key: 'delete',
+                        label: 'Hapus',
+                        icon: <Trash2 className="h-4 w-4" />,
+                        onClick: () => setInvBulkDeleteOpen(true),
+                        variant: 'danger' as const,
+                      }]
+                    : []
+                }
+              />
             )}
 
             {/* Enhanced Desktop Table */}
@@ -5383,7 +5563,7 @@ export default function PurchasePage() {
                             - Temporary emerald tint for scan/restock/adjust/sync. */}
                         <div
                           className={cn(
-                            'flex items-center gap-2.5 p-2.5 rounded-xl border transition-colors duration-300 active:bg-white/[0.03]',
+                            'flex items-center gap-2.5 p-2 md:p-2.5 min-h-[52px] rounded-xl border transition-colors duration-300 active:bg-white/[0.03]',
                             isSelected
                               ? 'bg-emerald-500/[0.08] border-emerald-500/30'
                               : invRowHighlight.highlightedId === item.id
@@ -5462,7 +5642,7 @@ export default function PurchasePage() {
                                 <span className="text-[10px] text-slate-600 italic">Tanpa kategori</span>
                               )}
                               <span className="text-[10px]">•</span>
-                              <span className={cn('text-[12px] font-bold tabular-nums', stockValueColorClass(item.stock, item.lowStockAlert))}>
+                              <span className={cn('text-[11px] font-bold tabular-nums', stockValueColorClass(item.stock, item.lowStockAlert))}>
                                 {formatNumber(item.stock)}
                               </span>
                               <span className="text-[10px]">{item.baseUnit}</span>

@@ -2,15 +2,27 @@ import { NextRequest } from 'next/server'
 import { getAuthUser, unauthorized } from '@/lib/api/get-auth'
 import * as XLSX from 'xlsx'
 import { safeJsonError } from '@/lib/api/safe-response'
+import { PURCHASE_HEADER_ROW } from '@/lib/purchases/purchase-import-fields'
+import {
+  PURCHASE_TEMPLATE_VERSION,
+  META_SHEET_NAME,
+  buildMetaSheetRows,
+} from '@/lib/bulk-template-version'
 
 /**
  * GET /api/purchases/import-excel/template
  *
  * Generates and downloads a template Excel file for purchase import.
- * The column headers match the flexible matching aliases used in the import parser.
+ * The column headers match the canonical field-defs source
+ * (src/lib/purchases/purchase-import-fields.ts) consumed by the import parser,
+ * so the template and parser can never drift.
  *
  * Columns: Nama Barang*, SKU, Satuan Beli, Jumlah*, Isi per Satuan, Satuan Dasar,
  *          Harga Satuan (Rp)*, No. Batch, Tgl Kadaluarsa
+ *
+ * AETHER BULK TEMPLATE CONTRACT ALIGNMENT:
+ *  - TEMPLATE_VERSION stamped on a hidden _Meta sheet.
+ *  - Headers come from the canonical PURCHASE_HEADER_ROW (single source of truth).
  */
 export async function GET(request: NextRequest) {
   try {
@@ -23,9 +35,10 @@ export async function GET(request: NextRequest) {
     const wb = XLSX.utils.book_new()
 
     // === Sheet 1: Template Pembelian ===
-    // 9 columns: 7 original + No. Batch + Tgl Kadaluarsa
+    // Headers come from the canonical field-defs source so the template and
+    // parser can never drift.
     const purchaseData = [
-      ['Nama Barang*', 'SKU', 'Satuan Beli', 'Jumlah*', 'Isi per Satuan', 'Satuan Dasar', 'Harga Satuan (Rp)*', 'No. Batch', 'Tgl Kadaluarsa'],
+      PURCHASE_HEADER_ROW,
       // ── Contoh F&B: Bahan Baku dengan Batch & Exp. Date ──
       ['Tepung Terigu Segitiga Biru 1kg', 'SKU-TPG-001', 'karung', 10, 1, 'kg', 12000, 'B2025-0701', '2026-01-15'],
       ['Gula Pasir Putih 500gr', 'SKU-GLP-001', 'karung', 5, 0.5, 'kg', 16000, 'B2025-0702', '2025-12-20'],
@@ -178,6 +191,23 @@ export async function GET(request: NextRequest) {
     ]
 
     XLSX.utils.book_append_sheet(wb, wsGuide, 'Panduan')
+
+    // === Sheet 3: _Meta (hidden) — TEMPLATE_VERSION stamp ===
+    // The _Meta sheet carries the TEMPLATE_VERSION so the import parser can
+    // detect template drift and reject unsupported versions before row
+    // processing. Hidden so it does not clutter the user's view.
+    const wsMeta = XLSX.utils.aoa_to_sheet(buildMetaSheetRows(PURCHASE_TEMPLATE_VERSION))
+    wsMeta['!cols'] = [{ wch: 20 }, { wch: 24 }]
+    XLSX.utils.book_append_sheet(wb, wsMeta, META_SHEET_NAME)
+    try {
+      if (!wb.Workbook) wb.Workbook = { Sheets: [] as { name: string; Hidden: number }[] } as never
+      ;(wb.Workbook as unknown as { Sheets: { name: string; Hidden: number }[] }).Sheets.push({
+        name: META_SHEET_NAME,
+        Hidden: 1, // 1 = hidden, 0 = visible, 2 = very hidden
+      })
+    } catch {
+      // Hiding is best-effort — the sheet still works if it stays visible.
+    }
 
     // Generate buffer
     const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
