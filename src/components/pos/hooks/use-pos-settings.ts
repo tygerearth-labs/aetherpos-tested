@@ -14,7 +14,7 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
-import { syncSettingsFromServer, getCachedSettings } from '@/lib/sync-service'
+import { getCachedSettings } from '@/lib/sync-service'
 import { tryGetPosDB, type CachedPromo } from '@/lib/pos/pos-db'
 
 // ==================== INTERFACES ====================
@@ -128,7 +128,11 @@ interface UsePosSettingsReturn {
 }
 
 export function usePosSettings(options: UsePosSettingsOptions): UsePosSettingsReturn {
-  const { isOnline, currentPage } = options
+  const { isOnline } = options
+  // NOTE: `currentPage` option is accepted for backward compat but no longer
+  // used — the previous `currentPage === 'pos'` refetch effect was removed
+  // (it fetched /api/settings a third time on POS mount, redundantly).
+  void options.currentPage
 
   const [settings, setSettings] = useState<OutletSettings>(DEFAULT_SETTINGS)
   const [outletInfo, setOutletInfo] = useState<OutletInfo | null>(null)
@@ -141,6 +145,10 @@ export function usePosSettings(options: UsePosSettingsOptions): UsePosSettingsRe
   }, [settings.paymentMethods])
 
   // ── Fetch settings (online: server; offline: Dexie cache) ──
+  // POST-CHECKOUT LATENCY FIX: removed the redundant `syncSettingsFromServer()`
+  // call — it fetched /api/settings a SECOND time (the fetch above already
+  // fetched it). Also removed the separate `currentPage === 'pos'` refetch
+  // effect (was fetching /api/settings a THIRD time on POS mount).
   useEffect(() => {
     const fetchSettings = async () => {
       try {
@@ -153,9 +161,19 @@ export function usePosSettings(options: UsePosSettingsOptions): UsePosSettingsRe
             if (data.outlet) {
               setOutletInfo({ id: data.outlet.id, name: data.outlet.name, address: data.outlet.address, phone: data.outlet.phone })
             }
-            syncSettingsFromServer()
             // Cache settings to posDB for offline
             await cacheSettingsToPosDB(data)
+
+            // POST-CHECKOUT LATENCY FIX: Pre-warm the receipt logo image so
+            // it's in the browser cache when the receipt dialog opens. Without
+            // this, the first receipt open fetches the logo synchronously
+            // (can take ~10s for large unoptimized images on slow CDNs).
+            if (mapped.receiptLogo) {
+              try {
+                const img = new Image()
+                img.src = mapped.receiptLogo
+              } catch { /* non-critical — logo just won't be pre-warmed */ }
+            }
           }
         } else {
           const cached = await getCachedSettings()
@@ -180,18 +198,10 @@ export function usePosSettings(options: UsePosSettingsOptions): UsePosSettingsRe
     fetchSettings()
   }, [isOnline])
 
-  // ── Re-fetch settings when returning to POS page ──
-  useEffect(() => {
-    if (currentPage === 'pos' && isOnline) {
-      fetch('/api/settings').then(async res => {
-        if (res.ok) {
-          const data = await res.json()
-          const mapped = mapToSettings(data)
-          setSettings(mapped)
-        }
-      }).catch(() => {})
-    }
-  }, [currentPage, isOnline])
+  // NOTE: The previous `currentPage === 'pos'` refetch effect was removed.
+  // It fetched /api/settings a third time whenever the user navigated to POS,
+  // which was redundant with the mount fetch above. Settings are cached in
+  // posDB for offline use and refresh on the isOnline dependency change.
 
   // ── Fetch user outlets ──
   useEffect(() => {

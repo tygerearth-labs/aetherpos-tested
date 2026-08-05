@@ -21,12 +21,19 @@ const PlanContext = createContext<PlanContextValue | null>(null)
 // ============================================================
 
 const POLL_INTERVAL = 60_000
+/** POST-CHECKOUT LATENCY FIX: minimum gap between focus-triggered refetches.
+ *  Closing the print window (receipt) regains focus → without this throttle,
+ *  /api/outlet/plan is re-fetched every time the cashier prints a receipt.
+ *  30s is well below the 60s poll interval, so legitimate plan changes still
+ *  propagate quickly while duplicate focus bursts are suppressed. */
+const FOCUS_REFETCH_MIN_GAP_MS = 30_000
 
 export function PlanProvider({ children }: { children: ReactNode }) {
   const [planData, setPlanData] = useState<PlanData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const hasFetchedOnce = useRef(false)
+  const lastFetchAt = useRef(0)
 
   const fetchPlan = useCallback(async () => {
     try {
@@ -50,7 +57,12 @@ export function PlanProvider({ children }: { children: ReactNode }) {
 
   // Initial fetch
   useEffect(() => {
-    void fetchPlan()
+    void fetchPlan().then(() => {
+      // Stamp the initial fetch time so the focus throttle doesn't immediately
+      // re-fetch. Without this, `lastFetchAt` starts at 0 and the first focus
+      // event always passes the throttle (Date.now() - 0 is always > 30s).
+      lastFetchAt.current = Date.now()
+    })
   }, [fetchPlan])
 
   // Polling
@@ -59,9 +71,15 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(id)
   }, [fetchPlan])
 
-  // Refetch on focus
+  // Refetch on focus — THROTTLED to avoid duplicate fetches when the print
+  // window closes (regains focus) immediately after checkout.
   useEffect(() => {
-    const onFocus = () => fetchPlan()
+    const onFocus = () => {
+      const now = Date.now()
+      if (now - lastFetchAt.current < FOCUS_REFETCH_MIN_GAP_MS) return
+      lastFetchAt.current = now
+      void fetchPlan()
+    }
     window.addEventListener('focus', onFocus)
     return () => window.removeEventListener('focus', onFocus)
   }, [fetchPlan])

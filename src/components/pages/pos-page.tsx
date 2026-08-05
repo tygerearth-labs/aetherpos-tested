@@ -88,6 +88,17 @@ export default function PosPage() {
   const [now, setNow] = useState(() => new Date())
   const [todaySummary, setTodaySummary] = useState<{ count: number; total: number } | null>(null)
 
+  // POST-CHECKOUT LATENCY FIX: Optimistically patch today's summary from the
+  // cart total instead of refetching /api/pos/today after checkout. The next
+  // real fetch (on mount/reconnect/manual sync) will correct any drift.
+  // Defined here (before checkout hook) so the callback reference is stable.
+  const patchTodaySummary = useCallback((delta: { count: number; total: number }) => {
+    setTodaySummary(prev => ({
+      count: (prev?.count ?? 0) + delta.count,
+      total: (prev?.total ?? 0) + delta.total,
+    }))
+  }, [])
+
   // ── Hooks ──
   const sync = usePosSync({
     onRefreshProducts: () => products.refreshProducts(),
@@ -134,6 +145,7 @@ export default function PosPage() {
     onSetPaidAmount: setPaidAmount,
     onRefreshProducts: () => products.refreshProducts(),
     onPatchProductStock: (stock) => products.patchProductStock(stock),
+    onPatchTodaySummary: patchTodaySummary,
     onRefreshCustomers: () => customers.loadCustomersFromCache(),
     onClearCart: () => cart.clearCart(),
     onSetPointsToUse: setPointsToUse,
@@ -158,7 +170,10 @@ export default function PosPage() {
   }, [])
 
   // ── Fetch today's transactions summary (count + total) ──
-  // Refreshes on mount, on online reconnect, and after each successful checkout.
+  // Refreshes on mount and on online reconnect ONLY.
+  // POST-CHECKOUT LATENCY FIX: no longer refetched after checkout — instead,
+  // the checkout hook calls onPatchTodaySummary({count:+1, total:+grandTotal})
+  // to update this state optimistically (zero network fetch).
   const fetchTodaySummary = useCallback(async () => {
     if (!sync.isOnline) return
     try {
@@ -172,13 +187,6 @@ export default function PosPage() {
   }, [sync.isOnline])
 
   useEffect(() => { void fetchTodaySummary() }, [fetchTodaySummary])
-
-  // Refresh today summary after a successful checkout (receipt shown)
-  useEffect(() => {
-    if (checkout.receiptDialogOpen && checkout.checkoutResult) {
-      void fetchTodaySummary()
-    }
-  }, [checkout.receiptDialogOpen, checkout.checkoutResult, fetchTodaySummary])
 
   return (
     <div className="flex h-[100dvh] md:h-full bg-deep-space overflow-hidden">

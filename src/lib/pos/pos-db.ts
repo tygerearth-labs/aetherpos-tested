@@ -283,7 +283,31 @@ export interface LastReceiptRow {
   change: number
   customer: { id: string; name: string; whatsapp: string; points: number } | null
   promo: { id: string; name: string } | null
-  checkoutResult: { success: boolean; invoiceNumber: string; message?: string; syncError?: string }
+  /**
+   * Checkout result snapshot. Mirrors `CheckoutResult` from use-pos-checkout.
+   *
+   * STATUS CONTRACT (HARDENED):
+   *   - syncStatus='pending'  → PENDING_SYNC: local commit done, awaiting server ACK.
+   *     `invoiceNumber` is the provisional `SYNC-…` reference.
+   *   - syncStatus='synced'   → SYNCED: server confirmed the transaction.
+   *     `invoiceNumber` is the final `INV-…` reference.
+   *   - syncStatus='failed'   → SYNC_FAILED: sync rejected/network error; outbox
+   *     row preserved for retry (same immutable eventId). Receipt stays valid.
+   *   - syncStatus='offline'  → OFFLINE: no network; stored for later sync.
+   *     `invoiceNumber` is the provisional `OFF-…` reference.
+   *
+   * The `success` boolean means "a local commit was produced and a receipt is
+   * available" — it does NOT mean the server has confirmed. Only `syncStatus
+   * === 'synced'` authorizes the "Pembayaran Berhasil" title.
+   */
+  checkoutResult: {
+    success: boolean
+    invoiceNumber: string
+    message?: string
+    syncError?: string
+    syncStatus?: 'pending' | 'synced' | 'failed' | 'offline' | 'skipped'
+    localTransactionId?: string
+  }
   createdAt: number
 }
 
@@ -474,6 +498,52 @@ export async function getLastReceipt(): Promise<LastReceiptRow | null> {
   if (!db) return null
   const row = await db.lastReceipt.get('last')
   return row ?? null
+}
+
+/**
+ * Patch the `checkoutResult` field of the persisted last-receipt row with the
+ * final server-issued invoice number + sync status.
+ *
+ * STATUS CONTRACT (requirement 6 — "Persist final invoice patch in Dexie
+ * independently of receipt dialog lifecycle"):
+ *   This is called from the background-sync `.then()` callback in
+ *   `usePosCheckout.handleCheckout`, which runs fire-and-forget — it executes
+ *   whether or not the receipt dialog is still open. Without this patch, the
+ *   "Cetak Ulang" (reprint) flow would show the stale provisional `SYNC-…`
+ *   reference forever, even after the server has committed and issued the real
+ *   `INV-…` number.
+ *
+ * The patch is keyed by `localTransactionId` (the immutable eventId) so it
+ * only overwrites the snapshot that belongs to this checkout — never a newer
+ * one from a subsequent transaction.
+ */
+export async function updateLastReceiptResult(patch: {
+  localTransactionId: string
+  /** Final INV-… invoice (synced). Omit to preserve the existing provisional
+   *  reference (used for FAILED retries where the provisional stays). */
+  invoiceNumber?: string
+  syncStatus: 'synced' | 'failed' | 'offline' | 'pending' | 'skipped'
+  syncError?: string
+  message?: string
+}): Promise<void> {
+  const db = tryGetPosDB()
+  if (!db) return
+  const row = await db.lastReceipt.get('last')
+  if (!row) return
+  // Guard: only patch the snapshot whose checkout produced this eventId.
+  // A newer checkout may have already overwritten `lastReceipt` — in that
+  // case we must NOT regress it with a stale sync result.
+  if (row.checkoutResult.localTransactionId !== patch.localTransactionId) return
+  await db.lastReceipt.put({
+    ...row,
+    checkoutResult: {
+      ...row.checkoutResult,
+      ...(patch.invoiceNumber !== undefined ? { invoiceNumber: patch.invoiceNumber } : {}),
+      syncStatus: patch.syncStatus,
+      ...(patch.syncError !== undefined ? { syncError: patch.syncError } : {}),
+      ...(patch.message !== undefined ? { message: patch.message } : {}),
+    },
+  })
 }
 
 export type {

@@ -25,17 +25,79 @@ import {
   tryGetPosDB, type TransactionOutboxRow,
   type PendingTransactionRow, type LastReceiptRow, type PendingCartItem,
   addPendingTransaction, getPendingTransactions, deletePendingTransaction,
-  saveLastReceipt, getLastReceipt,
+  saveLastReceipt, getLastReceipt, updateLastReceiptResult,
 } from '@/lib/pos/pos-db'
 import { buildCheckoutPayload, type CalcResult } from '@/lib/pos/pos-calc'
+import {
+  startCheckoutTelemetry,
+  markCommit,
+  markModalVisible,
+  markSyncDone,
+  setInvoice,
+  setProvisionalInvoice,
+  setCatalogRefetched,
+} from '@/lib/checkout-telemetry'
 
 // ==================== INTERFACES ====================
 
+/**
+ * STATUS CONTRACT — HARDENED OPTIMISTIC CHECKOUT
+ *
+ * The local Dexie commit is NOT final success. The receipt modal opens
+ * immediately with `syncStatus='pending'` (PENDING_SYNC) and a provisional
+ * `SYNC-…` invoice reference. The status transitions to `synced` (SYNCED)
+ * only after the server ACKs — at which point the real `INV-…` replaces the
+ * provisional reference. If sync fails, the status becomes `failed`
+ * (SYNC_FAILED); the transaction remains safely stored in the outbox and is
+ * retried with the SAME immutable eventId (never a second checkout).
+ *
+ *   ┌─────────────┐   server ACK    ┌────────┐
+ *   │  pending    │ ──────────────▶ │ synced │
+ *   │ (PENDING_SYNC)│                │(SYNCED)│
+ *   └─────┬───────┘                 └────────┘
+ *         │ sync fails
+ *         ▼
+ *   ┌──────────┐  retry (same eventId)  ┌────────┐
+ *   │  failed  │ ─────────────────────▶ │ synced │
+ *   │(SYNC_FAIL)│                        │(SYNCED)│
+ *   └──────────┘
+ *
+ *   ┌──────────┐  reconnect + sync   ┌────────┐
+ *   │ offline  │ ──────────────────▶ │ synced │
+ *   │ (OFFLINE)│                      │(SYNCED)│
+ *   └──────────┘                      └────────┘
+ *
+ * `success: true` means "a local commit was produced and a receipt is
+ * available" — it does NOT mean the server has confirmed. The UI may show
+ * "Pembayaran Berhasil" ONLY when `syncStatus === 'synced'`.
+ */
+export type CheckoutSyncStatus = 'pending' | 'synced' | 'failed' | 'offline' | 'skipped'
+
 export interface CheckoutResult {
+  /**
+   * True once a local Dexie commit has been produced (receipt available).
+   * NOT a server-confirmation signal — see `syncStatus`.
+   */
   success: boolean
+  /**
+   * Provisional `SYNC-…` / `OFF-…` reference before sync, replaced by the
+   * server-issued `INV-…` after `syncStatus` becomes `synced`.
+   */
   invoiceNumber: string
   message?: string
   syncError?: string
+  /**
+   * The authoritative status contract field. Drives the receipt title, badge,
+   * and watermark. See the state-machine diagram above.
+   */
+  syncStatus?: CheckoutSyncStatus
+  /**
+   * The immutable eventId (= Dexie `transactionOutbox.id`). All retries reuse
+   * this exact value — the server dedupes via DEX-007, so a retry can NEVER
+   * create a second checkout. Persisted on the receipt so the cashier can
+   * trace a provisional transaction back to its outbox row.
+   */
+  localTransactionId?: string
 }
 
 interface UsePosCheckoutOptions {
@@ -56,6 +118,10 @@ interface UsePosCheckoutOptions {
    *  updated by doSyncOutbox, but the product grid uses useState (not
    *  useLiveQuery), so without this the UI shows stale stock until a refetch. */
   onPatchProductStock?: (stock: { products: Record<string, number>; variants: Record<string, number> }) => void
+  /** POST-CHECKOUT LATENCY FIX: Optimistically patch today's summary (count+1,
+   *  total+grandTotal) instead of fetching /api/pos/today after checkout.
+   *  Called immediately after the local commit, before the receipt modal opens. */
+  onPatchTodaySummary?: (delta: { count: number; total: number }) => void
   onRefreshCustomers?: () => void
   onClearCart: () => void
   onSetPointsToUse: (points: number) => void
@@ -107,7 +173,7 @@ export function usePosCheckout(options: UsePosCheckoutOptions): UsePosCheckoutRe
   const {
     cart, calcResult, isOnline, selectedCustomer, availablePaymentMethods, selectedPromo, pointsToUse,
     paymentMethod, paidAmount, onSetPaymentMethod, onSetPaidAmount,
-    onRefreshProducts, onPatchProductStock, onRefreshCustomers, onClearCart,
+    onRefreshProducts, onPatchProductStock, onPatchTodaySummary, onRefreshCustomers, onClearCart,
     onSetPointsToUse, onSetSelectedCustomer,
     onSetSelectedPromo, onSetPromoDiscount, onRestoreCart,
   } = options
@@ -150,6 +216,45 @@ export function usePosCheckout(options: UsePosCheckoutOptions): UsePosCheckoutRe
   }
 
   // ==================== CHECKOUT (PR 3: transactionOutbox + localTransactionId) ====================
+  //
+  // POST-CHECKOUT LATENCY FIX + STATUS CONTRACT HARDENING (AETHER POS):
+  //
+  // The receipt modal opens immediately after the LOCAL Dexie commit — it does
+  // NOT wait for the server. The local commit produces status PENDING_SYNC
+  // (syncStatus='pending'), NOT final SUCCESS. The state machine is:
+  //
+  //   pending (PENDING_SYNC) ──server ACK──▶ synced (SYNCED)
+  //      │                                    └─ title "Pembayaran Berhasil", INV-…
+  //      │ sync fails
+  //      ▼
+  //   failed (SYNC_FAILED) ──retry (SAME eventId)──▶ synced
+  //      └─ title "Sync Gagal", badge "Menunggu Retry", keep SYNC-…
+  //
+  //   offline (OFFLINE) ──reconnect + sync──▶ synced
+  //      └─ title "Tersimpan Offline", OFF-…
+  //
+  // Flow:
+  //   1. Generate immutable localTransactionId (= eventId). NEVER regenerated.
+  //   2. Build payload + outbox row (status PENDING), put in Dexie (LOCAL COMMIT)
+  //   3. Optimistically patch Dexie stock + React product grid (no network)
+  //   4. Optimistically patch today's summary (count+1, total+grandTotal)
+  //   5. Provisional invoice: SYNC-{shortId} (online) / OFF-{ts} (offline)
+  //   6. setCheckoutResult({ syncStatus: 'pending'|'offline', invoiceNumber: provisional })
+  //   7. saveLastReceiptSnapshot() — persists the provisional receipt to Dexie
+  //   8. setPaymentDialogOpen(false) + setReceiptDialogOpen(true)  ← MODAL VISIBLE (<150ms)
+  //   9. Fire-and-forget: syncOutbox().then(patch result + real invoice + Dexie)
+  //  10. Do NOT call onRefreshProducts / onRefreshCustomers / fetchTodaySummary
+  //
+  // EVENTID IMMUTABILITY (requirement 7): localTransactionId is generated ONCE
+  // and stored as the outbox row's primary key. doSyncOutbox uses tx.id as the
+  // eventId on every retry — it is NEVER regenerated. Server-side DEX-007
+  // dedupes on eventId, so a retry can NEVER create a second checkout.
+  //
+  // DEXIE PERSISTENCE (requirement 6): when sync resolves, the final invoice +
+  // status are patched into BOTH React state (checkoutResult) AND the Dexie
+  // lastReceipt row (via updateLastReceiptResult). The Dexie patch runs in the
+  // fire-and-forget .then() — it executes whether or not the receipt dialog is
+  // still open, so "Cetak Ulang" always shows the final INV-… reference.
 
   const handleCheckout = useCallback(async () => {
     if (cart.length === 0) return
@@ -157,9 +262,16 @@ export function usePosCheckout(options: UsePosCheckoutOptions): UsePosCheckoutRe
       toast.error('Jumlah bayar kurang dari total')
       return
     }
+    // DEFENSIVE: never start a second checkout while one is in-flight. The
+    // payment dialog closes on checkout, but a double-tap or race could
+    // otherwise produce two outbox rows for the same cart. Each checkout gets
+    // its own eventId, so this isn't a duplicate-checkout risk per se — but
+    // blocking here keeps the telemetry session + receipt state coherent.
+    if (checkingOut) return
     setCheckingOut(true)
-    // PHASE 1: Frontend timing instrumentation (click → request → response → refetch)
-    const tClick = performance.now()
+    // Start telemetry session — measures commit→modal, post-checkout request
+    // count, sync status, catalog refetched, receipt ready timing.
+    const telemetry = startCheckoutTelemetry()
     try {
       const localTransactionId = (typeof crypto !== 'undefined' && crypto.randomUUID)
         ? crypto.randomUUID()
@@ -190,98 +302,192 @@ export function usePosCheckout(options: UsePosCheckoutOptions): UsePosCheckoutRe
       if (db) {
         await db.transactionOutbox.put(outboxRow)
       }
+      // LOCAL COMMIT COMPLETE — status is now PENDING_SYNC (outbox row
+      // status='PENDING'). This is NOT final success; the receipt will open
+      // with syncStatus='pending' and transition to 'synced' only after the
+      // server ACKs. Telemetry marks this commit point.
+      markCommit(telemetry)
 
-      // OUTBOX CONTRADICTION FIX: the checkout's toast is now based on the
-      // status of THIS transaction's own outbox row (looked up after sync),
-      // NOT on the aggregate synced/failed counts. This prevents two bugs:
-      //   (a) An OLD failed row masking the new row's success (synced > 0
-      //       from the old row resolving → "Pembayaran berhasil" even though
-      //       the new row actually failed).
-      //   (b) The new row failing but "Tersimpan lokal" showing (synced === 0
-      //       branch was reached even when failed > 0 — a real failure was
-      //       mislabeled as offline-saved).
-      // Correct UX:
-      //   - Online + own row SYNCED → only "Pembayaran berhasil" + receipt.
-      //   - Online + own row FAILED → "Pembayaran gagal: <reason>" (no receipt,
-      //     cart preserved so cashier can fix and retry).
-      //   - Offline → "Tersimpan offline, menunggu sinkronisasi" + receipt.
-      if (isOnline) {
-        const tRequestStart = performance.now()
-        const syncResult = await syncOutbox()
-        const tResponse = performance.now()
-        const row = db ? await db.transactionOutbox.get(localTransactionId) : null
-        if (row?.status === 'SYNCED') {
-          const invoiceNum = row.invoiceNumber || `INV-${Date.now().toString(36).toUpperCase()}`
-          const result: CheckoutResult = { success: true, invoiceNumber: invoiceNum }
-          setCheckoutResult(result)
-          toast.success(`Pembayaran berhasil! Invoice: ${invoiceNum}`)
-          await saveLastReceiptSnapshot(result, cart, calcResult, paymentMethod, paidAmount, selectedCustomer, selectedPromo)
-          setPaymentDialogOpen(false)
-          setReceiptDialogOpen(true)
-          // PHASE 2 OPTIMIZATION (rule 10): Skip full catalog refetch when
-          // the sync response included updatedStock and we patched the local
-          // catalog. Only refetch customers (loyalty points changed) and
-          // products if stock wasn't patched (e.g. variant parents, or the
-          // patch threw — see stockUpdateSource).
-          //
-          // stockUpdateSource verdict (honest):
-          //  - 'patched'   → local Dexie updated + React state patched (fast path)
-          //  - 'refetched' → server had stock but patch wrote 0 rows (threw,
-          //                  or product not in Dexie yet) → MUST refetch
-          //  - 'skipped'   → no stock payload (e.g. duplicate-event path);
-          //                  UI is already consistent, no refetch needed
-          //
-          // REACT STATE PATCH: the product grid uses useState (not useLiveQuery),
-          // so patching Dexie alone doesn't update the UI. When stockUpdateSource
-          // === 'patched', we also patch the React state from mergedStock — no
-          // network refetch needed. This is the true fast path.
-          if (syncResult.stockUpdateSource === 'refetched') {
-            onRefreshProducts?.()
-          } else if (syncResult.stockUpdateSource === 'patched' && syncResult.mergedStock) {
-            onPatchProductStock?.(syncResult.mergedStock)
+      // ── OPTIMISTIC STOCK PATCH (no network fetch) ──
+      // Decrement each cart item's stock locally so the product grid updates
+      // instantly. The server's authoritative updatedStock (from sync) will
+      // overwrite this when sync resolves. If sync fails, we revert via
+      // onRefreshProducts.
+      const optimisticStock = computeOptimisticStockDelta(cart)
+      if (db) {
+        try {
+          for (const [pid, stock] of Object.entries(optimisticStock.products)) {
+            await db.posProducts.update(pid, { stock, cachedAt: Date.now() })
           }
-          onRefreshCustomers?.()
-          // PHASE 1: Log frontend timing with honest stock-update verdict.
-          // Previously logged only `stockPatched: false` which was ambiguous —
-          // it couldn't tell "server didn't return stock" from "patch broke".
-          // Now logs the source + count + any error so the metric can't lie.
-          const tEnd = performance.now()
-          console.log(
-            `[checkout:fe-perf] click→request: ${Math.round(tRequestStart - tClick)}ms, ` +
-            `network: ${Math.round(tResponse - tRequestStart)}ms, ` +
-            `response→dialogClose: ${Math.round(tEnd - tResponse)}ms, ` +
-            `total: ${Math.round(tEnd - tClick)}ms, ` +
-            `stockUpdateSource: ${syncResult.stockUpdateSource}, ` +
-            `patchedCount: ${syncResult.patchedCount}` +
-            (syncResult.patchError ? `, patchError: ${syncResult.patchError}` : '') +
-            `, stockPatched: ${syncResult.stockPatched}`
-          )
-        } else {
-          // Online but this transaction's sync failed — genuine failure.
-          // Keep the row (for manual retry from the sync panel) but do NOT
-          // show a receipt or clear the cart. The cashier sees the error and
-          // can adjust (stock/price) and retry.
-          const errMsg = row?.error || 'Gagal terhubung ke server'
-          toast.error(`Pembayaran gagal: ${errMsg}`, { duration: 6000 })
-          // Leave payment dialog open so the cashier can retry or cancel.
-        }
+          for (const [vid, stock] of Object.entries(optimisticStock.variants)) {
+            await db.posVariants.update(vid, { stock, cachedAt: Date.now() })
+          }
+        } catch { /* non-critical — React state patch below is the primary UI update */ }
+      }
+      // Patch React product-grid state (the grid uses useState, not useLiveQuery).
+      onPatchProductStock?.(optimisticStock)
+
+      // ── OPTIMISTIC TODAY SUMMARY PATCH (no /api/pos/today fetch) ──
+      onPatchTodaySummary?.({ count: 1, total: calcResult.grandTotal })
+
+      // ── PROVISIONAL INVOICE + RECEIPT MODAL ──
+      // The provisional reference is the ONLY invoice shown until the server
+      // ACKs. Online: SYNC-{shortId} (derived from the immutable eventId so
+      // the cashier can trace it back to the outbox row). Offline: OFF-{ts}.
+      // The receipt dialog renders this with a "Menunggu Sinkronisasi" badge
+      // and a watermark stating it is not yet synchronized.
+      const provisionalInvoice = isOnline
+        ? `SYNC-${localTransactionId.slice(0, 8).toUpperCase()}`
+        : `OFF-${Date.now().toString(36).toUpperCase()}`
+      setProvisionalInvoice(telemetry, provisionalInvoice)
+
+      // LOCAL COMMIT result — status is PENDING_SYNC (online) or OFFLINE.
+      // `success: true` means "a receipt is available", NOT "server confirmed".
+      // The receipt title is "Transaksi Tersimpan" until syncStatus→'synced'.
+      const result: CheckoutResult = {
+        success: true,
+        invoiceNumber: provisionalInvoice,
+        syncStatus: isOnline ? 'pending' : 'offline',
+        localTransactionId,
+        ...(isOnline ? {} : { message: 'Tersimpan offline, menunggu sinkronisasi' }),
+      }
+      setCheckoutResult(result)
+
+      // Persist the provisional receipt snapshot to Dexie for reprint. This is
+      // the INITIAL write — the final invoice patch is applied on sync success
+      // via updateLastReceiptResult (requirement 6), independently of the
+      // receipt dialog lifecycle.
+      await saveLastReceiptSnapshot(result, cart, calcResult, paymentMethod, paidAmount, selectedCustomer, selectedPromo)
+
+      // CLOSE PAYMENT DIALOG + OPEN RECEIPT MODAL — this is the <150ms target.
+      setPaymentDialogOpen(false)
+      setReceiptDialogOpen(true)
+      markModalVisible(telemetry)
+
+      // Toast: contract-aligned message. Before server ACK, the transaction is
+      // "saved" (Tersimpan), not "successful" (Berhasil).
+      if (isOnline) {
+        toast.success('Transaksi tersimpan — menunggu sinkronisasi')
       } else {
-        const invoiceNum = `OFF-${Date.now().toString(36).toUpperCase()}`
-        const result: CheckoutResult = { success: true, invoiceNumber: invoiceNum, message: 'Tersimpan offline, menunggu sinkronisasi' }
-        setCheckoutResult(result)
         toast.info('Tersimpan offline — menunggu sinkronisasi', { duration: 5000 })
-        await saveLastReceiptSnapshot(result, cart, calcResult, paymentMethod, paidAmount, selectedCustomer, selectedPromo)
-        setPaymentDialogOpen(false)
-        setReceiptDialogOpen(true)
-        onRefreshProducts?.()
-        onRefreshCustomers?.()
+      }
+
+      // ── BACKGROUND SYNC (fire-and-forget, non-blocking) ──
+      // Only sync if online. The sync hook's periodic/focus/mount triggers
+      // will retry the outbox if this background call doesn't succeed.
+      if (isOnline) {
+        const tSyncStart = performance.now()
+        // Do NOT await — fire-and-forget. The .then() patches the receipt
+        // in-place when sync resolves (success or failure).
+        void syncOutbox().then(async (syncResult) => {
+          const tSyncEnd = performance.now()
+          const apiDuration = Math.round(tSyncEnd - tSyncStart)
+          const row = db ? await db.transactionOutbox.get(localTransactionId) : null
+
+          if (row?.status === 'SYNCED') {
+            // ── SYNCED: server confirmed the transaction ──
+            // The receipt title may now become "Pembayaran Berhasil" and the
+            // provisional SYNC-… reference is replaced by the final INV-…
+            const realInvoice = row.invoiceNumber || provisionalInvoice
+            // Patch React checkoutResult (drives the open receipt dialog).
+            setCheckoutResult(prev => prev && prev.localTransactionId === localTransactionId
+              ? { ...prev, invoiceNumber: realInvoice, syncStatus: 'synced', syncError: undefined }
+              : prev)
+            setInvoice(telemetry, realInvoice)
+
+            // PERSIST FINAL INVOICE IN DEXIE (requirement 6): patch the
+            // lastReceipt row so "Cetak Ulang" shows the real INV-… even if
+            // the receipt dialog was already closed. Keyed by eventId so a
+            // newer checkout's snapshot is never regressed.
+            void updateLastReceiptResult({
+              localTransactionId,
+              invoiceNumber: realInvoice,
+              syncStatus: 'synced',
+              syncError: undefined,
+            })
+
+            // Patch stock with server's authoritative updatedStock. This
+            // overwrites the optimistic patch with the true post-transaction
+            // values. If the server returned no stock payload (duplicate-event
+            // path), the optimistic patch stays (it's already correct).
+            if (syncResult.stockUpdateSource === 'patched' && syncResult.mergedStock) {
+              onPatchProductStock?.(syncResult.mergedStock)
+            } else if (syncResult.stockUpdateSource === 'refetched') {
+              // Patch threw or product not in Dexie — fall back to full refetch
+              // to guarantee consistency. This is the slow path; rare.
+              setCatalogRefetched(telemetry, true)
+              onRefreshProducts?.()
+            }
+            // 'skipped' → no stock payload, optimistic patch is correct. No action.
+
+            markSyncDone(telemetry, 'synced', apiDuration)
+          } else {
+            // ── SYNC_FAILED: server rejected or network error ──
+            // The outbox row is PRESERVED (status FAILED, retryCount++). It will
+            // be retried on the next focus/periodic/reconnect trigger using the
+            // SAME eventId — a retry can NEVER create a second checkout because
+            // the server dedupes via DEX-007. The receipt stays valid; the
+            // cashier can finish. The status badge shows "Menunggu Retry".
+            const errMsg = row?.error || 'Gagal terhubung ke server'
+            // Patch React checkoutResult (drives the open receipt dialog).
+            setCheckoutResult(prev => prev && prev.localTransactionId === localTransactionId
+              ? { ...prev, syncStatus: 'failed', syncError: errMsg }
+              : prev)
+            // PERSIST FAILED STATUS IN DEXIE (requirement 6): so reprint also
+            // reflects the sync-failed state (watermark + badge).
+            void updateLastReceiptResult({
+              localTransactionId,
+              invoiceNumber: provisionalInvoice,
+              syncStatus: 'failed',
+              syncError: errMsg,
+            })
+            // Revert the optimistic stock patch — the server didn't commit,
+            // so the true stock is the original. Full refetch is the safest
+            // way to guarantee consistency after a failed sync.
+            setCatalogRefetched(telemetry, true)
+            onRefreshProducts?.()
+            // Non-blocking warning — the receipt is still valid locally,
+            // the cashier can finish the transaction. The outbox will retry.
+            toast.warning(`Sync gagal: ${errMsg}`, {
+              duration: 6000,
+              description: 'Transaksi tersimpan lokal, akan diretry otomatis.',
+            })
+            markSyncDone(telemetry, 'failed', apiDuration)
+          }
+          // NOTE: onRefreshCustomers is intentionally NOT called. Customer
+          // points (loyalty earn/redeem) will refresh on next page visit or
+          // manual sync — accepting points-display staleness in exchange for
+          // zero post-checkout customer-list refetches.
+        }).catch(() => {
+          // Network error in the sync promise itself (rare — syncOutbox
+          // handles its own errors internally). Mark as SYNC_FAILED. The outbox
+          // row stays PENDING/FAILED and will retry with the same eventId.
+          setCheckoutResult(prev => prev && prev.localTransactionId === localTransactionId
+            ? { ...prev, syncStatus: 'failed', syncError: 'Network error' }
+            : prev)
+          // Persist the failed status to Dexie (requirement 6).
+          void updateLastReceiptResult({
+            localTransactionId,
+            invoiceNumber: provisionalInvoice,
+            syncStatus: 'failed',
+            syncError: 'Network error',
+          })
+          setCatalogRefetched(telemetry, true)
+          onRefreshProducts?.()
+          markSyncDone(telemetry, 'failed', null)
+        })
+      } else {
+        // Offline: no sync attempted. The outbox will sync on reconnect.
+        markSyncDone(telemetry, 'skipped', null)
+        // Don't refetch products/customers — offline, so the server is
+        // unreachable. The optimistic patch + Dexie cache are the UI truth.
       }
     } catch {
       toast.error('Checkout gagal')
     } finally {
       setCheckingOut(false)
     }
-  }, [cart, calcResult, paymentMethod, paidAmount, isOnline, selectedCustomer, selectedPromo, onRefreshProducts, onPatchProductStock, onRefreshCustomers])
+  }, [cart, calcResult, paymentMethod, paidAmount, isOnline, selectedCustomer, selectedPromo, checkingOut, onRefreshProducts, onPatchProductStock, onPatchTodaySummary, onRefreshCustomers])
 
   const triggerSync = useCallback(async (): Promise<{ synced: number; failed: number; duplicateResolved: number; abandoned: number }> => {
     return syncOutbox()
@@ -434,6 +640,41 @@ export function usePosCheckout(options: UsePosCheckoutOptions): UsePosCheckoutRe
 }
 
 // ==================== PR 4: Cart ↔ Pending mappers ====================
+
+/**
+ * POST-CHECKOUT LATENCY FIX: Compute the optimistic stock delta from the cart.
+ *
+ * For each cart item, decrement the product's (or variant's) stock by qty.
+ * The result is the NEW absolute stock value (not a delta) — matching the
+ * shape that `onPatchProductStock` expects (Record<id, newStock>).
+ *
+ * This is used to patch the React product-grid state + Dexie cache BEFORE
+ * the server sync resolves, so the UI updates instantly. The server's
+ * authoritative `updatedStock` (returned by /api/transactions/sync) will
+ * overwrite this when sync completes.
+ *
+ * For variant parents: we patch the VARIANT's stock (authoritative). The
+ * parent's stock is recalculated by `patchProductStock` in use-pos-products
+ * as the SUM of its variants' patched stock — same logic as the server's
+ * variant-parent recalculation.
+ */
+function computeOptimisticStockDelta(cart: CartItem[]): { products: Record<string, number>; variants: Record<string, number> } {
+  const products: Record<string, number> = {}
+  const variants: Record<string, number> = {}
+  for (const item of cart) {
+    if (item.variant) {
+      // Variant item: patch variant stock. Parent stock is recalculated by
+      // patchProductStock (sum of variant stocks).
+      const newStock = Math.max(0, item.variant.stock - item.qty)
+      variants[item.variant.id] = newStock
+    } else {
+      // Simple product: patch product stock directly.
+      const newStock = Math.max(0, item.product.stock - item.qty)
+      products[item.product.id] = newStock
+    }
+  }
+  return { products, variants }
+}
 
 /** Convert active cart items to the serializable pending-item shape. */
 function cartToPendingItems(cart: CartItem[]): PendingCartItem[] {
@@ -715,6 +956,11 @@ async function doSyncOutbox(): Promise<SyncOutboxResult> {
   if (toSync.length > 0) {
     // Assign unique integer localIds for result matching (sync route returns localId)
     const idMap = new Map<number, string>() // localId → eventId (localTransactionId)
+    // EVENTID IMMUTABILITY (requirement 7): every retry reuses `tx.id` — the
+    // exact same localTransactionId assigned at checkout — as the eventId sent
+    // to the server. The server dedupes on eventId (DEX-007), so a retry can
+    // NEVER create a second checkout. We never generate a new id here; we only
+    // read the existing row's primary key.
     const transactions = toSync.map((tx, i) => {
       const localId = i + 1
       idMap.set(localId, tx.id)
@@ -743,6 +989,27 @@ async function doSyncOutbox(): Promise<SyncOutboxResult> {
             })
             synced++
             if (previouslyFailed.has(eventId)) duplicateResolved++
+
+            // PERSIST FINAL INVOICE IN DEXIE (requirement 6): patch the
+            // lastReceipt row so reprint ("Cetak Ulang") shows the real INV-…
+            // even if the receipt dialog was already closed — and even if
+            // this sync was triggered by the sync hook's runSync() (reconnect
+            // / focus / periodic) rather than handleCheckout's fire-and-forget
+            // .then(). This is the critical path for OFFLINE transactions that
+            // sync later: handleCheckout's .then() never fires for them, so
+            // without this call the lastReceipt would stay stuck on OFF-… /
+            // syncStatus='offline' forever.
+            //
+            // The helper guards on localTransactionId, so it only patches the
+            // snapshot belonging to THIS eventId — never a newer checkout's.
+            if (result.invoiceNumber) {
+              void updateLastReceiptResult({
+                localTransactionId: eventId,
+                invoiceNumber: result.invoiceNumber,
+                syncStatus: 'synced',
+                syncError: undefined,
+              })
+            }
 
             // PHASE 2 OPTIMIZATION (rule 10): Patch local product stock
             // from the server response instead of triggering a full catalog
@@ -813,12 +1080,25 @@ async function doSyncOutbox(): Promise<SyncOutboxResult> {
               duplicateResolved++
               continue
             }
+            const failErr = result.error || 'Sync failed'
             await db.transactionOutbox.update(eventId, {
               status: 'FAILED',
-              error: result.error || 'Sync failed',
+              error: failErr,
               retryCount: (existing?.retryCount || 0) + 1,
             })
             failed++
+            // PERSIST SYNC_FAILED STATUS IN DEXIE (requirement 6): patch the
+            // lastReceipt so reprint reflects the failed state. The provisional
+            // invoice (SYNC-… / OFF-…) is preserved — we only update syncStatus
+            // + syncError. Keyed by eventId so a newer checkout isn't regressed.
+            // This covers the retry-failure path (sync hook's runSync retrying a
+            // FAILED row); the first-failure path is handled by handleCheckout's
+            // .then() callback.
+            void updateLastReceiptResult({
+              localTransactionId: eventId,
+              syncStatus: 'failed',
+              syncError: failErr,
+            })
           }
         }
       } else {
