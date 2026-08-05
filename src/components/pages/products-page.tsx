@@ -577,13 +577,16 @@ export default function ProductsPage() {
   // AETHER MOBILE UI: signal selection-overlay state to the app shell so it
   // hides the bottom nav and reserves padding for the MobileStickyActionBar.
   // The bar height is ~96px (count row + action row) + safe-area. Cleared on
-  // unmount or when selection mode exits.
+  // unmount or when selection mode exits — the cleanup return guarantees the
+  // store flag can never be left `true` if this component unmounts (route
+  // change, error boundary, hot reload) while selection is active.
+  const MOBILE_SELECTION_BAR_HEIGHT = 96
   const setSelectionOverlay = useMobileUiStore((s) => s.setSelectionOverlay)
   const mobileSelectionActive = bulkMode && selectedIds.size > 0
   useEffect(() => {
-    setSelectionOverlay(mobileSelectionActive, 96)
+    setSelectionOverlay(mobileSelectionActive, MOBILE_SELECTION_BAR_HEIGHT)
     return () => setSelectionOverlay(false, 0)
-  }, [mobileSelectionActive, setSelectionOverlay])
+  }, [mobileSelectionActive, MOBILE_SELECTION_BAR_HEIGHT, setSelectionOverlay])
 
   // Bulk upload Excel state
   const [uploadOpen, setUploadOpen] = useState(false)

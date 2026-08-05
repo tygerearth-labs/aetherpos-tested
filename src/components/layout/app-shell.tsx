@@ -142,6 +142,19 @@ function AppContent() {
   // `useMobileUiStore` and is responsible for clearing it on exit.
   const selectionOverlayActive = useMobileUiStore((s) => s.selectionOverlayActive)
   const selectionBarHeight = useMobileUiStore((s) => s.selectionBarHeight)
+  const setSelectionOverlay = useMobileUiStore((s) => s.setSelectionOverlay)
+
+  // AETHER MOBILE UI — DEFENSIVE CLEANUP (belt-and-suspenders):
+  // Each page that uses the selection overlay is responsible for clearing the
+  // store flag in its own useEffect cleanup. However, to guarantee the
+  // `selectionOverlayActive` flag can NEVER be left `true` after a route
+  // change (e.g. if a future page forgets the cleanup, or the page errors
+  // before its effect cleanup runs), we reset it here whenever `currentPage`
+  // changes. This runs BEFORE the new page mounts, so the bottom nav is
+  // guaranteed visible on the destination page.
+  useEffect(() => {
+    setSelectionOverlay(false, 0)
+  }, [currentPage, setSelectionOverlay])
 
   // AETHER MOBILE UI CLEANUP (Section C): track whether the Stock Opname
   // floating widget would be visible on mobile. When it is, the page content

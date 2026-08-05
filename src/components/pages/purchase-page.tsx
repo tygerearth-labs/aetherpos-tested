@@ -983,13 +983,16 @@ export default function PurchasePage() {
   // Mobile UI coordination — when the inventory selection bulk bar is visible,
   // tell the app-shell (via useMobileUiStore) to hide the persistent bottom nav
   // and reserve ~96px of bottom padding so the bar never covers list content.
-  // Cleared on unmount or when the selection is dismissed.
+  // Cleared on unmount or when the selection is dismissed — the cleanup return
+  // guarantees the store flag can never be left `true` if this component
+  // unmounts (route change, error boundary, hot reload) while selection active.
+  const MOBILE_SELECTION_BAR_HEIGHT = 96
   const setSelectionOverlay = useMobileUiStore((s) => s.setSelectionOverlay)
   const invSelectionActive = selectedInvIds.size > 0
   useEffect(() => {
-    setSelectionOverlay(invSelectionActive, 96)
+    setSelectionOverlay(invSelectionActive, MOBILE_SELECTION_BAR_HEIGHT)
     return () => setSelectionOverlay(false, 0)
-  }, [invSelectionActive, setSelectionOverlay])
+  }, [invSelectionActive, MOBILE_SELECTION_BAR_HEIGHT, setSelectionOverlay])
   const [postProductOpen, setPostProductOpen] = useState(false)
   const [postMode, setPostMode] = useState<'select'|'composition'|'retail'>('select')
   const [postStep, setPostStep] = useState<1|2|3>(1)
