@@ -162,21 +162,22 @@ export class FEFOEngine {
         WHERE id = ${inventoryItemId} AND "outletId" = ${outletId}
       `
 
-      try {
-        await tx.inventoryMovement.create({
-          data: {
-            type: 'EXPIRY_WRITEOFF',
-            inventoryItemId,
-            quantity: -totalExpiredQty,
-            previousStock: 0,
-            newStock: 0,
-            referenceType: 'BATCH_EXPIRY',
-            notes: `Auto write-off: ${expiringBatches.length} batch(es) expired during consume (${invoiceNumber})`,
-            outletId,
-            userId,
-          },
-        })
-      } catch { /* movement is best-effort */ }
+      // V-AUDIT-1 FIX: let movement errors propagate (was swallowing try/catch).
+      // A failed create poisons the transaction on PostgreSQL → 25P02 on next query.
+      // If truly best-effort, run OUTSIDE the transaction using the db singleton.
+      await tx.inventoryMovement.create({
+        data: {
+          type: 'EXPIRY_WRITEOFF',
+          inventoryItemId,
+          quantity: -totalExpiredQty,
+          previousStock: 0,
+          newStock: 0,
+          referenceType: 'BATCH_EXPIRY',
+          notes: `Auto write-off: ${expiringBatches.length} batch(es) expired during consume (${invoiceNumber})`,
+          outletId,
+          userId,
+        },
+      })
     }
 
     // 1. Fetch AVAILABLE batches sorted by FEFO: expiredDate ASC, null last
@@ -599,22 +600,21 @@ export class FEFOEngine {
         WHERE id = ${inventoryItemId} AND "outletId" = ${outletId}
       `
 
-      // Create EXPIRY_WRITEOFF movement for auditability
-      try {
-        await tx.inventoryMovement.create({
-          data: {
-            type: 'EXPIRY_WRITEOFF',
-            inventoryItemId,
-            quantity: -totalExpiredQty,
-            previousStock: 0,
-            newStock: 0,
-            referenceType: 'BATCH_EXPIRY',
-            notes: `Auto write-off: ${expiringBatches.length} batch(es) expired during checkout (${invoiceNumber})`,
-            outletId,
-            userId,
-          },
-        })
-      } catch { /* movement is best-effort */ }
+      // V-AUDIT-1 FIX: let movement errors propagate (was swallowing try/catch).
+      // A failed create poisons the transaction on PostgreSQL → 25P02 on next query.
+      await tx.inventoryMovement.create({
+        data: {
+          type: 'EXPIRY_WRITEOFF',
+          inventoryItemId,
+          quantity: -totalExpiredQty,
+          previousStock: 0,
+          newStock: 0,
+          referenceType: 'BATCH_EXPIRY',
+          notes: `Auto write-off: ${expiringBatches.length} batch(es) expired during checkout (${invoiceNumber})`,
+          outletId,
+          userId,
+        },
+      })
 
       console.log(
         `[FEFO:RECORD] ${invoiceNumber} — marked ${expiringBatches.length} batch(es) EXPIRED, ` +
@@ -1401,20 +1401,36 @@ export class FEFOEngine {
     }
 
     let totalBatchesRestored = 0
+    let totalCapped = 0
 
-    // 2. Restore each batch's remainingQty only
+    // 2. Restore each batch's remainingQty only.
+    //    DOMAIN CONTRACT (restore guard fix): cap newRemaining at initialQty
+    //    to prevent remainingQty > initialQty (Rule: never exceed original).
+    //    Status flip is CONSUMED → AVAILABLE only (never restore EXPIRED/DISCARDED).
     for (const log of logs) {
       const batch = await tx.inventoryBatch.findUnique({
         where: { id: log.inventoryBatchId },
       })
 
       if (!batch) {
-        console.warn(`[FEFO:BATCH_RESTORE] Batch ${log.inventoryBatchId} not found, skipping`)
+        // Rule: if batch was deleted, restore unbatched consumption through
+        // InventoryItem.stock only — the void route's restoreFromSnapshots
+        // already handles the stock side, so we just skip the batch here.
+        console.warn(`[FEFO:BATCH_RESTORE] Batch ${log.inventoryBatchId} not found (deleted) — stock-only restore via snapshot, skipping batch restore`)
         continue
       }
 
       const previousRemaining = batch.remainingQty
-      const newRemaining = previousRemaining + log.quantityConsumed
+      let newRemaining = previousRemaining + log.quantityConsumed
+
+      // Guard: cap at initialQty (prevent > initialQty)
+      let capped = false
+      if (newRemaining > batch.initialQty) {
+        newRemaining = batch.initialQty
+        capped = true
+        totalCapped++
+      }
+
       const newStatus = batch.status === 'CONSUMED' && newRemaining > 0 ? 'AVAILABLE' : batch.status
 
       await tx.inventoryBatch.update({
@@ -1431,7 +1447,8 @@ export class FEFOEngine {
 
     console.log(
       `[FEFO:BATCH_RESTORE] ${invoiceNumber} — restored ${totalBatchesRestored} batch(es) from consumption logs ` +
-      `(InventoryItem.stock not touched — already restored by void route)`
+      `(InventoryItem.stock not touched — already restored by void route)` +
+      (totalCapped > 0 ? `; ${totalCapped} batch(es) capped at initialQty` : '')
     )
   }
 
@@ -1523,7 +1540,9 @@ export class FEFOEngine {
    * @param tx - Prisma transaction client
    * @param purchaseOrderId - The PO being deleted
    * @param outletId - Outlet ID
-   * @throws Error if any batch was partially consumed
+   * @throws Error if any batch was partially consumed OR has consumption logs
+   *         (V-DEL-1 FIX: previously wiped BatchConsumptionLog even for
+   *         voided-then-restored batches, destroying the audit trail).
    */
   static async deleteBatchesForPurchase(
     tx: TxClient,
@@ -1536,8 +1555,30 @@ export class FEFOEngine {
 
     const batches = await tx.inventoryBatch.findMany({
       where: { purchaseOrderId, outletId },
+      select: { id: true, batchNumber: true, initialQty: true, remainingQty: true },
     })
 
+    if (batches.length === 0) return
+
+    const batchIds = batches.map(b => b.id)
+
+    // DOMAIN CONTRACT (V-DEL-1 FIX): block delete if ANY batch has consumption
+    // logs — even if remainingQty was restored to initialQty by a void. The
+    // BatchConsumptionLog rows are the audit trail and must NOT be wiped.
+    const consumptionLogCount = await tx.batchConsumptionLog.count({
+      where: { inventoryBatchId: { in: batchIds }, outletId },
+    })
+
+    if (consumptionLogCount > 0) {
+      throw new Error(
+        `Tidak bisa menghapus PO ini: ${consumptionLogCount} consumption log(s) ditemukan untuk batch(es) PO ini. ` +
+        `Void transaksi terkait terlebih dahulu untuk menghapus jejak audit, atau gunakan status/archive. ` +
+        `(Batch IDs: ${batchIds.join(', ')})`
+      )
+    }
+
+    // Also block if any batch was partially consumed (remainingQty < initialQty)
+    // without a consumption log (data-drift defense — shouldn't happen but guard anyway)
     for (const batch of batches) {
       if (batch.remainingQty < batch.initialQty) {
         throw new Error(
@@ -1547,19 +1588,13 @@ export class FEFOEngine {
       }
     }
 
-    // Delete consumption logs first (cascade should handle this, but be explicit)
-    const batchIds = batches.map(b => b.id)
-    await tx.batchConsumptionLog.deleteMany({
-      where: { inventoryBatchId: { in: batchIds }, outletId },
-    })
-
-    // Delete batches
+    // Safe to delete — no consumption logs, no partial consumption
     await tx.inventoryBatch.deleteMany({
       where: { purchaseOrderId, outletId },
     })
 
     console.log(
-      `[FEFO] Deleted ${batches.length} batch record(s) for PO ${purchaseOrderId}`
+      `[FEFO] Deleted ${batches.length} batch record(s) for PO ${purchaseOrderId} (no consumption logs)`
     )
   }
 
@@ -1679,22 +1714,21 @@ export class FEFOEngine {
           SET stock = CASE WHEN stock - ${expiredQty} < 0 THEN 0 ELSE stock - ${expiredQty} END
           WHERE id = ${itemId} AND "outletId" = ${outletId}
         `
-        // Record an inventory movement so the expiry write-off is auditable.
-        try {
-          await tx.inventoryMovement.create({
-            data: {
-              type: 'EXPIRY_WRITEOFF',
-              inventoryItemId: itemId,
-              quantity: -expiredQty,
-              previousStock: 0, // unknown without a pre-read; movement type itself is the signal
-              newStock: 0,
-              referenceType: 'BATCH_EXPIRY',
-              notes: `Write-off batch expired (${expiredQty} units)`,
-              outletId,
-              userId: null, // system-generated; userId is nullable
-            },
-          })
-        } catch { /* movement is best-effort */ }
+        // V-AUDIT-1 FIX: let movement errors propagate (was swallowing try/catch).
+        // A failed create poisons the transaction on PostgreSQL → 25P02 on next query.
+        await tx.inventoryMovement.create({
+          data: {
+            type: 'EXPIRY_WRITEOFF',
+            inventoryItemId: itemId,
+            quantity: -expiredQty,
+            previousStock: 0, // unknown without a pre-read; movement type itself is the signal
+            newStock: 0,
+            referenceType: 'BATCH_EXPIRY',
+            notes: `Write-off batch expired (${expiredQty} units)`,
+            outletId,
+            userId: null, // system-generated; userId is nullable
+          },
+        })
       }
       console.log(`[FEFO] AUDIT-1-010: Decremented stock for ${expiryByItem.size} item(s) due to batch expiry`)
     }

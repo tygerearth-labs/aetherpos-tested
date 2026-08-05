@@ -408,6 +408,9 @@ export async function DELETE(
             movements: true,
             inventoryTransferItems: true,
             consumptionSnapshots: true,
+            // V-DEL-4 FIX: include batches in the dependency check so the
+            // quick-path doesn't FK-RESTRICT fail on PostgreSQL.
+            batches: true,
           },
         },
       },
@@ -419,8 +422,14 @@ export async function DELETE(
     const counts = existing._count
     const totalRelations = counts.compositions + counts.purchaseItems + counts.movements
       + counts.inventoryTransferItems + counts.consumptionSnapshots
+      // V-DEL-4 FIX: batches counted so items WITH batches but no other relations
+      // go through the migration-cleanup path (which cleans batches safely).
+      + counts.batches
 
     // Quick path: no relations at all → safe to delete
+    // V-DEL-4 FIX: batches is now included in totalRelations, so an item
+    // with batches will NOT take this path — it goes to the migration-cleanup
+    // path which calls safeDeleteBatchesForItem.
     if (totalRelations === 0) {
       await db.$transaction(async (tx) => {
         await emitAuditEvent(
@@ -585,10 +594,19 @@ export async function DELETE(
         },
       })
 
-      // 3. Clean up batches
-      await tx.inventoryBatch.deleteMany({
-        where: { inventoryItemId: id },
-      })
+      // 3. Clean up batches SAFELY (V-DEL-3 + V-DEL-4 FIX):
+      //    Use safeDeleteBatchesForItem which checks BatchConsumptionLog
+      //    dependencies before deleting. Batches with consumption logs are
+      //    BLOCKED (not hard-deleted) to preserve the audit trail.
+      const { safeDeleteBatchesForItem } = await import('@/lib/inventory/batch-service')
+      const batchResult = await safeDeleteBatchesForItem(tx, id, outletId)
+      if (batchResult.blockedBatches > 0) {
+        throw new Error(
+          `Tidak bisa menghapus item: ${batchResult.blockedBatches} batch(es) memiliki consumption log (jejak audit). ` +
+          `Void transaksi terkait terlebih dahulu. Alasan:\n` +
+          batchResult.reasons.join('\n')
+        )
+      }
 
       // 4. AuditLog V2 — single 'deleted' event with before-snapshot.
       //    Atomic with the cleanup + delete inside this tx.

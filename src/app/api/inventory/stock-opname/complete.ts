@@ -146,7 +146,7 @@ export async function POST(request: NextRequest) {
           outletId,
           status: 'AVAILABLE',
         },
-        select: { id: true, batchNumber: true, inventoryItemId: true, remainingQty: true, unitCost: true, expiredDate: true, createdAt: true },
+        select: { id: true, batchNumber: true, inventoryItemId: true, initialQty: true, remainingQty: true, unitCost: true, expiredDate: true, createdAt: true },
       }),
     ])
 
@@ -303,13 +303,28 @@ export async function POST(request: NextRequest) {
               )
             }
           } else {
-            // Positive delta: add to the oldest AVAILABLE batch (FEFO first)
+            // Positive delta: add to the oldest AVAILABLE batch (FEFO first).
+            // V-OPN-1 FIX: cap at initialQty — never exceed original quantity
+            // without an explicit reconciliation rule. If the surplus would
+            // push remainingQty > initialQty, cap it and log the overflow.
+            // (The overflow is already applied to InventoryItem.stock, so the
+            //  stock == Σ(batches) invariant will have a known, logged gap.)
             const oldestBatch = itemBatches[0]
+            const uncappedNew = oldestBatch.remainingQty + itemDelta
+            const cappedNew = Math.min(uncappedNew, oldestBatch.initialQty)
+            const overflow = uncappedNew - cappedNew
+            if (overflow > 0) {
+              console.warn(
+                `[StockOpname] V-OPN-1: Item "${currentItem.name}" positive delta ${itemDelta} ` +
+                `would push batch "${oldestBatch.batchNumber}" remainingQty ${uncappedNew} > initialQty ${oldestBatch.initialQty}. ` +
+                `Capped at ${cappedNew}; overflow ${overflow} applied to stock only.`
+              )
+            }
             batchAdjustments.push({
               batchId: oldestBatch.id,
               batchNumber: oldestBatch.batchNumber,
-              delta: itemDelta,
-              newRemainingQty: oldestBatch.remainingQty + itemDelta,
+              delta: cappedNew - oldestBatch.remainingQty,
+              newRemainingQty: cappedNew,
             })
           }
         }

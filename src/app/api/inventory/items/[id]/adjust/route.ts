@@ -47,23 +47,27 @@ export async function POST(
 
       // INV-RECONCILE-002: Maintain batch invariant during manual adjustment
       // Core invariant: stock == Σ(AVAILABLE batch.remainingQty)
+      //
+      // DOMAIN CONTRACT (V-ADJ-1 FIX): when remainingQty reaches 0 during a
+      // decrease, set status=CONSUMED (was leaving AVAILABLE w/ remainingQty=0).
+      // V-ADJ-2: BatchConsumptionLog requires a transactionId FK, so manual
+      // adjust uses InventoryMovement (type=ADJUSTMENT, created below) as the
+      // audit trail — no BatchConsumptionLog needed (nothing to void).
       if (difference > 0) {
         // Stock increase: create ADJUSTMENT batch for the added quantity
-        await tx.inventoryBatch.create({
-          data: {
-            batchNumber: `ADJUST-${id.slice(-6)}-${Date.now()}`,
-            inventoryItemId: id,
-            initialQty: difference,
-            remainingQty: difference,
-            unitCost: existing.avgCost || 0,
-            expiredDate: null,
-            purchaseOrderId: null,
-            supplierId: null,
-            supplierName: null,
-            status: 'AVAILABLE',
-            outletId,
-            purchaseOrderItemId: null,
-          },
+        // (uses shared batch-service for domain-contract validation)
+        const { createBatch } = await import('@/lib/inventory/batch-service')
+        await createBatch(tx, {
+          batchNumber: `ADJUST-${id.slice(-6)}-${Date.now()}`,
+          inventoryItemId: id,
+          initialQty: difference,
+          unitCost: existing.avgCost || 0,
+          expiredDate: null,
+          purchaseOrderId: null,
+          supplierId: null,
+          supplierName: null,
+          outletId,
+          source: 'ADJUSTMENT',
         })
         console.log(
           `[Adjust] Created ADJUSTMENT batch for "${existing.name}": +${difference} ` +
@@ -88,9 +92,16 @@ export async function POST(
         for (const batch of availableBatches) {
           if (toDeduct <= 0) break
           const deductFromBatch = Math.min(batch.remainingQty, toDeduct)
+          const newRemaining = batch.remainingQty - deductFromBatch
+          // V-ADJ-1 FIX: set status=CONSUMED when remainingQty reaches 0
+          const newStatus = newRemaining <= 0 ? 'CONSUMED' : 'AVAILABLE'
           await tx.inventoryBatch.update({
             where: { id: batch.id },
-            data: { remainingQty: batch.remainingQty - deductFromBatch },
+            data: {
+              remainingQty: newRemaining,
+              status: newStatus,
+              updatedAt: new Date(),
+            },
           })
           toDeduct -= deductFromBatch
         }
@@ -105,9 +116,16 @@ export async function POST(
           for (const batch of anyBatches) {
             if (toDeduct <= 0) break
             const deductFromBatch = Math.min(batch.remainingQty, toDeduct)
+            const newRemaining = batch.remainingQty - deductFromBatch
+            // V-ADJ-1 FIX: set status=CONSUMED when remainingQty reaches 0
+            const newStatus = newRemaining <= 0 ? 'CONSUMED' : 'AVAILABLE'
             await tx.inventoryBatch.update({
               where: { id: batch.id },
-              data: { remainingQty: batch.remainingQty - deductFromBatch },
+              data: {
+                remainingQty: newRemaining,
+                status: newStatus,
+                updatedAt: new Date(),
+              },
             })
             toDeduct -= deductFromBatch
           }

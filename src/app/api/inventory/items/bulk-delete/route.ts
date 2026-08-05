@@ -105,6 +105,8 @@ export async function POST(request: NextRequest) {
             movements: true,
             inventoryTransferItems: true,
             consumptionSnapshots: true,
+            // V-DEL-4 FIX: include batches so quick-accept doesn't FK-RESTRICT fail.
+            batches: true,
           },
         },
       },
@@ -185,12 +187,28 @@ export async function POST(request: NextRequest) {
         console.log(`[Bulk Delete] ✓ Cleaned ${compResult.count} compositions`)
       }
 
-      // STEP 3: Batch clean up ALL batches (ONE query)
-      const batchResult = await tx.inventoryBatch.deleteMany({ 
-        where: { inventoryItemId: { in: idsToDelete } } 
-      })
-      if (batchResult.count > 0) {
-        console.log(`[Bulk Delete] ✓ Cleaned ${batchResult.count} batches`)
+      // STEP 3: Batch clean up ALL batches SAFELY (V-DEL-3 + V-DEL-4 FIX).
+      //    Use safeDeleteBatchesForItem per-item to check BatchConsumptionLog
+      //    dependencies. Batches with consumption logs are BLOCKED, not deleted.
+      const { safeDeleteBatchesForItem } = await import('@/lib/inventory/batch-service')
+      const batchBlockReasons: string[] = []
+      let totalDeletedBatches = 0
+      for (const itemId of idsToDelete) {
+        const batchResult = await safeDeleteBatchesForItem(tx, itemId, outletId)
+        totalDeletedBatches += batchResult.deletedBatches
+        if (batchResult.blockedBatches > 0) {
+          batchBlockReasons.push(`${itemId}: ${batchResult.reasons.join('; ')}`)
+        }
+      }
+      if (totalDeletedBatches > 0) {
+        console.log(`[Bulk Delete] ✓ Cleaned ${totalDeletedBatches} batches`)
+      }
+      if (batchBlockReasons.length > 0) {
+        throw new Error(
+          `Tidak bisa menghapus beberapa item: batch(es) memiliki consumption log (jejak audit). ` +
+          `Void transaksi terkait terlebih dahulu. Alasan:\n` +
+          batchBlockReasons.join('\n')
+        )
       }
 
       // STEP 4: Single AuditLog V2 BULK_BATCH event INSIDE the tx.
@@ -321,6 +339,8 @@ async function analyzeItemsInParallel(
       movements: number
       inventoryTransferItems: number
       consumptionSnapshots: number
+      // V-DEL-4 FIX: include batches in the type so _count.batches is accessible
+      batches: number
     }
   }>,
   outletId: string
@@ -336,6 +356,9 @@ async function analyzeItemsInParallel(
     const c = item._count
     const totalRelations = c.compositions + c.purchaseItems + c.movements 
       + c.inventoryTransferItems + c.consumptionSnapshots
+      // V-DEL-4 FIX: batches counted so items WITH batches go through
+      // the detailed analysis path (which cleans batches safely).
+      + c.batches
     
     // Quick accept: no relations at all
     if (totalRelations === 0) {

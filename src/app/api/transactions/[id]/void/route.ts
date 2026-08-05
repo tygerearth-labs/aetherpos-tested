@@ -202,18 +202,20 @@ export async function POST(
       // STEP 3.5: FEFO — Restore batch consumption
       //   Only restores InventoryBatch.remainingQty (not InventoryItem.stock,
       //   which was already restored by step 3).
+      //
+      //   DOMAIN CONTRACT (V-GOV-1 FIX): previously this was wrapped in a
+      //   swallowing try/catch that masked batch-restore failures → silent
+      //   stock/batch drift (stock restored but batches still showed consumed).
+      //   Now errors propagate → the transaction rolls back cleanly if the
+      //   restore fails, preserving the stock == Σ(batches) invariant.
       // ════════════════════════════════════════════════════════════
-      try {
-        const { FEFOEngine } = await import('@/lib/fefo-engine')
-        await FEFOEngine.restoreBatchesFromLogs(tx, {
-          transactionId: id,
-          invoiceNumber: transaction.invoiceNumber,
-          outletId,
-          userId,
-        })
-      } catch (batchError) {
-        console.warn(`[Void] FEFO batch restore failed (non-fatal):`, batchError)
-      }
+      const { FEFOEngine } = await import('@/lib/fefo-engine')
+      await FEFOEngine.restoreBatchesFromLogs(tx, {
+        transactionId: id,
+        invoiceNumber: transaction.invoiceNumber,
+        outletId,
+        userId,
+      })
 
       // ════════════════════════════════════════════════════════════
       // STEP 4 (GAP 2): Reverse loyalty points & customer totalSpend
