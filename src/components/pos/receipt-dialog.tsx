@@ -64,11 +64,12 @@ interface CheckoutResult {
   invoiceNumber: string
   message?: string
   syncError?: string
-  /** STATUS CONTRACT: drives the receipt title, badge, and watermark.
-   *  - 'pending' → PENDING_SYNC: title "Transaksi Tersimpan", badge "Menunggu Sinkronisasi"
-   *  - 'synced'  → SYNCED: title "Pembayaran Berhasil", badge "Tersinkronisasi"
-   *  - 'failed'  → SYNC_FAILED: title "Sync Gagal", badge "Menunggu Retry"
-   *  - 'offline' → OFFLINE: title "Tersimpan Offline", badge "Menunggu Koneksi"
+  /** STATUS CONTRACT: drives the receipt modal title/badge (APP-UI) and the
+   *  customer-facing receipt label/footer. See deriveContractDisplay below.
+   *  - 'pending' → PENDING_SYNC: modal title "Transaksi Tersimpan", badge "Menunggu Sinkronisasi", receipt label "No. Referensi", Print disabled
+   *  - 'synced'  → SYNCED: modal title "Pembayaran Berhasil", badge "Tersinkronisasi", receipt label "No. Invoice", Print enabled
+   *  - 'failed'  → SYNC_FAILED: modal title "Sync Gagal", badge "Menunggu Retry", receipt label "No. Referensi", Print enabled (provisional)
+   *  - 'offline' → OFFLINE: modal title "Tersimpan Offline", badge "Menunggu Koneksi", receipt label "No. Referensi", Print enabled (provisional)
    *  - 'skipped' → no sync needed (treated as synced for display) */
   syncStatus?: 'pending' | 'synced' | 'failed' | 'offline' | 'skipped'
   localTransactionId?: string
@@ -135,20 +136,28 @@ const getCartKey = (productId: string, variantId: string | null) => variantId ? 
 
 // ==================== STATUS CONTRACT DISPLAY ====================
 //
-// Maps the CheckoutResult.syncStatus (the authoritative contract field) to the
-// exact title, badge label, icon, and color the receipt must show. Derives a
-// fallback from the invoice prefix for old snapshots that predate syncStatus
-// (e.g. a lastReceipt row written before this hardening).
+// Maps the CheckoutResult.syncStatus (the authoritative contract field) to:
+//   - APP-UI fields (modal header only): title, badge, icon, colors, statusValue
+//   - CUSTOMER-FACING fields (receipt body + print + WhatsApp): receiptLabel,
+//     provisionalFooter, isProvisional, printDisabled
 //
-// CONTRACT (requirements 2–4):
-//   pending  → title "Transaksi Tersimpan", badge "Menunggu Sinkronisasi"
-//   synced   → title "Pembayaran Berhasil", badge "Tersinkronisasi"
-//   failed   → title "Sync Gagal",          badge "Menunggu Retry"
-//   offline  → title "Tersimpan Offline",   badge "Menunggu Koneksi"
+// CUSTOMER-FACING RECEIPT CONTRACT (requirements 3–6):
+//   - Synced: label "No. Invoice", value INV-..., no footer, print enabled.
+//   - Provisional (pending/offline/failed): label "No. Referensi", value
+//     SYNC-.../OFF-..., subtle footer "Referensi lokal — invoice final akan
+//     diperbarui otomatis". NO technical words (no PENDING_SYNC / SYNC_FAILED /
+//     "belum tersinkronisasi"), NO large watermark/banner.
+//   - Print is disabled ONLY for online-pending (sync in progress). Offline and
+//     failed states allow provisional print with the subtle footer.
 //
-// Provisional notice text (requirement 5) — shown as a watermark on the
-// receipt body + printed receipt + WhatsApp message when status !== 'synced'.
+// APP-UI (modal header) CONTRACT (requirements 2, 7): the title, badge, and
+// syncError panel remain visible in the modal — sync failure state is shown
+// here, NEVER on the customer receipt.
+//
+// Derives a fallback from the invoice prefix for old snapshots that predate
+// syncStatus (e.g. a lastReceipt row written before this hardening).
 type ContractDisplay = {
+  // --- APP-UI fields (modal header only — never on the customer receipt) ---
   title: string
   badge: string
   /** Lucide icon element key — mapped in the render switch below. */
@@ -157,11 +166,18 @@ type ContractDisplay = {
   iconBg: string
   iconColor: string
   titleColor: string
-  /** Watermark text for the receipt body. Empty string when synced. */
-  watermark: string
-  /** Short label for the receipt body's "Status" row. */
+  /** Short label + value for the APP-UI status (modal header only). */
   statusLabel: string
   statusValue: string
+  // --- CUSTOMER-FACING fields (receipt body + print + WhatsApp) ---
+  /** Whether this receipt is still provisional (not yet synced). */
+  isProvisional: boolean
+  /** Receipt body label: "No. Invoice" when synced, "No. Referensi" when provisional. */
+  receiptLabel: string
+  /** Subtle footer text for the customer-facing receipt when provisional. Empty when synced. */
+  provisionalFooter: string
+  /** Whether the Print button should be disabled (online-pending only). */
+  printDisabled: boolean
 }
 
 function deriveContractDisplay(syncStatus: CheckoutResult['syncStatus'], invoiceNumber: string | undefined): ContractDisplay {
@@ -173,6 +189,10 @@ function deriveContractDisplay(syncStatus: CheckoutResult['syncStatus'], invoice
     else status = 'synced'
   }
 
+  // Subtle, customer-friendly provisional footer (requirements 5–6).
+  // NO technical words — appears on printed receipt + WhatsApp text when provisional.
+  const PROVISIONAL_FOOTER = 'Referensi lokal — invoice final akan diperbarui otomatis'
+
   switch (status) {
     case 'pending':
       return {
@@ -182,9 +202,12 @@ function deriveContractDisplay(syncStatus: CheckoutResult['syncStatus'], invoice
         iconBg: 'bg-sky-500/15',
         iconColor: 'text-sky-400',
         titleColor: 'text-sky-400',
-        watermark: 'BELUM TERSINKRONISASI',
         statusLabel: 'Status',
         statusValue: 'Menunggu Sinkronisasi',
+        isProvisional: true,
+        receiptLabel: 'No. Referensi',
+        provisionalFooter: PROVISIONAL_FOOTER,
+        printDisabled: true,
       }
     case 'synced':
       return {
@@ -194,9 +217,12 @@ function deriveContractDisplay(syncStatus: CheckoutResult['syncStatus'], invoice
         iconBg: 'bg-emerald-500/15',
         iconColor: 'text-emerald-400',
         titleColor: 'text-emerald-400',
-        watermark: '',
         statusLabel: 'Status',
         statusValue: 'Tersinkronisasi',
+        isProvisional: false,
+        receiptLabel: 'No. Invoice',
+        provisionalFooter: '',
+        printDisabled: false,
       }
     case 'failed':
       return {
@@ -206,9 +232,12 @@ function deriveContractDisplay(syncStatus: CheckoutResult['syncStatus'], invoice
         iconBg: 'bg-amber-500/15',
         iconColor: 'text-amber-400',
         titleColor: 'text-amber-400',
-        watermark: 'SYNC GAGAL — TERSIMPAN LOKAL',
         statusLabel: 'Status',
         statusValue: 'Sync Gagal — Menunggu Retry',
+        isProvisional: true,
+        receiptLabel: 'No. Referensi',
+        provisionalFooter: PROVISIONAL_FOOTER,
+        printDisabled: false,
       }
     case 'offline':
       return {
@@ -218,9 +247,12 @@ function deriveContractDisplay(syncStatus: CheckoutResult['syncStatus'], invoice
         iconBg: 'bg-amber-500/15',
         iconColor: 'text-amber-400',
         titleColor: 'text-amber-400',
-        watermark: 'TERSIMPAN OFFLINE — BELUM TERSINKRONISASI',
         statusLabel: 'Status',
         statusValue: 'Offline — Menunggu Koneksi',
+        isProvisional: true,
+        receiptLabel: 'No. Referensi',
+        provisionalFooter: PROVISIONAL_FOOTER,
+        printDisabled: false,
       }
     case 'skipped':
     default:
@@ -231,9 +263,12 @@ function deriveContractDisplay(syncStatus: CheckoutResult['syncStatus'], invoice
         iconBg: 'bg-emerald-500/15',
         iconColor: 'text-emerald-400',
         titleColor: 'text-emerald-400',
-        watermark: '',
         statusLabel: 'Status',
         statusValue: 'Tersinkronisasi',
+        isProvisional: false,
+        receiptLabel: 'No. Invoice',
+        provisionalFooter: '',
+        printDisabled: false,
       }
   }
 }
@@ -298,19 +333,13 @@ function generateWhatsAppReceiptText(props: {
   if (settings.receiptPhone) lines.push(settings.receiptPhone)
   lines.push('')
 
-  // Transaction info
-  lines.push(`No: ${checkoutResult.invoiceNumber}`)
+  // Transaction info — use "No. Invoice" only when synced; otherwise "No. Referensi".
+  // NO technical words (no PENDING_SYNC / SYNC_FAILED / "belum tersinkronisasi")
+  // and NO large watermark/banner on the WhatsApp text (requirement 2–3).
+  const contract = deriveContractDisplay(checkoutResult.syncStatus, checkoutResult.invoiceNumber)
+  lines.push(`${contract.receiptLabel}: ${checkoutResult.invoiceNumber}`)
   lines.push(`Tanggal: ${dateStr} ${timeStr}`)
   lines.push(`Customer: ${selectedCustomer ? selectedCustomer.name : 'Walk-in'}`)
-
-  // Provisional notice (requirement 5): clearly state when the receipt is NOT
-  // yet synchronized, so a customer receiving it via WhatsApp understands the
-  // reference is provisional and may be replaced by the final invoice.
-  const contract = deriveContractDisplay(checkoutResult.syncStatus, checkoutResult.invoiceNumber)
-  if (contract.watermark) {
-    lines.push(`Status: ${contract.statusValue}`)
-    lines.push(`*${contract.watermark}*`)
-  }
   lines.push('')
 
   // Items
@@ -341,6 +370,13 @@ function generateWhatsAppReceiptText(props: {
   if (settings.receiptFooter) {
     lines.push('')
     lines.push(settings.receiptFooter)
+  }
+
+  // Subtle provisional footer (requirements 5–6) — no technical words, no
+  // large banner. Only shown when the receipt is not yet synced.
+  if (contract.provisionalFooter) {
+    lines.push('')
+    lines.push(contract.provisionalFooter)
   }
 
   return lines.join('\n')
@@ -375,7 +411,10 @@ export function ReceiptDialog({
   const contract = checkoutResult
     ? deriveContractDisplay(checkoutResult.syncStatus, checkoutResult.invoiceNumber)
     : null
-  const isProvisional = !!contract && contract.watermark !== ''
+  const isProvisional = !!contract && contract.isProvisional
+  // Print is disabled for online-pending (sync in progress). Offline/failed
+  // states allow provisional print with the subtle footer (requirement 5–6).
+  const printDisabled = !!contract && contract.printDisabled
 
   // POST-CHECKOUT LATENCY FIX: Pre-warm the receipt logo image when the dialog
   // opens so the print window (which loads the logo in a separate document
@@ -502,28 +541,13 @@ export function ReceiptDialog({
 
         <hr className="r-sep" />
 
-        {/* Provisional watermark (requirement 5) — clearly states the receipt
-            is NOT yet synchronized. Shown on-screen AND printed (it's inside
-            receiptContentRef). Hidden once syncStatus becomes 'synced'. */}
-        {isProvisional && contract && (
-          <div className="r-center r-py" style={{ borderTop: '1px dashed #b45309', borderBottom: '1px dashed #b45309', margin: '4px 0' }}>
-            <p style={{ fontSize: '8.5px', fontWeight: 700, color: '#b45309', letterSpacing: '0.5px' }}>
-              *** {contract.watermark} ***
-            </p>
-            <p style={{ fontSize: '8px', color: '#b45309', marginTop: '2px' }}>
-              {contract.statusValue} — referensi akan diperbarui otomatis
-            </p>
-          </div>
-        )}
-
-        {/* Transaction Info */}
+        {/* Transaction Info — label is "No. Referensi" when provisional,
+            "No. Invoice" when synced. NO Status row, NO watermark, NO
+            technical words on the customer-facing receipt body (requirements 2–3). */}
         <div className="r-space-sm">
-          <div className="r-row"><span className="r-label">No. Invoice</span><span className="r-value-bold">{checkoutResult?.invoiceNumber}</span></div>
+          <div className="r-row"><span className="r-label">{contract?.receiptLabel ?? 'No. Invoice'}</span><span className="r-value-bold">{checkoutResult?.invoiceNumber}</span></div>
           <div className="r-row"><span className="r-label">Tanggal</span><span className="r-value">{formatReceiptDateTime()}</span></div>
           <div className="r-row"><span className="r-label">Customer</span><span className="r-value">{selectedCustomer ? selectedCustomer.name : 'Walk-in'}</span></div>
-          {isProvisional && contract && (
-            <div className="r-row"><span className="r-warning r-sm">Status</span><span className="r-warning r-semibold r-sm">{contract.statusValue}</span></div>
-          )}
         </div>
 
         <hr className="r-sep" />
@@ -596,6 +620,20 @@ export function ReceiptDialog({
             <hr className="r-sep" />
             <div className="r-center r-py">
               <p className="r-footer">{settings.receiptFooter}</p>
+            </div>
+          </>
+        )}
+
+        {/* Subtle provisional footer (requirements 5–6) — small, customer-friendly,
+            no technical words, no large banner. Shown on printed receipt +
+            on-screen preview when not yet synced. Hidden once syncStatus='synced'. */}
+        {isProvisional && (
+          <>
+            <hr className="r-sep" />
+            <div className="r-center r-py">
+              <p className="r-footer" style={{ fontSize: '8px', color: '#666' }}>
+                Referensi lokal — invoice final akan diperbarui otomatis
+              </p>
             </div>
           </>
         )}
@@ -693,10 +731,15 @@ export function ReceiptDialog({
             <div className="shrink-0 border-t border-white/[0.06] bg-deep-space/80 backdrop-blur-sm px-4 py-3.5 flex gap-2 rounded-b-2xl">
               <Button
                 onClick={handlePrint}
-                className="flex-1 h-10 text-sm font-medium rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.06] text-white transition-colors"
+                disabled={printDisabled}
+                className="flex-1 h-10 text-sm font-medium rounded-xl bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.06] text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <Printer className="mr-1.5 h-4 w-4" strokeWidth={1.5} />
-                Cetak Struk
+                {printDisabled ? (
+                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" strokeWidth={1.5} />
+                ) : (
+                  <Printer className="mr-1.5 h-4 w-4" strokeWidth={1.5} />
+                )}
+                {printDisabled ? 'Menunggu Sync...' : 'Cetak Struk'}
               </Button>
 
               {/* WhatsApp button — only if customer has WhatsApp */}

@@ -87,8 +87,9 @@ export interface CheckoutResult {
   message?: string
   syncError?: string
   /**
-   * The authoritative status contract field. Drives the receipt title, badge,
-   * and watermark. See the state-machine diagram above.
+   * The authoritative status contract field. Drives the receipt modal title,
+   * badge, and the customer-facing receipt label/footer. See the state-machine
+   * diagram above.
    */
   syncStatus?: CheckoutSyncStatus
   /**
@@ -335,7 +336,8 @@ export function usePosCheckout(options: UsePosCheckoutOptions): UsePosCheckoutRe
       // ACKs. Online: SYNC-{shortId} (derived from the immutable eventId so
       // the cashier can trace it back to the outbox row). Offline: OFF-{ts}.
       // The receipt dialog renders this with a "Menunggu Sinkronisasi" badge
-      // and a watermark stating it is not yet synchronized.
+      // in the modal header, and a "No. Referensi" label + subtle footer on
+      // the customer-facing receipt body (no large watermark/banner).
       const provisionalInvoice = isOnline
         ? `SYNC-${localTransactionId.slice(0, 8).toUpperCase()}`
         : `OFF-${Date.now().toString(36).toUpperCase()}`
@@ -434,7 +436,7 @@ export function usePosCheckout(options: UsePosCheckoutOptions): UsePosCheckoutRe
               ? { ...prev, syncStatus: 'failed', syncError: errMsg }
               : prev)
             // PERSIST FAILED STATUS IN DEXIE (requirement 6): so reprint also
-            // reflects the sync-failed state (watermark + badge).
+            // reflects the sync-failed state (badge in modal, subtle footer on receipt).
             void updateLastReceiptResult({
               localTransactionId,
               invoiceNumber: provisionalInvoice,
